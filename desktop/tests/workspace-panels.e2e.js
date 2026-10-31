@@ -54,6 +54,32 @@ try {
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: out + '/01-closed.png' });
   const initial = await state();
+  const contourFits = (locator) => locator.evaluate((bar) => {
+    const path = bar.querySelector(':scope > svg > path');
+    const inverse = path.getScreenCTM().inverse();
+    return [...bar.querySelectorAll('button')].every((button) => {
+      const rect = button.getBoundingClientRect();
+      return [[rect.left + 1, rect.top + 1], [rect.right - 1, rect.top + 1], [rect.left + 1, rect.bottom - 1], [rect.right - 1, rect.bottom - 1]]
+        .every(([x, y]) => path.isPointInFill(new DOMPoint(x, y).matrixTransform(inverse)));
+    });
+  });
+  const rightBar = page.locator('.workspace-panel-bar-right');
+  const inspectorTrigger = page.getByRole('button', { name: 'Focus Inspector', exact: true });
+  assert.equal(await inspectorTrigger.getAttribute('aria-expanded'), 'true');
+  await inspectorTrigger.click();
+  await page.locator('.canvas-stage').focus();
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(550);
+  assert.equal(await contourFits(rightBar), true, 'right idle contour contains all hit corners');
+  await page.screenshot({ path: out + '/peek-right-idle.png', animations: 'disabled' });
+  const rightBounds = await rightBar.boundingBox();
+  await page.mouse.move(rightBounds.x - 10, rightBounds.y + rightBounds.height / 2);
+  await page.waitForFunction(() => document.querySelector('.workspace-panel-bar-right').dataset.near === 'true');
+  await page.screenshot({ path: out + '/peek-right-near.png', animations: 'disabled' });
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(550);
+  await inspectorTrigger.click();
+  same(await state(), initial, 'testing right idle keeps document and canvas geometry');
   const railIcons = await page.evaluate(() =>
     [...document.querySelectorAll('.tools button, .workspace-panel-bar button')].map((button) => ({
       label: button.getAttribute('aria-label'),
@@ -65,6 +91,107 @@ try {
   assert.equal(railIcons.length, 13);
   assert.ok(railIcons.every((icon) => icon.label && icon.title && icon.decorative === 'true'));
   assert.ok(railIcons.every((icon) => ['true', 'false'].includes(icon.pressed)));
+  const faces = await page.locator('.workspace-panel-bar button').evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const style = getComputedStyle(button, '::before');
+      return { width: parseFloat(style.width), height: parseFloat(style.height), radius: style.borderRadius };
+    }),
+  );
+  assert.ok(faces.every((face) => face.width === 26 && face.height === 26 && face.radius === '50%'));
+  // The painted handle grows near the pointer without moving its stable hit
+  // boxes or changing panel state, then relaxes after a short leave delay.
+  const leftBar = page.locator('.workspace-panel-bar-left');
+  const leftBounds = await leftBar.boundingBox();
+  const hitBoxes = () => leftBar.locator('button').evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const rect = button.getBoundingClientRect();
+      return [rect.x, rect.y, rect.width, rect.height];
+    }),
+  );
+  const contourWidth = () => leftBar.locator(':scope > svg > path').evaluate((path) => path.getBoundingClientRect().width);
+  await page.waitForTimeout(550);
+  const idleWidth = await contourWidth();
+  const stableTargets = await hitBoxes();
+  const idleFits = await contourFits(leftBar);
+  assert.equal(idleFits, true, 'idle contour contains the full fixed hit boxes');
+  await page.screenshot({ path: out + '/peek-idle.png' });
+  await page.mouse.move(leftBounds.x + leftBounds.width + 10, leftBounds.y + leftBounds.height / 2);
+  await page.waitForFunction(() => document.querySelector('.workspace-panel-bar-left').dataset.near === 'true');
+  await page.waitForTimeout(160);
+  const nearWidth = await contourWidth();
+  assert.ok(nearWidth > idleWidth + 4, 'contour expands on proximity');
+  same(await hitBoxes(), stableTargets, 'peek never changes button hit geometry');
+  assert.equal(await page.locator('[data-workspace-panel="assets"]').getAttribute('aria-expanded'), 'false');
+  await page.screenshot({ path: out + '/peek-near.png' });
+  await page.mouse.move(Math.round(page.viewportSize().width / 2), 1);
+  await page.waitForFunction(() => document.querySelector('.workspace-panel-bar-left').dataset.near === 'false');
+  await page.waitForTimeout(100);
+  assert.ok((await contourWidth()) > idleWidth + 4, 'leave hysteresis retains expanded contour briefly');
+  await page.waitForTimeout(500);
+  assert.ok(Math.abs((await contourWidth()) - idleWidth) < 1, 'contour eventually returns to idle');
+  same(await state(), initial, 'peek is view-only');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.mouse.move(leftBounds.x + leftBounds.width + 10, leftBounds.y + leftBounds.height / 2);
+  await page.waitForFunction(() => document.querySelector('.workspace-panel-bar-left').dataset.near === 'true');
+  const reducedPeek = await leftBar.locator(':scope > svg > path').evaluate((path) => ({
+    duration: getComputedStyle(path).transitionDuration,
+    width: path.getBoundingClientRect().width,
+  }));
+  assert.equal(reducedPeek.duration, '0s');
+  assert.ok(reducedPeek.width > idleWidth + 4, 'reduced motion changes geometry immediately');
+  await page.mouse.move(Math.round(page.viewportSize().width / 2), 1);
+  await page.waitForFunction(() => document.querySelector('.workspace-panel-bar-left').dataset.near === 'false');
+  await page.waitForTimeout(100);
+  assert.ok((await contourWidth()) > idleWidth + 4, 'reduced motion retains leave hysteresis');
+  await page.waitForTimeout(260);
+  assert.ok(Math.abs((await contourWidth()) - idleWidth) < 1);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+
+  // Capture transition starts before clicking so a loaded CI runner cannot
+  // turn a completed 200 ms transition into a false negative.
+  await page.evaluate(() => {
+    window.__nectMotionEvents = [];
+    document.addEventListener('transitionrun', (event) => {
+      const element = event.target;
+      const kind = element.matches?.('[data-drawer-side="left"]')
+        ? 'drawer'
+        : element.matches?.('[data-asset-library]')
+          ? 'portal'
+          : null;
+      if (kind) window.__nectMotionEvents.push({ kind, property: event.propertyName, pseudo: event.pseudoElement, time: performance.now() });
+    });
+  });
+  const supportsDiscrete = await page.evaluate(() => CSS.supports('transition-behavior: allow-discrete'));
+  // First-ever Assets mount starts at its docked location before revealing.
+  await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
+  if (supportsDiscrete)
+    await page.waitForFunction(() =>
+      ['drawer', 'portal'].every((kind) => window.__nectMotionEvents.some((event) => event.kind === kind && event.property === 'opacity')) &&
+      window.__nectMotionEvents.some((event) => event.kind === 'drawer' && event.property === 'transform' && event.pseudo === '::before'),
+    );
+  const firstMotionEvents = await page.evaluate(() => [...window.__nectMotionEvents]);
+  await page.screenshot({ path: out + '/motion-first-open.png' });
+  await page.screenshot({ path: out + '/peek-open.png', animations: 'disabled' });
+  const selectedFace = await page.locator('[data-workspace-panel="assets"]').evaluate((button) => getComputedStyle(button, '::before').backgroundColor);
+  const idleFace = await page.locator('[data-workspace-panel="colors"]').evaluate((button) => getComputedStyle(button, '::before').backgroundColor);
+  assert.notEqual(selectedFace, idleFace, 'selected face remains visually distinct');
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.locator('[data-workspace-panel="assets"]').focus();
+  await page.keyboard.press('Tab');
+  const forcedStates = await page.evaluate(() => {
+    const selected = document.querySelector('[data-workspace-panel="assets"]');
+    const focused = document.querySelector('[data-workspace-panel="colors"]');
+    return {
+      selectedBorder: getComputedStyle(selected, '::before').borderWidth,
+      focusedOutline: getComputedStyle(focused, '::before').outlineWidth,
+      focusOnOther: document.activeElement === focused && focused.matches(':focus-visible'),
+    };
+  });
+  assert.deepEqual(forcedStates, { selectedBorder: '3px', focusedOutline: '2px', focusOnOther: true });
+  await page.emulateMedia({ forcedColors: 'none' });
+  await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
+  await page.waitForTimeout(250);
+
   // A rapid reversal changes semantics synchronously; visual exit must never
   // retain an actionable or stale panel. The artboard/graph are not animated.
   const rapid = await page.evaluate(() => {
@@ -99,22 +226,29 @@ try {
     inert: false,
     expanded: 'true',
   });
-  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  // Give exit a settled frame before testing entrance: rapid reversals may be
+  // legitimately coalesced before a browser has painted the first state.
+  await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
+  await page.waitForTimeout(250);
+  await page.evaluate(() => { window.__nectMotionEvents = []; });
+  await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
+  if (supportsDiscrete)
+    await page.waitForFunction(() => window.__nectMotionEvents.some((event) => event.kind === 'drawer' && event.property === 'opacity'));
   const motion = await page.evaluate(() => {
     const host = document.querySelector('[data-drawer-side="left"]');
     const slot = host.querySelector('[data-workspace-asset-slot]');
     const portal = document.querySelector('[data-asset-library]');
     const a = slot.getBoundingClientRect(), b = portal.getBoundingClientRect();
     return {
-      supported: CSS.supports('transition-behavior: allow-discrete'),
       duration: getComputedStyle(host).transitionDuration,
-      active: host.getAnimations().some((animation) => animation.playState === 'running'),
+      hostTransform: getComputedStyle(host).transform,
       portalDelta: Math.abs(a.left - b.left),
     };
   });
-  if (motion.supported) {
+  const reopenedMotionEvents = await page.evaluate(() => [...window.__nectMotionEvents]);
+  if (supportsDiscrete) {
     assert.match(motion.duration, /0\.2s/);
-    assert.equal(motion.active, true, 'opening starts an interruptible visual transition');
+    assert.equal(motion.hostTransform, 'none', 'live controls do not move under input');
     assert.ok(motion.portalDelta < 3, `portal follows its slot: ${motion.portalDelta}px`);
   }
   same(await state(), initial, 'rapid motion cannot change document or workspace geometry');
@@ -134,6 +268,18 @@ try {
   assert.equal(reduced.inert, true);
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   same(await state(), initial, 'reduced-motion toggle remains view-only');
+  await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
+  await page.waitForTimeout(240);
+  await page.locator('[data-tool="direct"]').click();
+  const afterRerender = await page.locator('[data-drawer-side="left"]').evaluate((host) => ({
+    enabled: host.dataset.motionEnabled,
+    running: host.getAnimations().some((animation) => animation.playState === 'running'),
+  }));
+  assert.equal(afterRerender.enabled, 'false', 'ordinary editor rerender does not replay drawer motion');
+  assert.equal(afterRerender.running, false);
+  await page.locator('[data-tool="select"]').click();
+  await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
+  same(await state(), initial, 'ordinary rerender preserves viewport and document');
   const svgIdentity = await page.locator('.artboard').elementHandle();
   const insideShape = await page.evaluate(() =>
     [...document.querySelectorAll('.workspace-panel-bar')].every((bar) => {
@@ -303,11 +449,23 @@ try {
     });
     assert.deepEqual(toolbar.names, ['Zoom', 'Editing aids', 'Grid and guides']);
     assert.deepEqual(toolbar.clipped, [], `visible toolbar controls fit at ${width}`);
-    if (width === 900 || width === 1366)
-      await page.screenshot({ path: out + `/toolbar-${width}.png` });
+    for (const name of ['SVG output sizing', 'SVG export units', 'SVG geometry precision', 'PNG size mode'])
+      assert.equal(await page.getByRole('combobox', { name, exact: true }).isVisible(), true);
+    if (width === 900 || width === 1366) {
+      assert.equal(await page.locator('[data-action="undo"]').isDisabled(), initial.undo);
+      await page.screenshot({ path: out + `/toolbar-${width}.png`, animations: 'disabled' });
+      await page.locator('[data-workspace-panel="colors"]').hover();
+      await page.screenshot({ path: out + `/toolbar-${width}-hover.png`, animations: 'disabled' });
+      await page.locator('[data-workspace-panel="colors"]').focus();
+      await page.keyboard.press('Tab');
+      assert.equal(await page.evaluate(() => !!document.querySelector(':focus-visible')), true);
+      await page.screenshot({ path: out + `/toolbar-${width}-focus.png`, animations: 'disabled' });
+    }
     await page.getByRole('button', { name: 'Focus Inspector', exact: true }).click();
     await page.getByRole('button', { name: 'Toggle Shared Colors panel', exact: true }).click();
     same(await state(), before, `both drawers preserve geometry at ${width}`);
+    if (width === 900 || width === 1366)
+      await page.screenshot({ path: out + `/toolbar-${width}-selected.png`, animations: 'disabled' });
     assert.equal(
       await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
       false,
@@ -418,6 +576,11 @@ try {
     last = await lastTool.boundingBox();
   assert.ok(last.y >= rail.y && last.y + last.height <= rail.y + rail.height + 1);
   await page.setViewportSize({ width: 1000, height: 600 });
+  if ((await inspectorTrigger.getAttribute('aria-expanded')) === 'true') await inspectorTrigger.click();
+  await splitter.focus();
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(550);
+  assert.equal(await contourFits(rightBar), true, 'short-split right idle contour contains all hit corners');
   for (const button of await page.locator('.workspace-panel-bar button').all()) {
     const b = await button.boundingBox(),
       bar = await button.locator('..').boundingBox();
@@ -470,10 +633,14 @@ try {
     projectBefore.compositions.filter((composition) => composition.id !== activeId),
   );
   assert.deepEqual(errors, []);
-  await writeFile(out + '/result.json', JSON.stringify({ ok: true, errors }, null, 2));
+  await writeFile(out + '/result.json', JSON.stringify({ ok: true, errors, motion: { supportsDiscrete, duration: motion.duration, firstMotionEvents, reopenedMotionEvents, portalDelta: motion.portalDelta }, peek: { idleWidth, nearWidth, leaveDelayMs: 300 }, evidenceLimit: 'Transition events, computed timing and stills; no video or native WebView audition.' }, null, 2));
   console.log(
     'workspace overlay PASS: stable fit/manual geometry, panel state, boundaries and asset identity',
   );
+} catch (error) {
+  await page.screenshot({ path: out + '/failure.png' }).catch(() => {});
+  await writeFile(out + '/result.json', JSON.stringify({ ok: false, errors, failure: String(error) }, null, 2)).catch(() => {});
+  throw error;
 } finally {
   await browser.close();
 }

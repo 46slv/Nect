@@ -145,8 +145,13 @@ try {
   const beforeHide = await saved(),
     visibleSVG = await svg();
   const visibility = () => page.locator('[data-visible="names-layer"]');
+  assert.equal(await visibility().locator('svg').getAttribute('data-icon'), 'eye');
+  assert.match(await visibility().getAttribute('aria-label'), /^Hide layer:/);
   await visibility().click();
-  assert.equal(await visibility().innerText(), 'Show');
+  assert.equal(await visibility().locator('svg').getAttribute('data-icon'), 'eye-off');
+  assert.match(await visibility().getAttribute('aria-label'), /^Show layer:/);
+  await fs.mkdir('test-results', { recursive: true });
+  await page.screenshot({ path: 'test-results/layer-eye-off.png' });
   assert.equal(await visibility().getAttribute('aria-pressed'), 'false');
   assert.equal(await page.locator('.shape[data-layer="names-layer"]').count(), 0);
   const hiddenSVG = await svg();

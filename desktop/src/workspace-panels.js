@@ -25,9 +25,16 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     active = { left: null, right: 'inspector' },
     retreated = false;
   let attachVersion = 0,
-    restorePending = true;
+    restorePending = true,
+    peekFrame = 0,
+    pointerDown = false,
+    pointerDragging = false,
+    pointerStart = null,
+    lastPointer = null,
+    lastViewerMode = null;
   // Keep the last child rendered under an inert, hidden host during its visual exit.
   const displayed = { left: null, right: null };
+  const motionIntent = { left: false, right: false };
   try {
     const saved = JSON.parse(storage?.getItem(DRAWER_PREFERENCES_KEY) || 'null');
     if (saved && typeof saved === 'object') {
@@ -51,11 +58,117 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
   }
   const item = (id) => ITEMS.find((entry) => entry.id === id);
   const trigger = (id) => root?.querySelector(`[data-workspace-panel="${id}"]`);
+  function setMotion(side, enabled) {
+    const host = root?.querySelector(`[data-drawer-side="${side}"]`);
+    if (host) host.dataset.motionEnabled = String(enabled);
+    if (side === 'left') {
+      const panel = getAssetPanel();
+      if (panel) panel.dataset.motionEnabled = String(enabled);
+    }
+  }
+  function setRailFlag(name, value) {
+    root?.querySelectorAll('.workspace-panel-bar').forEach((bar) => {
+      const next = String(value);
+      if (bar.dataset[name] !== next) bar.dataset[name] = next;
+    });
+  }
+  function schedulePeek() {
+    if (!lastPointer || !view || pointerDown) return;
+    if (peekFrame) view.cancelAnimationFrame(peekFrame);
+    peekFrame = view.requestAnimationFrame(() => {
+      peekFrame = 0;
+      if (!lastPointer) return;
+      const { x, y } = lastPointer;
+      root?.querySelectorAll('.workspace-panel-bar').forEach((bar) => {
+        const rect = bar.getBoundingClientRect();
+        const center = (rect.top + rect.bottom) / 2;
+        const near =
+          x >= rect.left - 24 && x <= rect.right + 24 &&
+          Math.abs(y - center) <= Math.min(rect.height / 2, 114) + 24;
+        if (bar.dataset.near !== String(near)) bar.dataset.near = String(near);
+      });
+    });
+  }
+  function onPointerMove(event) {
+    if (event.buttons && pointerDown) {
+      if (!pointerDragging && pointerStart &&
+          Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y) >= 4) {
+        pointerDragging = true;
+        setRailFlag('dragging', true);
+      }
+      return;
+    }
+    if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return;
+    lastPointer = { x: event.clientX, y: event.clientY };
+    if (pointerDown) {
+      pointerDown = false;
+      pointerDragging = false;
+      pointerStart = null;
+      setRailFlag('dragging', retreated);
+    }
+    schedulePeek();
+  }
+  function onPointerDown(event) {
+    if (event.isPrimary === false || !root?.contains(event.target)) return;
+    if (event.pointerType === 'touch') {
+      lastPointer = null;
+      setRailFlag('near', false);
+    }
+    pointerDown = true;
+    pointerDragging = false;
+    pointerStart = { x: event.clientX, y: event.clientY };
+    if (peekFrame) view?.cancelAnimationFrame(peekFrame);
+    peekFrame = 0;
+    setRailFlag('dragging', retreated);
+  }
+  function onPointerEnd(event) {
+    pointerDown = false;
+    pointerDragging = false;
+    pointerStart = null;
+    setRailFlag('dragging', retreated);
+    if (event?.pointerType === 'mouse' || event?.pointerType === 'pen') {
+      lastPointer = { x: event.clientX, y: event.clientY };
+      schedulePeek();
+    }
+  }
+  function clearPeek() {
+    if (peekFrame) view?.cancelAnimationFrame(peekFrame);
+    peekFrame = 0;
+    lastPointer = null;
+    setRailFlag('near', false);
+    onPointerEnd();
+  }
+  function onPointerOut(event) {
+    if (event.relatedTarget) return;
+    // Replacing a DOM node under the pointer can emit a null relatedTarget;
+    // only a viewport exit should clear an in-progress drag/peek.
+    if (event.clientX > 0 && event.clientX < view.innerWidth &&
+        event.clientY > 0 && event.clientY < view.innerHeight) return;
+    clearPeek();
+  }
+  function onWindowBlur() {
+    clearPeek();
+  }
+  function bindPointerEvents(doc, bind) {
+    const method = bind ? 'addEventListener' : 'removeEventListener';
+    doc?.[method]('pointermove', onPointerMove);
+    doc?.[method]('pointerdown', onPointerDown);
+    doc?.[method]('pointerup', onPointerEnd);
+    doc?.[method]('pointercancel', onPointerEnd);
+    doc?.[method]('pointerout', onPointerOut);
+    view?.[method]('blur', onWindowBlur);
+  }
   function refresh() {
     if (!root?.isConnected) return;
     const wrap = root.querySelector('.canvas-wrap');
     if (!wrap) return;
     const viewerMode = wrap.dataset.viewerMode === 'viewers';
+    if (lastViewerMode !== null && lastViewerMode !== viewerMode && !motionIntent.left)
+      setMotion('left', false);
+    lastViewerMode = viewerMode;
+    for (const side of ['left', 'right']) {
+      if (motionIntent[side]) setMotion(side, true);
+    }
     const stage = wrap.querySelector(viewerMode ? '.node-viewers' : '.canvas-stage');
     if (stage) {
       wrap.style.setProperty('--stage-left', `${stage.offsetLeft}px`);
@@ -98,6 +211,7 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
       if (bar) {
         bar.hidden = viewerMode && side === 'left';
         bar.inert = bar.hidden;
+        bar.dataset.open = String(!!selected && !(viewerMode && side === 'left'));
       }
       if (selected) displayed[side] = selected.id;
       host.dataset.activePanel = selected?.id || displayed[side] || '';
@@ -130,22 +244,16 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
           .querySelector('.viewer-tabs [data-viewer-mode="viewers"]')
           ?.focus({ preventScroll: true });
       panel.dataset.motionSuppressed = String(retreated || viewerMode);
-      panel.hidden = !visible;
       panel.inert = !visible;
       panel.style.opacity = retreated ? '0' : '';
       panel.style.pointerEvents = retreated ? 'none' : '';
       // Keep the last valid portal rectangle while the ancestor is hidden during native drag.
       if (visible && !retreated) {
         const rect = slot.getBoundingClientRect();
-        // The portal is outside the animated drawer. Remove its current
-        // translate from the measured slot so both surfaces follow one origin.
-        const host = slot.closest('[data-drawer-side]');
-        const transform = view?.getComputedStyle(host).transform || '';
-        const matrix = transform.match(/^matrix\(([^)]+)\)$/);
-        const translateX = matrix ? Number(matrix[1].split(',')[4]) || 0 : 0;
+        // The live drawer and portal stay fixed; only the painted shell moves.
         panel.classList.add('asset-library-docked');
         Object.assign(panel.style, {
-          left: `${rect.left - translateX}px`,
+          left: `${rect.left}px`,
           top: `${rect.top}px`,
           width: `${rect.width}px`,
           height: `${rect.height}px`,
@@ -153,7 +261,9 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
           bottom: 'auto',
         });
       }
+      panel.hidden = !visible;
     }
+    schedulePeek();
   }
   function select(id, { focus = true } = {}) {
     const entry = item(id);
@@ -162,11 +272,19 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     active[entry.side] = id;
     save();
     if (entry.side === 'left') retreated = false;
-    // These callbacks may synchronously render; set active before invoking them.
-    if (id === 'assets' && !getAssetPanel()) onAssets();
-    if (id === 'align') onAlign();
-    if (id === 'colors') onColors?.();
-    refresh();
+    // Callbacks may synchronously attach or refresh a newly mounted portal.
+    // Carry the motion request through that work before any layout is read.
+    motionIntent[entry.side] = true;
+    setMotion(entry.side, true);
+    try {
+      if (id === 'assets' && !getAssetPanel()) onAssets();
+      if (id === 'align') onAlign();
+      if (id === 'colors') onColors?.();
+      setMotion(entry.side, true);
+      refresh();
+    } finally {
+      motionIntent[entry.side] = false;
+    }
     if (focus) {
       const target =
         id === 'assets'
@@ -178,19 +296,23 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
       }
     }
   }
-  function close(id, focus = true) {
+  function close(id, focus = true, { animate = true } = {}) {
     const entry = item(id);
     if (!entry || active[entry.side] !== id) return;
     active[entry.side] = null;
     save();
     if (entry.side === 'left') retreated = false;
     // Preserve the Assets DOM and in-flight work across panel switches/close.
+    setMotion(entry.side, animate);
     refresh();
     if (focus) trigger(id)?.focus({ preventScroll: true });
   }
   function attach(nextRoot) {
     observer?.disconnect();
     view?.removeEventListener('resize', refresh);
+    if (peekFrame) view?.cancelAnimationFrame(peekFrame);
+    peekFrame = 0;
+    bindPointerEvents(root?.ownerDocument, false);
     root?.ownerDocument.removeEventListener('keydown', onKeydown);
     root = nextRoot;
     view = root.ownerDocument.defaultView;
@@ -201,6 +323,10 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     if (wrap.querySelector('.workspace-panel-bar')) {
       view?.addEventListener('resize', refresh);
       root.ownerDocument.addEventListener('keydown', onKeydown);
+      bindPointerEvents(root.ownerDocument, true);
+      setMotion('left', false);
+      setMotion('right', false);
+      setRailFlag('dragging', pointerDragging || retreated);
       const ResizeObserver = view?.ResizeObserver;
       if (ResizeObserver) {
         observer = new ResizeObserver(refresh);
@@ -249,6 +375,10 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     }
     view?.addEventListener('resize', refresh);
     root.ownerDocument.addEventListener('keydown', onKeydown);
+    bindPointerEvents(root.ownerDocument, true);
+    setMotion('left', false);
+    setMotion('right', false);
+    setRailFlag('dragging', pointerDragging || retreated);
     const ResizeObserver = view?.ResizeObserver;
     if (ResizeObserver) {
       observer = new ResizeObserver(refresh);
@@ -288,7 +418,13 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     }
   }
   function setRetreat(value) {
+    setMotion('left', false);
+    lastPointer = null;
+    if (peekFrame) view?.cancelAnimationFrame(peekFrame);
+    peekFrame = 0;
+    setRailFlag('near', false);
     retreated = !!value && active.left === 'assets';
+    setRailFlag('dragging', pointerDragging || retreated);
     refresh();
   }
   return {

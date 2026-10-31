@@ -186,6 +186,7 @@ try {
     await page.waitForFunction(
       () => document.querySelector('[data-asset-library]')?.style.opacity === '0',
     );
+    assert.equal(await page.locator('.workspace-panel-bar[data-dragging="true"]').count(), 2);
     return before;
   };
   const finishDrag = async (point) => {
@@ -245,11 +246,13 @@ try {
   await startDrag('drag-mark.svg');
   const beforeCancelScroll = await grid.evaluate((el) => el.scrollTop);
   assert.ok(beforeCancelScroll > 0, 'native drag starts from a scrolled grid');
+  await page.mouse.move(page.viewportSize().width / 2, page.viewportSize().height / 2);
   await page.keyboard.press('Escape');
   await page.mouse.up();
   await page.waitForFunction(
     () => document.querySelector('[data-asset-library]')?.style.opacity !== '0',
   );
+  await page.waitForFunction(() => [...document.querySelectorAll('.workspace-panel-bar')].every((bar) => bar.dataset.dragging === 'false' && bar.dataset.near !== 'true'));
   assert.equal(
     await page.evaluate(
       (node) => node === document.querySelector('[data-asset-library]'),

@@ -4019,7 +4019,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     .reverse()
     .map(
       (x) =>
-        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${(artworkTarget ? artworkSelection.has(x.id) : x.id === l.id) ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${x.visible ? 'Hide' : 'Show'}</button><button class="layer-solo" data-layer-solo="${x.id}" aria-label="Solo layer: ${esc(x.name)}" aria-pressed="${x.solo === true}" title="Solo in preview and SVG/PNG; multiple allowed; Hide remains in effect">S</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" aria-pressed="${artworkTarget ? artworkSelection.has(x.id) : false}" title="${esc(x.name)} · Click to select; Shift-click to add/remove. Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
+        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${(artworkTarget ? artworkSelection.has(x.id) : x.id === l.id) ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${workspaceIcon(x.visible ? 'eye' : 'eye-off')}</button><button class="layer-solo" data-layer-solo="${x.id}" aria-label="Solo layer: ${esc(x.name)}" aria-pressed="${x.solo === true}" title="Solo in preview and SVG/PNG; multiple allowed; Hide remains in effect">S</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" aria-pressed="${artworkTarget ? artworkSelection.has(x.id) : false}" title="${esc(x.name)} · Click to select; Shift-click to add/remove. Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
     )
     .join(
       '',
@@ -6596,6 +6596,7 @@ async function openCompositionImportDialog() {
 function openAssetLibrary(focus = true) {
   mountAssetLibrary({
     focus,
+    initiallyHidden: true,
     onDragState: (dragging) => workspacePanels.setRetreat(dragging),
     resolveDrop: (event) => {
       const target = event.target;
@@ -6624,7 +6625,7 @@ function openAssetLibrary(focus = true) {
       return null;
     },
     onClose: () => {
-      workspacePanels.close('assets');
+      workspacePanels.close('assets', true, { animate: false });
     },
     capture: () => ({
       owner: session,

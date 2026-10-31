@@ -143,7 +143,7 @@ const capture = async (name, action, state) => {
     };
   });
   const file = `ui-review-${name}.png`;
-  await page.screenshot({ path: resolve(out, file), fullPage: false });
+  await page.screenshot({ path: resolve(out, file), fullPage: false, animations: 'disabled' });
   captures.push({ file, action, state, ...geometry });
 };
 // Check the wheel/settings column and independently scrollable palette column.

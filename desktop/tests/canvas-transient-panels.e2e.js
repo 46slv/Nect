@@ -175,6 +175,11 @@ try {
     }
     await page.locator(panelButton).click();
     assert.equal(await page.locator(panelButton).getAttribute(expanded), 'false');
+    if (panel === 'align') {
+      const host = page.locator('[data-drawer-side="right"]');
+      assert.equal(await host.evaluate((el) => el.hidden && el.inert), true);
+    }
+    await page.locator(panelSelector).waitFor({ state: 'hidden' });
     assert.equal(await page.locator(panelSelector).isVisible(), false);
     assert.equal(await page.locator('.layout-preview').count(), 0);
     assert.deepEqual(await page.evaluate(() => window.nect.document), afterBlur);

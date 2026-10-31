@@ -3659,53 +3659,65 @@ input[data-color-scrub-step] {
 /* Drawer motion never owns interaction state or workspace geometry. Engines
    without discrete display transitions fall back to an immediate hide. */
 @supports (transition-behavior: allow-discrete) {
-  .workspace-drawer,
-  .asset-library.asset-library-docked {
+  .workspace-drawer[data-motion-enabled='true'],
+  .asset-library.asset-library-docked[data-motion-enabled='true'] {
     opacity: 1;
-    transform: translateX(0);
     transition:
       opacity 200ms ease-out,
-      transform 200ms ease-out,
       display 200ms allow-discrete;
   }
-  .workspace-drawer[hidden],
-  .asset-library.asset-library-docked[hidden] {
+  .workspace-drawer[data-motion-enabled='true'][hidden],
+  .asset-library.asset-library-docked[data-motion-enabled='true'][hidden] {
     opacity: 0;
-    transform: translateX(12px);
     pointer-events: none;
   }
-  .workspace-drawer-left[hidden],
-  .asset-library.asset-library-docked[hidden] {
+  .workspace-drawer[data-motion-enabled='true']::before {
+    transform: translateX(0);
+    transition: transform 200ms ease-out;
+  }
+  .workspace-drawer[data-motion-enabled='true'][hidden]::before {
+    transform: translateX(12px);
+  }
+  .workspace-drawer-left[data-motion-enabled='true'][hidden]::before {
     transform: translateX(-12px);
   }
   @starting-style {
-    .workspace-drawer,
-    .asset-library.asset-library-docked {
+    .workspace-drawer[data-motion-enabled='true'],
+    .asset-library.asset-library-docked[data-motion-enabled='true'] {
       opacity: 0;
+    }
+    .workspace-drawer[data-motion-enabled='true']::before {
       transform: translateX(12px);
     }
-    .workspace-drawer-left,
-    .asset-library.asset-library-docked {
+    .workspace-drawer-left[data-motion-enabled='true']::before {
       transform: translateX(-12px);
     }
   }
   .workspace-drawer[data-motion-suppressed='true'],
-  .asset-library.asset-library-docked[data-motion-suppressed='true'] {
+  .asset-library.asset-library-docked[data-motion-suppressed='true'],
+  .workspace-drawer[data-motion-suppressed='true']::before {
     transition: none;
   }
 }
 .workspace-panel-bar button,
-.tools button {
+.tools button,
+.canvas-toolbar button,
+.alignment-panel button,
+.layer-visibility {
   transition:
     background-color 120ms ease-out,
     color 120ms ease-out,
     border-color 120ms ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
-  .workspace-drawer,
-  .asset-library.asset-library-docked,
+  .workspace-drawer[data-motion-enabled='true'],
+  .asset-library.asset-library-docked[data-motion-enabled='true'],
+  .workspace-drawer[data-motion-enabled='true']::before,
   .workspace-panel-bar button,
-  .tools button {
+  .tools button,
+  .canvas-toolbar button,
+  .alignment-panel button,
+  .layer-visibility {
     transition: none;
   }
 }
@@ -3735,7 +3747,7 @@ input[data-color-scrub-step] {
 .header-group {
   flex-wrap: wrap;
   min-width: 0;
-  padding-right: 8px;
+  padding-right: 6px;
   border-right: 1px solid var(--line);
 }
 .header-setting {
@@ -3756,4 +3768,188 @@ input[data-color-scrub-step] {
 .tools [data-tool='pen'],
 .tools [data-tool='Text'] {
   margin-top: 6px;
+}
+
+/* The rail itself keeps its existing button positions and hit targets. Only
+   the painted contour grows inward; its idle width is at least the old 58px. */
+.workspace-panel-bar {
+  width: 72px;
+}
+.workspace-panel-bar > svg {
+  fill: rgb(226 233 237 / 96%);
+}
+.workspace-panel-bar > svg > path {
+  transform-box: view-box;
+  transform-origin: 0 50%;
+  transform: scaleX(0.82);
+  transition: transform 200ms ease-out 300ms;
+}
+.workspace-panel-bar:is(:focus-within, [data-near='true'], [data-open='true'], [data-dragging='true']) > svg > path {
+  transform: scaleX(1);
+  transition: transform 100ms ease-out;
+}
+@media (hover: hover) {
+  .workspace-panel-bar:hover > svg > path {
+    transform: scaleX(1);
+    transition: transform 100ms ease-out;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-panel-bar > svg > path,
+  .workspace-panel-bar:is(:hover, :focus-within, [data-near='true'], [data-open='true'], [data-dragging='true']) > svg > path {
+    transition-duration: 0s;
+  }
+}
+
+/* Two restrained elevation levels; text and icon opacity are not reduced. */
+.workspace-drawer {
+  isolation: isolate;
+  background: transparent;
+  box-shadow: none;
+}
+.workspace-drawer::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: rgb(248 250 251 / 96%);
+  box-shadow: 0 3px 12px #2439471a, inset 0 1px #ffffff99;
+}
+.workspace-drawer > .shared-colors-panel {
+  background: transparent;
+}
+.asset-library.asset-library-docked {
+  background: rgb(242 243 245 / 96%);
+  box-shadow: none;
+}
+.command-menu-items,
+.export-preset-menu,
+.text-tool-menu,
+.node-context-menu,
+.search-panel,
+.guides-panel {
+  box-shadow: 0 5px 16px #26374722, inset 0 1px #ffffffb3;
+}
+#app > header > button,
+.header-group > button,
+.canvas-toolbar button,
+.tools button {
+  border-color: transparent;
+  background: transparent;
+}
+#app > header > button:not(:disabled):hover,
+.header-group > button:not(:disabled):hover,
+.canvas-toolbar button:not(:disabled):hover,
+.tools button:not(:disabled):hover {
+  background: #e6edf1;
+}
+#app > header > button:not(:disabled):active,
+.header-group > button:not(:disabled):active,
+.canvas-toolbar button:not(:disabled):active,
+.tools button:not(:disabled):active,
+.workspace-panel-bar button:not(:disabled):active,
+.alignment-panel button:not(:disabled):active,
+.layer-visibility:not(:disabled):active {
+  background: #cbdbe4;
+}
+.canvas-toolbar button.active,
+.canvas-toolbar button[aria-pressed='true'],
+.tools button.active {
+  background: #dae3e9;
+  border-color: var(--selection);
+  box-shadow: inset 0 1px #ffffffb3, 0 1px 2px #2637471a;
+}
+.tools button.active:not(:disabled):hover {
+  background: #d2e0e8;
+}
+/* Keep the 30px hit target rectangular; paint the face and focus as circles. */
+.workspace-panel-bar button,
+.workspace-panel-bar button:hover,
+.workspace-panel-bar button:focus-visible,
+.workspace-panel-bar button[aria-pressed='true'],
+.workspace-panel-bar button:not(:disabled):active {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.workspace-panel-bar button::before {
+  content: '';
+  box-sizing: border-box;
+  position: absolute;
+  inset: 2px;
+  z-index: 0;
+  border: 1px solid #b7c8d1a0;
+  border-radius: 50%;
+  background: #ffffff4d;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out, box-shadow 120ms ease-out;
+}
+.workspace-panel-bar .workspace-icon {
+  position: relative;
+  z-index: 1;
+}
+@media (hover: hover) {
+  .workspace-panel-bar button:not(:disabled):hover::before {
+    background: #f7fafbe6;
+    border-color: #8ca5b4;
+  }
+}
+.workspace-panel-bar button[aria-pressed='true']::before {
+  background: #eaf2f6;
+  border-color: #7894a5;
+  box-shadow: inset 0 1px #ffffffd9, 0 1px 3px #26374726;
+}
+.workspace-panel-bar button:not(:disabled):active::before {
+  background: #cadbe4;
+}
+.workspace-panel-bar button:focus-visible {
+  outline: none;
+}
+.workspace-panel-bar button:focus-visible::before {
+  outline: 2px solid var(--selection);
+  outline-offset: 1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-panel-bar button::before {
+    transition: none;
+  }
+}
+@media (forced-colors: active) {
+  .workspace-panel-bar button::before {
+    border-color: ButtonText;
+  }
+  .workspace-panel-bar button[aria-pressed='true']::before {
+    border: 3px double ButtonText;
+  }
+  .workspace-panel-bar button:focus-visible::before {
+    outline: 2px solid Highlight;
+  }
+}
+.layer .layer-visibility .workspace-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: auto;
+  pointer-events: none;
+}
+@media (hover: none) {
+  .tools button:not(.active):hover,
+  .workspace-panel-bar button:not([aria-pressed='true']):hover,
+  .canvas-toolbar button:not(.active):not([aria-pressed='true']):hover,
+  #app > header > button:hover,
+  .header-group > button:hover {
+    background: transparent;
+  }
+}
+
+/* Output controls wrap independently rather than forcing a whole extra row. */
+.header-group[aria-label='Output settings'] {
+  display: contents;
+}
+.header-group > button {
+  background: #f3f6f8;
+}
+
+#app > header > .brand {
+  margin-right: 10px;
 }

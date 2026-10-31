@@ -18,5 +18,7 @@ test('workspace symbols are unique, font-independent, decorative SVGs', () => {
   assert.equal((workspaceIcon('colors').match(/<circle/g) || []).length, 2);
   assert.equal((workspaceIcon('colors').match(/fill="#/g) || []).length, 6);
   assert.doesNotMatch(workspaceIcon('colors'), /gradient/i);
+  assert.notEqual(workspaceIcon('eye'), workspaceIcon('eye-off'));
+  assert.match(workspaceIcon('eye-off'), /m2 2 20 20/);
   assert.throws(() => workspaceIcon('unknown'), /Unknown workspace icon/);
 });

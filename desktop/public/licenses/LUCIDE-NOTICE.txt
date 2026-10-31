@@ -1,0 +1,9 @@
+Lucide Icons
+
+Source: https://github.com/lucide-icons/lucide/tree/a630cec77eac6568b989e87e4947a8bfe45caacd/icons
+Revision: a630cec77eac6568b989e87e4947a8bfe45caacd
+Icons used: mouse-pointer-2, pen-tool, circle, square, hexagon, star, type, image, layers-2, align-horizontal-justify-center, sliders-horizontal, eye, eye-off.
+
+Modifications: all icons use a 1.5-unit rather than 2-unit stroke. The selection pointer is filled; the direct-selection pointer has an added anchor square; the vertical text variant scales the type icon and adds a direction arrow. The six-color wheel is original Nect geometry, not a Lucide icon. Circle, square, and type are among the Feather-derived icons covered by the MIT section of the included license.
+
+The complete upstream ISC and MIT license text is included as lucide-LICENSE.txt in this directory.

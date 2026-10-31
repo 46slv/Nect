@@ -188,6 +188,7 @@ test('Viewer mode suspends the Assets portal and restores its live state on retu
   f.controller.refresh();
   assert.equal(panel.hidden, true);
   assert.equal(panel.inert, true);
+  assert.equal(f.root.querySelector('[data-drawer-side="left"]').dataset.motionEnabled, 'false');
   assert.equal(f.root.querySelector('.workspace-panel-bar-left').hidden, true);
   f.controller.select('inspector');
   assert.equal(f.root.querySelector('.inspector').hidden, false);
@@ -244,13 +245,12 @@ test('rapid close, reopen and switch keeps only the latest child interactive', (
   f.window.happyDOM.abort();
 });
 
-test('asset portal uses the untransformed slot origin and retreats without motion', () => {
+test('asset portal uses the stable slot origin and retreats without motion', () => {
   const f = fixture();
   f.controller.select('assets');
   const host = f.root.querySelector('[data-drawer-side="left"]');
   const slot = host.querySelector('[data-workspace-asset-slot]');
-  host.style.transform = 'matrix(1, 0, 0, 1, -8, 0)';
-  slot.getBoundingClientRect = () => ({ left: 47, top: 70, width: 300, height: 420 });
+  slot.getBoundingClientRect = () => ({ left: 55, top: 70, width: 300, height: 420 });
   f.controller.refresh();
   assert.equal(f.panel.style.left, '55px');
   f.controller.setRetreat(true);
@@ -278,4 +278,85 @@ test('drawer controls expose named, decorative SVGs and live pressed state', () 
   trigger.click();
   assert.equal(trigger.getAttribute('aria-pressed'), 'false');
   f.window.happyDOM.abort();
+});
+
+test('animation is requested by selection, not attach or drag retreat', () => {
+  const f = fixture();
+  const host = f.root.querySelector('[data-drawer-side="left"]');
+  assert.equal(host.dataset.motionEnabled, 'false');
+  f.controller.select('assets');
+  assert.equal(host.dataset.motionEnabled, 'true');
+  assert.equal(f.panel.dataset.motionEnabled, 'true');
+  f.controller.setRetreat(true);
+  assert.equal(host.dataset.motionEnabled, 'false');
+  f.controller.setRetreat(false);
+  assert.equal(host.dataset.motionEnabled, 'false');
+  f.controller.attach(f.root);
+  assert.equal(host.dataset.motionEnabled, 'false');
+  f.controller.close('assets', true, { animate: false });
+  assert.equal(host.hidden, true);
+  assert.equal(host.inert, true);
+  assert.equal(host.dataset.motionEnabled, 'false');
+  f.window.happyDOM.abort();
+});
+
+test('proximity is pointer-only; drag and blur cannot leave a stale peek', () => {
+  const f = fixture();
+  const bar = f.root.querySelector('.workspace-panel-bar-left');
+  bar.getBoundingClientRect = () => ({ left: 40, right: 112, top: 50, bottom: 450, height: 400 });
+  const frames = new Map();
+  let next = 1;
+  f.window.requestAnimationFrame = (callback) => { const id = next++; frames.set(id, callback); return id; };
+  f.window.cancelAnimationFrame = (id) => frames.delete(id);
+  const flush = () => { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach((callback) => callback()); };
+  const pointer = (type, init) => f.window.document.dispatchEvent(new f.window.PointerEvent(type, { bubbles: true, ...init }));
+  pointer('pointermove', { pointerType: 'mouse', clientX: 120, clientY: 250 });
+  flush();
+  assert.equal(bar.dataset.near, 'true');
+  pointer('pointermove', { pointerType: 'touch', clientX: 500, clientY: 500 });
+  flush();
+  assert.equal(bar.dataset.near, 'true');
+  f.root.querySelector('.canvas-stage').dispatchEvent(new f.window.PointerEvent('pointerdown', { bubbles: true, isPrimary: true, clientX: 300, clientY: 250 }));
+  assert.equal(bar.dataset.dragging, 'false');
+  pointer('pointermove', { pointerType: 'mouse', buttons: 1, clientX: 306, clientY: 250 });
+  assert.equal(bar.dataset.dragging, 'true');
+  pointer('pointercancel', { pointerType: 'mouse' });
+  assert.equal(bar.dataset.dragging, 'false');
+  f.window.dispatchEvent(new f.window.Event('blur'));
+  flush();
+  assert.equal(bar.dataset.near, 'false');
+  f.window.happyDOM.abort();
+});
+
+test('synchronous Assets mount refresh sees the original motion request', () => {
+  const window = new Window();
+  const root = window.document.createElement('div');
+  root.innerHTML = markup;
+  window.document.body.append(root);
+  let panel, controller, observed;
+  controller = createWorkspacePanels({
+    getAssetPanel: () => panel,
+    onAssets: () => {
+      panel = window.document.createElement('aside');
+      panel.hidden = true;
+      window.document.body.append(panel);
+      controller.refresh();
+      observed = {
+        host: root.querySelector('[data-drawer-side="left"]').dataset.motionEnabled,
+        portal: panel.dataset.motionEnabled,
+        hidden: panel.hidden,
+      };
+    },
+    onAlign: () => {},
+    onColors: () => {},
+  });
+  controller.attach(root);
+  controller.select('assets');
+  assert.deepEqual(observed, { host: 'true', portal: 'true', hidden: false });
+  controller.setRetreat(true);
+  assert.equal(root.querySelectorAll('.workspace-panel-bar[data-dragging="true"]').length, 2);
+  controller.setRetreat(false);
+  assert.equal(root.querySelectorAll('.workspace-panel-bar[data-dragging="false"]').length, 2);
+  assert.equal(root.querySelectorAll('.workspace-panel-bar[data-near="true"]').length, 0);
+  window.happyDOM.abort();
 });
