@@ -216,3 +216,66 @@ test('Viewer mode moves focus out of a suspended Color panel', () => {
   assert.equal(f.root.querySelector('[data-drawer-side="left"]').inert, true);
   f.window.happyDOM.abort();
 });
+
+test('rapid close, reopen and switch keeps only the latest child interactive', () => {
+  const f = fixture();
+  const host = f.root.querySelector('[data-drawer-side="right"]');
+  const layers = f.root.querySelector('.layers');
+  const inspector = f.root.querySelector('.inspector');
+  const trigger = f.root.querySelector('[data-workspace-panel="layers"]');
+  trigger.click();
+  trigger.click();
+  assert.equal(host.hidden, true);
+  assert.equal(host.inert, true);
+  assert.equal(f.window.document.activeElement, trigger);
+  // The old child can remain painted for exit but is inside an inert host.
+  assert.equal(layers.hidden, false);
+  trigger.click();
+  assert.equal(host.hidden, false);
+  assert.equal(host.inert, false);
+  assert.equal(layers.hidden, false);
+  f.controller.select('inspector');
+  assert.equal(layers.hidden, true);
+  assert.equal(inspector.hidden, false);
+  assert.equal(host.dataset.activePanel, 'inspector');
+  assert.equal(f.root.querySelectorAll('.inspector').length, 1);
+  assert.equal(f.window.document.activeElement, inspector);
+  assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+  f.window.happyDOM.abort();
+});
+
+test('asset portal uses the untransformed slot origin and retreats without motion', () => {
+  const f = fixture();
+  f.controller.select('assets');
+  const host = f.root.querySelector('[data-drawer-side="left"]');
+  const slot = host.querySelector('[data-workspace-asset-slot]');
+  host.style.transform = 'matrix(1, 0, 0, 1, -8, 0)';
+  slot.getBoundingClientRect = () => ({ left: 47, top: 70, width: 300, height: 420 });
+  f.controller.refresh();
+  assert.equal(f.panel.style.left, '55px');
+  f.controller.setRetreat(true);
+  assert.equal(host.dataset.motionSuppressed, 'true');
+  assert.equal(f.panel.dataset.motionSuppressed, 'true');
+  assert.equal(host.inert, true);
+  assert.equal(f.panel.style.pointerEvents, 'none');
+  f.controller.setRetreat(false);
+  assert.equal(host.hidden, false);
+  assert.equal(host.inert, false);
+  assert.equal(f.panel.style.left, '55px');
+  f.window.happyDOM.abort();
+});
+
+test('drawer controls expose named, decorative SVGs and live pressed state', () => {
+  const f = fixture();
+  for (const button of f.root.querySelectorAll('[data-workspace-panel]')) {
+    assert.ok(button.getAttribute('aria-label'));
+    assert.equal(button.querySelector('svg').getAttribute('aria-hidden'), 'true');
+    assert.equal(button.textContent, '');
+  }
+  const trigger = f.root.querySelector('[data-workspace-panel="colors"]');
+  trigger.click();
+  assert.equal(trigger.getAttribute('aria-pressed'), 'true');
+  trigger.click();
+  assert.equal(trigger.getAttribute('aria-pressed'), 'false');
+  f.window.happyDOM.abort();
+});

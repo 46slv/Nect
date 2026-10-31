@@ -1,19 +1,20 @@
+import { workspaceIcon } from './ui-icons.js';
+
 // Workspace controls are view state only. The real panels and commands keep their owners.
 export const DRAWER_PREFERENCES_KEY = 'nect.workspace-drawers.v1';
 
 // Definitions are deliberately small: each item binds an existing panel owner, not document state.
 const ITEMS = [
-  { id: 'assets', side: 'left', label: 'Toggle Assets panel', glyph: '▧' },
-  { id: 'colors', side: 'left', label: 'Toggle Shared Colors panel', glyph: '●' },
-  { id: 'layers', side: 'right', label: 'Focus Layers', glyph: '▤', selector: '.layers' },
+  { id: 'assets', side: 'left', label: 'Toggle Assets panel' },
+  { id: 'colors', side: 'left', label: 'Toggle Shared Colors panel' },
+  { id: 'layers', side: 'right', label: 'Focus Layers', selector: '.layers' },
   {
     id: 'align',
     side: 'right',
     label: 'Toggle Alignment panel',
-    glyph: '↔',
     selector: '.alignment-panel',
   },
-  { id: 'inspector', side: 'right', label: 'Focus Inspector', glyph: '≡', selector: '.inspector' },
+  { id: 'inspector', side: 'right', label: 'Focus Inspector', selector: '.inspector' },
 ];
 const SHAPE = 'M0 0 H10 C10 30 12 49 34 68 C51 83 51 145 34 160 C12 179 10 198 10 228 H0 Z';
 
@@ -25,6 +26,8 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     retreated = false;
   let attachVersion = 0,
     restorePending = true;
+  // Keep the last child rendered under an inert, hidden host during its visual exit.
+  const displayed = { left: null, right: null };
   try {
     const saved = JSON.parse(storage?.getItem(DRAWER_PREFERENCES_KEY) || 'null');
     if (saved && typeof saved === 'object') {
@@ -96,7 +99,9 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
         bar.hidden = viewerMode && side === 'left';
         bar.inert = bar.hidden;
       }
-      host.dataset.activePanel = selected?.id || '';
+      if (selected) displayed[side] = selected.id;
+      host.dataset.activePanel = selected?.id || displayed[side] || '';
+      host.dataset.motionSuppressed = String(side === 'left' && (retreated || viewerMode));
       host.hidden = !shown;
       host.inert = !shown;
     }
@@ -107,23 +112,24 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
       button?.setAttribute('aria-pressed', String(shown));
       if (entry.selector) {
         const panel = wrap.querySelector(entry.selector);
-        if (panel) panel.hidden = active[entry.side] !== entry.id;
+        if (panel) panel.hidden = displayed[entry.side] !== entry.id;
       }
     }
     root
       .querySelector('.canvas-toolbar [data-action="align-panel"]')
       ?.setAttribute('aria-pressed', String(active.right === 'align'));
     const colors = wrap.querySelector('.shared-colors-panel');
-    if (colors) colors.hidden = active.left !== 'colors';
+    if (colors) colors.hidden = displayed.left !== 'colors';
     const slot = wrap.querySelector('[data-workspace-asset-slot]');
     const panel = getAssetPanel();
-    if (slot) slot.hidden = active.left !== 'assets';
+    if (slot) slot.hidden = displayed.left !== 'assets';
     if (panel) {
       const visible = active.left === 'assets' && !viewerMode && slot && !slot.hidden;
       if (viewerMode && panel.contains(root.ownerDocument.activeElement))
         wrap
           .querySelector('.viewer-tabs [data-viewer-mode="viewers"]')
           ?.focus({ preventScroll: true });
+      panel.dataset.motionSuppressed = String(retreated || viewerMode);
       panel.hidden = !visible;
       panel.inert = !visible;
       panel.style.opacity = retreated ? '0' : '';
@@ -131,9 +137,15 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
       // Keep the last valid portal rectangle while the ancestor is hidden during native drag.
       if (visible && !retreated) {
         const rect = slot.getBoundingClientRect();
+        // The portal is outside the animated drawer. Remove its current
+        // translate from the measured slot so both surfaces follow one origin.
+        const host = slot.closest('[data-drawer-side]');
+        const transform = view?.getComputedStyle(host).transform || '';
+        const matrix = transform.match(/^matrix\(([^)]+)\)$/);
+        const translateX = matrix ? Number(matrix[1].split(',')[4]) || 0 : 0;
         panel.classList.add('asset-library-docked');
         Object.assign(panel.style, {
-          left: `${rect.left}px`,
+          left: `${rect.left - translateX}px`,
           top: `${rect.top}px`,
           width: `${rect.width}px`,
           height: `${rect.height}px`,
@@ -223,7 +235,7 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
         const button = root.ownerDocument.createElement('button');
         button.type = 'button';
         button.dataset.workspacePanel = entry.id;
-        button.textContent = entry.glyph;
+        button.innerHTML = workspaceIcon(entry.id);
         button.title = entry.label;
         button.setAttribute('aria-label', entry.label);
         button.setAttribute('aria-controls', `workspace-drawer-${side}`);

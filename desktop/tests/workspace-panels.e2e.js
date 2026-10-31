@@ -54,6 +54,86 @@ try {
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: out + '/01-closed.png' });
   const initial = await state();
+  const railIcons = await page.evaluate(() =>
+    [...document.querySelectorAll('.tools button, .workspace-panel-bar button')].map((button) => ({
+      label: button.getAttribute('aria-label'),
+      title: button.title,
+      pressed: button.getAttribute('aria-pressed'),
+      decorative: button.querySelector('svg')?.getAttribute('aria-hidden'),
+    })),
+  );
+  assert.equal(railIcons.length, 13);
+  assert.ok(railIcons.every((icon) => icon.label && icon.title && icon.decorative === 'true'));
+  assert.ok(railIcons.every((icon) => ['true', 'false'].includes(icon.pressed)));
+  // A rapid reversal changes semantics synchronously; visual exit must never
+  // retain an actionable or stale panel. The artboard/graph are not animated.
+  const rapid = await page.evaluate(() => {
+    const assets = document.querySelector('[data-workspace-panel="assets"]');
+    const colors = document.querySelector('[data-workspace-panel="colors"]');
+    const host = document.querySelector('[data-drawer-side="left"]');
+    assets.click();
+    assets.click();
+    const closed = {
+      hidden: host.hidden,
+      inert: host.inert,
+      expanded: assets.getAttribute('aria-expanded'),
+      focused: document.activeElement === assets,
+    };
+    assets.click();
+    colors.click();
+    assets.click();
+    return {
+      closed,
+      current: host.dataset.activePanel,
+      count: document.querySelectorAll('[data-asset-library]').length,
+      hidden: host.hidden,
+      inert: host.inert,
+      expanded: assets.getAttribute('aria-expanded'),
+    };
+  });
+  assert.deepEqual(rapid, {
+    closed: { hidden: true, inert: true, expanded: 'false', focused: true },
+    current: 'assets',
+    count: 1,
+    hidden: false,
+    inert: false,
+    expanded: 'true',
+  });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const motion = await page.evaluate(() => {
+    const host = document.querySelector('[data-drawer-side="left"]');
+    const slot = host.querySelector('[data-workspace-asset-slot]');
+    const portal = document.querySelector('[data-asset-library]');
+    const a = slot.getBoundingClientRect(), b = portal.getBoundingClientRect();
+    return {
+      supported: CSS.supports('transition-behavior: allow-discrete'),
+      duration: getComputedStyle(host).transitionDuration,
+      active: host.getAnimations().some((animation) => animation.playState === 'running'),
+      portalDelta: Math.abs(a.left - b.left),
+    };
+  });
+  if (motion.supported) {
+    assert.match(motion.duration, /0\.2s/);
+    assert.equal(motion.active, true, 'opening starts an interruptible visual transition');
+    assert.ok(motion.portalDelta < 3, `portal follows its slot: ${motion.portalDelta}px`);
+  }
+  same(await state(), initial, 'rapid motion cannot change document or workspace geometry');
+  await page.screenshot({ path: out + '/motion-opening.png' });
+  await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const reduced = await page.evaluate(() => {
+    const button = document.querySelector('[data-workspace-panel="assets"]');
+    button.click();
+    const host = document.querySelector('[data-drawer-side="left"]');
+    const value = getComputedStyle(host).transitionDuration;
+    button.click();
+    return { duration: value, hidden: host.hidden, inert: host.inert };
+  });
+  assert.equal(reduced.duration, '0s');
+  assert.equal(reduced.hidden, true);
+  assert.equal(reduced.inert, true);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  same(await state(), initial, 'reduced-motion toggle remains view-only');
   const svgIdentity = await page.locator('.artboard').elementHandle();
   const insideShape = await page.evaluate(() =>
     [...document.querySelectorAll('.workspace-panel-bar')].every((bar) => {
@@ -206,9 +286,25 @@ try {
   await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
   await page.getByRole('button', { name: 'Focus Layers', exact: true }).click();
   same(await state(), manual, 'manual zoom and pan survive close');
-  for (const width of [1000, 900]) {
+  for (const width of [1366, 1000, 900]) {
     await page.setViewportSize({ width, height: 960 });
     const before = await state();
+    const toolbar = await page.evaluate(() => {
+      const groups = [...document.querySelectorAll('.canvas-toolbar-group')];
+      const visible = [...document.querySelectorAll('#app > header button, #app > header select, #app > header summary, .canvas-toolbar button')]
+        .filter((element) => element.getClientRects().length);
+      return {
+        names: groups.map((group) => group.getAttribute('aria-label')),
+        clipped: visible.filter((element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.left < -1 || rect.right > innerWidth + 1;
+        }).map((element) => element.getAttribute('aria-label') || element.textContent.trim()),
+      };
+    });
+    assert.deepEqual(toolbar.names, ['Zoom', 'Editing aids', 'Grid and guides']);
+    assert.deepEqual(toolbar.clipped, [], `visible toolbar controls fit at ${width}`);
+    if (width === 900 || width === 1366)
+      await page.screenshot({ path: out + `/toolbar-${width}.png` });
     await page.getByRole('button', { name: 'Focus Inspector', exact: true }).click();
     await page.getByRole('button', { name: 'Toggle Shared Colors panel', exact: true }).click();
     same(await state(), before, `both drawers preserve geometry at ${width}`);

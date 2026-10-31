@@ -42,4 +42,47 @@ export function ensureCommandMenus(app, document) {
   header.querySelectorAll('[data-recovery-status], [data-recovery-open]').forEach((button) => {
     project.querySelector('.command-menu-items').append(button);
   });
+  // Preserve the real controls and focus order while making the major jobs
+  // legible as groups. No commands are duplicated or deferred by these wrappers.
+  const group = (label, nodes) => {
+    nodes = nodes.filter((node) => node?.parentElement === header);
+    if (!nodes.length) return;
+    const container = document.createElement('div');
+    container.className = 'header-group';
+    container.setAttribute('role', 'group');
+    container.setAttribute('aria-label', label);
+    nodes[0].before(container);
+    nodes.forEach((node) => container.append(node));
+  };
+  group('File', [project, importMenu, exportMenu]);
+  group('Composition and assets', [
+    header.querySelector('[data-active-composition]')?.closest('label'),
+    header.querySelector('[data-action="add-composition"]'),
+    header.querySelector('[data-action="asset-library"]'),
+  ]);
+  const output = [
+    ['SVG', '#svg-export-sizing'],
+    ['Unit', '#svg-export-unit'],
+    ['Precision', '#svg-export-precision'],
+    ['PNG', '#png-export-mode'],
+  ].map(([label, selector]) => {
+    const control = header.querySelector(selector);
+    if (!control) return null;
+    const wrapper = document.createElement('label');
+    wrapper.className = 'header-setting';
+    wrapper.append(label);
+    control.before(wrapper);
+    wrapper.append(control);
+    return wrapper;
+  });
+  group('Output settings', [
+    ...output,
+    header.querySelector('#png-ppi')?.closest('label'),
+    header.querySelector('[data-png-dimensions]'),
+    header.querySelector('#export-presets'),
+  ]);
+  group('History', [
+    header.querySelector('[data-action="undo"]'),
+    header.querySelector('[data-action="redo"]'),
+  ]);
 }

@@ -3335,7 +3335,7 @@ input[data-color-scrub-step] {
 .workspace-panel-bar-right {
   right: 0;
 }
-.workspace-panel-bar svg {
+.workspace-panel-bar > svg {
   position: absolute;
   width: 100%;
   height: min(228px, 100%);
@@ -3346,7 +3346,7 @@ input[data-color-scrub-step] {
   stroke: #b2c0ca;
   stroke-width: 0.8;
 }
-.workspace-panel-bar-right svg {
+.workspace-panel-bar-right > svg {
   transform: translateY(-50%) scaleX(-1);
 }
 .workspace-panel-bar button {
@@ -3514,7 +3514,7 @@ input[data-color-scrub-step] {
 .workspace-panel-bar {
   overflow: hidden;
 }
-.workspace-panel-bar svg {
+.workspace-panel-bar > svg {
   height: 228px;
 }
 .workspace-panel-bar-left {
@@ -3654,4 +3654,106 @@ input[data-color-scrub-step] {
 }
 .workspace-panel-bar[hidden] {
   display: none !important;
+}
+
+/* Drawer motion never owns interaction state or workspace geometry. Engines
+   without discrete display transitions fall back to an immediate hide. */
+@supports (transition-behavior: allow-discrete) {
+  .workspace-drawer,
+  .asset-library.asset-library-docked {
+    opacity: 1;
+    transform: translateX(0);
+    transition:
+      opacity 200ms ease-out,
+      transform 200ms ease-out,
+      display 200ms allow-discrete;
+  }
+  .workspace-drawer[hidden],
+  .asset-library.asset-library-docked[hidden] {
+    opacity: 0;
+    transform: translateX(12px);
+    pointer-events: none;
+  }
+  .workspace-drawer-left[hidden],
+  .asset-library.asset-library-docked[hidden] {
+    transform: translateX(-12px);
+  }
+  @starting-style {
+    .workspace-drawer,
+    .asset-library.asset-library-docked {
+      opacity: 0;
+      transform: translateX(12px);
+    }
+    .workspace-drawer-left,
+    .asset-library.asset-library-docked {
+      transform: translateX(-12px);
+    }
+  }
+  .workspace-drawer[data-motion-suppressed='true'],
+  .asset-library.asset-library-docked[data-motion-suppressed='true'] {
+    transition: none;
+  }
+}
+.workspace-panel-bar button,
+.tools button {
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-drawer,
+  .asset-library.asset-library-docked,
+  .workspace-panel-bar button,
+  .tools button {
+    transition: none;
+  }
+}
+
+/* Rail symbols share one optical stroke; the surrounding buttons own state. */
+.tools .workspace-icon,
+.workspace-panel-bar .workspace-icon {
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin: auto;
+  pointer-events: none;
+}
+.workspace-panel-bar .workspace-icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* Name related command clusters without removing any control or changing the
+   workspace surface. The narrow creation rail can still scroll as before. */
+.header-group,
+.canvas-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.header-group {
+  flex-wrap: wrap;
+  min-width: 0;
+  padding-right: 8px;
+  border-right: 1px solid var(--line);
+}
+.header-setting {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.header-setting:has(> select[hidden]) {
+  display: none;
+}
+.canvas-toolbar-group + .canvas-toolbar-group {
+  margin-left: 4px;
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+}
+.tools [data-tool='pen'],
+.tools [data-tool='Text'] {
+  margin-top: 6px;
 }
