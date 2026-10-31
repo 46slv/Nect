@@ -430,7 +430,10 @@ try {
       } else if (reason === 'stale-selection') {
         await ensureWorkspacePanel(page, 'layers');
         await page.locator(`[data-select-layer="${fixture.layers[1].id}"]`).click();
-        assert.equal(await page.locator(`.graph .node[data-id="${fixture.layers[1].nodes[0].id}"]`).count(), 1);
+        assert.equal(
+          await page.locator(`.graph .node[data-id="${fixture.layers[1].nodes[0].id}"]`).count(),
+          1,
+        );
         assert.equal(
           await saved(),
           JSON.stringify(fixture),
@@ -453,10 +456,16 @@ try {
         if (reason === 'stale-selection') {
           const layers = page.locator('[data-workspace-panel="layers"]');
           assert.equal(await layers.getAttribute('aria-expanded'), 'true');
-          assert.equal(await page.locator('[data-workspace-panel="assets"]').getAttribute('aria-expanded'), 'false');
+          assert.equal(
+            await page.locator('[data-workspace-panel="assets"]').getAttribute('aria-expanded'),
+            'false',
+          );
           assert.equal(await panel.evaluate((el) => !!el.closest('[inert]')), true);
-          assert.equal(await layers.evaluate((el) => el === document.activeElement), true,
-            'a late Assets read does not steal focus or reactivate its drawer');
+          assert.equal(
+            await layers.evaluate((el) => el === document.activeElement),
+            true,
+            'a late Assets read does not steal focus or reactivate its drawer',
+          );
         }
       }
       assert.deepEqual(await state(), protectedState, `${reason} rejects the entire pending drop`);
