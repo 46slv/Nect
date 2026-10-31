@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 // Production Edge/CSP UI + explicit IPC fixture from separately tested Windows
 // DirectWrite. This does not claim native WebView2/IME acceptance.
 import assert from 'node:assert/strict';
@@ -240,6 +241,8 @@ try {
   );
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.waitForFunction(() => window.nect);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await page.evaluate(
     (contents) => window.nect.load(contents),
     serialize(withCapturedNativeIntent(doc, raw)),

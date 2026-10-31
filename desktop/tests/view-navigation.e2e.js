@@ -1,3 +1,5 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { activateBoundaryCommand, revealBoundary } from './helpers/boundary-controls.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -12,7 +14,7 @@ page.on('pageerror', (e) => errors.push(e.message));
 page.on('dialog', (d) => d.accept());
 const stage = page.locator('.canvas-stage'),
   graph = page.locator('.graph-scroll');
-const click = (action) => page.locator(`[data-action="${action}"]`).click();
+const click = (action) => activateBoundaryCommand(page, action);
 const scale = () => page.locator('.artboard').evaluate((el) => el.getScreenCTM().a);
 const graphScale = () =>
   page.locator('.graph').evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).a);
@@ -78,6 +80,8 @@ async function fitVisible(selector = '.node') {
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await page.waitForTimeout(400);
   await fs.mkdir('test-results', { recursive: true });
   const ids = await page.evaluate(async () => {
@@ -190,7 +194,26 @@ try {
   await graph.focus();
   await page.keyboard.press('Shift+2');
   await click('graph-fit');
-  await page.locator(`.node[data-id="${ids[0]}"] .node-head strong`).click();
+  const fitPoint = await graphPoint(await center(graph));
+  const fitScroll = await scroll();
+  const boundaryToggle = page.getByRole('button', {
+    name: 'Toggle node graph controls',
+    exact: true,
+  });
+  await boundaryToggle.press('Enter');
+  await boundaryToggle.press('Enter');
+  near(await graphPoint(await center(graph)), fitPoint, 1);
+  near(await scroll(), fitScroll, 1);
+  const firstTitle = page.locator(`.node[data-id="${ids[0]}"] .node-head strong`);
+  assert.equal(
+    await firstTitle.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+    }),
+    true,
+    'Fit all keeps the node title reachable beside the boundary controls',
+  );
+  await firstTitle.click();
   // Focus-scoped keyboard shortcuts and native button Space.
   await stage.focus();
   await page.keyboard.press('Control+1');
@@ -206,6 +229,7 @@ try {
   await fitVisible();
   await page.keyboard.press('Shift+2');
   await fitVisible('.node.selected');
+  await revealBoundary(page, 'canvas');
   const zoomButton = page.locator('[data-action="zoom-in"]');
   await zoomButton.focus();
   const oldScale = await scale(),
@@ -245,23 +269,23 @@ try {
     await click('graph-fit');
     await fitVisible();
     await truthful();
-    const layout = await page.evaluate(() =>
-      [
-        ...document.querySelectorAll(
-          '.canvas-toolbar button,.graph-toolbar button,.graph-toolbar select,.graph-toolbar output',
-        ),
-      ].map((el) => {
-        const a = el.getBoundingClientRect(),
-          b = el.closest('[role="toolbar"]').getBoundingClientRect();
-        return {
-          text: el.textContent,
-          visible: a.width > 0 && a.x >= b.x && a.right <= b.right + 1,
-        };
-      }),
-    );
-    assert.ok(
-      layout.every((el) => el.visible),
-      JSON.stringify(layout),
+    const ends = await page.evaluate(() => {
+      const left = document.querySelector('.graph-panel > .graph-toolbar').getBoundingClientRect();
+      const right = document
+        .querySelector('.graph-panel > .canvas-toolbar')
+        .getBoundingClientRect();
+      return {
+        left: left.right,
+        right: right.left,
+        overflow: document.documentElement.scrollWidth > innerWidth,
+      };
+    });
+    assert.equal(ends.overflow, false);
+    assert.ok(ends.left <= ends.right + 1, 'boundary ends do not overlap');
+    assert.equal(await page.locator('#add-node').isVisible(), true);
+    assert.equal(
+      await page.getByRole('button', { name: 'Toggle artboard view controls' }).isVisible(),
+      true,
     );
     await page.screenshot({ path: `test-results/view-navigation-${width}x${height}.png` });
   }

@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 const browser = await chromium.launch({
@@ -52,7 +53,7 @@ await page.addInitScript(() => {
     },
   };
 });
-const click = (action) => page.locator(`[data-action="${action}"]`).click();
+const click = (action) => activateBoundaryCommand(page, action);
 const tokens = () => page.evaluate(() => [...window.hostBindings.keys()]);
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5184');

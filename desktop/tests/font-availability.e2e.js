@@ -1,3 +1,5 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 // Production UI/CSP with explicit catalog-failure IPC fixtures; no native claim.
 import assert from 'node:assert/strict';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
@@ -111,8 +113,10 @@ try {
   }, face);
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   await page.waitForFunction(() => window.nect);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await page.evaluate((s) => window.nect.load(s), serialize(session.snapshot()));
-  await page.locator('[data-action="graph-fit"]').click();
+  await activateBoundaryCommand(page, 'graph-fit');
   await page.locator(`.graph .node[data-id="${n.id}"] .node-head strong`).click();
   const status = page.locator('.inspector-body .text-controls output[role="status"]');
   const before = await page.evaluate(() => ({

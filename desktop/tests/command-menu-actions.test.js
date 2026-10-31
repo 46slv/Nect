@@ -102,13 +102,13 @@ test('browser commands reveal Project, Import and Export actions through their r
       assert.equal(menu(label).open, false);
       await activateCommand(page, action);
       assert.deepEqual(calls, [`click:${label}`, `click:${action}`]);
-      assert.equal(menu(label).open, true);
+      assert.equal(menu(label).open, false);
       assert.equal(menu(label).querySelector(`[data-action="${action}"]`), original);
     }
   }
 });
 
-test('repeated commands keep an open menu open and switching uses the other summary', async () => {
+test('repeated commands reopen the menu and deliver each action once', async () => {
   const { page, calls, menu } = fixture();
   await activateCommand(page, 'save');
   await activateCommand(page, 'save');
@@ -116,19 +116,25 @@ test('repeated commands keep an open menu open and switching uses the other summ
   assert.deepEqual(calls, [
     'click:Project',
     'click:save',
+    'click:Project',
     'click:save',
     'click:Export',
     'click:export',
   ]);
   assert.equal(menu('Project').open, false);
-  assert.equal(menu('Export').open, true);
+  assert.equal(menu('Export').open, false);
 });
 
 test('keyboard New opens Project and invokes New without a pointer click', async () => {
   const { page, calls } = fixture();
   await activateCommand(page, 'new', { keyboard: true });
   await activateCommand(page, 'new', { keyboard: true });
-  assert.deepEqual(calls, ['press:Space:Project', 'press:Enter:new', 'press:Enter:new']);
+  assert.deepEqual(calls, [
+    'press:Space:Project',
+    'press:Enter:new',
+    'press:Space:Project',
+    'press:Enter:new',
+  ]);
 });
 
 test('non-menu actions retain normal activation and rerenders get fresh locators', async () => {

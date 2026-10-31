@@ -14,6 +14,7 @@ import { multiArtworkFixture } from './fixtures/artwork-multi-move.js';
 import { gapArtworkFixture } from './fixtures/artwork-gap-distribution.js';
 import { guideDefaults } from '../src/guides.js';
 import { isolatedDomScenarios } from './run-isolated-dom-scenarios.js';
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 
 test('Multiple independent artworks select and move as one transaction', async (rawT) => {
   const t = isolatedDomScenarios(rawT, import.meta.url);
@@ -81,12 +82,16 @@ test('Multiple independent artworks select and move as one transaction', async (
     ui = () => win.artworkUI();
   let alignScenario = false;
   const openAlign = () => {
-    if (!alignScenario || $('.alignment-panel')) return;
+    if (
+      !alignScenario ||
+      $('[data-workspace-panel="align"]').getAttribute('aria-expanded') === 'true'
+    )
+      return;
     const before = saved(),
       past = ui().past,
       active = ui().activeLayer,
       selected = [...ui().artworkSelection];
-    $('[data-action="align-panel"]').click();
+    openDOMPanel(document, 'align');
     flush();
     assert.ok($('.alignment-panel'), 'open Align through the current Canvas control');
     assert.equal(saved(), before);
@@ -138,6 +143,7 @@ test('Multiple independent artworks select and move as one transaction', async (
   };
   const shape = (id) => $(`.shape[data-layer="${id}"]`);
   const row = (id, shift = false) => {
+    openDOMPanel(document, 'layers');
     $(`[data-select-layer="${id}"]`).dispatchEvent(
       new win.MouseEvent('click', { bubbles: true, shiftKey: shift }),
     );
@@ -177,6 +183,7 @@ test('Multiple independent artworks select and move as one transaction', async (
       assert.deepEqual(selectedIds(), [...f.ids].sort());
       assert.equal(document.querySelectorAll('.layer.selected').length, 5);
       assert.equal(document.querySelectorAll('.artwork-selection').length, 5);
+      openDOMPanel(document, 'inspector');
       assert.match($('.inspector-body').textContent, /5 selected/);
       assert.equal(
         $('[data-duplicate-artwork]').disabled,

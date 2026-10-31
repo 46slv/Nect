@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import assert from 'node:assert/strict';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -100,7 +101,7 @@ try {
       await page.locator('.artboard .shape').waitFor();
       await open();
     } else {
-      await page.locator('[data-action="graph-fit"]').click();
+      await activateBoundaryCommand(page, 'graph-fit');
       await page.locator(`.node[data-id="${id}"] .type-tag`).click();
       editor = page.locator(`.graph textarea[data-text="${id}"]`);
     }
@@ -228,7 +229,7 @@ try {
   await page.waitForFunction((saved) => JSON.stringify(window.nect.document) === saved, saved);
   // Same correction applies to the visible Graph Text control, with native Ctrl+A.
   const graphId = await load('Ax\u0301B');
-  await page.locator('[data-action="graph-fit"]').click();
+  await activateBoundaryCommand(page, 'graph-fit');
   await page.locator(`.node[data-id="${graphId}"] .type-tag`).click();
   const graphInput = page.locator(`.graph textarea[data-text="${graphId}"]`);
   await graphInput.focus();
@@ -260,7 +261,7 @@ try {
   await gated.mouse.dblclick(...(await glyphPoint(gated)));
   assert.equal(await gated.locator('.canvas-text-editor').count(), 0);
   assert.match(await gated.locator('.status').innerText(), /grapheme segmentation support/);
-  await gated.locator('[data-action="graph-fit"]').click();
+  await activateBoundaryCommand(gated, 'graph-fit');
   await gated.locator(`.node[data-id="${gatedId}"] .type-tag`).click();
   const gatedInput = gated.locator(`.graph textarea[data-text="${gatedId}"]`);
   await gatedInput.focus();

@@ -1,3 +1,5 @@
+import { revealBoundary } from './helpers/boundary-controls.js';
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 // Actual UI captures plus a bounded regression for the explicit joystick occlusion escape.
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -143,7 +145,7 @@ const capture = async (name, action, state) => {
     };
   });
   const file = `ui-review-${name}.png`;
-  await page.screenshot({ path: resolve(out, file), fullPage: false });
+  await page.screenshot({ path: resolve(out, file), fullPage: false, animations: 'disabled' });
   captures.push({ file, action, state, ...geometry });
 };
 // Check the wheel/settings column and independently scrollable palette column.
@@ -239,144 +241,89 @@ const checkPaletteTopLayout = async () => {
   assert.equal(layout.buttons, 0, 'Live controls have no Preview/Apply gate');
 };
 const checkGraphToolbar = async (width) => {
-  const compact = width < 820;
-  await page.waitForFunction(
-    (expected) =>
-      document.querySelector('.graph-toolbar').classList.contains('graph-toolbar-compact') ===
-      expected,
-    compact,
-  );
-  const menu = page.locator('.graph-view-more');
-  const summary = menu.locator('summary');
-  const actions = ['graph-fit-selection', 'graph-reset', 'graph-overview'];
-  const checkVisibleControls = async (secondary = false) => {
-    const layout = await page.locator('.graph-toolbar').evaluate((toolbar, includeSecondary) => {
-      const bounds = toolbar.getBoundingClientRect();
-      const controls = [...toolbar.querySelectorAll('select,button,output,summary')].filter(
-        (el) =>
-          el.getClientRects().length &&
-          (includeSecondary || !el.closest('.graph-view-more .command-menu-items')),
-      );
-      return {
-        documentWidth: document.documentElement.scrollWidth,
-        viewportWidth: innerWidth,
-        controls: controls.map((el) => {
-          const r = el.getBoundingClientRect();
-          const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-          return {
-            action: el.dataset.action || el.id || el.tagName,
-            contained: r.left >= bounds.left && r.right <= bounds.right,
-            centerHit: top === el || el.contains(top),
-          };
-        }),
-      };
-    }, secondary);
-    assert.ok(layout.documentWidth <= layout.viewportWidth, 'toolbar does not widen the document');
-    for (const control of layout.controls) {
-      assert.equal(control.contained, true, `${width}: ${control.action} inside graph width`);
-      assert.equal(control.centerHit, true, `${width}: ${control.action} center is unobscured`);
-    }
-  };
+  const toggle = page.getByRole('button', { name: 'Toggle node graph controls', exact: true });
+  const extras = page.locator('#boundary-graph-extras');
+  const actions = [
+    'find-node',
+    'graph-zoom-out',
+    'graph-zoom-in',
+    'graph-fit',
+    'graph-fit-selection',
+    'graph-reset',
+    'graph-overview',
+  ];
   for (const action of actions)
     assert.equal(await page.locator(`[data-action="${action}"]`).count(), 1);
-  await checkVisibleControls();
-  await capture(
-    `graph-toolbar-${width}`,
-    'Inspect graph view controls at current panel width',
-    compact ? 'Secondary view commands in closed More disclosure' : 'All view commands direct',
-  );
-  if (!compact) {
-    assert.equal(await menu.count(), 0);
-    return;
-  }
+  if ((await toggle.getAttribute('aria-expanded')) === 'true') await toggle.press('Enter');
+  assert.equal(await extras.evaluate((el) => el.hidden && el.inert), true);
   const before = await encoded();
   const commandBefore = await page.evaluate(() => JSON.stringify(window.nect.commandState));
-  const name = await page.locator('.graph-layer-name').evaluate((el) => ({
-    clipped: el.scrollWidth > el.clientWidth,
-    ellipsis: getComputedStyle(el).textOverflow,
-  }));
-  assert.equal(name.clipped, true, 'long layer name yields its space to controls');
-  assert.equal(name.ellipsis, 'ellipsis');
-  for (let i = 0; i < 2; i++) {
-    await summary.focus();
-    await summary.press(i ? 'Space' : 'Enter');
-    assert.notEqual(await menu.getAttribute('open'), null);
-    await page.keyboard.press('Escape');
-    assert.equal(await menu.getAttribute('open'), null);
-    assert.equal(await summary.evaluate((el) => document.activeElement === el), true);
-  }
-  await summary.press('Enter');
-  await checkVisibleControls(true);
+  const geometry = () =>
+    page.evaluate(() => {
+      const r = (s) => {
+        const b = document.querySelector(s).getBoundingClientRect();
+        return [b.x, b.y, b.width, b.height];
+      };
+      return {
+        stage: r('.canvas-stage'),
+        graph: r('.graph-scroll'),
+        zoom: document.querySelector('.artboard').style.width,
+        transform: document.querySelector('.graph').style.transform,
+        scroll: [
+          document.querySelector('.graph-scroll').scrollLeft,
+          document.querySelector('.graph-scroll').scrollTop,
+        ],
+      };
+    });
+  const initial = await geometry();
   await capture(
-    `graph-toolbar-more-${width}`,
-    'Open More with native keyboard activation',
-    'Original Fit selection / Reset view / Overview buttons reachable',
+    `graph-toolbar-${width}`,
+    'Inspect collapsed graph boundary',
+    'Add node and disclosure remain visible',
   );
-  await page.keyboard.press('Tab');
-  assert.equal(
-    await page
-      .locator('[data-action="graph-fit-selection"]')
-      .evaluate((el) => document.activeElement === el),
-    true,
-  );
-  await page.keyboard.press('Tab');
-  assert.equal(
-    await page
-      .locator('[data-action="graph-reset"]')
-      .evaluate((el) => document.activeElement === el),
-    true,
-  );
-  await page.keyboard.press('Tab');
-  assert.equal(
-    await page
-      .locator('[data-action="graph-overview"]')
-      .evaluate((el) => document.activeElement === el),
-    true,
-  );
-  await page.keyboard.press('Tab');
-  assert.equal(await menu.getAttribute('open'), null, 'Tab leaves and dismisses, not a focus trap');
-  for (const action of actions) {
-    await summary.press('Enter');
-    await page.locator(`[data-action="${action}"]`).press('Enter');
-    assert.equal(await menu.getAttribute('open'), null);
-    assert.equal(await summary.evaluate((el) => document.activeElement === el), true);
+  for (let i = 0; i < 2; i++) {
+    await toggle.press('Enter');
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+    assert.deepEqual(await geometry(), initial, 'opening boundary never moves either viewport');
+    await page.keyboard.press('Escape');
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(await toggle.evaluate((el) => document.activeElement === el), true);
   }
-  // Return Overview to its original closed state, still through the same button.
-  await summary.press('Enter');
-  await page.locator('[data-action="graph-overview"]').press('Enter');
-  await summary.press('Enter');
+  await toggle.press('Enter');
+  for (const action of actions) {
+    const button = page.locator(`[data-action="${action}"]`);
+    await button.scrollIntoViewIfNeeded();
+    const r = await button.boundingBox();
+    assert.ok(r && r.height >= 30, `${width}: ${action} retains a usable target`);
+    assert.equal(
+      await button.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return top === el || el.contains(top);
+      }),
+      true,
+      `${action} center is reachable`,
+    );
+  }
+  await capture(
+    `graph-toolbar-expanded-${width}`,
+    'Open graph boundary with keyboard',
+    'Existing commands remain reachable',
+  );
+  assert.equal(
+    await page.locator('[data-action="graph-overview"] svg').count(),
+    0,
+    'Overview remains text only',
+  );
+  await page.locator('[data-action="graph-overview"]').click();
+  assert.equal(await page.locator('#graph-overview').isVisible(), true);
+  await page.locator('[data-action="graph-overview"]').click();
   await page.locator('[data-action="graph-reset"]').click();
-  assert.equal(await menu.getAttribute('open'), null);
-  assert.equal(
-    await page.locator('.graph-scroll').evaluate((el) => document.activeElement === el),
-    true,
-    'pointer navigation keeps the existing viewport focus',
-  );
-  await summary.press('Enter');
-  await page.locator('[data-zoom="graph"]').click();
-  assert.equal(await menu.getAttribute('open'), null, 'outside click dismisses');
-  await summary.focus();
-  await summary.press('Enter');
-  await page.setViewportSize({ width: 1600, height: 1000 });
-  await page.waitForFunction(() => !document.querySelector('.graph-view-more'));
-  assert.equal(
-    await page
-      .locator('[data-action="graph-fit-selection"]')
-      .evaluate((el) => document.activeElement === el),
-    true,
-  );
-  await page.setViewportSize({ width, height: 720 });
-  await page.waitForSelector('.graph-view-more');
-  assert.equal(await summary.evaluate((el) => document.activeElement === el), true);
-  assert.equal(await menu.getAttribute('open'), null, 'resize does not reopen stale More');
-  await checkVisibleControls();
-  assert.equal(
-    await encoded(),
-    before,
-    'view commands and responsive layout do not author project changes',
-  );
+  assert.equal(await encoded(), before, 'view commands do not author project changes');
   assert.equal(await page.evaluate(() => JSON.stringify(window.nect.commandState)), commandBefore);
+  await ensureWorkspacePanel(page, 'inspector');
 };
+
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => typeof window.nect?.load === 'function');

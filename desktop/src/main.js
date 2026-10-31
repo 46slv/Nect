@@ -1,3 +1,4 @@
+import { workspaceIcon } from './ui-icons.js';
 import { samePrivateFontSource } from './private-font-source.js';
 import { createFontChoiceController } from './font-choice-controller.js';
 import {
@@ -75,7 +76,7 @@ import { anchorMarqueeIds } from './direct-anchor-marquee.js';
 import { anchorAlignments, pointAlignmentContext } from './point-alignment.js';
 import { anchorDistributions } from './point-distribution.js';
 import { ensureCommandMenus } from './command-menus.js';
-import { ensureGraphToolbarOverflow } from './graph-toolbar-overflow.js';
+import { ensureBoundaryControls, syncBoundaryViewerMode } from './boundary-controls.js';
 import { ensureBuildInfo } from './build-info.js';
 import { keyerInputPickContext, planKeyerInputPick } from './keyer-input-pick.js';
 import { openKeyerInputPicker } from './keyer-input-picker.js';
@@ -1155,6 +1156,7 @@ let history = session.historyView,
   pan = [0, 0],
   graphHeight = 42,
   graphZoom = 1,
+  graphFitInset = 0,
   graphOverviewOpen = false,
   graphOverviewObserver = null,
   graphOverviewNodes = null,
@@ -2600,7 +2602,7 @@ function field(n, key, q, inspector = false) {
       )
       .join('');
   if (angleDial && !q.source && !q.expression) control += repeaterAngleControl(n, q);
-  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2', 'Color'].includes(q.type) ? `<button class="mini" data-fx title="Expression and parameter references: Vector2 uses X; Y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name + (q.sourcePort ? ' ' + (outputPorts(source).find((p) => p.id === q.sourcePort)?.label || q.sourcePort) : ''))} · connected value</span>` : ''}</div>`;
+  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2', 'Color'].includes(q.type) ? `<button class="mini" data-fx aria-label="Expression and parameter references: ${esc(n.name + ' ' + name)}" title="Expression and parameter references: Vector2 uses X; Y">${workspaceIcon('expression')}</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name + (q.sourcePort ? ' ' + (outputPorts(source).find((p) => p.id === q.sourcePort)?.label || q.sourcePort) : ''))} · connected value</span>` : ''}</div>`;
 }
 // Presentation-only state; Canvas selection remains the single point selection owner.
 const pointPanelViews = new Map();
@@ -3914,6 +3916,10 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   graphPanJoystick?.destroy();
   graphPanJoystick = null;
   const exportPresetsOpen = app.querySelector('#export-presets')?.open ?? false;
+  const previousOutputSettings = app.querySelector('[data-output-settings]');
+  const outputSettingsOpen = previousOutputSettings?.open ?? false;
+  const outputMenuOpen =
+    outputSettingsOpen && !!previousOutputSettings?.closest('.command-menu')?.open;
   const pointScroll =
     !resetView && document.activeElement?.closest('.point-panel')
       ? [...app.querySelectorAll('.point-panel-rows')].map((el) => el.scrollTop)
@@ -3984,23 +3990,23 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
           )
           .join('')}</select></label>`
       : ''
-  }<button data-action="add-composition">Add composition</button><button data-action="asset-library">Assets</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the active Composition with imported SVG; other Compositions and shared assets are kept">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button><details class="recovery-failures" data-recovery-failures hidden><summary>Recovery failed</summary><div class="command-menu-items"><select data-recovery-failed-target aria-label="Failed recovery document"></select><button data-recovery-retry-target>Retry document</button></div></details>' : ''}<button data-action="export">Export SVG</button><select id="svg-export-sizing" data-svg-export-sizing aria-label="SVG output sizing"><option value="fixed" ${svgExportSizing === 'fixed' ? 'selected' : ''}>Fixed</option><option value="responsive" ${svgExportSizing === 'responsive' ? 'selected' : ''}>Responsive</option></select><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units" ${svgExportSizing === 'fixed' ? '' : 'hidden'}>${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="svg-export-precision" data-svg-export-precision aria-label="SVG geometry precision" title="Round geometry numbers in the SVG copy; Default keeps the current output"><option value="default" ${svgExportPrecision === 'default' ? 'selected' : ''}>Default</option>${SVG_EXPORT_PRECISIONS.map((digits) => `<option value="${digits}" ${String(digits) === svgExportPrecision ? 'selected' : ''}>${digits} decimals</option>`).join('')}</select><select id="png-export-mode" aria-label="PNG size mode" title="Choose scale or physical PPI"><option value="scale" ${pngExportMode === 'scale' ? 'selected' : ''}>Scale</option><option value="ppi" ${pngExportMode === 'ppi' ? 'selected' : ''}>Physical × PPI</option></select><select id="png-scale" aria-label="PNG export scale" ${pngExportMode === 'scale' ? '' : 'hidden'}>${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${v === pngScale ? 'selected' : ''}>${v}×</option>`).join('')}</select><label ${pngExportMode === 'ppi' ? '' : 'hidden'}>PPI<input id="png-ppi" type="number" step="any" value="${Number.isFinite(pngPpi) ? pngPpi : ''}" aria-label="PNG resolution (PPI)"></label><output data-png-dimensions data-valid="${!!pngPreview.size}" aria-label="PNG output dimensions" aria-live="polite">${esc(pngPreview.label)}</output><button data-action="export-png" ${pngPreview.size ? '' : 'disabled'} title="Transparent artboard · ${esc(pngPreview.label)}">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
-    ['direct', 'A', 'Direct selection (A)'],
-    ['select', '↖', 'Select / move'],
-    ['pen', '⌁', 'Pen / Curve'],
-    ['Circle', '○', 'Add Circle'],
-    ['Rectangle', '□', 'Add Rectangle'],
-    ['Polygon', '⬡', 'Add Polygon'],
-    ['Star', '☆', 'Add Star'],
-    ['Text', 'T', 'Horizontal Text'],
+  }<button data-action="add-composition">Add composition</button><button data-action="asset-library">${workspaceIcon('assets')}<span>Assets</span></button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the active Composition with imported SVG; other Compositions and shared assets are kept">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button><details class="recovery-failures" data-recovery-failures hidden><summary>Recovery failed</summary><div class="command-menu-items"><select data-recovery-failed-target aria-label="Failed recovery document"></select><button data-recovery-retry-target>Retry document</button></div></details>' : ''}<button data-action="export">Export SVG</button><select id="svg-export-sizing" data-svg-export-sizing aria-label="SVG output sizing"><option value="fixed" ${svgExportSizing === 'fixed' ? 'selected' : ''}>Fixed</option><option value="responsive" ${svgExportSizing === 'responsive' ? 'selected' : ''}>Responsive</option></select><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units" ${svgExportSizing === 'fixed' ? '' : 'hidden'}>${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="svg-export-precision" data-svg-export-precision aria-label="SVG geometry precision" title="Round geometry numbers in the SVG copy; Default keeps the current output"><option value="default" ${svgExportPrecision === 'default' ? 'selected' : ''}>Default</option>${SVG_EXPORT_PRECISIONS.map((digits) => `<option value="${digits}" ${String(digits) === svgExportPrecision ? 'selected' : ''}>${digits} decimals</option>`).join('')}</select><select id="png-export-mode" aria-label="PNG size mode" title="Choose scale or physical PPI"><option value="scale" ${pngExportMode === 'scale' ? 'selected' : ''}>Scale</option><option value="ppi" ${pngExportMode === 'ppi' ? 'selected' : ''}>Physical × PPI</option></select><select id="png-scale" aria-label="PNG export scale" ${pngExportMode === 'scale' ? '' : 'hidden'}>${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${v === pngScale ? 'selected' : ''}>${v}×</option>`).join('')}</select><label ${pngExportMode === 'ppi' ? '' : 'hidden'}>PPI<input id="png-ppi" type="number" step="any" value="${Number.isFinite(pngPpi) ? pngPpi : ''}" aria-label="PNG resolution (PPI)"></label><output data-png-dimensions data-valid="${!!pngPreview.size}" aria-label="PNG output dimensions" aria-live="polite">${esc(pngPreview.label)}</output><button data-action="export-png" ${pngPreview.size ? '' : 'disabled'} title="Transparent artboard · ${esc(pngPreview.label)}">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">${workspaceIcon('undo')}<span>Undo</span></button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">${workspaceIcon('redo')}<span>Redo</span></button><span class="spacer"></span><span class="muted" data-document-title>${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
+    ['direct', 'Direct selection (A)'],
+    ['select', 'Select / move'],
+    ['pen', 'Pen / Curve'],
+    ['Circle', 'Add Circle'],
+    ['Rectangle', 'Add Rectangle'],
+    ['Polygon', 'Add Polygon'],
+    ['Star', 'Add Star'],
+    ['Text', 'Horizontal Text'],
   ]
     .map(
-      ([id, icon, label]) =>
-        `<button data-tool="${id}" title="${label}" aria-label="${label}" class="${tool === id ? 'active' : ''}">${icon}</button>`,
+      ([id, label]) =>
+        `<button data-tool="${id}" title="${label}" aria-label="${label}" aria-pressed="${tool === id}" class="${tool === id ? 'active' : ''}">${workspaceIcon(id)}</button>`,
     )
     .join(
       '',
-    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard, grid and 45° directions; hold Alt to bypass">Snap</button><button data-action="align-panel" aria-pressed="${workspacePanels.active.right === 'align'}" title="Show alignment panel">Align</button><button data-action="grid-panel" aria-expanded="${gridOpen}">Grid</button><button data-action="layout-panel" aria-expanded="${layoutOpen}">Layout Grid</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span data-artboard-size aria-label="Artboard size">${formatDocumentLength(doc.width, artboardUnit)} &#215; ${formatDocumentLength(doc.height, artboardUnit)} ${artboardUnit}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${gridPanel()}${layoutOpen ? `<section class="guides-panel" aria-label="Layout Grid">${layoutPanel()}</section>` : ''}${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Alt or Ctrl/Cmd+wheel: zoom · Space or middle drag: pan; Select blank drag: bounds overlap; Shift adds"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
+    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><div class="canvas-toolbar-group" role="group" aria-label="Zoom"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button></div><div class="canvas-toolbar-group" role="group" aria-label="Editing aids"><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard, grid and 45° directions; hold Alt to bypass">Snap</button><button data-action="align-panel" aria-pressed="${workspacePanels.active.right === 'align'}" title="Show alignment panel">Align</button></div><div class="canvas-toolbar-group" role="group" aria-label="Grid and guides"><button data-action="grid-panel" aria-expanded="${gridOpen}">Grid</button><button data-action="layout-panel" aria-expanded="${layoutOpen}">Layout Grid</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button></div><span data-artboard-size aria-label="Artboard size">${formatDocumentLength(doc.width, artboardUnit)} &#215; ${formatDocumentLength(doc.height, artboardUnit)} ${artboardUnit}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${gridPanel()}${layoutOpen ? `<section class="guides-panel" aria-label="Layout Grid">${layoutPanel()}</section>` : ''}${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Alt or Ctrl/Cmd+wheel: zoom · Space or middle drag: pan; Select blank drag: bounds overlap; Shift adds"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
     .filter(([x, r]) => layerShown(x) && r.path && !r.error)
     .map(([x, r]) => layerShape(x, r.path))
     .join(
@@ -4018,7 +4024,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     .reverse()
     .map(
       (x) =>
-        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${(artworkTarget ? artworkSelection.has(x.id) : x.id === l.id) ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${x.visible ? 'Hide' : 'Show'}</button><button class="layer-solo" data-layer-solo="${x.id}" aria-label="Solo layer: ${esc(x.name)}" aria-pressed="${x.solo === true}" title="Solo in preview and SVG/PNG; multiple allowed; Hide remains in effect">S</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" aria-pressed="${artworkTarget ? artworkSelection.has(x.id) : false}" title="${esc(x.name)} · Click to select; Shift-click to add/remove. Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
+        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${(artworkTarget ? artworkSelection.has(x.id) : x.id === l.id) ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${workspaceIcon(x.visible ? 'eye' : 'eye-off')}</button><button class="layer-solo" data-layer-solo="${x.id}" aria-label="Solo layer: ${esc(x.name)}" aria-pressed="${x.solo === true}" title="Solo in preview and SVG/PNG; multiple allowed; Hide remains in effect">S</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" aria-pressed="${artworkTarget ? artworkSelection.has(x.id) : false}" title="${esc(x.name)} · Click to select; Shift-click to add/remove. Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
     )
     .join(
       '',
@@ -4063,7 +4069,10 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     canAssign: selection.size === 1,
     busy: !!(penDraft || drag || wiring || composing || canvasTextEdit),
     evaluations: new Map(results.map(([layer, result]) => [layer.id, result])),
-    onModeChange: () => workspacePanels.refresh(),
+    onModeChange: () => {
+      workspacePanels.refresh();
+      syncBoundaryViewerMode(app);
+    },
   });
   const pngExportButton = app.querySelector('[data-action="export-png"]');
   if (pngExportButton) {
@@ -4113,6 +4122,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
       option.selected = characterEdit.selected.has(option.value);
   if (resetView) {
     graphZoom = 1;
+    graphFitInset = 0;
     canvasFit = true;
     pan = [0, 0];
   }
@@ -4131,7 +4141,13 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   // Finalize header geometry before fitting. Deferring menu compaction to the
   // observer changes the stage height between the two presses of a double-click.
   ensureCommandMenus(app, document);
-  ensureGraphToolbarOverflow(app, document);
+  const outputSettings = app.querySelector('[data-output-settings]');
+  if (outputSettings) {
+    outputSettings.open = outputSettingsOpen;
+    if (outputMenuOpen) outputSettings.closest('.command-menu').open = true;
+  }
+  ensureBoundaryControls(app, document);
+  workspacePanels.refresh();
   ensureBuildInfo(app, document);
   fitCanvas();
   compactTextInspector();
@@ -5477,10 +5493,11 @@ function updateGraphBounds(requiredScroll = null) {
   // Scale the rendered graph without relaying inherited CSS zoom through every
   // control. The outer space owns scroll extents, including both 16px margins.
   graph.style.transform = `scale(${graphZoom})`;
-  graph.style.left = graph.style.top = 16 * graphZoom + 'px';
+  graph.style.left = 16 * graphZoom + 'px';
+  graph.style.top = (16 + graphFitInset) * graphZoom + 'px';
   const space = graph.parentElement;
   space.style.width = (parseFloat(graph.style.width) + 32) * graphZoom + 'px';
-  space.style.height = (parseFloat(graph.style.height) + 32) * graphZoom + 'px';
+  space.style.height = (parseFloat(graph.style.height) + 32 + graphFitInset) * graphZoom + 'px';
 }
 function freePosition(type) {
   const measurements = {};
@@ -5634,6 +5651,7 @@ function sourceNavigationAction(button) {
       pointFocus = ticket.pointFocus;
     }
     graphZoom = ticket.graphZoom;
+    graphFitInset = ticket.graphFitInset ?? 0;
     render();
     const viewport = app.querySelector('.graph-scroll');
     const scroll = ticket.center.map((value, axis) =>
@@ -5693,6 +5711,7 @@ function sourceNavigationAction(button) {
       points: structuredClone(pointSelection),
       pointFocus: structuredClone(pointFocus),
       graphZoom,
+      graphFitInset,
       center: [
         (viewport.scrollLeft + viewport.clientWidth / 2) / graphZoom,
         (viewport.scrollTop + viewport.clientHeight / 2) / graphZoom,
@@ -6595,6 +6614,7 @@ async function openCompositionImportDialog() {
 function openAssetLibrary(focus = true) {
   mountAssetLibrary({
     focus,
+    initiallyHidden: true,
     onDragState: (dragging) => workspacePanels.setRetreat(dragging),
     resolveDrop: (event) => {
       const target = event.target;
@@ -6623,7 +6643,7 @@ function openAssetLibrary(focus = true) {
       return null;
     },
     onClose: () => {
-      workspacePanels.close('assets');
+      workspacePanels.close('assets', true, { animate: false });
     },
     capture: () => ({
       owner: session,
@@ -6884,6 +6904,7 @@ function replaceDocument(
   canvasFit = true;
   pan = [0, 0];
   graphZoom = 1;
+  graphFitInset = 0;
   tool = 'select';
   selectedGuide = null;
   activeLayer = initialLayerId(history.doc);
@@ -6909,6 +6930,7 @@ function compositionViewDefaults(doc) {
     canvasFit: true,
     pan: [0, 0],
     graphZoom: 1,
+    graphFitInset: 0,
     graphScroll: [0, 0],
     tool: 'select',
     guideIds: guideSettings(doc).guides.map((guide) => guide.id),
@@ -6930,6 +6952,7 @@ function saveCompositionViewState() {
     canvasFit,
     pan: [...pan],
     graphZoom,
+    graphFitInset,
     graphScroll: graph ? [graph.scrollLeft, graph.scrollTop] : [0, 0],
     tool,
     viewerState,
@@ -6956,6 +6979,7 @@ function restoreCompositionViewState() {
   canvasFit = state.canvasFit;
   pan = [...state.pan];
   graphZoom = state.graphZoom;
+  graphFitInset = state.graphFitInset ?? 0;
   tool = state.tool;
   viewerState = state.viewerState;
   return state.graphScroll;
@@ -7755,9 +7779,10 @@ app.addEventListener('click', async (e) => {
               const viewport = document.querySelector('.graph-scroll'),
                 card = document.querySelector(`.node[data-id="${node.id}"]`);
               const scroll = [
-                (node.position[0] + (card?.offsetWidth || node.width || 264) / 2) * graphZoom -
+                (node.position[0] + (card?.offsetWidth || node.width || 264) / 2 + 16) * graphZoom -
                   viewport.clientWidth / 2,
-                (node.position[1] + (card?.offsetHeight || 100) / 2) * graphZoom -
+                (node.position[1] + (card?.offsetHeight || 100) / 2 + 16 + graphFitInset) *
+                  graphZoom -
                   viewport.clientHeight / 2,
               ].map((value) => Math.max(0, value));
               updateGraphBounds(scroll);
@@ -7791,6 +7816,7 @@ app.addEventListener('click', async (e) => {
           break;
         case 'graph-reset':
           if (!navigationBusy()) {
+            graphFitInset = 0;
             zoomGraph(1);
             document.querySelector('.graph-scroll').scrollTo(0, 0);
           }
@@ -10731,7 +10757,7 @@ function graphOverviewGeometry(remeasure = true) {
   if (remeasure || !graphOverviewNodes)
     graphOverviewNodes = [...document.querySelectorAll('.graph .node')].map((el) => ({
       x: el.offsetLeft + 16,
-      y: el.offsetTop + 16,
+      y: el.offsetTop + 16 + graphFitInset,
       width: el.offsetWidth,
       height: el.offsetHeight,
     }));
@@ -10840,12 +10866,22 @@ function fitGraph(selectedOnly = false) {
     })),
   );
   if (!bounds) return;
-  const fit = fitScale(bounds, [viewport.clientWidth, viewport.clientHeight], 32, GRAPH_LIMITS);
+  // Fit reserves a fixed screen-space band for the permanent boundary controls.
+  // Express it in graph units so zoom anchoring and overview share one origin.
+  const safeTop = Math.min(38, Math.max(0, viewport.clientHeight - 1));
+  const fit = fitScale(
+    bounds,
+    [viewport.clientWidth, viewport.clientHeight - safeTop],
+    32,
+    GRAPH_LIMITS,
+  );
   graphZoom = fit.scale;
-  // Scroll space includes the scaled 16px margin as well as the cards.
+  graphFitInset = safeTop / graphZoom;
+  // Scroll space includes the 16px margin and this view-only inset.
   const scroll = [
     (bounds.x + bounds.width / 2 + 16) * graphZoom - viewport.clientWidth / 2,
-    (bounds.y + bounds.height / 2 + 16) * graphZoom - viewport.clientHeight / 2,
+    (bounds.y + bounds.height / 2 + 16 + graphFitInset) * graphZoom -
+      (viewport.clientHeight + safeTop) / 2,
   ];
   updateGraphBounds(scroll);
   viewport.scrollLeft = Math.max(0, scroll[0]);
@@ -14114,6 +14150,10 @@ document.addEventListener('keyup', (e) => {
   }
 });
 window.addEventListener('resize', fitCanvas);
+// Reconcile the initial fit after UI font metrics settle; manual navigation wins.
+void document.fonts?.ready?.then(() => {
+  if (canvasFit && !navigationBusy()) fitCanvas();
+});
 window.addEventListener('beforeunload', (e) => {
   if (!desktop && (documents.hasDraft() || documents.dirty || documents.saving)) {
     e.preventDefault();
@@ -14306,7 +14346,12 @@ document.addEventListener('click', (event) => {
   )
     return;
   if (event.target.closest('.command-menu')) return;
-  document.querySelectorAll('.command-menu[open]').forEach((menu) => (menu.open = false));
+  document.querySelectorAll('.command-menu[open]').forEach((menu) => {
+    const ownedFocus = menu.contains(document.activeElement);
+    menu.open = false;
+    if (ownedFocus && menu.contains(document.activeElement))
+      menu.querySelector('summary')?.focus({ preventScroll: true });
+  });
   if (
     event.target.closest(
       '.canvas-toolbar,.guides-panel,.alignment-panel,.workspace-panel-bar,.workspace-drawer,.asset-library,.shared-colors-panel',

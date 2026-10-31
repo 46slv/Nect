@@ -1,3 +1,5 @@
+import { revealNodePresets } from './helpers/boundary-controls.js';
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { chromium } from 'playwright-core';
@@ -26,13 +28,15 @@ try {
   assert.equal(await saved(), original, 'Cancel keeps the complete project');
 
   // Real graph selection and preset controls exercise the schema-50 save path.
-  await page.locator('[data-action="graph-fit"]').click();
+  await activateBoundaryCommand(page, 'graph-fit');
   const sourceIds = ['example-image', 'example-keyer', 'example-mask-shape', 'example-mask'];
   for (const [index, id] of sourceIds.entries())
     await page.locator(`.node[data-id="${id}"] .node-head strong`).click({
       modifiers: index ? ['Shift'] : [],
     });
+  await revealNodePresets(page);
   await page.locator('#node-preset-name').fill('Feather UI preset');
+  await revealNodePresets(page);
   await page.locator('[data-action="save-node-preset"]').click();
   await page.waitForFunction(() => window.nect.projectSnapshot().nodePresets.length === 2);
   const presetSaved = await saved(),
@@ -43,7 +47,9 @@ try {
   assert.equal(await saved(), original);
   await page.locator('[data-action="redo"]').click();
   assert.equal(await saved(), presetSaved);
+  await revealNodePresets(page);
   await page.locator('#node-preset').selectOption(preset.id);
+  await revealNodePresets(page);
   await page.locator('[data-action="apply-node-preset"]').click();
   await page.waitForFunction(() => window.nect.document.layers[0].nodes.length === 10);
   const applied = await saved(),

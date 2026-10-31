@@ -1,3 +1,5 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { activateCommand } from './command-menu-actions.js';
 import { openMoreTypography } from './helpers/text-inspector.js';
 import { chromium } from 'playwright-core';
@@ -14,6 +16,8 @@ page.on('pageerror', (e) => errors.push(e.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   const example = await fs.readFile('examples/right-aligned-typography-group.json', 'utf8');
   await page.evaluate((s) => window.nect.load(s), example);
   const id = await page.evaluate(() => window.nect.document.layers[0].nodes[0].id);
@@ -51,12 +55,12 @@ try {
   assert.ok(Math.abs((await bounds())[0][0][2] - 780) > 0.01);
   await page.evaluate((s) => window.nect.load(s), example);
   // Canvas drag uses the unchanged Position parameter; snap resolves the generated visible bounds.
-  await page.getByRole('button', { name: 'Guides', exact: true }).click();
+  await activateBoundaryCommand(page, 'guides-panel');
   await page.getByRole('button', { name: '+ Vertical', exact: true }).click();
   const guide = page.getByRole('spinbutton', { name: 'Guide 1 position', exact: true });
   await guide.fill('800');
   await guide.press('Tab');
-  await page.getByRole('button', { name: 'Guides', exact: true }).click();
+  await activateBoundaryCommand(page, 'guides-panel');
   const snap = page.getByRole('button', { name: 'Snap', exact: true });
   if ((await snap.getAttribute('aria-pressed')) !== 'true') await snap.click();
   const screen = async (x, y) =>

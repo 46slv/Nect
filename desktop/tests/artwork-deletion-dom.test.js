@@ -5,6 +5,7 @@ import { Window } from 'happy-dom';
 import { blankLayer, document as makeDoc, serialize } from '../src/core.js';
 import { appendArtwork } from '../src/artwork-creation.js';
 import { deletionDocument, unsupportedLayer } from './fixtures/artwork-deletion.js';
+import { openDOMPanel, revealDOMBoundary } from './helpers/dom-workspace-controls.js';
 
 test('whole-artwork layer deletion is exact, undoable and safely scoped in the editor', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
@@ -80,6 +81,9 @@ test('whole-artwork layer deletion is exact, undoable and safely scoped in the e
       flush();
     },
     click = (selector) => {
+      if (/^\[data-(?:select|delete)-layer/.test(selector)) openDOMPanel(document, 'layers');
+      if (selector.startsWith('[data-character-mode=')) openDOMPanel(document, 'inspector');
+      if (selector === '[data-action="guides-panel"]') revealDOMBoundary(document, 'canvas');
       $(selector).click();
       flush();
     },

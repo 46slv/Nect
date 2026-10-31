@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -61,6 +62,8 @@ try {
     });
     page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
     await page.goto(`http://127.0.0.1:${server.address().port}`);
+    // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+    await ensureWorkspacePanel(page, 'inspector');
   }
   page.on('pageerror', (e) => errors.push(e.message));
   await page.waitForFunction(() => window.nect);

@@ -1,3 +1,5 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 // Production bundle/CSP. Slow/failing disk is an explicit IPC fixture.
 import assert from 'node:assert/strict';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
@@ -105,6 +107,8 @@ try {
   });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   await page.waitForFunction(() => window.nect);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await page.evaluate((s) => window.nect.load(s), serialize(d));
   const output = process.env.NECT_TEST_OUTPUT || 'test-results/recovery-failed-context';
   await mkdir(output, { recursive: true });
@@ -125,7 +129,7 @@ try {
     }));
   await saved();
   const tokenA = await page.evaluate(() => window.recoveryWrites.at(-1).id);
-  await page.locator('[data-action="graph-fit"]').click();
+  await activateBoundaryCommand(page, 'graph-fit');
   await page.locator('.graph .node[data-id="' + circle.id + '"] .node-head .type-tag').click();
   await page.evaluate(() => {
     window.diskMode = 'hold-fail';

@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -12,7 +13,7 @@ const page = await browser.newPage({
 });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-const click = (action) => page.locator(`[data-action="${action}"]`).click();
+const click = (action) => activateBoundaryCommand(page, action);
 const choose = (choice) => page.locator(`dialog button[value="${choice}"]`).click();
 const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document));
 try {

@@ -60,6 +60,7 @@ try {
   const legacy = JSON.parse(original);
   legacy.schemaVersion = 7;
   await page.evaluate((json) => window.nect.load(json), JSON.stringify(legacy));
+  await ensureWorkspacePanel(page, 'inspector');
   const legacyBefore = await saved();
   await field('text-wrap').selectOption('width');
   assert.deepEqual((await read()).textWrap, { width: 320 });

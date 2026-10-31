@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -130,6 +131,7 @@ test(
     };
     const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-10, `${a} != ${b}`);
     fixture(0);
+    openDOMPanel(document, 'inspector');
     input().value = '725';
     input().dispatchEvent(new win.Event('change', { bubbles: true }));
     // End any deferred field render before acquiring the stable pointer target.

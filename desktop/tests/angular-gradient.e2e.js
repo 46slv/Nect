@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -14,6 +15,8 @@ page.on('dialog', (dialog) => dialog.accept());
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await fs.mkdir('test-results', { recursive: true });
   const id = await page.evaluate(async () => {
     const { blankDocument, node, connect } = await import('/src/core.js');

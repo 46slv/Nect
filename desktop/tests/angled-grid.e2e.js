@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 // Native Tauri/WebView2 renderer; CDP synthetic input, not OS input.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -40,7 +41,7 @@ try {
     }));
   const openGrid = async () => {
     if (!(await $('[data-guide-setting="gridAngle"]').count()))
-      await $('[data-action="grid-panel"]').click();
+      await activateBoundaryCommand(page, 'grid-panel');
   };
   const center = async () =>
     page.evaluate(
@@ -97,8 +98,8 @@ try {
         assert.deepEqual(cancelled[key], prior[key], key);
     }
     await page.keyboard.press('Escape');
-    await $('[data-action="actual-size"]').click();
-    if (c.zoom === 120) await $('[data-action="zoom-in"]').click();
+    await activateBoundaryCommand(page, 'actual-size');
+    if (c.zoom === 120) await activateBoundaryCommand(page, 'zoom-in');
     const stage = await $('.canvas-stage').boundingBox();
     await page.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 2);
     await page.mouse.wheel(...c.pan);

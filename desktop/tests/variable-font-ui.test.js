@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
@@ -80,6 +81,7 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
   doc.layers[0].nodes = [text, out];
   doc.layers[0].output = out.id;
   win.nect.load(serialize(doc));
+  openDOMPanel(document, 'inspector');
   const snapshot = () => JSON.stringify(win.nect.document);
   const current = () => win.nect.document.layers[0].nodes[0];
   const status = () => document.querySelector('.message').textContent;

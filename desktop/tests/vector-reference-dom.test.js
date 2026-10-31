@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -55,6 +56,7 @@ test('Reference UI: typed picker, diagnostics, atomic cycles, jump, multi-copy, 
     await tick();
   };
   await load();
+  openDOMPanel(document, 'inspector');
   const saved = () => JSON.stringify(win.nect.document),
     get = (id) => win.nect.document.layers[0].nodes.find((n) => n.id === id),
     picker = () => document.querySelector('.inspector-body [data-reference-target]'),

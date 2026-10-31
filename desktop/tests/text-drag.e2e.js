@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import assert from 'node:assert/strict';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -137,7 +138,7 @@ try {
     // Test final artwork, not the explicit pre-transform source-stage marker.
     await page.locator(`.graph .node[data-id="${f.out.id}"] .node-head .type-tag`).click();
     if (options.zoom) {
-      await page.locator('[data-action="actual-size"]').click();
+      await activateBoundaryCommand(page, 'actual-size');
       await page.locator(`[data-action="zoom-${options.zoom}"]`).click();
     }
     const before = await page.evaluate(() => JSON.stringify(window.nect.document)),

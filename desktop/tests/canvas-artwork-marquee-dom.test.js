@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -88,6 +89,7 @@ test('Canvas whole-artwork marquee stays detached until release', async (t) => {
     future: ui().future,
   });
   const clickLayer = (id, shift = false) => {
+    openDOMPanel(document, 'layers');
     $(`[data-select-layer="${id}"]`).dispatchEvent(
       new win.MouseEvent('click', { bubbles: true, shiftKey: shift }),
     );

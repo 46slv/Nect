@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { chromium } from 'playwright-core';
@@ -102,6 +103,8 @@ const choose = async () => {
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5205');
   await page.waitForFunction(() => window.nect);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   for (const type of ['Curve', 'Multi Path'])
     for (const mode of ['corner', 'smooth', 'symmetric']) {
       await seed(type, mode);

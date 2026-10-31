@@ -34,10 +34,9 @@ test('synthetic menu observers retain active delivery across GC and release it o
       await win.happyDOM.waitUntilComplete();
       assert.equal(deliveries, phase + 1);
       assert.equal(observer.retainedCallbackCount, 1);
-      assert.deepEqual(
-        [...app.querySelectorAll('.command-menu > summary')].map(el => el.textContent),
-        ['Project', 'Import', 'Export'],
-      );
+      assert.ok(app.querySelector('.command-menu [data-action="import-svg"]'), 'real command was rebuilt');
+      const settings = app.querySelector('[data-output-settings]');
+      assert.ok(settings && settings.closest('.command-menu'), 'settings remain nested in an actual menu');
     }
     observer.disconnect();
     assert.equal(observer.retainedCallbackCount, 0);

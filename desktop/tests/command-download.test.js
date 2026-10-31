@@ -31,7 +31,7 @@ function fixture(action, { open = false, activate, pending = deferred() } = {}) 
         return open ? '' : null;
       },
       locator(selector) {
-        if (selector === 'summary')
+        if (selector === ':scope > summary')
           return {
             async click() {
               calls.push(label);

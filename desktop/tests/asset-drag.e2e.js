@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 // Run against `npm run dev`: BASE_URL=http://127.0.0.1:5173 node tests/asset-drag.e2e.js
 // Fixtures use the browser's real directory picker; placement uses native HTML drag events.
 import assert from 'node:assert/strict';
@@ -105,8 +106,7 @@ try {
     );
   };
   const ensurePanel = async () => {
-    if (!(await panel.count()))
-      await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
+    await ensureWorkspacePanel(page, 'assets');
     await panel.waitFor({ state: 'visible' });
   };
   const reset = async () => {
@@ -120,8 +120,8 @@ try {
     }
     await page.evaluate((text) => window.nect.load(text), serialize(doc));
     await ensurePanel();
-    await page.locator('[data-action="graph-reset"]').click();
-    await page.locator('[data-action="fit"]').click();
+    await activateBoundaryCommand(page, 'graph-reset');
+    await activateBoundaryCommand(page, 'fit');
     assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
     return model();
   };
@@ -186,6 +186,7 @@ try {
     await page.waitForFunction(
       () => document.querySelector('[data-asset-library]')?.style.opacity === '0',
     );
+    assert.equal(await page.locator('.workspace-panel-bar[data-dragging="true"]').count(), 2);
     return before;
   };
   const finishDrag = async (point) => {
@@ -245,10 +246,16 @@ try {
   await startDrag('drag-mark.svg');
   const beforeCancelScroll = await grid.evaluate((el) => el.scrollTop);
   assert.ok(beforeCancelScroll > 0, 'native drag starts from a scrolled grid');
+  await page.mouse.move(page.viewportSize().width / 2, page.viewportSize().height / 2);
   await page.keyboard.press('Escape');
   await page.mouse.up();
   await page.waitForFunction(
     () => document.querySelector('[data-asset-library]')?.style.opacity !== '0',
+  );
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('.workspace-panel-bar')].every(
+      (bar) => bar.dataset.dragging === 'false' && bar.dataset.near !== 'true',
+    ),
   );
   assert.equal(
     await page.evaluate(
@@ -279,7 +286,7 @@ try {
       await panel.getByLabel('Asset license', { exact: true }).fill('Self-authored drag fixture');
       if (isSVG) await panel.getByLabel('Join before Out', { exact: true }).check();
       if (route === 'graph') {
-        await page.locator('[data-action="graph-zoom-out"]').click();
+        await activateBoundaryCommand(page, 'graph-zoom-out');
         await page.locator('.graph-scroll').evaluate((el) => el.scrollTo(110, 70));
       }
       const originalExport = await page.evaluate(() => window.nect.export());
@@ -365,7 +372,6 @@ try {
   await activateCommand(page, 'undo');
   assert.equal(await page.locator('[data-action="redo"]').isDisabled(), false);
   for (const reason of ['unsupported-target', 'Escape']) {
-    if (reason === 'unsupported-target') await ensureWorkspacePanel(page, 'layers');
     const before = await state();
     const eventIndex = await startDrag('drag-mark.svg');
     if (reason === 'Escape') {
@@ -373,7 +379,7 @@ try {
       await page.keyboard.press('Escape');
       await page.mouse.up();
     } else {
-      const box = await page.locator('.layers .panel-head').boundingBox();
+      const box = await page.locator('#app > header').boundingBox();
       await finishDrag([box.x + 35, box.y + box.height / 2]);
     }
     await page.waitForFunction(
@@ -422,13 +428,19 @@ try {
         replacement.name = 'Newer document must survive';
         await page.evaluate((text) => window.nect.load(text), serialize(replacement));
       } else if (reason === 'stale-selection') {
+        await ensureWorkspacePanel(page, 'layers');
         await page.locator(`[data-select-layer="${fixture.layers[1].id}"]`).click();
-        assert.equal(await page.locator('.graph-layer-name').textContent(), 'Other destination');
+        assert.equal(
+          await page.locator(`.graph .node[data-id="${fixture.layers[1].nodes[0].id}"]`).count(),
+          1,
+        );
         assert.equal(
           await saved(),
           JSON.stringify(fixture),
           'layer selection is not an authored edit',
         );
+        // Keep the opposite owner focused while the original Assets read completes.
+        await page.locator('[data-workspace-panel="layers"]').focus();
       } else await panel.getByRole('button', { name: 'Close assets', exact: true }).click();
       const protectedState = await state();
       await releaseRead();
@@ -441,6 +453,20 @@ try {
           document.querySelector('[data-asset-status]')?.textContent.includes('Document changed'),
         );
         assert.equal(await status.getAttribute('data-error'), 'true');
+        if (reason === 'stale-selection') {
+          const layers = page.locator('[data-workspace-panel="layers"]');
+          assert.equal(await layers.getAttribute('aria-expanded'), 'true');
+          assert.equal(
+            await page.locator('[data-workspace-panel="assets"]').getAttribute('aria-expanded'),
+            'false',
+          );
+          assert.equal(await panel.evaluate((el) => !!el.closest('[inert]')), true);
+          assert.equal(
+            await layers.evaluate((el) => el === document.activeElement),
+            true,
+            'a late Assets read does not steal focus or reactivate its drawer',
+          );
+        }
       }
       assert.deepEqual(await state(), protectedState, `${reason} rejects the entire pending drop`);
       results.guards.push(reason);

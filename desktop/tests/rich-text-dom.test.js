@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -70,6 +71,7 @@ test('selected typography UI: range capture, atomic font/size/width, mixed/inher
   doc.layers[0].nodes = [t, out];
   doc.layers[0].output = out.id;
   win.nect.load(serialize(doc));
+  openDOMPanel(document, 'inspector');
   await until(() => win.nect.evaluate().error === null);
   assert.equal(win.nect.document.schemaVersion, 2);
   const get = () => win.nect.document.layers[0].nodes[0],

@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 // Native WebView2 CDP synthetic; generated SVG -> native Canvas PNG, no OS save claim.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -38,7 +39,7 @@ try {
         command: window.nect.commandState,
       }));
   await page.evaluate((s) => window.nect.load(s), serialize(f.doc));
-  await $('[data-action="graph-fit"]').click();
+  await activateBoundaryCommand(page, 'graph-fit');
   await $(`.graph .node[data-id="${f.keyer.id}"] .node-head strong`).click();
   const exportPNG = async (name) => {
       const data = await page.evaluate(async () => {

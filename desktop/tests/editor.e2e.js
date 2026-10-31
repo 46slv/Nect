@@ -60,6 +60,7 @@ try {
   await assertBorderSockets();
   await fs.mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/editor-initial-1600x900.png', fullPage: true });
+  await ensureWorkspacePanel(page, 'inspector');
   const vectorBoxes = await page
     .locator('.inspector-body .field[data-type="Vector2"] .field-controls > input')
     .evaluateAll((els) =>

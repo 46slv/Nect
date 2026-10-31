@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
@@ -39,20 +40,20 @@ try {
   await page.waitForSelector('.shape');
   await page.waitForTimeout(300);
   const originalSVG = await page.evaluate(() => window.nect.export());
-  await page.getByRole('button', { name: 'Guides', exact: true }).click();
+  await activateBoundaryCommand(page, 'guides-panel');
   await page.getByRole('button', { name: '+ Vertical', exact: true }).click();
   await edit('Guide 1 position', 600);
   await page.getByRole('button', { name: '+ Horizontal', exact: true }).click();
   await edit('Guide 2 position', 200);
-  await page.getByRole('button', { name: 'Grid', exact: true }).click();
+  await activateBoundaryCommand(page, 'grid-panel');
   await page.getByLabel('Show grid', { exact: true }).check();
   await edit('Grid spacing', 20);
-  await page.getByRole('button', { name: 'Grid', exact: true }).click();
-  await page.getByRole('button', { name: 'Snap', exact: true }).click();
+  await activateBoundaryCommand(page, 'grid-panel');
+  await activateBoundaryCommand(page, 'snap');
   assert.equal(await page.evaluate(() => window.nect.export()), originalSVG);
   await fs.mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/guides-panel-1600x1000.png', fullPage: true });
-  await page.getByRole('button', { name: 'Guides', exact: true }).click();
+  await activateBoundaryCommand(page, 'guides-panel');
   const before = await snapshot();
   await move(600, 400);
   await page.mouse.down();
@@ -69,12 +70,12 @@ try {
   assert.equal((await model()).editor.guides[0].position, 600);
   await page.getByTitle('Ctrl+Shift+Z', { exact: true }).click();
   assert.ok(Math.abs((await model()).editor.guides[0].position - 650) < 0.01);
-  await page.getByRole('button', { name: 'Guides', exact: true }).click();
+  await activateBoundaryCommand(page, 'guides-panel');
   await page.getByRole('button', { name: 'Lock guide 1', exact: true }).click();
   assert.ok(
     await page.getByRole('spinbutton', { name: 'Guide 1 position', exact: true }).isDisabled(),
   );
-  await page.getByRole('button', { name: 'Guides', exact: true }).click();
+  await activateBoundaryCommand(page, 'guides-panel');
   const locked = await snapshot();
   await move(650, 400);
   await page.mouse.down();
@@ -120,9 +121,9 @@ try {
   assert.ok(Math.abs((await model()).layers[0].nodes[0].params.center.value[0] - 358) < 0.01);
   await page.getByTitle('Ctrl+Z', { exact: true }).click();
   // Visibility and lock semantics survive JSON reload; hidden guides cannot attract.
-  await page.getByRole('button', { name: 'Guides', exact: true }).click();
+  await activateBoundaryCommand(page, 'guides-panel');
   await page.getByLabel('Show guides', { exact: true }).uncheck();
-  await page.getByRole('button', { name: 'Guides', exact: true }).click();
+  await activateBoundaryCommand(page, 'guides-panel');
   assert.equal(await page.locator('.editing-guide').count(), 0);
   await move(...sourcePoint);
   await page.mouse.down();
@@ -130,11 +131,11 @@ try {
   await page.mouse.up();
   assert.ok(Math.abs((await model()).layers[0].nodes[0].params.center.value[0] - 358) < 0.01);
   await page.getByTitle('Ctrl+Z', { exact: true }).click();
-  await page.getByRole('button', { name: 'Guides', exact: true }).click();
+  await activateBoundaryCommand(page, 'guides-panel');
   await page.getByLabel('Show guides', { exact: true }).check();
   await page.getByLabel('Snap artboard', { exact: true }).check();
   await page.getByLabel('Snap guides', { exact: true }).uncheck();
-  await page.getByRole('button', { name: 'Guides', exact: true }).click();
+  await activateBoundaryCommand(page, 'guides-panel');
   await move(...sourcePoint);
   await page.mouse.down();
   await move(sourcePoint[0] + 8, sourcePoint[1]);
@@ -142,8 +143,8 @@ try {
   assert.equal((await model()).layers[0].nodes[0].params.center.value[0], 360);
   await page.getByTitle('Ctrl+Z', { exact: true }).click();
   // Screen-pixel threshold remains constant after zooming.
-  await page.getByRole('button', { name: 'Artboard zoom in', exact: true }).click();
-  await page.getByRole('button', { name: 'Artboard zoom in', exact: true }).click();
+  await activateBoundaryCommand(page, 'zoom-in');
+  await activateBoundaryCommand(page, 'zoom-in');
   const scale = await page.locator('.artboard').evaluate((el) => el.getScreenCTM().a);
   sourcePoint = await sourcePointAt();
   await move(...sourcePoint);
@@ -160,7 +161,7 @@ try {
     Math.abs((await model()).layers[0].nodes[0].params.center.value[0] - (360 - 8 / scale)) < 0.01,
   );
   await page.getByTitle('Ctrl+Z', { exact: true }).click();
-  await page.getByRole('button', { name: 'Fit artboard', exact: true }).click();
+  await activateBoundaryCommand(page, 'fit');
   const saved = await snapshot(),
     svg = await page.evaluate(() => window.nect.export());
   await page.evaluate((text) => window.nect.load(text), saved);
@@ -168,7 +169,7 @@ try {
   assert.equal(await page.evaluate(() => window.nect.export()), svg);
   assert.ok(!svg.includes('guide') && !svg.includes('pattern'));
   // Delete in a number input edits the field, not a guide or generator.
-  await page.getByRole('button', { name: 'Guides', exact: true }).click();
+  await activateBoundaryCommand(page, 'guides-panel');
   await page.getByRole('button', { name: 'Select guide 2', exact: true }).click();
   const input = page.getByRole('spinbutton', { name: 'Guide 2 position', exact: true });
   await input.focus();

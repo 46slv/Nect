@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
@@ -127,7 +128,9 @@ test('stroke controls: cap, join, dash validation, numeric bounds, parity and hi
   await tick();
   assert.equal(miter().value, '4');
   const layer = win.nect.document.layers[0].id;
+  openDOMPanel(document, 'layers');
   document.querySelector(`[data-layer-lock="${layer}"]`).click();
+  openDOMPanel(document, 'inspector');
   await tick();
   const lockedDash = [...strokeNode().strokeDash];
   await change(control('preset'), 'dotted');

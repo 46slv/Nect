@@ -66,6 +66,7 @@ export function mountAssetLibrary({
   onClose = () => {},
   onDragState = () => {},
   focus = true,
+  initiallyHidden = false,
 }) {
   if (mounted) {
     if (focus) mounted.querySelector('[data-asset-search]').focus();
@@ -76,6 +77,7 @@ export function mountAssetLibrary({
     'aria-label': 'Graphic assets',
     'data-asset-library': '',
   });
+  panel.hidden = initiallyHidden;
   mounted = panel;
   let alive = true,
     epoch = 0,

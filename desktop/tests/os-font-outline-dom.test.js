@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -151,6 +152,7 @@ test('unified Font keeps native Text editable and explicit outlines reject cance
     return row;
   };
   const open = async () => {
+    openDOMPanel(document, 'inspector');
     $('.inspector-body [data-change-font]').click();
     await until(() => $('dialog[aria-label="Font"]'));
     const picker = $('dialog[aria-label="Font"]');

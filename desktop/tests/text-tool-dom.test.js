@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -140,7 +141,7 @@ test('Text Tool workspace selection and Canvas creation through production handl
       assert.equal($('[data-tool="select"]').classList.contains('active'), true);
       choose('vertical-rl');
       assert.equal(textButton().dataset.textVariant, 'vertical-rl');
-      assert.equal(textButton().textContent, 'T↧');
+      assert.equal(textButton().querySelector('svg').dataset.icon, 'Text-vertical');
       assert.equal(snapshot(), before);
       assert.deepEqual(state(), initial);
       $('[data-tool="select"]').click();
@@ -240,7 +241,8 @@ test('Text Tool workspace selection and Canvas creation through production handl
       key('ArrowDown');
       assert.equal(document.activeElement.dataset.textVariant, 'vertical-rl');
       key('Escape');
-      assert.equal(document.activeElement, textButton());
+      assert.equal(document.activeElement === textButton(), true, 'Text tool receives focus');
+      openDOMPanel(document, 'inspector');
       const field = $('textarea[data-text]');
       field.focus();
       key('ArrowDown', field);
@@ -251,7 +253,7 @@ test('Text Tool workspace selection and Canvas creation through production handl
       field.dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
       fire(textButton(), 'pointerdown');
       textButton().click();
-      assert.equal(document.activeElement, field);
+      assert.equal(document.activeElement === field, true, 'text input retains focus');
       assert.equal(snapshot(), before);
       field.value = existing.text;
       field.dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true }));

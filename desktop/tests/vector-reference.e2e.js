@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
@@ -25,6 +26,8 @@ const sample = await fs.readFile('examples/vector-reference-reuse.json', 'utf8')
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await load();
   assert.deepEqual(await read('reference-position'), [170, 200]);
   assert.deepEqual(await read('reference-offset'), await read('reference-wired'));

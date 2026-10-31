@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
@@ -120,6 +121,7 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   assert.equal(win.nect.export(), old);
   assert.throws(() => win.nect.load('{"schemaVersion":99}'));
   assert.equal(win.nect.export(), old);
+  openDOMPanel(document, 'layers');
   document.querySelector('[data-action="add-blank-layer"]').click();
   assert.equal(win.nect.document.layers.length, 2);
   assert.equal(document.querySelectorAll('.layer').length, 2);

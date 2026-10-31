@@ -18,7 +18,14 @@ const playwright = moduleURL(`
     },
   };
 `);
-const entrypoint = moduleURL(source.replace("from 'playwright-core'", `from '${playwright}'`));
+const entrypoint = moduleURL(
+  source
+    .replace("from 'playwright-core'", `from '${playwright}'`)
+    .replace(
+      "from './helpers/boundary-controls.js'",
+      `from '${new URL('./helpers/boundary-controls.js', import.meta.url).href}'`,
+    ),
+);
 
 for (const [name, baseURL, expected] of [
   ['unset BASE_URL uses the workflow Vite origin', undefined, 'http://127.0.0.1:5173'],

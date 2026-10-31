@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { chromium } from 'playwright-core';
 import { openArtworkPanel } from './helpers/artwork-panels.js';
@@ -111,7 +112,7 @@ try {
   await drag([398, 180]);
   assert.equal((await pos())[0], 400);
   await undo();
-  await page.locator('[data-action="guides-panel"]').click();
+  await activateBoundaryCommand(page, 'guides-panel');
   await page.locator('[data-guide-setting="snapArtwork"]').uncheck();
   await drag([398, 158]);
   near(await pos(), [398, 158]);
@@ -131,7 +132,7 @@ try {
   await undo();
   // Pan/zoom keep the tolerance in screen pixels.
   await load();
-  await page.locator('[data-action="zoom-in"]').click();
+  await activateBoundaryCommand(page, 'zoom-in');
   const p = await screen([200, 400]);
   await page.mouse.move(...p);
   await page.mouse.down({ button: 'middle' });

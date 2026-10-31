@@ -1,3 +1,5 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { activateCommand } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
@@ -13,6 +15,8 @@ page.on('pageerror', (e) => errors.push(e.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   const sample = await fs.readFile('examples/character-transform.json', 'utf8');
   const load = async (s = sample) => {
     await page.evaluate((s) => window.nect.load(s), s);
@@ -104,7 +108,7 @@ try {
   assert.equal(await saved(), scaled);
   await mode();
   await select(['c2']);
-  await page.locator('[data-action="zoom-in"]').click();
+  await activateBoundaryCommand(page, 'zoom-in');
   const f = await floating.boundingBox(),
     s = await page.locator('.canvas-stage').boundingBox();
   assert.ok(
@@ -113,7 +117,7 @@ try {
       f.x + f.width <= s.x + s.width + 1 &&
       f.y + f.height <= s.y + s.height + 1,
   );
-  await page.locator('[data-action="fit"]').click();
+  await activateBoundaryCommand(page, 'fit');
   await fs.mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/workflow-character-transform-horizontal.png' });
   const expectedSVG = await page.evaluate(() => window.nect.export());

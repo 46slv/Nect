@@ -230,26 +230,22 @@ test('Pen finish shortcuts leave native menu activation intact', async (rawT) =>
       `compact graph disclosure preserves ${pressed ? 'held' : 'released'} Pen draft and view guards`,
       async () => {
         await start(2, pressed);
-        const toolbar = $('.graph-toolbar');
-        toolbar.getBoundingClientRect = () => ({ width: 591 });
-        win.dispatchEvent(new win.Event('resize'));
-        const menu = toolbar.querySelector('.graph-view-more'),
-          summary = menu.querySelector('summary'),
+        const toolbar = $('.graph-toolbar'),
+          toggle = toolbar.querySelector('[aria-label="Toggle node graph controls"]'),
           before = state(),
           projectBefore = win.nect.projectSnapshot(),
           documentBefore = saved(),
           zoomBefore = $('[data-zoom="graph"]').textContent;
-        summary.focus();
-        assert.equal(key(summary, 'Enter').defaultPrevented, false);
-        assert.equal(key(summary, ' ', { code: 'Space' }).defaultPrevented, false);
+        toggle.focus();
+        assert.equal(key(toggle, 'Enter').defaultPrevented, false);
+        assert.equal(key(toggle, ' ', { code: 'Space' }).defaultPrevented, false);
+        toggle.click();
+        assert.equal(toggle.getAttribute('aria-expanded'), 'true');
         for (const action of ['graph-fit-selection', 'graph-reset', 'graph-overview']) {
-          menu.open = true;
-          const button = menu.querySelector(`[data-action="${action}"]`);
+          const button = toolbar.querySelector(`[data-action="${action}"]`);
           button.focus();
           button.click();
           await Promise.resolve();
-          assert.equal(menu.open, false);
-          assert.equal(document.activeElement, summary);
           assert.deepEqual(state(), before, action);
           assert.deepEqual(win.nect.projectSnapshot(), projectBefore, action);
           assert.equal(saved(), documentBefore, action);
@@ -260,11 +256,15 @@ test('Pen finish shortcuts leave native menu activation intact', async (rawT) =>
               'held Pen owns its coordinates',
             );
         }
-        menu.open = true;
-        assert.equal(key(summary, 'Escape').defaultPrevented, true);
-        assert.equal(menu.open, false);
-        assert.equal(document.activeElement, summary);
-        assert.deepEqual(state(), before, 'Escape closes More rather than finishing the Pen draft');
+        toggle.focus();
+        assert.equal(key(toggle, 'Escape').defaultPrevented, true);
+        assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+        assert.equal(document.activeElement, toggle);
+        assert.deepEqual(
+          state(),
+          before,
+          'Escape closes boundary controls rather than finishing the Pen draft',
+        );
         assert.deepEqual(win.nect.projectSnapshot(), projectBefore);
         $('[data-pen-cancel]').click();
       },

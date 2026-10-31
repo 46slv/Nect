@@ -27,6 +27,11 @@
   --line: #d8dde2;
   --muted: #5f6872;
   --selection: #526a7c;
+  --surface-workspace: #e9edf0;
+  --surface-pane-solid: #f8fafb;
+  --surface-pane: rgb(248 250 251 / 97%);
+  --surface-popover: #fff;
+  --surface-control: #fff;
 }
 * {
   box-sizing: border-box;
@@ -3335,7 +3340,7 @@ input[data-color-scrub-step] {
 .workspace-panel-bar-right {
   right: 0;
 }
-.workspace-panel-bar svg {
+.workspace-panel-bar > svg {
   position: absolute;
   width: 100%;
   height: min(228px, 100%);
@@ -3346,7 +3351,7 @@ input[data-color-scrub-step] {
   stroke: #b2c0ca;
   stroke-width: 0.8;
 }
-.workspace-panel-bar-right svg {
+.workspace-panel-bar-right > svg {
   transform: translateY(-50%) scaleX(-1);
 }
 .workspace-panel-bar button {
@@ -3479,7 +3484,7 @@ input[data-color-scrub-step] {
 .workspace-drawer-left .shared-colors-panel:has(.harmony-wheel) .auto-chroma-controls {
   --workspace-wheel-size: min(190px, max(72px, calc(var(--drawer-height, 500px) * 0.28)));
   flex: 1 1 0;
-  grid-template-rows: auto calc(var(--workspace-wheel-size) + 6px) auto auto minmax(60px, 1fr);
+  grid-template-rows: auto calc(var(--workspace-wheel-size) + 6px) auto auto minmax(0, 1fr);
   gap: 3px 8px;
 }
 .workspace-drawer-left .harmony-wheel {
@@ -3514,7 +3519,7 @@ input[data-color-scrub-step] {
 .workspace-panel-bar {
   overflow: hidden;
 }
-.workspace-panel-bar svg {
+.workspace-panel-bar > svg {
   height: 228px;
 }
 .workspace-panel-bar-left {
@@ -3654,4 +3659,698 @@ input[data-color-scrub-step] {
 }
 .workspace-panel-bar[hidden] {
   display: none !important;
+}
+
+/* Drawer motion never owns interaction state or workspace geometry. Engines
+   without discrete display transitions fall back to an immediate hide. */
+@supports (transition-behavior: allow-discrete) {
+  .workspace-drawer[data-motion-enabled='true'],
+  .asset-library.asset-library-docked[data-motion-enabled='true'] {
+    opacity: 1;
+    transition:
+      opacity 200ms ease-out,
+      display 200ms allow-discrete;
+  }
+  .workspace-drawer[data-motion-enabled='true'][hidden],
+  .asset-library.asset-library-docked[data-motion-enabled='true'][hidden] {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .workspace-drawer[data-motion-enabled='true']::before {
+    transform: translateX(0);
+    transition: transform 200ms ease-out;
+  }
+  .workspace-drawer[data-motion-enabled='true'][hidden]::before {
+    transform: translateX(12px);
+  }
+  .workspace-drawer-left[data-motion-enabled='true'][hidden]::before {
+    transform: translateX(-12px);
+  }
+  @starting-style {
+    .workspace-drawer[data-motion-enabled='true'],
+    .asset-library.asset-library-docked[data-motion-enabled='true'] {
+      opacity: 0;
+    }
+    .workspace-drawer[data-motion-enabled='true']::before {
+      transform: translateX(12px);
+    }
+    .workspace-drawer-left[data-motion-enabled='true']::before {
+      transform: translateX(-12px);
+    }
+  }
+  .workspace-drawer[data-motion-suppressed='true'],
+  .asset-library.asset-library-docked[data-motion-suppressed='true'],
+  .workspace-drawer[data-motion-suppressed='true']::before {
+    transition: none;
+  }
+}
+.workspace-panel-bar button,
+.tools button,
+.canvas-toolbar button,
+.alignment-panel button,
+.layer-visibility {
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-drawer[data-motion-enabled='true'],
+  .asset-library.asset-library-docked[data-motion-enabled='true'],
+  .workspace-drawer[data-motion-enabled='true']::before,
+  .workspace-panel-bar button,
+  .tools button,
+  .canvas-toolbar button,
+  .alignment-panel button,
+  .layer-visibility {
+    transition: none;
+  }
+}
+
+/* Rail symbols share one optical stroke; the surrounding buttons own state. */
+.tools .workspace-icon,
+.workspace-panel-bar .workspace-icon {
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin: auto;
+  pointer-events: none;
+}
+.workspace-panel-bar .workspace-icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* Name related command clusters without removing any control or changing the
+   workspace surface. The narrow creation rail can still scroll as before. */
+.header-group,
+.canvas-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.header-group {
+  flex-wrap: wrap;
+  min-width: 0;
+  padding-right: 6px;
+  border-right: 1px solid var(--line);
+}
+.header-setting {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.header-setting:has(> select[hidden]) {
+  display: none;
+}
+.canvas-toolbar-group + .canvas-toolbar-group {
+  margin-left: 4px;
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+}
+.tools [data-tool='pen'],
+.tools [data-tool='Text'] {
+  margin-top: 6px;
+}
+
+/* The rail itself keeps its existing button positions and hit targets. Only
+   the painted contour grows inward; its idle width is at least the old 58px. */
+.workspace-panel-bar {
+  width: 72px;
+}
+.workspace-panel-bar > svg {
+  fill: rgb(226 233 237 / 96%);
+}
+.workspace-panel-bar > svg > path {
+  transform-box: view-box;
+  transform-origin: 0 50%;
+  transform: scaleX(0.82);
+  transition: transform 200ms ease-out 300ms;
+}
+.workspace-panel-bar:is(
+    :focus-within,
+    [data-near='true'],
+    [data-open='true'],
+    [data-dragging='true']
+  )
+  > svg
+  > path {
+  transform: scaleX(1);
+  transition: transform 100ms ease-out;
+}
+@media (hover: hover) {
+  .workspace-panel-bar:hover > svg > path {
+    transform: scaleX(1);
+    transition: transform 100ms ease-out;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-panel-bar > svg > path,
+  .workspace-panel-bar:is(
+      :hover,
+      :focus-within,
+      [data-near='true'],
+      [data-open='true'],
+      [data-dragging='true']
+    )
+    > svg
+    > path {
+    transition-duration: 0s;
+  }
+}
+
+/* Two restrained elevation levels; text and icon opacity are not reduced. */
+.workspace-drawer {
+  isolation: isolate;
+  background: transparent;
+  box-shadow: none;
+}
+.workspace-drawer::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: rgb(248 250 251 / 96%);
+  box-shadow:
+    0 3px 12px #2439471a,
+    inset 0 1px #ffffff99;
+}
+.workspace-drawer > .shared-colors-panel {
+  background: transparent;
+}
+.asset-library.asset-library-docked {
+  background: transparent;
+  box-shadow: none;
+}
+.command-menu-items,
+.export-preset-menu,
+.text-tool-menu,
+.node-context-menu,
+.search-panel,
+.guides-panel {
+  box-shadow:
+    0 5px 16px #26374722,
+    inset 0 1px #ffffffb3;
+}
+#app > header > button,
+.header-group > button,
+.header-end > button,
+.canvas-toolbar button,
+.tools button {
+  border-color: transparent;
+  background: transparent;
+}
+#app > header > button:not(:disabled):hover,
+.header-group > button:not(:disabled):hover,
+.header-end > button:not(:disabled):hover,
+.canvas-toolbar button:not(:disabled):hover,
+.tools button:not(:disabled):hover {
+  background: #e6edf1;
+}
+#app > header > button:not(:disabled):active,
+.header-group > button:not(:disabled):active,
+.header-end > button:not(:disabled):active,
+.canvas-toolbar button:not(:disabled):active,
+.tools button:not(:disabled):active,
+.workspace-panel-bar button:not(:disabled):active,
+.alignment-panel button:not(:disabled):active,
+.layer-visibility:not(:disabled):active {
+  background: #cbdbe4;
+}
+.canvas-toolbar button.active,
+.canvas-toolbar button[aria-pressed='true'],
+.tools button.active {
+  background: #dae3e9;
+  border-color: var(--selection);
+  box-shadow:
+    inset 0 1px #ffffffb3,
+    0 1px 2px #2637471a;
+}
+.tools button.active:not(:disabled):hover {
+  background: #d2e0e8;
+}
+/* Keep the 30px hit target rectangular; paint the face and focus as circles. */
+.workspace-panel-bar button,
+.workspace-panel-bar button:hover,
+.workspace-panel-bar button:focus-visible,
+.workspace-panel-bar button[aria-pressed='true'],
+.workspace-panel-bar button:not(:disabled):active {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.workspace-panel-bar button::before {
+  content: '';
+  box-sizing: border-box;
+  position: absolute;
+  inset: 2px;
+  z-index: 0;
+  border: 1px solid #b7c8d1a0;
+  border-radius: 50%;
+  background: #ffffff4d;
+  transition:
+    background-color 120ms ease-out,
+    border-color 120ms ease-out,
+    box-shadow 120ms ease-out;
+}
+.workspace-panel-bar .workspace-icon {
+  position: relative;
+  z-index: 1;
+}
+@media (hover: hover) {
+  .workspace-panel-bar button:not(:disabled):hover::before {
+    background: #f7fafbe6;
+    border-color: #8ca5b4;
+  }
+  .workspace-panel-bar button[aria-pressed='true']:not(:disabled):not(:active):hover::before {
+    background: var(--surface-control);
+    border-color: #7894a5;
+  }
+}
+.workspace-panel-bar button[aria-pressed='true']::before {
+  background: var(--surface-control);
+  border-color: #7894a5;
+  box-shadow:
+    inset 0 1px #ffffffd9,
+    0 1px 3px #26374726;
+}
+.workspace-panel-bar button:not(:disabled):active::before {
+  background: #cadbe4;
+}
+.workspace-panel-bar button:focus-visible {
+  outline: none;
+}
+.workspace-panel-bar button:focus-visible::before {
+  outline: 2px solid var(--selection);
+  outline-offset: 1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-panel-bar button::before {
+    transition: none;
+  }
+}
+@media (forced-colors: active) {
+  .workspace-panel-bar button::before {
+    border-color: ButtonText;
+  }
+  .workspace-panel-bar button[aria-pressed='true']::before {
+    border: 3px double ButtonText;
+  }
+  .workspace-panel-bar button:focus-visible::before {
+    outline: 2px solid Highlight;
+  }
+}
+.layer .layer-visibility .workspace-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: auto;
+  pointer-events: none;
+}
+@media (hover: none) {
+  .tools button:not(.active):hover,
+  .workspace-panel-bar button:not([aria-pressed='true']):hover,
+  .canvas-toolbar button:not(.active):not([aria-pressed='true']):hover,
+  #app > header > button:hover,
+  .header-group > button:hover {
+    background: transparent;
+  }
+}
+
+/* Output controls wrap independently rather than forcing a whole extra row. */
+.header-group[aria-label='Output settings'] {
+  display: contents;
+}
+.header-group > button {
+  background: #f3f6f8;
+}
+
+#app > header > .brand {
+  margin-right: 10px;
+}
+
+/* Low-frequency output controls stay labeled and reachable without consuming
+   another permanent header row. The nested preset editor scrolls in place. */
+.output-settings-items {
+  width: min(340px, calc(100vw - 20px));
+  max-height: min(70vh, 600px);
+  overflow: auto;
+}
+.output-settings-items .header-setting,
+.output-settings-items > label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.output-settings-items #export-presets .export-preset-menu {
+  position: static;
+  min-width: 0;
+  width: 100%;
+  box-shadow: none;
+}
+.output-settings-items .export-preset-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Rounded-tab bar and pane share one surface. The strip is fixed; only the
+   curved edge grows, so visible circles and rectangular hit targets stay put. */
+.workspace-panel-bar {
+  width: 78px;
+  gap: 2px;
+}
+.workspace-panel-bar > svg {
+  top: 0;
+  height: 100%;
+  fill: var(--surface-pane);
+  stroke: #cbd5dc;
+}
+.workspace-panel-bar-left > svg {
+  transform: scaleX(-1);
+}
+.workspace-panel-bar-right > svg {
+  transform: none;
+}
+.workspace-panel-bar > svg > path {
+  transform-origin: 6px 50%;
+}
+.workspace-panel-bar-left button {
+  align-self: flex-end;
+  margin-left: 0;
+  margin-right: 6px;
+}
+.workspace-panel-bar-right button {
+  align-self: flex-start;
+  margin-left: 6px;
+  margin-right: 0;
+}
+.workspace-drawer {
+  padding-right: 78px;
+}
+.workspace-drawer-left {
+  padding-right: 0;
+  padding-left: 78px;
+}
+.workspace-drawer::before {
+  right: 78px;
+}
+.workspace-drawer-left::before {
+  left: 78px;
+  right: 0;
+}
+.canvas-wrap > .guides-panel {
+  left: calc(var(--stage-left, 48px) + 78px);
+}
+
+/* Surface depth: workspace < pane < floating controls/popovers. Artwork and
+   document layer colors are deliberately outside this UI-only scale. */
+.canvas-wrap,
+.graph-scroll {
+  background-color: var(--surface-workspace);
+}
+#app > header,
+.tools {
+  background: var(--surface-pane-solid);
+}
+.command-menu-items,
+.export-preset-menu,
+.text-tool-menu,
+.node-context-menu,
+.search-panel,
+.guides-panel {
+  background: var(--surface-popover);
+}
+.header-group > button,
+.canvas-toolbar button.active,
+.canvas-toolbar button[aria-pressed='true'],
+.tools button.active {
+  background: var(--surface-control);
+}
+
+/* Keep document identity, Help and Build together when the header wraps. */
+.header-end {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 8px;
+}
+.header-end [data-document-title] {
+  max-width: min(35vw, 240px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.header-end .build-info .command-menu-items {
+  left: auto;
+  right: 0;
+}
+
+/* A thinner graph strip keeps 30px action targets and all existing commands. */
+.graph-toolbar {
+  height: 32px;
+  padding: 0 8px;
+}
+.graph-toolbar button,
+.graph-toolbar select,
+.graph-view-more > summary {
+  box-sizing: border-box;
+  min-height: 30px;
+}
+.node-preset-controls {
+  padding: 1px 8px;
+}
+.node-preset-controls button,
+.node-preset-controls input,
+.node-preset-controls select {
+  box-sizing: border-box;
+  min-height: 30px;
+}
+.header-group > button[data-action='asset-library'],
+.header-group > button[data-action='undo'],
+.header-group > button[data-action='redo'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.header-group .workspace-icon,
+.field-tools .workspace-icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  pointer-events: none;
+}
+
+/* The same edge controls sit at the artboard edge when closed and at the
+   inner panel edge when explicitly opened. Pointer proximity changes only
+   the painted contour, never the hit target. */
+.canvas-wrap {
+  --drawer-width: min(320px, max(0px, calc(var(--stage-width, 100%) - 156px)));
+}
+.workspace-drawer,
+.workspace-drawer[data-active-panel='inspector'] {
+  width: var(--drawer-width);
+  padding: 0;
+  right: var(--stage-right, 0px);
+}
+.workspace-drawer-left {
+  left: var(--stage-left, 48px);
+  right: auto;
+}
+.workspace-drawer::before {
+  inset: 0 0 0 6px;
+  transform-origin: left center;
+}
+.workspace-drawer-left::before {
+  inset: 0 6px 0 0;
+  transform-origin: right center;
+}
+.workspace-panel-bar-left {
+  left: calc(var(--stage-left, 48px) - 6px);
+  right: auto;
+}
+.workspace-panel-bar-left[data-open='true'] {
+  left: calc(var(--stage-left, 48px) + var(--drawer-width) - 6px);
+}
+.workspace-panel-bar-right {
+  right: calc(var(--stage-right, 0px) - 6px);
+  left: auto;
+}
+.workspace-panel-bar-right[data-open='true'] {
+  right: calc(var(--stage-right, 0px) + var(--drawer-width) - 6px);
+}
+.workspace-panel-bar-left > svg {
+  transform: none;
+}
+.workspace-panel-bar-right > svg {
+  transform: scaleX(-1);
+}
+.workspace-panel-bar-left button {
+  align-self: flex-start;
+  margin-left: 6px;
+  margin-right: 0;
+}
+.workspace-panel-bar-right button {
+  align-self: flex-end;
+  margin-left: 0;
+  margin-right: 6px;
+}
+@supports (transition-behavior: allow-discrete) {
+  .workspace-drawer[data-motion-enabled='true'][hidden]::before,
+  .workspace-drawer-left[data-motion-enabled='true'][hidden]::before {
+    transform: scaleX(0.96);
+  }
+  @starting-style {
+    .workspace-drawer[data-motion-enabled='true']::before,
+    .workspace-drawer-left[data-motion-enabled='true']::before {
+      transform: scaleX(0.96);
+    }
+  }
+}
+
+/* Boundary controls overlay the graph; opening them does not resize either
+   viewport or move its camera. Shapes join the boundary rather than float. */
+.graph-panel {
+  position: relative;
+}
+.graph-panel > .graph-toolbar,
+.graph-panel > .canvas-toolbar {
+  position: absolute;
+  top: 0;
+  z-index: 25;
+  height: 34px;
+  min-width: 0;
+  max-width: calc(100% - 140px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 48px 1px 8px;
+  border: 0;
+  background: transparent;
+  isolation: isolate;
+}
+.graph-panel > .graph-toolbar::before,
+.graph-panel > .canvas-toolbar::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0 47px 0 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-pane-solid);
+  box-shadow: 0 2px 5px #26374720;
+  pointer-events: none;
+}
+.graph-panel > .graph-toolbar {
+  left: 0;
+  border-radius: 0;
+}
+.graph-panel > .canvas-toolbar {
+  right: 0;
+  left: auto;
+  max-width: calc(100% - 220px);
+  padding: 1px 8px 1px 48px;
+  border-radius: 0;
+}
+.graph-panel > .canvas-toolbar::before {
+  inset: 0 0 0 47px;
+}
+.boundary-shoulder {
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  right: 0;
+  width: 48px;
+  height: 34px;
+  overflow: visible;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 3px #26374720);
+}
+.canvas-toolbar > .boundary-shoulder {
+  right: auto;
+  left: 0;
+  transform: scaleX(-1);
+}
+.boundary-shoulder-face {
+  fill: var(--surface-pane-solid);
+}
+.boundary-shoulder-edge {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.canvas-wrap > .hint {
+  left: calc(var(--stage-left, 48px) + 12px);
+  max-width: calc(var(--stage-width, 100%) - 24px);
+  pointer-events: none;
+}
+.boundary-graph-extras,
+.boundary-canvas-extras {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.boundary-graph-extras[hidden],
+.boundary-canvas-extras[hidden] {
+  display: none;
+}
+.boundary-graph-extras > *,
+.boundary-canvas-extras > *,
+.boundary-popover > summary {
+  flex: none;
+  white-space: nowrap;
+}
+.boundary-toggle,
+.boundary-popover > summary {
+  min-width: 30px;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.boundary-popover {
+  padding: 0;
+  border: 0;
+}
+.boundary-popover > .node-preset-controls,
+.boundary-popover > .boundary-group-content {
+  position: fixed;
+  z-index: 50;
+  width: min(420px, calc(100vw - 16px));
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-popover);
+  box-shadow: 0 5px 16px #26374722;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.boundary-group-content .node-group-fields,
+.boundary-group-content .node-group-actions {
+  margin-top: 4px;
+}
+.canvas-toolbar .boundary-canvas-extras > .canvas-toolbar-group {
+  display: flex;
+}
+.graph-panel > .canvas-toolbar[hidden] {
+  display: none;
+}
+.output-settings-menu > summary {
+  cursor: pointer;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 4px 6px;
+}
+.output-settings-menu > .output-settings-items {
+  position: static;
+  min-width: min(340px, calc(100vw - 20px));
+  border: 0;
+  box-shadow: none;
 }

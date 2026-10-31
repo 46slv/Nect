@@ -103,6 +103,10 @@ export function sanitizeCompositionViewState(value, document, defaults, resolveP
     canvasFit: typeof value.canvasFit === 'boolean' ? value.canvasFit : base.canvasFit,
     pan: pair(value.pan, base.pan),
     graphZoom: positive(value.graphZoom, base.graphZoom),
+    graphFitInset:
+      Number.isFinite(value.graphFitInset) && value.graphFitInset >= 0
+        ? value.graphFitInset
+        : (base.graphFitInset ?? 0),
     graphScroll: pair(value.graphScroll, base.graphScroll, true),
     tool: typeof value.tool === 'string' ? value.tool : base.tool,
     viewerState: viewerState(value.viewerState, document, base.viewerState),

@@ -1,3 +1,4 @@
+import { revealDOMBoundary } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -29,7 +30,11 @@ test('Grid origin selector renders all nine phases, one Undo/Redo, reload and re
   );
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const $ = (q) => document.querySelector(q),
-    click = (q) => $(q).click(),
+    click = (q) => {
+      if (/^\[data-action="(?:grid|layout|guides)-panel"\]/.test(q))
+        revealDOMBoundary(document, 'canvas');
+      $(q).click();
+    },
     get = () => win.nect.document;
   const pointer = (target, type, x, y) =>
     target.dispatchEvent(

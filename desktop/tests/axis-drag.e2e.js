@@ -1,3 +1,5 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -213,8 +215,8 @@ try {
   {
     const ids = await setup('Null'),
       before = await saved();
-    await page.locator('[data-action="zoom-in"]').click();
-    await page.locator('[data-action="zoom-in"]').click();
+    await activateBoundaryCommand(page, 'zoom-in');
+    await activateBoundaryCommand(page, 'zoom-in');
     await page.keyboard.down('Shift');
     await move([250, 200]);
     const p = await screen([250, 200]);
@@ -233,12 +235,13 @@ try {
     near(await position(ids), [250, 240]);
     await undo();
     assert.equal(await saved(), before);
-    await page.locator('[data-action="fit"]').click();
+    await activateBoundaryCommand(page, 'fit');
   }
   // Shift-held multi-character drag works from selected text, despite final rotation/scale.
   {
     const ids = await setup('Text', true);
     await page.evaluate(() => (window.nect.document.editor.snap = false));
+    await ensureWorkspacePanel(page, 'inspector');
     await page.locator('[data-character-mode]').click();
     const hit = (id) => page.locator(`.character-hit[data-character="${id}"]`);
     await hit('c1').click();

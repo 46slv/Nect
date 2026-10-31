@@ -1,3 +1,5 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { activateCommand } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
@@ -42,6 +44,8 @@ const load = async () => {
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await load();
   assert.equal(
     await page.locator('[data-source="vector-origin"]').getAttribute('aria-label'),
@@ -141,8 +145,8 @@ try {
       .evaluate((el) => el.getBoundingClientRect().width);
   };
   const diameter = await settledDiameter();
-  await page.locator('[data-action="zoom-in"]').click();
-  await page.locator('[data-action="zoom-in"]').click();
+  await activateBoundaryCommand(page, 'zoom-in');
+  await activateBoundaryCommand(page, 'zoom-in');
   assert.ok(Math.abs((await settledDiameter()) - diameter) < 0.01);
   before = await saved();
   p = await screen(await pos());
@@ -158,7 +162,7 @@ try {
   await page.keyboard.up('Alt');
   near(await pos(), [290, 185]);
   await undo();
-  await page.locator('[data-action="fit"]').click();
+  await activateBoundaryCommand(page, 'fit');
   // Committing a typed field before a drag keeps the edit and drag as separate undo steps.
   const x = page.locator('.inspector-body .field[data-key="value"] [data-axis="0"]');
   await x.fill('260');

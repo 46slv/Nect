@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { preview } from 'vite';
@@ -51,6 +52,8 @@ try {
   ])
     connect(l, a.id, b.id, 'path');
   await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await page.waitForFunction(() => Boolean(window.nect));
   await page.evaluate((json) => window.nect.load(json), JSON.stringify(d));
   await page.locator(`.graph .node[data-id="${repeat.id}"] .node-head strong`).click();

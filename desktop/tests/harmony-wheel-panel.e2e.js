@@ -141,7 +141,6 @@ const pinnedLayout = async (label) => {
       swatchIds: [...swatches.querySelectorAll('[data-wheel-select]')].map(
         (el) => el.dataset.wheelSelect,
       ),
-      inspectorPort: port(document.querySelector('.inspector')),
       markers: [...panel.querySelectorAll('[data-wheel-marker]')].map((el) => ({
         id: el.dataset.wheelMarker,
         ...bounds(el),
@@ -184,10 +183,6 @@ const pinnedLayout = async (label) => {
   assert.ok(result.parameters.height >= 60, `${label}: parameters retain a usable scrollport`);
   assert.equal(result.scrollWidth, result.clientWidth, `${label}: no panel horizontal overflow`);
   assert.equal(result.panelScrollTop, 0, `${label}: only the parameter region scrolls`);
-  assert.ok(
-    result.inspectorPort.bottom - result.inspectorPort.top >= 100,
-    `${label}: Inspector remains accessible`,
-  );
   for (const item of result.markers)
     assert.ok(inside(item, result.port), `${label}: marker ${item.id} is visible`);
   layouts.push({ label, ...result });
@@ -336,6 +331,7 @@ try {
   await page
     .locator(`.inspector-body [data-shared-color-binding][data-shared-color-node="${fill.id}"]`)
     .selectOption(primary);
+  await ensureWorkspacePanel(page, 'colors');
   const original = await encoded(),
     originalState = await commandState(),
     positions = await markerPositions();
@@ -838,6 +834,12 @@ try {
       'palette remains immediately below pinned wheel',
     );
     await capture(`parameters-${viewport.width}x${viewport.height}`);
+    await ensureWorkspacePanel(page, 'inspector');
+    assert.ok(
+      (await page.locator('.inspector').boundingBox()).height >= 100,
+      'Inspector remains accessible after switching from Colors',
+    );
+    await ensureWorkspacePanel(page, 'colors');
   }
   await page.setViewportSize({ width: 900, height: 720 });
   const recipe = added.colorDesign.palette,

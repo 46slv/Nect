@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -79,6 +80,7 @@ test('Artwork creation and placement use independent layers and explicit, safe e
     flush();
   };
   const click = (s) => {
+    if (s.startsWith('[data-select-layer=')) openDOMPanel(document, 'layers');
     $(s).click();
     flush();
   };
@@ -189,7 +191,7 @@ test('Artwork creation and placement use independent layers and explicit, safe e
         assert.equal(ui().selected, null);
         assert.deepEqual(ui().selection, []);
         assert.equal(document.querySelectorAll('.node.selected').length, 0);
-        assert.equal(document.activeElement, stage());
+        assert.equal(document.activeElement === stage(), true, 'Canvas receives focus');
         assert.equal(ui().past, prior.past + 1);
         const after = saved();
         click('[data-action="undo"]');
@@ -301,25 +303,30 @@ test('Artwork creation and placement use independent layers and explicit, safe e
       for (const transform of [false, true]) {
         const { d, ids } = fixture({ transform });
         load(d);
+        openDOMPanel(document, 'layers');
         click(`[data-select-layer="${ids.layerId}"]`);
         const control = $(`[data-select-layer="${ids.layerId}"]`),
           before = saved(),
           origin = [...position(ids)];
         control.focus();
-        assert.equal(document.activeElement, control);
+        assert.equal(document.activeElement === control, true, 'Layers control receives focus');
         assert.equal(key(document.activeElement, 'ArrowRight'), false);
         assert.equal(key(document.activeElement, 'ArrowDown', { shiftKey: true }), false);
         assert.equal(saved(), before, 'Layer-control arrows cannot silently nudge artwork');
         assert.equal(ui().past, 0);
         stage().focus();
-        assert.equal(document.activeElement, stage());
+        assert.equal(document.activeElement === stage(), true, 'Canvas receives focus');
         assert.equal(saved(), before, 'Focusing the Canvas is not an authored edit');
         assert.equal(key(document.activeElement, 'ArrowRight'), true);
         assert.deepEqual(
           position(ids),
           origin.map((value, axis) => value + [1, 0][axis]),
         );
-        assert.equal(document.activeElement, stage(), 'A nudge keeps keyboard ownership on Canvas');
+        assert.equal(
+          document.activeElement === stage(),
+          true,
+          'A nudge keeps keyboard ownership on Canvas',
+        );
         assert.equal(key(document.activeElement, 'ArrowDown', { shiftKey: true }), true);
         assert.deepEqual(
           position(ids),

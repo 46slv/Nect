@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
@@ -33,7 +34,7 @@ const select = async () => {
 };
 const load = async (d = fixture) => {
   await page.evaluate((d) => window.nect.load(JSON.stringify(d)), d);
-  await page.locator('[data-action="actual-size"]').click();
+  await activateBoundaryCommand(page, 'actual-size');
   await select();
 };
 const expected = (before, delta) => {
@@ -84,7 +85,7 @@ try {
   await page.locator('#open-file').setInputFiles(sample);
   await page.waitForFunction(() => window.nect.document.name === 'Independent artwork placement');
   await page.waitForFunction(() => document.querySelectorAll('.shape').length === 5);
-  await page.locator('[data-action="actual-size"]').click();
+  await activateBoundaryCommand(page, 'actual-size');
   await select();
   const before = JSON.parse(await saved());
   assert.equal(await page.locator('.layer.selected').count(), 5);
@@ -244,7 +245,7 @@ try {
   await page.keyboard.up('Space');
   await verify(before);
   assert.equal(await page.locator('.artwork-selection').count(), 5);
-  await page.locator('[data-action="actual-size"]').click();
+  await activateBoundaryCommand(page, 'actual-size');
   await drag([24, 16], 'up', ['Alt']);
   for (const [action, ext] of [
     ['save', 'json'],
@@ -264,7 +265,7 @@ try {
   await select();
   await page.screenshot({ path: 'test-results/multi-artwork-1600.png' });
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.locator('[data-action="fit"]').click();
+  await activateBoundaryCommand(page, 'fit');
   await page.screenshot({ path: 'test-results/multi-artwork-1280.png' });
   assert.deepEqual(errors, []);
   console.log(

@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
@@ -109,6 +110,7 @@ test('creation controls: repeater fields, bounded count, text anchors, history a
   await tick();
   assert.equal(alignment().value, 'center');
   const layer = win.nect.document.layers[0].id;
+  openDOMPanel(document, 'layers');
   document.querySelector(`[data-layer-lock="${layer}"]`).click();
   await tick();
   await change(alignment(), 'end');

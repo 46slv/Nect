@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -64,6 +65,7 @@ test('Layer name drags follow visual order and retain transaction boundaries', a
     '\nconst fontTestDeadline = Date.now() + 5000; while (!bundledFont) { if (Date.now() >= fontTestDeadline) throw Error("Bundled test font did not finish loading"); await new Promise((r) => setTimeout(r, 10)); }';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   flush();
+  openDOMPanel(document, 'layers');
   const $ = (s) => document.querySelector(s),
     ui = () => win.orderingUI(),
     saved = () => serialize(win.nect.document),

@@ -1,3 +1,4 @@
+import { revealDOMBoundary } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -331,6 +332,7 @@ test('Transform handles: source stage, scale/rotation, precise history, read-onl
   matrix.d = 2.4;
   matrix.b = 0;
   matrix.c = 0;
+  revealDOMBoundary(document, 'canvas');
   document.querySelector('[data-action="zoom-in"]').click();
   assert.equal(
     document.querySelector('.transform-marker-size').getAttribute('transform'),

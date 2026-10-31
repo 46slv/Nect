@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -94,6 +95,7 @@ test('Transform pivot controls, parameter lock, group drag, history and legacy d
   document.querySelector('[data-action="undo"]').click();
   await tick();
   assert.deepEqual(win.nect.document.layers[0].nodes[3].params.position.value, [0, 0]);
+  openDOMPanel(document, 'inspector');
   f('position').querySelector('[data-lock]').click();
   await tick();
   await drag();

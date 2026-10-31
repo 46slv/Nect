@@ -1,3 +1,4 @@
+import { openDOMPanel, revealDOMBoundary } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
@@ -79,7 +80,10 @@ test('View navigation is scoped, view-only and preserves drafts, scroll, focus a
   const q = (selector) => document.querySelector(selector);
   const stage = () => q('.canvas-stage'),
     graph = () => q('.graph-scroll');
-  const click = (action) => q(`[data-action="${action}"]`).click();
+  const click = (action) => {
+    revealDOMBoundary(document, action.startsWith('graph-') ? 'graph' : 'canvas');
+    q(`[data-action="${action}"]`).click();
+  };
   const key = (el, name, extra = {}) =>
     el.dispatchEvent(
       new win.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: name, ...extra }),
@@ -113,6 +117,7 @@ test('View navigation is scoped, view-only and preserves drafts, scroll, focus a
   // Launch is intentionally blank. Seed authored graph controls and a movable
   // source stage rather than accidentally targeting hidden export settings.
   win.nect.load(JSON.stringify(makeDoc()));
+  openDOMPanel(document, 'inspector');
   const saved = JSON.stringify(win.nect.document),
     svg = win.nect.export();
   click('actual-size');
@@ -123,7 +128,7 @@ test('View navigation is scoped, view-only and preserves drafts, scroll, focus a
   q('.inspector').scrollTop = 321;
   click('zoom-in');
   assert.equal(input.isConnected, true, 'navigation does not rebuild controls');
-  assert.equal(document.activeElement, input);
+  assert.equal(document.activeElement === input, true, 'Inspector draft retains focus');
   assert.equal(input.value, '123.456');
   assert.equal(q('.inspector').scrollTop, 321);
   assert.equal(scale('canvas'), '120%');
@@ -134,7 +139,7 @@ test('View navigation is scoped, view-only and preserves drafts, scroll, focus a
   // A genuine structural render preserves the scrolling sidebar and viewport focus.
   stage().focus();
   click('guides-panel');
-  assert.equal(document.activeElement, stage());
+  assert.equal(document.activeElement === stage(), true, 'Canvas receives focus');
   assert.equal(q('.inspector').scrollTop, 321);
   click('fit');
   assert.equal(wheel(stage(), { deltaX: 20, deltaY: 40 }), false);

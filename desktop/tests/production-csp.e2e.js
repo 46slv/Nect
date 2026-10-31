@@ -81,10 +81,8 @@ try {
   // Exercise the new typed Color path in the actual production bundle too.
   await page.locator('#add-node').selectOption('Color');
   const colorId = await page.evaluate(() => window.nect.document.layers[0].nodes.at(-1).id);
-  await page.locator('.inspector-body [data-color="hex"]').evaluate((el) => {
-    el.value = '#ff8000';
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-  });
+  await page.getByRole('button', { name: 'Focus Inspector', exact: true }).click();
+  await page.locator('.inspector-body [data-color="hex"]').fill('#ff8000');
   await page.waitForFunction(
     () => window.nect.document.layers[0].nodes.at(-1).params.value.value.hex === '#ff8000',
   );

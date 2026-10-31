@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { chromium } from 'playwright-core';
 import { openMoreTypography } from './helpers/text-inspector.js';
 import assert from 'node:assert/strict';
@@ -22,6 +23,8 @@ const write = async (label, value) => {
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await page.waitForFunction(() => window.nect && window.nect.evaluate().error === null);
   const ids = await page.evaluate(async () => {
     const {

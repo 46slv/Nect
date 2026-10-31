@@ -1,6 +1,11 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
-import { openArtworkPanel, forceArtworkPanelCommand } from './helpers/artwork-panels.js';
+import {
+  openArtworkPanel,
+  forceArtworkPanelCommand,
+  activeGraphLayer,
+} from './helpers/artwork-panels.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
@@ -77,15 +82,16 @@ try {
     ['gap-y', 1],
   ]) {
     await load();
-    await page.locator('[data-action="actual-size"]').click();
-    await page.locator('[data-action="zoom-out"]').click();
+    await activateBoundaryCommand(page, 'actual-size');
+    await activateBoundaryCommand(page, 'zoom-out');
     await page.locator('.canvas-stage').hover();
     await page.mouse.wheel(35, 20);
     const before = await saved(),
       bb = await bounds(),
       beforeView = await view(),
       beforeSelection = await selected();
-    const active = await page.locator('.graph-layer-name').innerText();
+    const active = await activeGraphLayer(page);
+    assert.ok(active, 'rendered graph has an authored active layer');
     const first = [...bb].sort(
       (a, b) => a.bounds[axis][0] - b.bounds[axis][0] || ids.indexOf(a.id) - ids.indexOf(b.id),
     )[0];
@@ -133,7 +139,7 @@ try {
         prior.layers.find((l) => l.id === endpoint.id),
       );
     assert.deepEqual(await selected(), beforeSelection);
-    assert.equal(await page.locator('.graph-layer-name').innerText(), active);
+    assert.equal(await activeGraphLayer(page), active);
     assert.deepEqual(await view(), beforeView);
     for (let repeat = 0; repeat < 3; repeat++) await button.click();
     assert.equal(await saved(), after);
@@ -143,7 +149,7 @@ try {
     await page.locator('[data-action="redo"]').click();
     assert.equal(await saved(), after);
     assert.deepEqual(await selected(), beforeSelection);
-    assert.equal(await page.locator('.graph-layer-name').innerText(), active);
+    assert.equal(await activeGraphLayer(page), active);
     assert.deepEqual(await view(), beforeView);
     await page.locator('.canvas-stage').focus();
     await page.keyboard.press('ArrowRight');
@@ -158,7 +164,7 @@ try {
       [1024, 768],
     ]) {
       await page.setViewportSize({ width, height });
-      await page.locator('[data-action="fit"]').click();
+      await activateBoundaryCommand(page, 'fit');
       await page.locator('.alignment-panel').scrollIntoViewIfNeeded();
       assert.equal(await button.isVisible(), true);
       const rect = await button.boundingBox();

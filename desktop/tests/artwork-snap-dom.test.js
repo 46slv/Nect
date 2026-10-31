@@ -1,3 +1,4 @@
+import { openDOMPanel, revealDOMBoundary } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -124,8 +125,10 @@ const app =`,
     flush();
   };
   const toggle = async (key, on) => {
-    if (!document.querySelector('[data-guide-setting]'))
+    if (!document.querySelector('[data-guide-setting]')) {
+      revealDOMBoundary(document, 'canvas');
       document.querySelector('[data-action="guides-panel"]').click();
+    }
     const el = document.querySelector(`[data-guide-setting="${key}"]`);
     el.checked = on;
     el.dispatchEvent(new win.Event('change', { bubbles: true }));
@@ -208,6 +211,7 @@ const app =`,
   up();
   assert.equal(saved(), before, 'pan owns marker gestures');
   // Changing a target's visibility refreshes the cached target snapshot immediately.
+  openDOMPanel(document, 'layers');
   document.querySelector('[data-visible="layer-snap-reference"]').click();
   flush();
   start();

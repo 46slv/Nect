@@ -80,6 +80,18 @@ try {
   await page.locator('.canvas-stage').waitFor({ state: 'visible' });
   await page.screenshot({ path: 'test-results/asset-layout-closed.png' });
   await activateCommand(page, 'asset-library');
+  assert.equal(await page.locator('header details.command-menu[open]').count(), 0);
+  const folder = page
+    .locator('[data-asset-library]')
+    .getByRole('button', { name: 'Add folder', exact: true });
+  assert.equal(
+    await folder.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+    }),
+    true,
+    'Add folder is not covered after Project > Assets',
+  );
   const folderChooser = page.waitForEvent('filechooser');
   await page
     .locator('[data-asset-library]')

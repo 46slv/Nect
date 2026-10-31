@@ -169,7 +169,7 @@ try {
   assert.match(svg.toString(), /<image /);
   assert.match(svg.toString(), /data:image\/png;base64,/);
   assert.doesNotMatch(svg.toString(), /class=|guide|grid|selection/);
-  await revealCommandMenu(page, 'Export');
+  await revealCommandMenu(page, 'Output settings');
   await page.locator('#png-scale').selectOption('2');
   const png = await download('export-png', 'test-results/workflow-image-2x.png');
   const check = await pixels(png, [
@@ -296,7 +296,7 @@ try {
   // Downscaled large artboard is bounded by output pixels, not intrinsic SVG size.
   await value('Artboard width (px)', 10000);
   await value('Artboard height (px)', 1000);
-  await revealCommandMenu(page, 'Export');
+  await revealCommandMenu(page, 'Output settings');
   await page.locator('#png-scale').selectOption('0.5');
   const large = await download('export-png', 'test-results/workflow-downscaled.png');
   assert.equal((await pixels(large, [[0, 0]])).width, 5000);
@@ -304,7 +304,7 @@ try {
     .locator('#open-file')
     .setInputFiles({ name: 'saved.json', mimeType: 'application/json', buffer: saved });
   await page.waitForFunction(() => window.nect.document.width === 320);
-  await revealCommandMenu(page, 'Export');
+  await revealCommandMenu(page, 'Output settings');
   await page.locator('#png-scale').selectOption('2');
   await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${imageId}"]`).click();

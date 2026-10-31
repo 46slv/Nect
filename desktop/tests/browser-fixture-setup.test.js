@@ -213,16 +213,26 @@ const fixtureOwningScenarios = [
 ];
 
 test('legacy browser startup cases explicitly declare demo versus independent fixture setup', async () => {
-  assert.equal(demoScenarios.length, 14);
-  assert.equal(fixtureOwningScenarios.length, 35);
+  assert.ok(demoScenarios.length > 0 && fixtureOwningScenarios.length > 0);
+  assert.equal(
+    new Set([...demoScenarios, ...fixtureOwningScenarios]).size,
+    demoScenarios.length + fixtureOwningScenarios.length,
+  );
   for (const [names, setup] of [
     [demoScenarios, /await loadDemoFixture\(page\);/],
     [fixtureOwningScenarios, /await page\.waitForFunction\(\(\) => window\.nect\);/],
   ])
     for (const name of names) {
       const source = await fs.readFile(new URL(`./${name}.e2e.js`, import.meta.url), 'utf8');
-      const afterNavigation = source.slice(source.indexOf('await page.goto(')).split('\n')[1];
-      assert.match(afterNavigation, setup, `${name} cold-start setup`);
+      const navigation = source.indexOf('await page.goto(');
+      assert.ok(navigation >= 0, `${name}: explicit navigation`);
+      const afterNavigation = source.slice(navigation);
+      const readiness = afterNavigation.search(setup);
+      assert.ok(readiness >= 0, `${name}: explicit fixture/API readiness`);
+      for (const action of ['await ensureWorkspacePanel(', 'await activateBoundaryCommand(']) {
+        const index = afterNavigation.indexOf(action);
+        assert.ok(index < 0 || readiness < index, `${name}: readiness precedes ${action}`);
+      }
     }
 });
 
