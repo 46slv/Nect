@@ -120,9 +120,10 @@ test('browser runner preserves all 55 original scripts, arguments, order, and CS
     'tests/private-font-flow.e2e.js',
     'tests/ui-font.e2e.js',
     'tests/hsl-workspace-integration.e2e.js',
+    'tests/ui-sound.e2e.js',
   ]);
-  assert.equal(browserTestFiles.length, 79);
-  assert.equal(new Set(browserTestFiles).size, 79);
+  assert.equal(browserTestFiles.length, 80);
+  assert.equal(new Set(browserTestFiles).size, 80);
   assert.ok(Object.isFrozen(browserTestFiles));
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(

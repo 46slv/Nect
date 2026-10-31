@@ -23,6 +23,7 @@ import { createSharedColorsPanel } from './shared-colors-panel.js';
 import { renderHslFields, updateHexHsl } from './hsl-color-picker.js';
 import { mountAssetLibrary, getAssetLibraryPanel, closeAssetLibrary } from './asset-library.js';
 import { createWorkspacePanels } from './workspace-panels.js';
+import { createUiSoundSettings } from './ui-sound-settings.js';
 import { installLayerReorder } from './layer-reorder.js';
 import { createGraphPanJoystick, joystickOverviewLayout } from './graph-pan-joystick.js';
 import { wrapExtent, basicTextWrap, withWrapExtent } from './text-wrap.js';
@@ -822,6 +823,17 @@ import {
   expression,
 } from './core.js';
 const app = document.querySelector('#app');
+const uiSound = createUiSoundSettings({
+  document,
+  storage: {
+    getItem: (key) => localStorage.getItem(key),
+    setItem: (key, value) => localStorage.setItem(key, value),
+  },
+  onSaveError: () => notify('Sound preferences could not be saved', true),
+});
+window.addEventListener('pagehide', (event) => {
+  if (!event.persisted) uiSound.dispose();
+});
 const osTextDrafts = new Map();
 let privateFontFiles = []; // Process-only capabilities; never serialized.
 let privateFontOpenPending = false;
@@ -3920,6 +3932,10 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   const outputSettingsOpen = previousOutputSettings?.open ?? false;
   const outputMenuOpen =
     outputSettingsOpen && !!previousOutputSettings?.closest('.command-menu')?.open;
+  const previousSoundSettings = app.querySelector('[data-ui-sound-settings]');
+  const soundSettingsOpen = previousSoundSettings?.open ?? false;
+  const soundMenuOpen =
+    soundSettingsOpen && !!previousSoundSettings?.closest('.command-menu')?.open;
   const pointScroll =
     !resetView && document.activeElement?.closest('.point-panel')
       ? [...app.querySelectorAll('.point-panel-rows')].map((el) => el.scrollTop)
@@ -4140,11 +4156,16 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     select.value = select.querySelector('option[selected]').value;
   // Finalize header geometry before fitting. Deferring menu compaction to the
   // observer changes the stage height between the two presses of a double-click.
-  ensureCommandMenus(app, document);
+  ensureCommandMenus(app, document, uiSound);
   const outputSettings = app.querySelector('[data-output-settings]');
   if (outputSettings) {
     outputSettings.open = outputSettingsOpen;
     if (outputMenuOpen) outputSettings.closest('.command-menu').open = true;
+  }
+  const soundSettings = app.querySelector('[data-ui-sound-settings]');
+  if (soundSettings) {
+    soundSettings.open = soundSettingsOpen;
+    if (soundMenuOpen) soundSettings.closest('.command-menu').open = true;
   }
   ensureBoundaryControls(app, document);
   workspacePanels.refresh();
@@ -14308,7 +14329,7 @@ app.addEventListener('click', async (event) => {
 
 // Keep the command surface compact without changing command ownership.
 const commandMenuObserver = new MutationObserver(() => {
-  ensureCommandMenus(app, document);
+  ensureCommandMenus(app, document, uiSound);
   ensureBuildInfo(app, document);
 });
 commandMenuObserver.observe(app, { childList: true });
