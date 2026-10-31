@@ -93,13 +93,36 @@ function assertNoSuiteHandlers(signalSource) {
 
 test('browser runner preserves all 55 original scripts, arguments, order, and CSP gate', async () => {
   assert.deepEqual(browserTestFiles.slice(0, 55), originalBrowserFiles);
-  assert.deepEqual(browserTestFiles.slice(55), [
+  assert.deepEqual(browserTestFiles.slice(55, 75), [
     'tests/reference-status-help.e2e.js',
     'tests/canvas-transient-panels.e2e.js',
     'tests/browser-open-retry.e2e.js',
+    'tests/angular-gradient.e2e.js',
+    'tests/polar-transform.e2e.js',
+    'tests/layer-duplicate-expression-refs.e2e.js',
+    'tests/numeric-render-race.e2e.js',
+    'tests/project-integrity-ui.e2e.js',
+    'tests/text-inspector-layout.e2e.js',
+    'tests/asset-library.e2e.js',
+    'tests/asset-library-catalog.e2e.js',
+    'tests/workspace-panels.e2e.js',
+    'tests/asset-drag.e2e.js',
+    'tests/color-coverage.e2e.js',
+    'tests/shared-colors-panel.e2e.js',
+    'tests/harmony-wheel-panel.e2e.js',
+    'tests/ui-review-captures.e2e.js',
+    'tests/raster-direct-png.e2e.js',
+    'tests/composition-point-selection.e2e.js',
+    'tests/svg-to-png.e2e.js',
   ]);
-  assert.equal(browserTestFiles.length, 58);
-  assert.equal(new Set(browserTestFiles).size, 58);
+  assert.deepEqual(browserTestFiles.slice(75, 76), ['tests/unified-font-picker.e2e.js']);
+  assert.deepEqual(browserTestFiles.slice(76), [
+    'tests/private-font-flow.e2e.js',
+    'tests/ui-font.e2e.js',
+    'tests/hsl-workspace-integration.e2e.js',
+  ]);
+  assert.equal(browserTestFiles.length, 79);
+  assert.equal(new Set(browserTestFiles).size, 79);
   assert.ok(Object.isFrozen(browserTestFiles));
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(

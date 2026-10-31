@@ -47,6 +47,10 @@ function copyColor(value) {
 
 function prepareFill(fill) {
   if (fill !== null && typeof fill === 'object' && !Array.isArray(fill)) {
+    if (fill.kind === 'angular-gradient')
+      throw Error(
+        'Angular gradient luminance sampling is not supported yet; use solid, linear or radial paint',
+      );
     if (fill.kind === 'linear-gradient') {
       validateLinearGradientFill(fill);
       const { start, end, startColor, endColor } = fill,

@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand, revealCommandMenu } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
@@ -23,8 +24,10 @@ const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document))
     page.locator('.layer.selected').evaluateAll((els) => els.map((el) => el.dataset.layer).sort()),
   active = () => duplicate().getAttribute('data-duplicate-artwork'),
   choose = async (ids) => {
+    await ensureWorkspacePanel(page, 'layers');
     for (const [i, id] of ids.entries())
       await page.locator(`[data-select-layer="${id}"]`).click({ modifiers: i ? ['Shift'] : [] });
+    await ensureWorkspacePanel(page, 'inspector');
   },
   force = () =>
     duplicate().evaluate((el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }))),
@@ -170,7 +173,14 @@ try {
   for (const mode of ['modal', 'ime', 'rename', 'pen']) {
     if (mode === 'modal') await click('help');
     if (mode === 'ime') await page.locator('.canvas-stage').dispatchEvent('compositionstart');
-    if (mode === 'rename') await page.locator(`[data-select-layer="${f.ids[3]}"]`).press('F2');
+    if (mode === 'rename') {
+      await ensureWorkspacePanel(page, 'layers');
+      await page.locator(`[data-select-layer="${f.ids[3]}"]`).press('F2');
+      assert.equal(
+        await page.locator('[data-rename-name]').evaluate((el) => el === document.activeElement),
+        true,
+      );
+    }
     if (mode === 'pen') {
       await page.locator('[data-tool="pen"]').click();
       const b = await page.locator('.artboard').boundingBox();
@@ -204,7 +214,10 @@ try {
     );
     if (mode === 'modal') await page.locator('dialog button').click();
     if (mode === 'ime') await page.locator('.canvas-stage').dispatchEvent('compositionend');
-    if (mode === 'rename') await page.locator('[data-rename-name]').press('Escape');
+    if (mode === 'rename') {
+      await page.locator('[data-rename-name]').press('Escape');
+      await ensureWorkspacePanel(page, 'inspector');
+    }
     if (mode === 'pen') await page.locator('[data-pen-cancel]').click();
   }
   // Unsupported late selection member must refuse both copies and leave Undo empty.

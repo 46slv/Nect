@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod acceptance_storage;
+mod asset_library;
 #[cfg(test)]
 #[path = "../build_commit.rs"]
 mod build_commit;
@@ -13,6 +14,7 @@ mod build_identity_sources;
 mod desktop_font_layout;
 mod document_storage;
 mod os_font_outlines;
+mod private_fonts;
 #[cfg(feature = "recovery-acceptance-test")]
 mod recovery_acceptance_gate;
 use desktop_font_layout::{list_desktop_font_axes, list_desktop_font_faces, shape_desktop_text};
@@ -161,14 +163,21 @@ fn run() -> Result<(), String> {
     tauri::Builder::default()
         .manage(identity)
         .manage(storage)
+        .manage(asset_library::AssetLibrary::default())
         .manage(Documents::default())
         .manage(CloseGuard::default())
         .manage(Catalog::default())
+        .manage(private_fonts::PrivateFonts::default())
         .manage(Recovery::default())
         .invoke_handler(tauri::generate_handler![
             build_identity::query_build_identity,
             open_document,
             open_svg_source,
+            asset_library::list_asset_folders,
+            asset_library::register_asset_folder,
+            asset_library::remove_asset_folder,
+            asset_library::refresh_asset_folder,
+            asset_library::open_asset_source,
             save_document,
             save_png,
             list_system_fonts,
@@ -178,6 +187,10 @@ fn run() -> Result<(), String> {
             list_desktop_font_faces,
             list_desktop_font_axes,
             shape_desktop_text,
+            private_fonts::open_private_font_file,
+            private_fonts::list_private_font_files,
+            private_fonts::list_private_font_axes,
+            private_fonts::shape_private_font_text,
             open_project,
             save_project,
             release_project,
@@ -208,6 +221,7 @@ fn run() -> Result<(), String> {
             } else {
                 app.path().app_local_data_dir().map(|p| p.join("recovery-v1")).map_err(|e| e.to_string())
             };
+            app.state::<asset_library::AssetLibrary>().0.lock().map_err(|_| "Library unavailable")?.initialize(recovery_root.clone().map(|p| p.join("graphic-library-v1.json")));
             app.state::<Recovery>().initialize(recovery_root);
             if let Some(config) = window {
                 let paths = window_storage

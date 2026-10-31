@@ -51,8 +51,11 @@ try {
         () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
       );
     const panelSelector = panel === 'align' ? '.alignment-panel' : '.guides-panel';
-    const panelButton = `.canvas-toolbar [data-action="${panel}-panel"]`;
-    const expanded = panel === 'align' ? 'aria-pressed' : 'aria-expanded';
+    const panelButton =
+      panel === 'align'
+        ? '[data-workspace-panel="align"]'
+        : `.canvas-toolbar [data-action="${panel}-panel"]`;
+    const expanded = 'aria-expanded';
     if ((await page.locator(panelButton).getAttribute(expanded)) !== 'true')
       await page.locator(panelButton).click();
     if (panel === 'layout') await page.getByLabel('Preview layout', { exact: true }).check();
@@ -111,11 +114,11 @@ try {
     assert.equal(await editor.evaluate((el) => el.selectionEnd > el.selectionStart), true);
     assert.equal(await page.evaluate(() => window.editorBlurCount), 0);
     assert.equal(
-      await page.locator(panelSelector).count(),
-      0,
-      `outside click still closes ${panel}`,
+      await page.locator(panelSelector).isVisible(),
+      panel === 'align',
+      `outside click ${panel === 'align' ? 'preserves' : 'closes'} ${panel}`,
     );
-    assert.equal(await page.locator(panelButton).getAttribute(expanded), 'false');
+    assert.equal(await page.locator(panelButton).getAttribute(expanded), String(panel === 'align'));
     assert.equal(
       await page.locator('.layout-preview').count(),
       0,
@@ -162,6 +165,7 @@ try {
       'actual blur still commits once',
     );
     const afterBlur = await page.evaluate(() => window.nect.document);
+    if (panel === 'align') await page.locator(panelButton).click();
     await page.locator(panelButton).click();
     assert.equal(await page.locator(panelButton).getAttribute(expanded), 'true');
     assert.equal(await page.locator(panelSelector).count(), 1, `${panel} reopens`);
@@ -171,7 +175,7 @@ try {
     }
     await page.locator(panelButton).click();
     assert.equal(await page.locator(panelButton).getAttribute(expanded), 'false');
-    assert.equal(await page.locator(panelSelector).count(), 0);
+    assert.equal(await page.locator(panelSelector).isVisible(), false);
     assert.equal(await page.locator('.layout-preview').count(), 0);
     assert.deepEqual(await page.evaluate(() => window.nect.document), afterBlur);
     await page.close();

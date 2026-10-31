@@ -106,6 +106,50 @@ try {
     );
     assert.equal(await saved(), original, `${zoomStep} view-only keyboard pan`);
   }
+  for (const input of ['pointer', 'keyboard']) {
+    await viewport.evaluate((el) => el.scrollTo(500, 500));
+    if (input === 'pointer') {
+      const box = await stick.boundingBox();
+      await page.mouse.move(box.x + box.width / 2 - 18, box.y + box.height / 2);
+      await page.mouse.down();
+    } else {
+      await stick.focus();
+      await page.keyboard.down('ArrowRight');
+    }
+    await page.waitForFunction(() => document.querySelector('.graph-scroll').scrollLeft !== 500);
+    await page.keyboard.press('Shift+F10');
+    await page.getByRole('menuitem', { name: 'Hide pan joystick', exact: true }).focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await stick.isVisible(), false);
+    assert.equal(await viewport.evaluate((el) => document.activeElement === el), true);
+    const stopped = await scroll();
+    await page.evaluate(async () => {
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+    });
+    assert.deepEqual(await scroll(), stopped, 'hiding stops held input');
+    if (input === 'pointer') await page.mouse.up();
+    else await page.keyboard.up('ArrowRight');
+    await page.keyboard.press('Shift+F10');
+    await page.getByRole('menuitem', { name: 'Show pan joystick', exact: true }).focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await stick.isVisible(), true);
+    if (input === 'pointer') {
+      const box = await stick.boundingBox();
+      await page.mouse.move(box.x + box.width / 2 + 18, box.y + box.height / 2);
+      await page.mouse.down();
+    } else {
+      await stick.focus();
+      await page.keyboard.down('ArrowRight');
+    }
+    await page.waitForFunction(
+      (x) => document.querySelector('.graph-scroll').scrollLeft > x,
+      stopped[0],
+    );
+    if (input === 'pointer') await page.mouse.up();
+    else await page.keyboard.up('ArrowRight');
+    assert.equal(await saved(), original, 'Hide/show and resumed pan are document/history neutral');
+  }
   await page.locator('[data-action="graph-overview"]').click();
   const [stickBox, overviewBox, viewportBox] = await Promise.all([
     stick.boundingBox(),

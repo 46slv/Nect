@@ -35,6 +35,22 @@ export const nodeCategories = [
 ];
 export const nodeCatalog = [
   {
+    typeId: 'Angular Gradient Fill',
+    categoryId: 'paint',
+    labelJa: '角度グラデーション',
+    aliases: ['Conic Gradient', 'Angle Gradient', 'Angular Gradient Fill', '円錐', '角度', '塗り'],
+    description: '中心の周りを4色で巡る角度グラデーション。',
+    creationRoute: 'add',
+  },
+  {
+    typeId: 'Polar Transform',
+    categoryId: 'transform',
+    labelJa: '極座標変換',
+    aliases: ['Polar Transform', 'Polar Coordinates', '極座標', '円形変形'],
+    description: 'パスの横位置を角度、縦位置を半径へ変換。Inverseで逆変換。',
+    creationRoute: 'add',
+  },
+  {
     typeId: 'Luminance to Points',
     categoryId: 'image',
     labelJa: '輝度をポイントへ',
@@ -547,7 +563,7 @@ export const nodeCatalog = [
     creationRoute: 'add',
   },
 ];
-const excludedTypes = new Set(['Output', 'Image Output', 'Image']);
+const excludedTypes = new Set(['Output', 'Image Output', 'Image', 'SVG']);
 export function nodePickerItems(definitions, label = (type) => type) {
   const metadata = new Map(nodeCatalog.map((entry) => [entry.typeId, entry]));
   return Object.keys(definitions)

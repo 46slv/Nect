@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
@@ -305,6 +306,7 @@ try {
   assert.ok(curve.points[1].handleB.value[0] > 0);
   // Pen retains the old composition. Explicit graph editing remains available separately.
   const oldLayer = await page.evaluate(() => window.nect.document.layers[0].id);
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${oldLayer}"]`).click();
   await page.getByLabel('Add node', { exact: true }).selectOption('Curve');
   curve = await page.evaluate(() => window.nect.document.layers[0].nodes.at(-1));

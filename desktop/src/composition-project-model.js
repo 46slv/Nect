@@ -1,3 +1,4 @@
+import { validateColorSlots, validateColorSlotBinding } from './color-slots.js';
 const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,180}$/;
 const MAX_DIMENSION = 100000;
 const MAX_COMPOSITIONS = 100;
@@ -93,6 +94,8 @@ function assertDocumentEnvelope(project) {
 
 function assertGlobalEntityIds(project) {
   const ids = new Set();
+  for (const slot of validateColorSlots(project).values())
+    assertUniqueId(slot.id, 'Color slot', ids);
   const compositions = project.compositions;
   for (const composition of compositions) {
     if (!isRecord(composition)) throw Error('Invalid Composition');
@@ -144,6 +147,14 @@ function assertCompositionProjectFields(project) {
         throw Error('Invalid Layer node graph');
     }
   }
+  const slots = validateColorSlots(project);
+  for (const composition of project.compositions)
+    for (const layer of composition.layers)
+      for (const node of layer.nodes)
+        for (const q of Object.values(node.params || {})) validateColorSlotBinding(q, slots);
+  for (const preset of project.nodePresets || [])
+    for (const node of preset.nodes || [])
+      for (const q of Object.values(node.params || {})) validateColorSlotBinding(q, slots);
   assertGlobalEntityIds(project);
   assertLayerReferenceScope(project);
 }
@@ -156,7 +167,7 @@ function assertLayerReferenceScope(project) {
   for (const composition of project.compositions)
     for (const layer of composition.layers)
       for (const node of layer.nodes)
-        if (node.type === 'Composition Reference') {
+        if (['Composition Reference', 'SVG'].includes(node.type)) {
           const targetId = node.compositionReference?.compositionId;
           if (!layerOwners.has(targetId)) throw Error('Composition Reference target is missing');
           if (layerOwners.get(targetId) !== composition.id)
@@ -190,6 +201,8 @@ export function deserializeCompositionProject(text, deserializeLegacyDocument = 
 
 function legacyIds(document) {
   const ids = new Set();
+  for (const slot of validateColorSlots(document).values())
+    assertUniqueId(slot.id, 'Color slot', ids);
   for (const layer of document.layers) {
     assertUniqueId(layer.id, 'Layer', ids);
     for (const node of layer.nodes) {

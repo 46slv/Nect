@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { chromium } from 'playwright-core';
 import { openArtworkPanel } from './helpers/artwork-panels.js';
 import assert from 'node:assert/strict';
@@ -128,6 +129,7 @@ try {
   await page.locator('[data-align-artwork="left"]').click();
   assert.equal(await snapshot(), aligned);
   await selectText();
+  await ensureWorkspacePanel(page, 'inspector');
   assert.equal(await page.locator('.text-symbol-buttons button[aria-pressed="true"]').count(), 4);
   await page.getByRole('button', { name: 'Writing direction: Vertical', exact: false }).click();
   assert.equal(

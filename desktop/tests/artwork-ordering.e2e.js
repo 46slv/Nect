@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import {
   loadArtworkProject,
@@ -23,7 +24,10 @@ page.on('dialog', (dialog) => dialog.accept());
 const load = (doc) => loadArtworkProject(page, doc),
   snapshot = () => artworkDocumentSnapshot(page),
   click = (action) => activateCommand(page, action),
-  select = (id) => page.locator(`[data-select-layer="${id}"]`).click(),
+  select = async (id) => {
+    await ensureWorkspacePanel(page, 'layers');
+    await page.locator(`[data-select-layer="${id}"]`).click();
+  },
   order = (id, direction = 'forward') =>
     page.locator(`[data-order-layer="${id}"][data-order-direction="${direction}"]`),
   force = (id, direction = 'forward') =>
@@ -310,6 +314,7 @@ try {
   }
   await load(busy);
   await select(id);
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${id}"]`).press('F2');
   const rename = page.locator('[data-rename-name]');
   await rename.fill('Uncommitted name');

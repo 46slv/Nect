@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import { openArtworkPanel, forceArtworkPanelCommand } from './helpers/artwork-panels.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
@@ -39,6 +40,7 @@ const view = () =>
     return [m.a, m.b, m.c, m.d, m.e, m.f];
   });
 const select = async () => {
+  await ensureWorkspacePanel(page, 'layers');
   for (let i = 0; i < ids.length; i++)
     await page.locator(`[data-select-layer="${ids[i]}"]`).click({ modifiers: i ? ['Shift'] : [] });
   await page.waitForFunction(() => document.querySelectorAll('.layer.selected').length === 5);
@@ -194,6 +196,7 @@ try {
   await page.evaluate((json) => window.nect.load(json), json);
   assert.equal(await page.evaluate(() => window.nect.export()), exported);
   // Saved JSON remains independent, editable artwork after reopening.
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${ids[0]}"]`).click();
   await page.locator('.canvas-stage').focus();
   await page.keyboard.press('ArrowRight');

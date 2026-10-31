@@ -91,6 +91,13 @@ test('synthetic Color controls: source display, fallback restoration, alpha vali
   const outputId = win.nect.document.layers[0].nodes.find((n) => n.type === 'Fill').id;
   const field = (id, key) =>
     document.querySelector(`.graph .field[data-node="${id}"][data-key="${key}"]`);
+  await change(field(colorId, 'value').querySelector('[data-color="hex"]'), '#ff0000');
+  assert.ok(field(colorId, 'value').querySelector('[data-color="hsl-h"]'));
+  await change(field(colorId, 'value').querySelector('[data-color="hsl-h"]'), '120');
+  assert.equal(
+    win.nect.document.layers[0].nodes.find((n) => n.id === colorId).params.value.value.hex,
+    '#00ff00',
+  );
   await change(field(colorId, 'value').querySelector('[data-color="hex"]'), '#ff8000');
   await change(field(colorId, 'value').querySelector('[data-color="alpha"]'), '0.5');
   await change(field(outputId, 'color').querySelector('[data-color="hex"]'), '#2040ff');
@@ -104,6 +111,10 @@ test('synthetic Color controls: source display, fallback restoration, alpha vali
   assert.deepEqual(win.nect.evaluate().path.fill, { hex: '#ff8000', alpha: 0.5 });
   const connectedResult = () => field(outputId, 'color').querySelector('.parameter-result');
   assert.match(connectedResult().textContent, /Connected result #ff8000\s+alpha 0\.5/);
+  const baseGroup = field(outputId, 'color').querySelector('.base-component[role="group"]');
+  assert.ok(baseGroup, 'connected Color base is an accessible group');
+  assert.equal(baseGroup.querySelector('label label'), null, 'HSL labels are not nested');
+  assert.equal(baseGroup.querySelectorAll('[data-color-base]').length >= 5, true);
   assert.equal(
     field(outputId, 'color').querySelector('[data-color-base][data-color="hex"]').value,
     '#2040ff',

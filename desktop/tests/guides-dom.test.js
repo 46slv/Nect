@@ -85,7 +85,7 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
     pointer(document, 'pointermove', 280, 100);
     assert.ok(win.nect.gestureState, 'guide preview owns a Session gesture');
     if (cancel === 'focused-Escape') {
-      assert.equal(document.activeElement, focused);
+      assert.equal(document.activeElement === focused, true, 'guide input keeps focus');
       assert.ok(focused.isConnected);
       key(focused, 'Escape');
     } else if (cancel === 'Escape') key(document.body, 'Escape');
@@ -103,7 +103,9 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
       [...document.querySelectorAll('.node.selected')].map((el) => el.dataset.id),
       selected,
     );
-    if (cancel.includes('Escape')) assert.equal($('[data-add-guide="x"]'), null);
+    if (cancel === 'Escape') assert.equal($('[data-add-guide="x"]') === null, true);
+    if (cancel === 'focused-Escape')
+      assert.equal($('[data-add-guide="x"]') !== null, true, 'editing Escape keeps its panel open');
   }
   guides();
   click(`[data-lock-guide="${id}"]`);
@@ -369,8 +371,8 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
     slider.value = String(value);
     slider.dispatchEvent(new win.Event('input', { bubbles: true }));
   }
-  assert.equal($('[data-grid-opacity][type="range"]'), slider);
-  assert.equal(document.activeElement, slider);
+  assert.equal($('[data-grid-opacity][type="range"]') === slider, true);
+  assert.equal(document.activeElement === slider, true);
   assert.equal($('[data-grid-overlay]').getAttribute('opacity'), '0.7');
   assert.equal(JSON.stringify(get()), centered);
   slider.dispatchEvent(new win.Event('change', { bubbles: true }));

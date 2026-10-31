@@ -1,3 +1,27 @@
+import { samePrivateFontSource } from './private-font-source.js';
+import { createFontChoiceController } from './font-choice-controller.js';
+import {
+  fontPickerCatalogs,
+  fontPickerItems,
+  selectedFontPickerId,
+  migrateFontFavorites,
+  fontFamilyGroups,
+  FONT_FILE_IMPORT_REQUIRED,
+  sameFontFace,
+} from './font-choice-ui.js';
+import {
+  fontChoiceControls,
+  fontImportControls,
+  textOutlineActions,
+} from './font-choice-inspector.js';
+import { createColorCoverageView } from './color-coverage-view.js';
+import { colorCoveragePasses } from './color-coverage-passes.js';
+import { sampleColorCoverage } from './color-coverage-sampling.js';
+import { rasterizeCoverageAlpha } from './color-coverage-raster.js';
+import { createSharedColorsPanel } from './shared-colors-panel.js';
+import { renderHslFields, updateHexHsl } from './hsl-color-picker.js';
+import { mountAssetLibrary, getAssetLibraryPanel, closeAssetLibrary } from './asset-library.js';
+import { createWorkspacePanels } from './workspace-panels.js';
 import { installLayerReorder } from './layer-reorder.js';
 import { createGraphPanJoystick, joystickOverviewLayout } from './graph-pan-joystick.js';
 import { wrapExtent, basicTextWrap, withWrapExtent } from './text-wrap.js';
@@ -51,10 +75,12 @@ import { anchorMarqueeIds } from './direct-anchor-marquee.js';
 import { anchorAlignments, pointAlignmentContext } from './point-alignment.js';
 import { anchorDistributions } from './point-distribution.js';
 import { ensureCommandMenus } from './command-menus.js';
+import { ensureGraphToolbarOverflow } from './graph-toolbar-overflow.js';
 import { ensureBuildInfo } from './build-info.js';
 import { keyerInputPickContext, planKeyerInputPick } from './keyer-input-pick.js';
 import { openKeyerInputPicker } from './keyer-input-picker.js';
 import { MAX_MASK_FEATHER } from './appearance-mask.js';
+import { arrangeTextInspector, retainTextFontDisclosures } from './text-inspector-layout.js';
 const graphemeEditingAvailable = typeof Intl.Segmenter === 'function';
 // Shared keyboard picker. Document changes stay in the caller's typed Session.
 function openSearchPanel({
@@ -70,6 +96,7 @@ function openSearchPanel({
   toggleFavorite,
   fontFilters = false,
   categories,
+  families,
   filterItems,
   context,
   fallbackFocus,
@@ -106,7 +133,7 @@ function openSearchPanel({
     lastNotified;
   let familyFilter = '',
     weightFilter = '';
-  let familySelect, weightSelect;
+  let familySelect, weightSelect, technicalDetails, technicalIdentity;
   if (fontFilters) {
     const filters = document.createElement('div');
     filters.className = 'picker-search picker-font-filters';
@@ -127,7 +154,7 @@ function openSearchPanel({
     }
     familySelect = select('Font family');
     weightSelect = select('Available weight');
-    option(familySelect, '', 'All families / flat list');
+    option(familySelect, '', 'All families');
     for (const family of [
       ...new Set(items.map((item) => item.metadata?.family).filter(Boolean)),
     ].sort())
@@ -153,6 +180,12 @@ function openSearchPanel({
     }
     familySelect.onchange = () => {
       familyFilter = familySelect.value;
+      for (const family of families || [])
+        if (
+          familyFilter === `family:${family.label}` ||
+          (familyFilter === '__unknown__' && !family.known)
+        )
+          expandedFamilies.add(family.id);
       weights();
       refresh();
     };
@@ -167,9 +200,27 @@ function openSearchPanel({
     note.textContent =
       'Choose a real face/style below. Unknown metadata stays unknown; no synthetic bold or italic.';
     filters.after(note);
+    technicalDetails = document.createElement('details');
+    technicalDetails.className = 'font-technical-details';
+    technicalDetails.hidden = true;
+    const summary = document.createElement('summary');
+    summary.textContent = 'Technical details';
+    technicalIdentity = document.createElement('code');
+    technicalDetails.append(summary, technicalIdentity);
+    dialog.querySelector('footer').before(technicalDetails);
   }
   let categoryId = '';
   const expandedCategories = new Set(categories?.slice(0, 1).map((category) => category.id));
+  const familyByItem = new Map(
+    (families || []).flatMap((family) => family.itemIds.map((id) => [id, family.id])),
+  );
+  const enabledItemIds = new Set(items.filter((item) => !item.disabled).map((item) => item.id));
+  const initialFamily =
+    families?.find((family) => family.id === familyByItem.get(selectedId)) ||
+    families?.find((family) => family.itemIds.some((id) => enabledItemIds.has(id))) ||
+    families?.[0];
+  const expandedFamilies = new Set(initialFamily ? [initialFamily.id] : []);
+  let previousFontQuery = '';
   let optionElements = [];
   const scrollSpace = document.createElement('div');
   scrollSpace.setAttribute('aria-hidden', 'true');
@@ -229,7 +280,7 @@ function openSearchPanel({
     else if (top + bounds.height > list.scrollTop + list.clientHeight)
       list.scrollTop = top + bounds.height - list.clientHeight;
   }
-  function highlight(scroll = !categories) {
+  function highlight(scroll = !categories, forceNotify = false) {
     for (const row of optionElements)
       row.setAttribute('aria-selected', String(row.dataset.id === activeId));
     const index = rows.findIndex((item) => item.id === activeId);
@@ -238,7 +289,14 @@ function openSearchPanel({
       if (scroll) reveal(optionElements[index]);
     } else input.removeAttribute('aria-activedescendant');
     apply.disabled = !active();
-    if (lastNotified !== activeId) {
+    if (technicalDetails) {
+      const item = active();
+      technicalDetails.hidden = !item?.technicalIdentity;
+      technicalIdentity.textContent = item?.technicalIdentity
+        ? `${item.choice.source} · ${item.technicalIdentity}`
+        : '';
+    }
+    if (forceNotify || lastNotified !== activeId) {
       lastNotified = activeId;
       status.textContent = '';
       onSelect?.(active());
@@ -261,7 +319,10 @@ function openSearchPanel({
                 ? item.metadata?.weightClass == null
                 : String(item.metadata?.weightClass) === weightFilter)) &&
             words.every((word) =>
-              `${item.label} ${item.detail || ''}`.normalize('NFKC').toLowerCase().includes(word),
+              `${item.label} ${item.detail || ''} ${item.metadata?.family || ''} ${item.metadata?.subfamily || ''} ${(item.metadata?.localizedNames || []).join(' ')}`
+                .normalize('NFKC')
+                .toLowerCase()
+                .includes(word),
             ),
         );
     if (scope) {
@@ -271,14 +332,36 @@ function openSearchPanel({
     }
     const grouped = categories && !input.value.trim() && !categoryId;
     const candidates = rows;
+    const familyCandidates = new Map();
+    if (families) {
+      for (const item of candidates) {
+        const id = familyByItem.get(item.id);
+        if (!id) continue;
+        if (!familyCandidates.has(id)) familyCandidates.set(id, []);
+        familyCandidates.get(id).push(item);
+      }
+      if (input.value !== previousFontQuery) {
+        previousFontQuery = input.value;
+        if (input.value.trim())
+          for (const family of families)
+            if (familyCandidates.has(family.id)) expandedFamilies.add(family.id);
+      }
+      rows = [
+        ...candidates.filter((item) => !familyByItem.has(item.id)),
+        ...families.flatMap((family) =>
+          expandedFamilies.has(family.id) ? familyCandidates.get(family.id) || [] : [],
+        ),
+      ];
+    }
     if (grouped)
       rows = categories.flatMap((category) =>
         expandedCategories.has(category.id)
           ? candidates.filter((item) => item.categoryId === category.id)
           : [],
       );
-    list.setAttribute('role', grouped ? 'tree' : 'listbox');
-    input.setAttribute('aria-haspopup', grouped ? 'tree' : 'listbox');
+    const treeMode = grouped || !!families;
+    list.setAttribute('role', treeMode ? 'tree' : 'listbox');
+    input.setAttribute('aria-haspopup', treeMode ? 'tree' : 'listbox');
     const scrollTop = list.scrollTop;
     if (!grouped) scrollSpace.style.height = '0px';
     if (!rows.some((item) => item.id === activeId && !item.disabled))
@@ -336,15 +419,69 @@ function openSearchPanel({
         groups.set(category.id, children);
       }
     }
+    if (families) {
+      for (const family of families) {
+        const count = familyCandidates.get(family.id)?.length || 0;
+        if (!count) continue;
+        const group = document.createElement('div');
+        group.className = 'picker-category picker-family';
+        group.dataset.fontFamily = family.id;
+        group.setAttribute('role', 'treeitem');
+        group.setAttribute('aria-label', family.label);
+        group.setAttribute('aria-expanded', String(expandedFamilies.has(family.id)));
+        group.tabIndex = 0;
+        const heading = document.createElement('div');
+        heading.className = 'picker-category-heading picker-family-heading';
+        heading.textContent = `${expandedFamilies.has(family.id) ? '▾' : '▸'} ${family.label} (${count})`;
+        const children = document.createElement('div');
+        children.setAttribute('role', 'group');
+        children.hidden = !expandedFamilies.has(family.id);
+        group.append(heading, children);
+        const toggle = () => {
+          if (closed || composing) return;
+          if (expandedFamilies.has(family.id)) expandedFamilies.delete(family.id);
+          else expandedFamilies.add(family.id);
+          refresh();
+          const next = [...list.children].find((entry) => entry.dataset.fontFamily === family.id);
+          next?.focus({ preventScroll: true });
+          reveal(next?.querySelector('.picker-family-heading'));
+        };
+        heading.onclick = toggle;
+        group.onkeydown = (event) => {
+          if (event.target !== group || event.isComposing || event.keyCode === 229 || composing)
+            return;
+          if (['Enter', ' ', 'ArrowRight', 'ArrowLeft'].includes(event.key)) {
+            event.preventDefault();
+            if (
+              event.repeat ||
+              (event.key === 'ArrowRight' && expandedFamilies.has(family.id)) ||
+              (event.key === 'ArrowLeft' && !expandedFamilies.has(family.id))
+            )
+              return;
+            toggle();
+          } else if (['ArrowDown', 'ArrowUp'].includes(event.key)) {
+            event.preventDefault();
+            const next =
+              event.key === 'ArrowDown' ? group.nextElementSibling : group.previousElementSibling;
+            next?.focus({ preventScroll: true });
+            reveal(next?.querySelector('.picker-family-heading'));
+          }
+        };
+        list.append(group);
+        groups.set(family.id, children);
+      }
+    }
     rows.forEach((item, index) => {
       const row = document.createElement('div');
       row.className = 'picker-option';
       row.dataset.id = item.id;
       row.id = `${listId}-${index}`;
-      row.setAttribute('role', grouped ? 'treeitem' : 'option');
+      row.setAttribute('role', treeMode ? 'treeitem' : 'option');
       row.setAttribute('aria-disabled', String(!!item.disabled));
       const name = document.createElement('span');
-      name.textContent = item.label;
+      name.textContent =
+        families && item.metadata?.subfamily ? item.metadata.subfamily : item.label;
+      row.setAttribute('aria-label', `${item.label}${item.detail ? ` · ${item.detail}` : ''}`);
       row.append(name);
       if (item.detail) {
         const detail = document.createElement('small');
@@ -369,7 +506,9 @@ function openSearchPanel({
       row.onclick = () => {
         if (closed || item.disabled) return;
         activeId = item.id;
-        highlight();
+        // Explicitly choosing the same row must re-arm a failed preparation.
+        // Passive refreshes still deduplicate selection notifications.
+        highlight(!categories, true);
         input.focus({ preventScroll: true });
       };
       row.ondblclick = () => {
@@ -378,7 +517,7 @@ function openSearchPanel({
           commit();
         }
       };
-      (groups.get(item.categoryId) || list).append(row);
+      (groups.get(familyByItem.get(item.id) || item.categoryId) || list).append(row);
       optionElements.push(row);
     });
     if (grouped) {
@@ -453,12 +592,16 @@ function openSearchPanel({
     } else if (['ArrowDown', 'ArrowUp'].includes(event.key) && event.target === input) {
       event.preventDefault();
       const enabled = rows.filter((item) => !item.disabled);
-      if (!enabled.length) return;
+      if (!enabled.length) {
+        if (families) list.querySelector('.picker-family')?.focus({ preventScroll: true });
+        return;
+      }
       const index = enabled.findIndex((item) => item.id === activeId);
       activeId =
         enabled[(index + (event.key === 'ArrowDown' ? 1 : -1) + enabled.length) % enabled.length]
           .id;
-      highlight(true);
+      // A single visible row can also be reselected from the keyboard.
+      highlight(true, true);
     } else if (event.key === 'Enter') {
       // Buttons retain their normal action (favorites/cancel), search commits.
       if (event.target !== input) return;
@@ -561,12 +704,14 @@ import {
   chooseUnsaved,
   registerClose,
   listSystemFonts,
-  readSystemFont,
   listOsOutlineFonts,
   outlineOsText,
   listDesktopFontFaces,
   listDesktopFontAxes,
   shapeDesktopText,
+  openPrivateFontFile,
+  listPrivateFontAxes,
+  shapePrivateFontText,
   DocumentLifecycle,
   beginRecovery,
   writeRecovery,
@@ -580,6 +725,7 @@ import {
   parseFont,
   resolveFonts,
   makeVariableFontAsset,
+  makeFontAsset,
   MAX_FONT_BYTES,
   MAX_PROJECT_BYTES,
 } from './fonts.js';
@@ -629,6 +775,7 @@ import {
   disconnect,
   deserialize,
   exportSVG,
+  exportScene,
   renderElement,
   createVariableDocumentPreparer,
   scrubNumericValues,
@@ -675,6 +822,8 @@ import {
 } from './core.js';
 const app = document.querySelector('#app');
 const osTextDrafts = new Map();
+let privateFontFiles = []; // Process-only capabilities; never serialized.
+let privateFontOpenPending = false;
 let osFontCatalog = { families: null, faces: null, familiesError: false, facesError: false };
 let osFontCatalogRequest = 0;
 let osFontCatalogPending = false;
@@ -683,17 +832,73 @@ let editorPicker = null,
 let keyerInputPicker = null;
 const ALIGN_PREFERENCES_KEY = 'nect.alignment-panel.v1';
 let alignmentPreferences = readAlignmentPreferences();
+const sharedColors = createSharedColorsPanel({
+  app,
+  live: true,
+  externalVisibility: true,
+  onPreview: () => updateCanvas(true),
+  getCoverageSnapshot: () => coverageView.snapshot(),
+  getSession: () => session,
+  getDocument: () => history.doc,
+  dispatch: (type, payload, envelope) => commandChange(type, payload, undefined, false, envelope),
+  render: () => render(),
+  notify: (message, error) => notify(message, error),
+  onClose: () => workspacePanels.close('colors'),
+});
+const coverageFontIds = new WeakMap();
+let nextCoverageFontId = 0;
+const coverageView = createColorCoverageView({
+  app,
+  isOpen: () => sharedColors.open && workspacePanels.active.left === 'colors',
+  getKey: () =>
+    JSON.stringify([
+      session.state.sessionId,
+      session.state.expectedRevision,
+      Object.entries(activeFonts())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, font]) => {
+          if (font && typeof font === 'object') {
+            if (!coverageFontIds.has(font)) coverageFontIds.set(font, ++nextCoverageFontId);
+            return [name, coverageFontIds.get(font)];
+          }
+          return [name, String(font)];
+        }),
+    ]),
+  measure: (isCurrent) => {
+    const doc = history.doc;
+    const passes = colorCoveragePasses(exportScene(doc, activeFonts()), doc);
+    return sampleColorCoverage(
+      (doc.colorSlots || []).map((slot) => slot.id),
+      passes,
+      doc,
+      rasterizeCoverageAlpha,
+      isCurrent,
+    );
+  },
+});
+const workspacePanels = createWorkspacePanels({
+  getAssetPanel: getAssetLibraryPanel,
+  storage: {
+    getItem: (key) => localStorage.getItem(key),
+    setItem: (key, value) => localStorage.setItem(key, value),
+  },
+  onAssets: (focus = true) => {
+    if (getAssetLibraryPanel()) closeAssetLibrary();
+    else openAssetLibrary(focus);
+  },
+  onColors: () => coverageView.refresh(),
+  onAlign: () => {},
+});
 function readAlignmentPreferences() {
   try {
     const value = JSON.parse(localStorage.getItem(ALIGN_PREFERENCES_KEY) || '{}');
     return {
-      open: value.open !== false,
       reference: value.reference === 'artboard' ? 'artboard' : 'selection',
       spacing:
         Number.isFinite(value.spacing) && Math.abs(value.spacing) <= 100000 ? value.spacing : null,
     };
   } catch {
-    return { open: true, reference: 'selection', spacing: null };
+    return { reference: 'selection', spacing: null };
   }
 }
 function saveAlignmentPreferences() {
@@ -1040,13 +1245,12 @@ let selection = new Set();
 let nodeContextMenu = null;
 let contextMenuScroll = new Map();
 const detailsState = new Map();
-const compositionViewStates = createCompositionViewStateStore();
+const compositionViewStates = createCompositionViewStateStore({ resolvePointIds: pointPanelIds });
 const selectionHistory = new WeakMap();
 let focusedCompositionTabId = null,
   tabRenderSession = null,
   tabRenderCompositionId = null;
 function closeTransientPanels(except = '') {
-  if (except !== 'align') alignmentPreferences.open = false;
   if (except !== 'grid') gridOpen = false;
   if (except !== 'layout') layoutOpen = false;
   if (except !== 'guides') guidesOpen = false;
@@ -1113,17 +1317,7 @@ function stepHistory(redo = false) {
     if (state.restoreEditSelection) {
       selectedGuide = state.selectedGuide;
       const owner = current().nodes.find((n) => n.id === state.pointSelection?.nodeId);
-      let ids = new Set(owner?.points?.map((p) => p.id) || []);
-      if (owner?.type === 'Path Remap')
-        try {
-          ids = new Set(
-            evaluate(current(), resolveFonts(history.doc, activeFonts()), history.doc.imageAssets)
-              .run(owner.id)
-              .contours.flatMap((c) => c.points.map((p) => p.id)),
-          );
-        } catch {
-          ids.clear();
-        }
+      const ids = new Set(pointPanelIds(owner, current(), history.doc) || []);
       pointSelection = {
         nodeId: owner?.id || null,
         ids: new Set([...(state.pointSelection?.ids || [])].filter((id) => ids.has(id))),
@@ -1174,6 +1368,7 @@ let textPreview = null,
   pendingCanvasTextClick = null,
   lastCanvasTextClick = null;
 const displayDocument = () =>
+  sharedColors.previewDocument ||
   fontPreview ||
   drag?.preview ||
   (textPreviewRevision === session.state.expectedRevision && textPreview) ||
@@ -1275,7 +1470,6 @@ function alignmentIcon(action, distribute = false) {
   return `<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" ${vertical ? 'style="transform:rotate(90deg)"' : ''}>${shape}</svg>`;
 }
 function alignmentPanel(move) {
-  if (!alignmentPreferences.open) return '';
   const resolved = alignmentTargets(move);
   move = resolved.move;
   const count = resolved.count ?? resolved.ids.length;
@@ -1309,7 +1503,9 @@ function alignmentPanel(move) {
     .join('');
   return `<section class="alignment-panel" aria-label="Alignment panel"><div class="alignment-heading"><strong>Align</strong><output aria-label="Alignment selection">${count} selected</output><button data-action="align-panel" aria-label="Hide alignment panel" title="Hide alignment panel">×</button></div><div class="alignment-icon-row" role="group" aria-label="Align objects">${alignButtons}</div><div class="alignment-icon-row" role="group" aria-label="Distribute objects">${spreadButtons}</div><div class="alignment-gap-row" role="group" aria-label="Distribute gaps"><span>Spacing</span>${gapButtons}<input type="number" data-align-spacing aria-label="Artwork gap spacing" min="-100000" max="100000" step="any" placeholder="Auto" value="${alignmentPreferences.spacing ?? ''}" title="Blank: equal gaps with outer edges fixed. Number: fixed gap from leading artwork."><span>px</span></div><div class="alignment-reference"><label>Align to <select data-align-reference aria-label="Alignment reference"><option value="selection" ${alignmentPreferences.reference === 'selection' ? 'selected' : ''}>Selection</option><option value="artboard" ${alignmentPreferences.reference === 'artboard' ? 'selected' : ''}>Artboard</option></select></label></div>${allowed || (!count && (artworkTarget || !selection.size)) ? '' : `<output class="alignment-error" role="status">${esc(move.reason)}</output>`}</section>`;
 }
+let privateFontMissingStatus = null;
 function notify(text, bad = false) {
+  privateFontMissingStatus = null;
   message = text;
   error = bad;
   let s = document.querySelector('.status');
@@ -1321,6 +1517,57 @@ function notify(text, bad = false) {
 let pendingRender = null,
   needsRender = false,
   pointerActive = false;
+// Replacing a focused numeric input can emit a native change during removal.
+// Keep the real input alive from focus until commit/blur: number controls do not
+// expose their native selection, so replacement also loses select-all before
+// the first input event. Value restoration cannot restore either browser state.
+const numericInputDrafts = new WeakSet();
+const tabSelectedNumericInputs = new WeakSet();
+let restoringControlFocus = false;
+let tabFocusExpected = false;
+app.addEventListener(
+  'keydown',
+  (event) => {
+    if (event.key !== 'Tab') return;
+    tabFocusExpected = true;
+    setTimeout(() => {
+      tabFocusExpected = false;
+    }, 0);
+  },
+  true,
+);
+const reserveNumericInput = (event) => {
+  if (
+    !restoringControlFocus &&
+    event.target.matches('input[type="number"], input[data-numeric-expression]')
+  ) {
+    // Tab selects the next number without starting a draft. Let the previous
+    // committed edit update the canvas and controls, restoring that select-all.
+    if (event.type === 'focusin' && tabFocusExpected) {
+      tabSelectedNumericInputs.add(event.target);
+      return;
+    }
+    tabSelectedNumericInputs.delete(event.target);
+    numericInputDrafts.add(event.target);
+  }
+};
+for (const event of ['focusin', 'pointerdown', 'keydown'])
+  app.addEventListener(event, reserveNumericInput, true);
+app.addEventListener(
+  'input',
+  (event) => {
+    if (event.target.matches('input[type="number"], input[data-numeric-expression]')) {
+      tabSelectedNumericInputs.delete(event.target);
+      numericInputDrafts.add(event.target);
+    }
+  },
+  true,
+);
+app.addEventListener('change', (event) => numericInputDrafts.delete(event.target), true);
+app.addEventListener('focusout', (event) => {
+  numericInputDrafts.delete(event.target);
+  if (needsRender) scheduleRender();
+});
 document.addEventListener(
   'pointerdown',
   (event) => {
@@ -1354,7 +1601,7 @@ function scheduleRender() {
   if (pendingRender === null)
     pendingRender = setTimeout(() => {
       pendingRender = null;
-      if (!pointerActive) render();
+      if (!pointerActive && !numericInputDrafts.has(document.activeElement)) render();
     }, 0);
 }
 function commandChange(type, payload, text, deferRender = false, envelope = session.state) {
@@ -1397,7 +1644,11 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
     result = session.dispatch({
       ...envelope,
       type,
-      payload: { layerId: current().id, ...payload },
+      // Palette creation/addition are project commands with closed payload schemas.
+      payload:
+        type === 'create-harmony-palette' || type === 'add-harmony-color'
+          ? payload
+          : { layerId: current().id, ...payload },
     });
     if (pointUI && history.doc !== beforeDocument && history.past.at(-1) !== oldPast) {
       selectionHistory.set(history.past.at(-1), pointUI);
@@ -1411,7 +1662,13 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
   else render();
   return result;
 }
+function settleNumericControl(input, result) {
+  if (!input.matches('input[type="number"], input[data-numeric-expression]')) return;
+  if (result === null) input.value = input.defaultValue;
+  else input.defaultValue = input.value;
+}
 function resetTransient() {
+  sharedColors.cancelEdit();
   keyerInputPicker?.close();
   pointAlignmentActions.clear();
   osTextDrafts.clear();
@@ -1517,6 +1774,11 @@ function numericLimits(n, key) {
     key === 'gridOrigin'
   )
     return [-100000, 100000];
+  if (n.type === 'Angular Gradient Fill') {
+    if (key === 'center') return [-100000, 100000];
+    if (key === 'angle') return [-360, 360];
+    if (key === 'position1' || key === 'position2') return [0, 1];
+  }
   if (n.type === 'Radial Gradient Fill') {
     if (key === 'center') return [-100000, 100000];
     if (key === 'radius') return [0.0001, 100000];
@@ -1539,6 +1801,9 @@ function numericLimits(n, key) {
   if (n.type === 'Auto Handles' && key === 'strength') return [0, 1];
   if (n.type === 'Taper' && key === 'amount') return [-50, 50];
   if (n.type === 'Bend Points' && key === 'angle') return [-180, 180];
+  if (n.type === 'Polar Transform' && ['width', 'height', 'radius'].includes(key))
+    return [0.0001, 100000];
+  if (n.type === 'Polar Transform' && key === 'angle') return [-360, 360];
   if (n.type === 'Twist Points' && key === 'angle') return [-360, 360];
   if (n.type === 'Wave Points' && key === 'amplitude') return [-100000, 100000];
   if (n.type === 'Wave Points' && key === 'wavelength') return [0.0001, 100000];
@@ -2250,6 +2515,11 @@ function field(n, key, q, inspector = false) {
         ? 'Connect Path or PaintedPath…'
         : `Connect ${q.type}…`;
   let displayed = q.value;
+  if (q.colorSlotId !== undefined) {
+    try {
+      displayed = renderEvaluation.parameterValue(n.id, key);
+    } catch {}
+  }
   if (
     isTransform(n) &&
     !n.params[key] &&
@@ -2273,9 +2543,14 @@ function field(n, key, q, inspector = false) {
   else if (q.type === 'Color') {
     const driven = !!(q.expression || q.source),
       color = (driven ? q.value : displayed) || { hex: current().fill, alpha: 1 },
-      disabled = current().locked || q.locked,
+      disabled = current().locked || q.locked || q.colorSlotId !== undefined,
       base = driven ? ' data-color-base' : '';
-    const inputs = `<input type="color" data-color="hex"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} color" value="${esc(color.hex)}" ${disabled ? 'disabled' : ''}>${n.type === 'Keyer' && key === 'keyColor' ? '' : `<input type="number" ${driven ? '' : 'data-scrub-step="0.01"'} data-color="alpha"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} alpha" title="Alpha" min="0" max="1" step="0.01" value="${color.alpha}" ${disabled ? 'disabled' : ''}>`}`;
+    const hslFields = renderHslFields(color.hex, {
+      name: `${n.name} ${name}${driven ? ' base' : ''}`,
+      disabled,
+      base: driven,
+    });
+    const inputs = `${hslFields}<input type="color" data-color="hex"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} color" value="${esc(color.hex)}" ${disabled ? 'disabled' : ''}>${n.type === 'Keyer' && key === 'keyColor' ? '' : `<input type="number" ${driven ? '' : 'data-scrub-step="0.01"'} data-color="alpha"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} alpha" title="Alpha" min="0" max="1" step="0.01" value="${color.alpha}" ${disabled ? 'disabled' : ''}>`}`;
     if (driven) {
       let result;
       try {
@@ -2284,8 +2559,9 @@ function field(n, key, q, inspector = false) {
       } catch {
         result = 'Cannot evaluate';
       }
-      control = `<div class="authored-control"><div class="base-inputs"><label class="base-component">Base${inputs}</label></div><output class="parameter-result" aria-label="${esc(name)} result">${q.source ? 'Connected result' : 'Result'} ${esc(result)}</output>${q.expression ? `<label class="parameter-expression">${q.source ? 'Expression paused by connection' : 'Expression'}<input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${disabled ? 'disabled' : ''}></label>` : ''}</div>`;
+      control = `<div class="authored-control"><div class="base-inputs"><div class="base-component" role="group" aria-label="${esc(n.name + ' ' + name)} base"><span>Base</span>${inputs}</div></div><output class="parameter-result" aria-label="${esc(name)} result">${q.source ? 'Connected result' : 'Result'} ${esc(result)}</output>${q.expression ? `<label class="parameter-expression">${q.source ? 'Expression paused by connection' : 'Expression'}<input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${disabled ? 'disabled' : ''}></label>` : ''}</div>`;
     } else control = inputs;
+    control += sharedColors.bindingControl(n, key, q, current().id);
     if (n.type === 'Keyer' && key === 'keyColor')
       control += `<button class="mini" data-keyer-pick="${n.id}" ${disabled ? 'disabled' : ''}>${driven ? 'Pick base from input' : 'Pick from input'}</button>`;
   } else if (n.type === 'Mask' && key === 'luminance')
@@ -2320,7 +2596,7 @@ function field(n, key, q, inspector = false) {
     control = (q.type === 'Vector2' ? displayed : [displayed])
       .map(
         (v, i) =>
-          `<input type="number" step="${n.type === 'Subdivide Path' && key === 'segments' ? '1' : 'any'}" ${numericAttributes(n, key)} data-value-factor="${factor}" aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(n.type === 'Radial Gradient Fill' || (n.type === 'Geometry Repeater' && key === 'rotation') ? v : ((v * factor).toFixed?.(3) ?? v))}" ${locked ? 'disabled' : ''}>`,
+          `<input type="number" step="${n.type === 'Subdivide Path' && key === 'segments' ? '1' : 'any'}" ${numericAttributes(n, key)} data-value-factor="${factor}" aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(['Radial Gradient Fill', 'Angular Gradient Fill'].includes(n.type) || (n.type === 'Geometry Repeater' && key === 'rotation') ? v : ((v * factor).toFixed?.(3) ?? v))}" ${locked ? 'disabled' : ''}>`,
       )
       .join('');
   if (angleDial && !q.source && !q.expression) control += repeaterAngleControl(n, q);
@@ -2603,14 +2879,20 @@ function applyPointDelta(nodeId) {
     draft.envelope,
   );
 }
-function pointPanelSource(n, input) {
+function pointPanelIds(n, layer, doc) {
+  if (!n) return null;
+  try {
+    return pointPanelSource(n, undefined, layer, doc).points?.map((point) => point.id);
+  } catch {
+    return null;
+  }
+}
+function pointPanelSource(n, input, layer = current(), doc = history.doc) {
   if (n.type === 'Path Remap' && !input && n.params.path.source) {
     try {
-      input = evaluate(
-        current(),
-        resolveFonts(history.doc, activeFonts()),
-        history.doc.imageAssets,
-      ).run(n.params.path.source);
+      input = evaluate(layer, resolveFonts(doc, activeFonts()), doc.imageAssets).run(
+        n.params.path.source,
+      );
     } catch {}
   }
   return {
@@ -3101,7 +3383,7 @@ function variableControls(n) {
   const presets = instances.length
     ? `<div class="field"><label>Named instance</label><select data-variable-instance="${n.id}" aria-label="Variable named instance"><option value="" ${selectedInstance < 0 ? 'selected' : ''} disabled>Custom axes</option>${instances.map((instance, index) => `<option value="${index}" ${selectedInstance === index ? 'selected' : ''}>${esc(instance.name)}</option>`).join('')}</select></div>`
     : '';
-  return `<button class="mini" data-load-variable-font="${n.id}">Load variable TTF (experimental)…</button>${
+  return `${
     axes
       ? `<p class="font-note">Experimental variable font: whole, single-line horizontal Latin text only. No wrap, path, vertical, character overrides or maintained arrangement. Axis changes are prepared before commit; Escape cancels pending work.</p>${presets}${Object.entries(
           axes,
@@ -3137,18 +3419,18 @@ function desktopAxisControls(n) {
 function desktopTypographyControls(n) {
   if (![2, 3, 4, 5].includes(n.osFont?.version)) return '';
   const disabled = !desktop || current().locked || n.locked || osTextDrafts.has(n.id);
-  return `<fieldset ${disabled ? 'disabled' : ''}><legend>Typography</legend>${[
+  return `<fieldset class="native-text-typography" ${disabled ? 'disabled' : ''}><legend>Typography</legend>${[
     ['size', 'Size', n.params.size.value],
     ['tracking', 'Tracking', n.params.letterSpacing.value],
     ['lineSpacing', 'Line spacing', n.params.lineSpacing.value],
   ]
     .map(
       ([key, label, value]) =>
-        `<label>${label}<input type="number" step="any" value="${value}" data-os-setting="${key}" data-os-node="${n.id}" aria-label="Windows Text ${label}"></label>`,
+        `<label><span>${label}</span><input type="number" step="any" value="${value}" data-os-setting="${key}" data-os-node="${n.id}" aria-label="Windows Text ${label}"></label>`,
     )
     .join(
       '',
-    )}<label><input type="checkbox" data-os-setting="kerning" data-os-node="${n.id}" ${n.kerning !== false ? 'checked' : ''}>Kerning</label><label><input type="checkbox" data-os-setting="ligatures" data-os-node="${n.id}" ${n.osFont.outline.ligatures ? 'checked' : ''}>Standard ligatures</label><label>Alignment<select data-os-setting="alignment" data-os-node="${n.id}">${['start', 'center', 'end'].map((a) => `<option ${n.alignment === a ? 'selected' : ''}>${a}</option>`).join('')}</select></label><label>Writing mode<select data-os-setting="writingMode" data-os-node="${n.id}">${[
+    )}<label class="native-text-toggle"><input type="checkbox" data-os-setting="kerning" data-os-node="${n.id}" ${n.kerning !== false ? 'checked' : ''}><span>Kerning</span></label><label class="native-text-toggle"><input type="checkbox" data-os-setting="ligatures" data-os-node="${n.id}" ${n.osFont.outline.ligatures ? 'checked' : ''}><span>Standard ligatures</span></label><label><span>Alignment</span><select data-os-setting="alignment" data-os-node="${n.id}">${['start', 'center', 'end'].map((a) => `<option ${n.alignment === a ? 'selected' : ''}>${a}</option>`).join('')}</select></label><label><span>Writing mode</span><select data-os-setting="writingMode" data-os-node="${n.id}">${[
     ['horizontal-tb', 'Horizontal'],
     ['vertical-rl', 'Vertical'],
   ]
@@ -3158,35 +3440,25 @@ function desktopTypographyControls(n) {
     )
     .join(
       '',
-    )}</select></label>${desktopAxisControls(n)}<label>Line composition<select data-os-wrap="${n.id}" aria-label="Windows Text wrap mode">${wrapModeOptions(n)}</select></label>${n.textWrap ? `<label>Wrap ${n.writingMode === 'vertical-rl' ? 'height' : 'width'} px<input type="number" step="any" min="0.01" max="100000" data-os-wrap-width="${n.id}" aria-label="Windows Text wrap ${n.writingMode === 'vertical-rl' ? 'height' : 'width'}" value="${wrapExtent(n.textWrap)}"></label>` : ''}<p class="font-note">Long unbreakable groups may overflow.</p>${n.osFont.outline.wrapOverflow ? '<p role="status">Wrap overflow · all artwork retained</p>' : ''}</fieldset>`;
+    )}</select></label>${desktopAxisControls(n)}<label><span>Line composition</span><select data-os-wrap="${n.id}" aria-label="Windows Text wrap mode">${wrapModeOptions(n)}</select></label>${n.textWrap ? `<label><span>Wrap ${n.writingMode === 'vertical-rl' ? 'height' : 'width'} px</span><input type="number" step="any" min="0.01" max="100000" data-os-wrap-width="${n.id}" aria-label="Windows Text wrap ${n.writingMode === 'vertical-rl' ? 'height' : 'width'}" value="${wrapExtent(n.textWrap)}"></label>` : ''}<p class="font-note">Long unbreakable groups may overflow.</p>${n.osFont.outline.wrapOverflow ? '<p role="status">Wrap overflow · all artwork retained</p>' : ''}</fieldset>`;
 }
 function textControls(n) {
   if (n.type !== 'Text') return '';
   if (n.osFont) {
     const draft = osTextDrafts.get(n.id),
-      availability = osFontAvailability(n.osFont, {
-        ...osFontCatalog,
-        desktop,
-        pending: osFontCatalogPending,
-      });
-    return `<div class="text-controls"><div class="field"><label>OS font</label><span>${esc(n.osFont.family)} · ${n.osFont.version >= 2 ? esc(n.osFont.face.name) + ' · ' + n.osFont.face.weight : ['Regular', 'Bold', 'Italic', 'Bold Italic'][n.osFont.style]}</span></div><button class="mini" data-os-text-font="${n.id}">Choose OS font…</button><button class="mini" data-refresh-os-fonts>Refresh fonts</button><output role="status">${esc(availability)}</output><label>Text<textarea rows="3" data-os-text="${n.id}" aria-label="OS font text" ${current().locked || n.locked ? 'disabled' : ''}>${esc(draft?.value ?? n.text)}</textarea></label><button class="mini" data-apply-os-text="${n.id}" ${draft?.pending ? 'disabled' : ''}>Apply text</button><button class="mini" data-cancel-os-text="${n.id}">Cancel text edit</button><button class="mini" data-bake-text-outline="${n.id}">Convert to paths</button>${desktopTypographyControls(n)}<button class="mini" data-clear-os-text="${n.id}">Use DejaVu Sans</button></div>`;
+      availability = n.osFont.source
+        ? privateFontChoice(n.osFont.source) &&
+          sameFontFace(privateFontChoice(n.osFont.source).face, n.osFont.face)
+          ? 'Font file attached for this session'
+          : 'Font file missing; reattach the same file to edit text or font settings. Saved appearance is retained.'
+        : osFontAvailability(n.osFont, {
+            ...osFontCatalog,
+            desktop,
+            pending: osFontCatalogPending,
+          });
+    return `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-os-text="${n.id}" aria-label="Text content" ${current().locked || n.locked ? 'disabled' : ''}>${esc(draft?.value ?? n.text)}</textarea></div><button class="mini" data-apply-os-text="${n.id}" ${draft?.pending ? 'disabled' : ''}>Apply text</button><button class="mini" data-cancel-os-text="${n.id}">Cancel text edit</button>${fontChoiceControls(n, { assets: history.doc.fontAssets, locked: current().locked, status: availability, desktop })}${desktopTypographyControls(n)}${fontImportControls(n, { locked: current().locked, desktop })}${textOutlineActions(n, { locked: current().locked })}</div>`;
   }
-  const osControls = desktop
-    ? `<section class="os-font-outlines"><button class="mini" data-os-text-font="${n.id}" ${current().locked ? 'disabled' : ''}>Choose OS font…</button><button class="mini" data-os-text-outline="${n.id}" ${current().locked ? 'disabled' : ''}>OS font / Adobe Fonts → paths…</button><p class="font-note">Replaces Text with paths. Undo restores Text.</p></section>`
-    : '';
-  return (
-    osControls +
-    `<div class="text-controls"><button class="mini" data-bake-text-outline="${n.id}" ${current().locked ? 'disabled' : ''}>Convert text to editable paths</button><p class="font-note">Freezes the current outlines into separate path units. Text and font editing are removed; Undo restores the Text node.</p><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><button class="mini" data-kern-text-cursor="${n.id}" ${maintainedAxis(n) !== null || current().locked ? 'disabled' : ''}>Kerning at cursor</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p><div class="field"><label>Default font</label><select data-font="${n.id}" aria-label="Text font" ${fontRequest?.node === n.id ? 'disabled' : ''}><option value="default" ${n.font === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>${Object.entries(
-      history.doc.fontAssets || {},
-    )
-      .map(
-        ([id, asset]) =>
-          `<option value="${id}" ${n.font === id ? 'selected' : ''}>${esc(asset.name)}</option>`,
-      )
-      .join(
-        '',
-      )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button>${variableControls(n)}${openTypeControls(n)}<p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p>${arrangementControls(n)}${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Automatic font kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${maintainedAxis(n) !== null ? 'disabled' : ''} ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`
-  );
+  return `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><button class="mini" data-kern-text-cursor="${n.id}" ${maintainedAxis(n) !== null || current().locked ? 'disabled' : ''}>Kerning at cursor</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p>${fontChoiceControls(n, { assets: history.doc.fontAssets, locked: current().locked, desktop })}${variableControls(n)}${openTypeControls(n)}${fontImportControls(n, { locked: current().locked, desktop })}${textOutlineActions(n, { locked: current().locked })}${arrangementControls(n)}${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Automatic font kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${maintainedAxis(n) !== null ? 'disabled' : ''} ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`;
 }
 function unitPointIds(n, unit) {
   return n.contours.filter((c) => unit.contours.includes(c.id)).flatMap((c) => c.points);
@@ -3220,6 +3492,15 @@ function positionReferenceControls(n) {
   return `<div class="field"><label>Position reference</label><select data-position-reference="${n.id}" aria-label="Object Position reference">${options.map(([value, label]) => `<option value="${value}" ${(n.positionReference || 'origin') === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div><p class="font-note">Bounds exclude stroke. Position stays fixed when the reference or size changes.${n.type === 'Image' ? ' Image bounds include transparent pixels.' : ''}</p>`;
 }
 function referenceControls(n, result, compact = false) {
+  if (n.type === 'SVG') {
+    const source = history.doc.layers.find((l) => l.id === n.compositionReference?.compositionId);
+    const consumers = source
+      ? history.doc.layers
+          .flatMap((l) => l.nodes)
+          .filter((item) => item.compositionReference?.compositionId === source.id).length
+      : 0;
+    return `<div class="field"><label>SVG source</label><span>${esc(n.svgAsset.relativePath)}</span></div><div class="field"><label>License</label><span>${esc(n.svgAsset.license || 'Unspecified')}</span></div>${consumers > 1 ? `<p class="font-note">Source edits affect ${consumers} nodes</p>` : ''}${source ? `<button class="mini" data-composition-jump="${esc(source.id)}">Open source</button>` : '<span>Missing SVG source</span>'}`;
+  }
   if (n.type === 'Composition Reference') {
     const targetId = n.compositionReference?.compositionId || '',
       source = history.doc.layers.find((l) => l.id === targetId);
@@ -3323,6 +3604,11 @@ function bendControls(n) {
     ? '<p class="font-note">Bend the whole path into a circular strip around the shared control-bounds midpoint. Angle is −180° to 180°; positive bows toward the positive cross-axis direction and negative bows oppositely. Anchors and absolute Bézier controls are mapped separately, so curve interiors are approximate; Resample Path first for finer deformation. Folds are rejected. Edit upstream Text for direct character editing.</p>'
     : '';
 }
+function polarControls(n) {
+  return n.type === 'Polar Transform'
+    ? '<p class="font-note">Vector/path conversion: X relative to Origin spans one turn over Width; Y spans Radius over Height. Center is the output center. Positive angles turn clockwise, default −90° starts at the top. Inverse unwraps to rectangular coordinates; seam-crossing controls/segments are rejected, not silently stretched. Negative radii are unsupported. Anchors and Bézier controls are mapped independently: Resample Path first for finer curve approximation. This is not a bitmap/pixel filter. Paint stays in artboard coordinates.</p>'
+    : '';
+}
 function twistControls(n) {
   return n.type === 'Twist Points'
     ? '<p class="font-note">Twist around the midpoint of shared anchor and absolute-control bounds. Angle is −360° to 360°; positive rotates clockwise in screen coordinates. Influence eases from full at center to zero at the bounds radius, so corners at R stay unchanged. Anchors and absolute Bézier controls are mapped separately, so curve interiors are approximate; Resample Path first for finer detail. Edit upstream Text for direct character editing.</p>'
@@ -3389,6 +3675,8 @@ function offsetControls(n) {
     : '';
 }
 function gradientControls(n) {
+  if (n.type === 'Angular Gradient Fill')
+    return '<p class="font-note">Four editable color stops around Center in artboard px. Position1/2 are fractions with 0 &lt; Position1 &lt; Position2 &lt; 1. Angle uses degrees: 0 right, positive clockwise; Clockwise reverses traversal. Start/End colors meet at the seam; match them for a seamless loop. Premultiplied encoded-sRGB interpolation. Shared SVG/PNG/viewer rendering uses 720 vector sectors (0.5° approximation), not native SVG conic gradients. Fill only; solid Stroke survives. Save JSON for editable stops. SVG pattern reimport and luminance modifiers are not supported yet.</p>';
   if (n.type === 'Radial Gradient Fill')
     return '<p class="font-note">Two colors in absolute artboard coordinates (px). Concentric circular ramp with radius from 0.0001 to 100000 px; center coordinates ±100000 px. No focal offsets or elliptical transform. Geometry / Transform / Repeater go before paint; repeated copies share one ramp. Each stop keeps its alpha. Save JSON to preserve the full procedural graph. Import SVG reopens our exported two-stop gradients as editable paths and paint nodes.</p>';
   return n.type === 'Linear Gradient Fill'
@@ -3425,7 +3713,7 @@ function operationControls(n) {
   return `<div class="field"><label>${hasDotControls(n.type) ? 'Dot shape' : n.type === 'Closed Path Offset' ? 'Join' : 'Operation'}</label><select data-operation="${n.id}" aria-label="${esc(nodeDisplayName(n))} ${hasDotControls(n.type) ? 'dot shape' : 'operation'}">${options.map((op) => `<option value="${op}" ${n.operation === op ? 'selected' : ''}>${n.type === 'Halftone' && op === 'subtract' ? 'Legacy calibrated' : op[0].toUpperCase() + op.slice(1)}</option>`).join('')}</select></div>`;
 }
 function expandedNodeBody(n, result) {
-  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${textControls(n)}${multiPathControls(n)}${editorParameters(
+  return `<div class="node-body"><div class="node-actions">${['Path', 'PaintedPath', 'Image'].includes(outputType(n)) && !['Output', 'Image Output'].includes(n.type) ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${!['Output', 'Image Output'].includes(n.type) ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div>${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${polarControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${textControls(n)}${multiPathControls(n)}${editorParameters(
     n,
   )
     .filter(
@@ -3438,7 +3726,7 @@ function expandedNodeBody(n, result) {
     .map(([k, q]) => field(n, k, q))
     .join(
       '',
-    )}${ownedPointFields(n)}${['Curve', 'Path Remap'].includes(n.type) ? '<p class="font-note">Alt-click an anchor to create Bézier handles; Alt-drag pulls out symmetric handles. Shift-click selects multiple anchors.</p>' : ''}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${['Path', 'PaintedPath', 'Image'].includes(outputType(n)) && !['Output', 'Image Output'].includes(n.type) ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${!['Output', 'Image Output'].includes(n.type) ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div>`;
+    )}${ownedPointFields(n)}${['Curve', 'Path Remap'].includes(n.type) ? '<p class="font-note">Alt-click an anchor to create Bézier handles; Alt-drag pulls out symmetric handles. Shift-click selects multiple anchors.</p>' : ''}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}</div>`;
 }
 function nodeHTML(n, result) {
   const body = n.collapsed
@@ -3620,7 +3908,9 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   }
   if (drag?.type === 'graph-overview') cancelInteraction();
   graphOverviewObserver?.disconnect();
+  const svgPartInput = svgPartPick ? app.querySelector('#svg-part-file') : null;
   const focused = resetView ? null : captureFocus(app);
+  const tabSelectedNumber = !resetView && tabSelectedNumericInputs.has(document.activeElement);
   graphPanJoystick?.destroy();
   graphPanJoystick = null;
   const exportPresetsOpen = app.querySelector('#export-presets')?.open ?? false;
@@ -3633,6 +3923,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   const canvasEditorFocused = canvasEditor === document.activeElement;
   const inspectorScroll = resetView ? 0 : document.querySelector('.inspector')?.scrollTop || 0;
   const layersScroll = resetView ? 0 : document.querySelector('.layers')?.scrollTop || 0;
+  const colorsScroll = resetView ? 0 : app.querySelector('.shared-colors-panel')?.scrollTop || 0;
   const guideScroll = resetView
     ? [0, 0]
     : ['.guides-panel', '.guide-list'].map(
@@ -3693,7 +3984,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
           )
           .join('')}</select></label>`
       : ''
-  }<button data-action="add-composition">Add composition</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the document with imported SVG">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button><details class="recovery-failures" data-recovery-failures hidden><summary>Recovery failed</summary><div class="command-menu-items"><select data-recovery-failed-target aria-label="Failed recovery document"></select><button data-recovery-retry-target>Retry document</button></div></details>' : ''}<button data-action="export">Export SVG</button><select id="svg-export-sizing" data-svg-export-sizing aria-label="SVG output sizing"><option value="fixed" ${svgExportSizing === 'fixed' ? 'selected' : ''}>Fixed</option><option value="responsive" ${svgExportSizing === 'responsive' ? 'selected' : ''}>Responsive</option></select><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units" ${svgExportSizing === 'fixed' ? '' : 'hidden'}>${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="svg-export-precision" data-svg-export-precision aria-label="SVG geometry precision" title="Round geometry numbers in the SVG copy; Default keeps the current output"><option value="default" ${svgExportPrecision === 'default' ? 'selected' : ''}>Default</option>${SVG_EXPORT_PRECISIONS.map((digits) => `<option value="${digits}" ${String(digits) === svgExportPrecision ? 'selected' : ''}>${digits} decimals</option>`).join('')}</select><select id="png-export-mode" aria-label="PNG size mode" title="Choose scale or physical PPI"><option value="scale" ${pngExportMode === 'scale' ? 'selected' : ''}>Scale</option><option value="ppi" ${pngExportMode === 'ppi' ? 'selected' : ''}>Physical × PPI</option></select><select id="png-scale" aria-label="PNG export scale" ${pngExportMode === 'scale' ? '' : 'hidden'}>${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${v === pngScale ? 'selected' : ''}>${v}×</option>`).join('')}</select><label ${pngExportMode === 'ppi' ? '' : 'hidden'}>PPI<input id="png-ppi" type="number" step="any" value="${Number.isFinite(pngPpi) ? pngPpi : ''}" aria-label="PNG resolution (PPI)"></label><output data-png-dimensions data-valid="${!!pngPreview.size}" aria-label="PNG output dimensions" aria-live="polite">${esc(pngPreview.label)}</output><button data-action="export-png" ${pngPreview.size ? '' : 'disabled'} title="Transparent artboard · ${esc(pngPreview.label)}">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
+  }<button data-action="add-composition">Add composition</button><button data-action="asset-library">Assets</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the active Composition with imported SVG; other Compositions and shared assets are kept">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button><details class="recovery-failures" data-recovery-failures hidden><summary>Recovery failed</summary><div class="command-menu-items"><select data-recovery-failed-target aria-label="Failed recovery document"></select><button data-recovery-retry-target>Retry document</button></div></details>' : ''}<button data-action="export">Export SVG</button><select id="svg-export-sizing" data-svg-export-sizing aria-label="SVG output sizing"><option value="fixed" ${svgExportSizing === 'fixed' ? 'selected' : ''}>Fixed</option><option value="responsive" ${svgExportSizing === 'responsive' ? 'selected' : ''}>Responsive</option></select><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units" ${svgExportSizing === 'fixed' ? '' : 'hidden'}>${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="svg-export-precision" data-svg-export-precision aria-label="SVG geometry precision" title="Round geometry numbers in the SVG copy; Default keeps the current output"><option value="default" ${svgExportPrecision === 'default' ? 'selected' : ''}>Default</option>${SVG_EXPORT_PRECISIONS.map((digits) => `<option value="${digits}" ${String(digits) === svgExportPrecision ? 'selected' : ''}>${digits} decimals</option>`).join('')}</select><select id="png-export-mode" aria-label="PNG size mode" title="Choose scale or physical PPI"><option value="scale" ${pngExportMode === 'scale' ? 'selected' : ''}>Scale</option><option value="ppi" ${pngExportMode === 'ppi' ? 'selected' : ''}>Physical × PPI</option></select><select id="png-scale" aria-label="PNG export scale" ${pngExportMode === 'scale' ? '' : 'hidden'}>${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${v === pngScale ? 'selected' : ''}>${v}×</option>`).join('')}</select><label ${pngExportMode === 'ppi' ? '' : 'hidden'}>PPI<input id="png-ppi" type="number" step="any" value="${Number.isFinite(pngPpi) ? pngPpi : ''}" aria-label="PNG resolution (PPI)"></label><output data-png-dimensions data-valid="${!!pngPreview.size}" aria-label="PNG output dimensions" aria-live="polite">${esc(pngPreview.label)}</output><button data-action="export-png" ${pngPreview.size ? '' : 'disabled'} title="Transparent artboard · ${esc(pngPreview.label)}">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['direct', 'A', 'Direct selection (A)'],
     ['select', '↖', 'Select / move'],
     ['pen', '⌁', 'Pen / Curve'],
@@ -3709,7 +4000,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     )
     .join(
       '',
-    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard, grid and 45° directions; hold Alt to bypass">Snap</button><button data-action="align-panel" aria-pressed="${alignmentPreferences.open}" title="Show alignment panel">Align</button><button data-action="grid-panel" aria-expanded="${gridOpen}">Grid</button><button data-action="layout-panel" aria-expanded="${layoutOpen}">Layout Grid</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span data-artboard-size aria-label="Artboard size">${formatDocumentLength(doc.width, artboardUnit)} &#215; ${formatDocumentLength(doc.height, artboardUnit)} ${artboardUnit}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${gridPanel()}${layoutOpen ? `<section class="guides-panel" aria-label="Layout Grid">${layoutPanel()}</section>` : ''}${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Alt or Ctrl/Cmd+wheel: zoom · Space or middle drag: pan; Select blank drag: bounds overlap; Shift adds"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
+    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard, grid and 45° directions; hold Alt to bypass">Snap</button><button data-action="align-panel" aria-pressed="${workspacePanels.active.right === 'align'}" title="Show alignment panel">Align</button><button data-action="grid-panel" aria-expanded="${gridOpen}">Grid</button><button data-action="layout-panel" aria-expanded="${layoutOpen}">Layout Grid</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span data-artboard-size aria-label="Artboard size">${formatDocumentLength(doc.width, artboardUnit)} &#215; ${formatDocumentLength(doc.height, artboardUnit)} ${artboardUnit}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${gridPanel()}${layoutOpen ? `<section class="guides-panel" aria-label="Layout Grid">${layoutPanel()}</section>` : ''}${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Alt or Ctrl/Cmd+wheel: zoom · Space or middle drag: pan; Select blank drag: bounds overlap; Shift adds"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
     .filter(([x, r]) => layerShown(x) && r.path && !r.error)
     .map(([x, r]) => layerShape(x, r.path))
     .join(
@@ -3727,13 +4018,13 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     .reverse()
     .map(
       (x) =>
-        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${(artworkTarget ? artworkSelection.has(x.id) : x.id === l.id) ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${x.visible ? 'Hide' : 'Show'}</button><button class="layer-solo" data-layer-solo="${x.id}" aria-label="Solo layer: ${esc(x.name)}" aria-pressed="${x.solo === true}" title="Solo in preview and SVG/PNG; multiple allowed; Hide remains in effect">S</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" aria-pressed="${artworkTarget ? artworkSelection.has(x.id) : false}" title="Click to select; Shift-click to add/remove. Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
+        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${(artworkTarget ? artworkSelection.has(x.id) : x.id === l.id) ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${x.visible ? 'Hide' : 'Show'}</button><button class="layer-solo" data-layer-solo="${x.id}" aria-label="Solo layer: ${esc(x.name)}" aria-pressed="${x.solo === true}" title="Solo in preview and SVG/PNG; multiple allowed; Hide remains in effect">S</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" aria-pressed="${artworkTarget ? artworkSelection.has(x.id) : false}" title="${esc(x.name)} · Click to select; Shift-click to add/remove. Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
     )
     .join(
       '',
-    )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}</section>${alignmentPanel(move)}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${sourceNavigationPanel()}${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
+    )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}<section class="artboard-settings" aria-label="Composition artboard settings"><h3>Artboard</h3><p>Target · ${esc(session.projectSnapshot().compositions.find((composition) => composition.id === session.activeCompositionId)?.name || 'Active composition')}</p><div class="field"><label for="artboard-unit">Artboard units</label><select id="artboard-unit" data-artboard-unit aria-label="Artboard units">${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === artboardUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select></div><div class="field"><label>Artboard W (${artboardUnit})</label><input type="number" step="any" data-dimension="width" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.width, artboardUnit)}" aria-label="Artboard width (${artboardUnit})"></div><div class="field"><label>Artboard H (${artboardUnit})</label><input type="number" step="any" data-dimension="height" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.height, artboardUnit)}" aria-label="Artboard height (${artboardUnit})"></div></section></section>${alignmentPanel(move)}${sharedColors.html()}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${n ? `<h3 class="inspector-node-title">${esc(nodeDisplayName(n))}</h3><p class="inspector-node-type">Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>` : ''}${sourceNavigationPanel()}${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
     n
-      ? `<h3>${esc(nodeDisplayName(n))}</h3>${bypassControl(n)}<p>Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${['Curve', 'Multi Path'].includes(n.type) ? ownedPointFields(n) : ''}${editorParameters(
+      ? `${bypassControl(n)}${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${polarControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${['Curve', 'Multi Path'].includes(n.type) ? ownedPointFields(n) : ''}${editorParameters(
           n,
         )
           .filter(
@@ -3751,7 +4042,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
         : hasEmptyOutput(l)
           ? '<h3>Empty composition</h3>'
           : '<p>Select artwork or a graph node.</p>'
-  }<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div><div class="field"><label for="artboard-unit">Artboard units</label><select id="artboard-unit" data-artboard-unit aria-label="Artboard units">${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === artboardUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select></div><div class="field"><label>Artboard W (${artboardUnit})</label><input type="number" step="any" data-dimension="width" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.width, artboardUnit)}" aria-label="Artboard width (${artboardUnit})"></div><div class="field"><label>Artboard H (${artboardUnit})</label><input type="number" step="any" data-dimension="height" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.height, artboardUnit)}" aria-label="Artboard height (${artboardUnit})"></div>${results
+  }<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div>${results
     .filter(([, r]) => r.error || r.warnings.length)
     .map(
       ([x, r]) => `<p class="warning">${esc(x.name)}: ${esc(r.error || r.warnings.join(' '))}</p>`,
@@ -3759,7 +4050,11 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     .join(
       '',
     )}${penDraft ? '</div>' : ''}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden><input id="svg-part-file" type="file" accept=".svg,image/svg+xml" hidden>`;
+  retainTextFontDisclosures(app);
   renderCompositionTablist();
+  // A deferred view/font refresh must not detach an active browser chooser.
+  // Document replacement clears svgPartPick and retains its existing stale guard.
+  if (svgPartInput) app.querySelector('#svg-part-file')?.replaceWith(svgPartInput);
   mountViewers(app, viewerState, {
     doc,
     fonts,
@@ -3768,6 +4063,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     canAssign: selection.size === 1,
     busy: !!(penDraft || drag || wiring || composing || canvasTextEdit),
     evaluations: new Map(results.map(([layer, result]) => [layer.id, result])),
+    onModeChange: () => workspacePanels.refresh(),
   });
   const pngExportButton = app.querySelector('[data-action="export-png"]');
   if (pngExportButton) {
@@ -3779,6 +4075,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   }
   const svgPrecision = app.querySelector('#svg-export-precision');
   if (svgPrecision) svgPrecision.value = svgExportPrecision;
+  workspacePanels.attach(app);
   prepareNumericInputs(app);
   for (const row of app.querySelectorAll('.layer[data-layer]')) row.tabIndex = 0;
   // Keep controls and actionable states visible; put reference prose in
@@ -3796,7 +4093,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     region.append(help);
   }
   for (const control of app.querySelectorAll(
-    '#add-node, [data-font], [data-character-style="font"]',
+    '#add-node, [data-change-font], [data-font], [data-character-style="font"]',
   )) {
     control.setAttribute('aria-haspopup', 'dialog');
     control.title =
@@ -3831,6 +4128,11 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   revealActivePointRow();
   for (const select of app.querySelectorAll('[data-stroke-preset]'))
     select.value = select.querySelector('option[selected]').value;
+  // Finalize header geometry before fitting. Deferring menu compaction to the
+  // observer changes the stage height between the two presses of a double-click.
+  ensureCommandMenus(app, document);
+  ensureGraphToolbarOverflow(app, document);
+  ensureBuildInfo(app, document);
   fitCanvas();
   compactTextInspector();
   if (canvasEditor && canvasTextEdit && current().id === canvasTextEdit.layerId)
@@ -3839,7 +4141,16 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   updateNavigation();
   for (const dial of app.querySelectorAll('[data-repeater-angle]'))
     repeaterAngleScopes.set(dial, { owner: session, envelope: session.state, layerId: l.id });
-  restoreFocus(app, focused);
+  restoringControlFocus = true;
+  try {
+    restoreFocus(app, focused);
+    if (tabSelectedNumber && document.activeElement?.matches('input[type="number"]')) {
+      document.activeElement.select();
+      tabSelectedNumericInputs.add(document.activeElement);
+    }
+  } finally {
+    restoringControlFocus = false;
+  }
   if (pointScroll)
     app.querySelectorAll('.point-panel-rows').forEach((el, i) => {
       el.scrollTop = pointScroll[i] ?? 0;
@@ -3847,6 +4158,8 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   if (canvasEditorFocused && canvasEditor?.isConnected) canvasEditor.focus({ preventScroll: true });
   document.querySelector('.inspector').scrollTop = inspectorScroll;
   document.querySelector('.layers').scrollTop = layersScroll;
+  const colorsPanel = app.querySelector('.shared-colors-panel');
+  if (colorsPanel) colorsPanel.scrollTop = colorsScroll;
   ['.guides-panel', '.guide-list'].forEach((selector, index) => {
     const el = document.querySelector(selector);
     if (el) el.scrollTop = guideScroll[index];
@@ -3855,7 +4168,8 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     updateGraphBounds();
     drawWires();
   });
-  if (fontPreview || textPreview) updateCanvas(true);
+  if (sharedColors.previewDocument || fontPreview || textPreview) updateCanvas(true);
+  coverageView.refresh();
 }
 function editGuides(type, payload) {
   snapMatches = [];
@@ -4385,8 +4699,8 @@ function typographyControls(context) {
           `<option value="${esc(id)}" ${fontValue === id ? 'selected' : ''}>${esc(asset.name)}</option>`,
       )
       .join('')}
-    ${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></label>
-    <button class="mini" data-load-character-font="${context.n.id}" ${disabled || fontRequest ? 'disabled' : ''}>Load font for selection…</button>
+    ${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" disabled>${esc(name)} — ${esc(reason || FONT_FILE_IMPORT_REQUIRED)}</option>`).join('')}</optgroup>` : ''}</select></label>
+    <details class="text-font-advanced text-character-font-advanced text-inspector-details"><summary>Advanced font import</summary><button class="mini" data-load-character-font="${context.n.id}" ${disabled || fontRequest ? 'disabled' : ''}>Import font for selection…</button><p class="font-note" role="note">Imported font bytes stay local and are included in saved JSON. Use a file licensed for editable embedding; file flags do not guarantee permission.</p></details>
     <div class="typography-fields">${[
       ['size', 'Font size px', 0.01, 100000, 1],
       ['width', 'Horizontal width %', 1, 1000, 100],
@@ -4753,7 +5067,7 @@ function canvasOverlay(n, result) {
       `<rect class="guide" x="${path.position[0]}" y="${path.position[1]}" width="${path.size[0]}" height="${path.size[1]}" stroke-dasharray="5 4"/>` +
       nodeStageMoveMarker(n, path)
     );
-  if (n.type === 'Composition Reference' || (n.type === 'Transform' && n.paintMode))
+  if (['Composition Reference', 'SVG'].includes(n.type) || (n.type === 'Transform' && n.paintMode))
     return (
       `<path class="guide" d="${esc(pathData(path))}" stroke-dasharray="5 4"/>` +
       nodeStageMoveMarker(n, path) +
@@ -4834,6 +5148,7 @@ function nodeStageMoveMarker(n, path) {
       'Transform',
       'Image',
       'Composition Reference',
+      'SVG',
     ].includes(n.type)
   )
     return '';
@@ -4951,7 +5266,9 @@ const CANVAS_LIMITS = [0.00001, 8],
 function zoomLabel(scale) {
   return `${Number((scale * 100).toFixed(scale < 0.01 ? 3 : scale < 0.1 ? 1 : 0))}%`;
 }
-let graphPanJoystick = null;
+// Session UI only: do not serialize this preference or put it in Undo history.
+let graphPanJoystick = null,
+  graphPanJoystickVisible = true;
 function mountGraphPanJoystick() {
   const container = document.querySelector('.graph-body'),
     viewport = container?.querySelector('.graph-scroll');
@@ -4960,6 +5277,7 @@ function mountGraphPanJoystick() {
   let intent = null,
     observed = null;
   graphPanJoystick = createGraphPanJoystick({
+    visible: graphPanJoystickVisible,
     container,
     viewport,
     canPan: () =>
@@ -5532,171 +5850,106 @@ function openFontPicker(control, query = '') {
     document.querySelector('dialog[open]') ||
     current().locked ||
     navigationBusy() ||
-    penDraft
+    penDraft ||
+    variableAction
   )
     return;
   document.activeElement?.blur();
   const context = control.dataset.characterStyle === 'font' ? characterContext() : null;
-  const nodeId = context?.n.id || control.dataset.font;
+  const nodeId = context?.n.id || control.dataset.changeFont || control.dataset.font;
   if (!nodeId || (context && (!context.typographySelected.length || context.typographyReason)))
     return;
-  if (variableNode(nodeId)) {
-    if (context) {
-      notify('Variable Text currently supports whole-text font selection only', true);
-      return;
-    }
-    editorPicker = openSearchPanel({
-      title: 'Font',
-      action: 'Apply font',
-      selectedId: current().nodes.find((n) => n.id === nodeId)?.font,
-      query,
-      items: [
-        { id: 'default', label: 'DejaVu Sans (Latin)' },
-        ...Object.entries(history.doc.fontAssets || {}).map(([id, asset]) => ({
-          id,
-          label: asset.name,
-        })),
-      ],
-      onCommit(item) {
-        if (!item) return;
-        const picker = editorPicker;
-        editorPicker = null;
-        picker.close();
-        void preparedChange(
-          'set-variable-font',
-          {
-            nodeId,
-            fontId: item.id,
-            axes: history.doc.fontAssets?.[item.id]?.kind === 'variable-glyf-v1' ? {} : null,
-          },
-          'Font updated',
-        );
-      },
-      onCancel() {
-        editorPicker = null;
-      },
-    });
+  if (osTextDrafts.has(nodeId)) {
+    notify('Apply or cancel the Text edit first', true);
+    return;
+  }
+  if (!flushArrangementText(nodeId)) return;
+  const source = current().nodes.find((n) => n.id === nodeId);
+  if (source?.type !== 'Text' || source.locked || source.bypassed) {
+    notify('Select an unlocked enabled Text', true);
     return;
   }
   const owner = session,
-    envelope = session.state;
-  let token;
-  try {
-    token = owner.dispatch({
-      ...envelope,
-      type: 'begin-gesture',
-      payload: {
-        target: {
-          kind: 'text-font',
-          layerId: current().id,
-          nodeId,
-          ...(context ? { characterIds: [...characterEdit.selected] } : {}),
-        },
-      },
-    });
-  } catch (error) {
-    notify(error.message, true);
-    return;
-  }
-  const items = [
-    ...(context ? [{ id: '', label: 'Inherit default font', key: 'inherit' }] : []),
-    {
-      id: 'default',
-      label: 'DejaVu Sans (Latin)',
-      key: 'default',
-      metadata: bundledFont?.nectMetadata,
-    },
-    ...Object.entries(history.doc.fontAssets || {}).map(([id, asset]) => ({
-      id,
-      label: asset.name,
-      key: `asset:${id}`,
-      legacyKey: `font:${asset.name}`,
-      metadata: fonts[id]?.nectMetadata,
-      variable: asset.kind === 'variable-glyf-v1',
-      disabled: !!context && asset.kind === 'variable-glyf-v1',
-      detail:
-        asset.kind === 'variable-glyf-v1'
-          ? 'Experimental variable font · whole-text only · prepared on Apply'
-          : '',
-    })),
-    ...systemFonts.map(([id, name, reason, metadata]) => ({
-      id,
-      label: name,
-      key: `installed:${id}`,
-      legacyKey: `font:${name}`,
-      metadata,
-      detail: reason,
-      disabled: !!reason,
-      installed: true,
-    })),
-  ];
-  // Names describe a face; only its opaque ID chooses the bytes. Keep duplicate
-  // names as separate rows, including separate favorite controls.
-  for (const item of items) {
-    if (item.id === '') continue;
-    const m = item.metadata;
-    const style = m?.subfamily || 'Unknown style';
-    const weight = m?.weightClass == null ? 'weight unknown' : `weight ${m.weightClass}`;
-    const family = m?.family || 'Unknown family';
-    item.detail = `${family} · ${style} · ${weight}${item.detail ? ` · ${item.detail}` : ''}`;
-  }
-  const duplicateNames = new Set(
-    items
-      .filter((item, i) => items.findIndex((other) => other.label === item.label) !== i)
-      .map((item) => item.label),
+    envelope = owner.state,
+    layerId = current().id;
+  const selectedAtOpen = selected;
+  const characterIds = context ? [...characterEdit.selected] : undefined;
+  const characterKey = characterIds && JSON.stringify([...characterIds].sort());
+  const items = fontPickerItems(
+    fontPickerCatalogs({
+      assets: history.doc.fontAssets,
+      fonts,
+      bundledFont,
+      installed: systemFonts,
+      windows: osFontCatalog.faces || [],
+      fileNative: privateFontFiles,
+    }),
+    source,
+    { characterIds },
   );
-  for (const item of items) if (duplicateNames.has(item.label)) item.detail += ` · face ${item.id}`;
-  const favorites = fontFavorites();
-  // Migrate name-based favorites to the currently visible IDs without merging
-  // same-name faces when the user subsequently toggles one of them.
-  for (const item of items)
-    if (item.legacyKey && favorites.has(item.legacyKey)) favorites.add(item.key);
-  for (const item of items) if (item.legacyKey) favorites.delete(item.legacyKey);
-  let picker,
-    request = 0,
-    pending = Promise.resolve(),
-    readyId,
-    committing = false;
-  async function preview(item) {
-    const serial = ++request;
-    readyId = undefined;
-    if (!item) return;
-    if (item.variable) {
-      // Variable geometry cannot enter the synchronous static font gesture.
-      // Leave the active bank intact; prepare the whole-text switch on Apply.
-      fontPreview = null;
-      readyId = item.id;
+  const favorites = migrateFontFavorites(fontFavorites(), items);
+  let picker;
+  const controller = createFontChoiceController({
+    owner,
+    envelope,
+    layerId,
+    nodeId,
+    source,
+    characterIds,
+    isCurrent: () =>
+      session === owner &&
+      current().id === layerId &&
+      selected === selectedAtOpen &&
+      !current().locked &&
+      (characterIds === undefined ||
+        (characterEdit?.node === nodeId &&
+          JSON.stringify([...(characterEdit?.selected || [])].sort()) === characterKey)),
+    prepareWindows: (node, face, options) => prepareDesktopText(node, face, options.settings, true),
+    preparePrivate: (node, choice, options) => preparePrivateText(node, choice, options.settings),
+    async prepareVariable(command, { signal }) {
+      variableBridge ||= createVariableDocumentPreparer();
+      const bridge = variableBridge;
+      const token = await owner.prepareCommand(command, bridge, { signal });
+      let active = true;
+      return {
+        commit() {
+          if (!active) throw Error('Font preparation expired; choose the font again');
+          const result = owner.commitPrepared(token);
+          active = false;
+          return result;
+        },
+        cancel() {
+          if (!active) return;
+          active = false;
+          owner.cancelPrepared(bridge);
+        },
+      };
+    },
+    onPreview(document) {
+      fontPreview = document;
       updateCanvas(true);
-      picker.status('Experimental variable font · prepared on Apply');
-      return;
-    }
-    picker.status(item.installed ? 'Loading font…' : '', false);
-    try {
-      const update = item.installed
-        ? { bytes: await readSystemFont(item.id), fileName: item.label }
-        : { font: item.id };
-      if (picker.closed || serial !== request || session !== owner) return;
-      token = owner.dispatch({
-        ...envelope,
-        type: 'update-gesture',
-        payload: { ...token, update },
-      });
-      fontPreview = owner.previewSnapshot(token.gestureId).document;
-      readyId = item.id;
-      updateCanvas(true);
-      picker.status('');
-    } catch (error) {
-      if (!picker.closed && serial === request)
-        picker.status(error.message || String(error), false);
-    }
-  }
+    },
+    onStatus(message, ready) {
+      picker?.status(message, ready);
+    },
+    onApplied() {
+      if (editorPicker === picker) editorPicker = null;
+      picker.close();
+      if (current().nodes.find((n) => n.id === nodeId)?.osFont) characterEdit = null;
+      notify('Font updated');
+      render();
+    },
+  });
   picker = editorPicker = openSearchPanel({
     title: 'Font',
     fontFilters: true,
+    families: fontFamilyGroups(items),
     action: 'Apply font',
     items,
     query,
-    selectedId: control.value,
+    selectedId: context
+      ? items.find((row) => row.choice.source === 'embedded' && row.choice.id === control.value)?.id
+      : selectedFontPickerId(source, items),
     isFavorite: (item) => favorites.has(item.key),
     toggleFavorite(item) {
       if (favorites.has(item.key)) favorites.delete(item.key);
@@ -5707,48 +5960,11 @@ function openFontPicker(control, query = '') {
         picker.status('Favorites could not be saved', false);
       }
     },
-    onSelect(item) {
-      pending = preview(item);
-    },
-    async onCommit(item) {
-      if (!item || committing) return;
-      committing = true;
-      const serial = request;
-      try {
-        await pending;
-        if (picker.closed || request !== serial || readyId !== item.id || session !== owner) return;
-        if (item.variable) {
-          owner.dispatch({ ...envelope, type: 'cancel-gesture', payload: token });
-          fontPreview = null;
-          editorPicker = null;
-          picker.close();
-          await preparedChange(
-            'set-variable-font',
-            { nodeId, fontId: item.id, axes: {} },
-            'Font updated',
-            envelope,
-          );
-          return;
-        }
-        owner.dispatch({ ...envelope, type: 'commit-gesture', payload: token });
-        fontPreview = null;
-        editorPicker = null;
-        picker.close();
-        notify('Font updated');
-        render();
-      } catch (error) {
-        picker.status(error.message || String(error), false);
-      } finally {
-        committing = false;
-      }
-    },
+    onSelect: (item) => controller.select(item),
+    onCommit: (item) => controller.apply(item),
     onCancel() {
-      request++;
-      if (owner.hasGesture && owner.gestureState?.gestureId === token.gestureId)
-        owner.dispatch({ ...owner.state, type: 'cancel-gesture', payload: token });
-      fontPreview = null;
-      editorPicker = null;
-      updateCanvas(true);
+      controller.cancel();
+      if (editorPicker === picker) editorPicker = null;
     },
   });
 }
@@ -5758,7 +5974,9 @@ function openFontPicker(control, query = '') {
 app.addEventListener(
   'pointerdown',
   (event) => {
-    const control = event.target.closest?.('#add-node, [data-font], [data-character-style="font"]');
+    const control = event.target.closest?.(
+      '#add-node, [data-change-font], [data-font], [data-character-style="font"]',
+    );
     if (!control || event.button !== 0 || control.disabled) return;
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -5770,7 +5988,9 @@ app.addEventListener(
   'keydown',
   (event) => {
     if (event.isComposing || event.keyCode === 229 || composing) return;
-    const control = event.target.closest?.('#add-node, [data-font], [data-character-style="font"]');
+    const control = event.target.closest?.(
+      '#add-node, [data-change-font], [data-font], [data-character-style="font"]',
+    );
     if (!control || control.disabled || event.ctrlKey || event.metaKey || event.altKey) return;
     if (!['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key) && event.key.length !== 1)
       return;
@@ -6372,6 +6592,90 @@ async function openCompositionImportDialog() {
   dialog.showModal();
   select.focus();
 }
+function openAssetLibrary(focus = true) {
+  mountAssetLibrary({
+    focus,
+    onDragState: (dragging) => workspacePanels.setRetreat(dragging),
+    resolveDrop: (event) => {
+      const target = event.target;
+      if (
+        !app.contains(target) ||
+        documents.hasDraft() ||
+        drag ||
+        wiring ||
+        penDraft ||
+        document.querySelector('dialog[open]')
+      )
+        return null;
+      if (target.closest('.graph-scroll'))
+        return {
+          route: 'graph',
+          nodePosition: graphPoint(event.clientX, event.clientY),
+          at: [history.doc.width / 2, history.doc.height / 2],
+          anchor: 'center',
+        };
+      if (target.closest('.canvas-stage'))
+        return {
+          route: 'layer',
+          at: canvasPoint(event),
+          anchor: 'center',
+        };
+      return null;
+    },
+    onClose: () => {
+      workspacePanels.close('assets');
+    },
+    capture: () => ({
+      owner: session,
+      before: readDocument(),
+      generation: documents.generation,
+      envelope: session.state,
+      layerId: current().id,
+    }),
+    insert: (request, payload) => {
+      if (
+        session !== request.owner ||
+        request.generation !== documents.generation ||
+        documents.hasDraft() ||
+        readDocument() !== request.before ||
+        (payload.route === 'graph' && current().id !== request.layerId)
+      )
+        throw Error('Document changed; choose the placement again');
+      const result = commandChange(
+        payload.asset ? 'adopt-image' : 'insert-svg-asset',
+        payload.asset
+          ? {
+              name: payload.name,
+              png: payload.asset.data,
+              provenance: payload.provenance,
+              route: payload.route,
+              layerId: request.layerId,
+              at: payload.at,
+              anchor: payload.anchor,
+              nodePosition: payload.nodePosition,
+            }
+          : { ...payload, layerId: request.layerId },
+        'Asset added',
+        true,
+        request.envelope,
+      );
+      if (!result)
+        throw Error(document.querySelector('.message')?.textContent || 'Asset insertion rejected');
+      activeLayer = result.layerId;
+      selected = result.nodeId;
+      selection = new Set([selected]);
+      artworkTarget = payload.route === 'layer' ? result.layerId : null;
+      artworkSelection = new Set(artworkTarget ? [artworkTarget] : []);
+      pointSelection = { nodeId: null, ids: new Set() };
+      pointFocus = null;
+      tool = 'select';
+      render();
+      revealNode(selected);
+      return result;
+    },
+  });
+  workspacePanels.refresh();
+}
 function adoptSVGPart(text, name, request) {
   if (request.id !== svgPartRequest) return;
   if (
@@ -6560,6 +6864,8 @@ function replaceDocument(
     fonts: preparedBridge ? () => fontsFromBridge(preparedBridge) : sessionOptions.fonts,
   });
   const previousBridge = variableBridge;
+  // A reopened project must explicitly reattach a matching file in this document.
+  privateFontFiles = [];
   sourceEpoch++;
   sourcePicker = null;
   sourceReturn = null;
@@ -6921,11 +7227,8 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.action === 'align-panel') {
-    const opening = !alignmentPreferences.open;
-    if (opening) closeTransientPanels('align');
-    alignmentPreferences.open = !alignmentPreferences.open;
-    saveAlignmentPreferences();
-    render();
+    if (b.closest('.workspace-drawer')) workspacePanels.close('align');
+    else workspacePanels.select('align');
     return;
   }
   if (d.distributeArtwork !== undefined || d.distributeGap !== undefined) {
@@ -7269,6 +7572,22 @@ app.addEventListener('click', async (e) => {
             );
           }
           break;
+        case 'asset-library':
+          if (viewerState.mode === 'viewers') {
+            // Assets belong to Artwork, not the read-only Viewer surfaces. Use
+            // the real tab so its busy guard and mode refresh remain authoritative.
+            app.querySelector('.viewer-tabs [data-viewer-mode="artwork"]')?.click();
+            if (viewerState.mode === 'viewers') break;
+            if (workspacePanels.active.left === 'assets') {
+              workspacePanels.refresh();
+              getAssetLibraryPanel()
+                ?.querySelector('[data-asset-search]')
+                ?.focus({ preventScroll: true });
+              break;
+            }
+          }
+          workspacePanels.select('assets');
+          break;
         case 'add-svg-part':
           svgPartTarget(history.doc, current().id);
           svgPartPick = {
@@ -7296,7 +7615,12 @@ app.addEventListener('click', async (e) => {
           }
           break;
         case 'import-svg':
-          if (!(await confirmReplace('importing SVG'))) break;
+          if (
+            !(await confirmReplace(
+              'replacing the active Composition with SVG (other Compositions are kept)',
+            ))
+          )
+            break;
           if (desktop) {
             try {
               await importDesktopSVG();
@@ -7505,9 +7829,80 @@ app.addEventListener('click', async (e) => {
     }
     return;
   }
+  if (d.openPrivateFont) {
+    const nodeId = d.openPrivateFont;
+    if (privateFontOpenPending) return;
+    if (osTextDrafts.has(nodeId)) {
+      notify('Apply or cancel the Text edit first', true);
+      return;
+    }
+    const owner = session,
+      envelope = owner.state,
+      layerId = current().id,
+      selectedAtOpen = selected,
+      generation = documents.generation;
+    privateFontOpenPending = true;
+    try {
+      const file = await openPrivateFontFile();
+      if (!file) return;
+      if (generation !== documents.generation || session !== owner) {
+        notify('Document changed; open the font file again');
+        return;
+      }
+      // Opening grants a process capability only; it never commits a document change.
+      privateFontFiles = privateFontFiles
+        .filter((entry) => entry.sha256 !== file.sha256)
+        .concat(file);
+      if (
+        session !== owner ||
+        current().id !== layerId ||
+        selected !== selectedAtOpen ||
+        owner.state.expectedRevision !== envelope.expectedRevision
+      ) {
+        notify('Font file opened; reopen Font to choose a face');
+        render();
+        return;
+      }
+      const currentNode = current().nodes.find((node) => node.id === nodeId);
+      const choice = currentNode?.osFont?.source && privateFontChoice(currentNode.osFont.source);
+      if (
+        privateFontMissingStatus?.owner === owner &&
+        privateFontMissingStatus.layerId === layerId &&
+        privateFontMissingStatus.nodeId === nodeId &&
+        samePrivateFontSource(privateFontMissingStatus.source, currentNode?.osFont?.source) &&
+        choice &&
+        sameFontFace(choice.face, currentNode.osFont.face)
+      )
+        notify('Font file attached for this session');
+      render();
+      const control = [...document.querySelectorAll('[data-change-font]')].find(
+        (el) => el.dataset.changeFont === nodeId,
+      );
+      if (control) openFontPicker(control);
+    } catch (error) {
+      notify(error.message || String(error), true);
+    } finally {
+      privateFontOpenPending = false;
+    }
+    return;
+  }
+  if (d.changeFont) {
+    openFontPicker(b);
+    return;
+  }
   if (d.loadFont || d.loadCharacterFont || d.loadVariableFont) {
-    if (current().locked) {
-      notify('Composition is locked', true);
+    const target = current().nodes.find(
+      (n) => n.id === (d.loadFont || d.loadCharacterFont || d.loadVariableFont),
+    );
+    if (d.loadVariableFont && target?.osFont) {
+      notify(
+        'Choose a supported static font first; variable import cannot preserve this Text',
+        true,
+      );
+      return;
+    }
+    if (current().locked || target?.locked || target?.bypassed) {
+      notify('Composition or Text is locked or disabled', true);
       return;
     }
     fontRequest = {
@@ -7816,24 +8211,8 @@ app.addEventListener('click', async (e) => {
     render();
     return;
   }
-  if (d.clearOsText) {
-    if (osTextDrafts.has(d.clearOsText)) {
-      notify('Apply or cancel the Text edit first', true);
-      return;
-    }
-    commandChange('clear-os-font-text', { nodeId: d.clearOsText }, 'Font replaced: DejaVu Sans');
-    return;
-  }
   if (d.refreshOsFonts !== undefined) {
     void refreshOsFontCatalog();
-    return;
-  }
-  if (d.osTextFont) {
-    void openOsOutlinePicker(d.osTextFont, 'edit');
-    return;
-  }
-  if (d.osTextOutline) {
-    void openOsOutlinePicker(d.osTextOutline);
     return;
   }
   if (d.bakeTextOutline) {
@@ -7912,11 +8291,7 @@ app.addEventListener('click', async (e) => {
   if (d.clearEdits)
     commandChange('edit-remap', { nodeId: d.clearEdits, action: 'clear' }, 'Vertex edits cleared');
 });
-function commitFont(bytes, name, request) {
-  if (variableNode(request.node))
-    throw Error(
-      'Switch to a static font in Default font before loading a static font. Use Load variable TTF for variable fonts.',
-    );
+async function commitFont(bytes, name, request) {
   if (fontRequest?.id !== request.id) return;
   if (readDocument() !== request.before || activeLayer !== request.layer)
     throw Error('Document changed while reading; load the font again');
@@ -7926,23 +8301,48 @@ function commitFont(bytes, name, request) {
       request.characters.join(',') !== [...(characterEdit?.selected || [])].join(','))
   )
     throw Error('Character selection changed while reading; load the font again');
-  const result = session.dispatch({
-    ...request.commandState,
-    type: 'adopt-font',
-    payload: {
-      layerId: request.layer,
-      nodeId: request.node,
-      bytes,
-      fileName: name,
-      ...(request.characters ? { characterIds: request.characters } : {}),
-    },
-  });
-  notify(`Loaded ${result.fontName} · saved JSON will include this font`);
+  const source = current().nodes.find((n) => n.id === request.node);
+  const payload = {
+    layerId: request.layer,
+    nodeId: request.node,
+    bytes,
+    fileName: name,
+    ...(request.characters ? { characterIds: request.characters } : {}),
+  };
+  let result;
+  if (source?.variation) {
+    if (request.characters) throw Error('Variable fonts require whole Text');
+    const asset = makeFontAsset(bytes, name, history.doc.fontAssets);
+    result = await preparedChange(
+      'set-variable-font',
+      {
+        layerId: request.layer,
+        nodeId: request.node,
+        fontId: asset.id,
+        axes: null,
+        asset,
+      },
+      'Static font imported',
+      request.commandState,
+    );
+    if (!result) return;
+  } else {
+    result = session.dispatch({
+      ...request.commandState,
+      type: source?.osFont ? 'replace-os-text-font' : 'adopt-font',
+      payload,
+    });
+  }
+  notify(`Loaded ${result.fontName || name} · saved JSON will include this font`);
   render();
 }
-let osOutlinePending = null;
 async function refreshOsFontCatalog() {
-  if (!desktop || osFontCatalogPending || typeof listOsOutlineFonts !== 'function') return;
+  if (
+    !desktop ||
+    osFontCatalogPending ||
+    (typeof listOsOutlineFonts !== 'function' && typeof listDesktopFontFaces !== 'function')
+  )
+    return;
   await readCurrentOsFontCatalog();
 }
 async function readCurrentOsFontCatalog() {
@@ -7950,7 +8350,7 @@ async function readCurrentOsFontCatalog() {
   osFontCatalogPending = true;
   render();
   const catalog = await readOsFontCatalog({
-    listFamilies: listOsOutlineFonts,
+    listFamilies: typeof listOsOutlineFonts === 'function' ? listOsOutlineFonts : undefined,
     listFaces: typeof listDesktopFontFaces === 'function' ? listDesktopFontFaces : undefined,
   });
   if (request === osFontCatalogRequest) {
@@ -7972,18 +8372,60 @@ function stageOsText(el, composing = false) {
   osTextDrafts.set(n.id, draft);
   updateDocumentStatus();
 }
-async function prepareDesktopText(source, face, patch = {}) {
-  const same =
-    source.osFont?.version >= 3 &&
-    ['family', 'name', 'weight', 'style', 'stretch'].every(
-      (k) => source.osFont.face[k] === face[k],
+function privateFontChoice(sourceRef) {
+  if (!sourceRef) return null;
+  for (const file of privateFontFiles) {
+    const member = file.faces.find(({ faceIndex }) =>
+      samePrivateFontSource(sourceRef, {
+        kind: 'file-native-v1',
+        sha256: file.sha256,
+        faceIndex,
+      }),
     );
+    if (member) return { token: file.token, sourceRef, face: member.face };
+  }
+  return null;
+}
+async function preparePrivateText(source, choice, patch = {}) {
+  const same =
+    source.osFont?.source &&
+    samePrivateFontSource(source.osFont.source, choice.sourceRef) &&
+    sameFontFace(source.osFont.face, choice.face);
+  const intentSource = same ? source : { ...source, osFont: undefined };
+  if (!same && patch.axes === undefined) {
+    const axes = await listPrivateFontAxes(choice.token, choice.sourceRef.faceIndex);
+    if (axes.length)
+      patch = { ...patch, axes: Object.fromEntries(axes.map((a) => [a.tag, a.baseValue])) };
+  }
+  const result = await shapePrivateFontText(
+    choice.token,
+    choice.sourceRef.faceIndex,
+    desktopTextIntent(intentSource, choice.face, patch, choice.sourceRef),
+  );
+  if (
+    !samePrivateFontSource(result?.source, choice.sourceRef) ||
+    !sameFontFace(result?.outline?.face, choice.face)
+  )
+    throw Error('Font file response did not match the attached face');
+  return result;
+}
+async function prepareDesktopText(source, face, patch = {}, forceInstalled = false) {
+  if (source.osFont?.source && !forceInstalled) {
+    const choice = privateFontChoice(source.osFont.source);
+    if (!choice || !sameFontFace(choice.face, face))
+      throw Error('Font file missing; reattach the same file');
+    return (await preparePrivateText(source, choice, patch)).outline;
+  }
+  // Switching to an installed face must not inherit a file-native source or axes.
+  const intentSource =
+    forceInstalled && source.osFont?.source ? { ...source, osFont: undefined } : source;
+  const same = intentSource.osFont?.version >= 3 && sameFontFace(intentSource.osFont.face, face);
   if (!same && patch.axes === undefined && typeof listDesktopFontAxes === 'function') {
     const axes = await listDesktopFontAxes(face);
     if (axes.length)
       patch = { ...patch, axes: Object.fromEntries(axes.map((a) => [a.tag, a.baseValue])) };
   }
-  return shapeDesktopText(desktopTextIntent(source, face, patch));
+  return shapeDesktopText(desktopTextIntent(intentSource, face, patch));
 }
 async function loadOsAxes(nodeId) {
   const n = current().nodes.find((n) => n.id === nodeId && n.osFont?.version === 2),
@@ -7999,7 +8441,12 @@ async function loadOsAxes(nodeId) {
   )
     return;
   try {
-    const axes = await listDesktopFontAxes(n.osFont.face);
+    const choice = n.osFont.source && privateFontChoice(n.osFont.source);
+    if (n.osFont.source && (!choice || !sameFontFace(choice.face, n.osFont.face)))
+      throw Error('Font file missing; reattach the same file');
+    const axes = choice
+      ? await listPrivateFontAxes(choice.token, choice.sourceRef.faceIndex)
+      : await listDesktopFontAxes(n.osFont.face);
     if (
       session !== owner ||
       current().id !== layerId ||
@@ -8016,6 +8463,8 @@ async function loadOsAxes(nodeId) {
     });
   } catch (error) {
     notify(error.message || String(error), true);
+    if (error.message === 'Font file missing; reattach the same file' && n.osFont.source)
+      privateFontMissingStatus = { owner, layerId, nodeId, source: n.osFont.source };
   }
 }
 async function commitOsText(nodeId, value, settings = {}) {
@@ -8043,7 +8492,7 @@ async function commitOsText(nodeId, value, settings = {}) {
   try {
     const modern = n.osFont.version >= 2;
     const intent = modern
-      ? desktopTextIntent(n, n.osFont.face, { text: value, ...settings })
+      ? desktopTextIntent(n, n.osFont.face, { text: value, ...settings }, n.osFont.source)
       : osTextIntent({ ...n, text: value }, { allowEmpty: true });
     notify('Preparing OS Text…');
     const outline = modern
@@ -8069,7 +8518,13 @@ async function commitOsText(nodeId, value, settings = {}) {
       throw Error('Unmatched OS font response');
     const result = commandChange(
       'set-os-font-text',
-      { nodeId, text: intent.text, outline, settings },
+      {
+        nodeId,
+        text: intent.text,
+        outline,
+        settings,
+        ...(n.osFont.source ? { source: n.osFont.source } : {}),
+      },
       'OS Text updated',
       false,
       envelope,
@@ -8079,8 +8534,11 @@ async function commitOsText(nodeId, value, settings = {}) {
       render();
     }
   } catch (error) {
-    if (osTextDrafts.get(nodeId) === draft && draft.request === ticket)
+    if (osTextDrafts.get(nodeId) === draft && draft.request === ticket) {
       notify(`Text preserved: ${error.message || error}`, true);
+      if (error.message === 'Font file missing; reattach the same file' && n.osFont.source)
+        privateFontMissingStatus = { owner, layerId, nodeId, source: n.osFont.source };
+    }
   } finally {
     if (osTextDrafts.get(nodeId) === draft && draft.request === ticket) {
       if (settingsOnly) osTextDrafts.delete(nodeId);
@@ -8169,169 +8627,6 @@ app.addEventListener('keydown', (event) => {
     void commitOsText(id, event.target.value);
   }
 });
-async function openOsOutlinePicker(nodeId, mode = 'bake') {
-  if (!desktop || editorPicker || osOutlinePending || current().locked || deletionBusy()) return;
-  if (osTextDrafts.has(nodeId)) {
-    notify('Apply or cancel the Text edit first', true);
-    return;
-  }
-  if (!flushArrangementText(nodeId)) return;
-  const source = current().nodes.find((n) => n.id === nodeId);
-  try {
-    if (source?.type !== 'Text' || source.locked || source.bypassed)
-      throw Error('Select an unlocked enabled Text');
-    // The selected backend validates the complete source after a face is chosen.
-  } catch (error) {
-    notify(error.message, true);
-    return;
-  }
-  const owner = session,
-    envelope = session.state,
-    layerId = current().id;
-  const request = { preparing: false };
-  osOutlinePending = request;
-  const valid = () =>
-    session === owner &&
-    current().id === layerId &&
-    selected === nodeId &&
-    session.state.expectedRevision === envelope.expectedRevision;
-  let picker;
-  try {
-    notify('Finding active OS fonts…');
-    const catalog = await readCurrentOsFontCatalog();
-    const families = catalog.families || [],
-      faces = catalog.faces || [];
-    if (osOutlinePending !== request || !valid())
-      throw Error('Selection changed; reopen OS font outlines');
-    const labels = ['Regular', 'Bold', 'Italic', 'Bold Italic'];
-    const items = families
-      .filter((f) => !faces.some((face) => face.family === f.family))
-      .flatMap(({ family, styles }) =>
-        styles.map((style) => ({
-          id: `${family}:${style}`,
-          family,
-          style,
-          label: `${family} · OS ${labels[style]}`,
-          metadata: { family },
-        })),
-      );
-    items.unshift(
-      ...faces
-        .filter((face) => !face.color)
-        .map((face) => ({
-          id: `dw:${face.family}:${face.name}:${face.weight}:${face.style}:${face.stretch}`,
-          family: face.family,
-          face,
-          label: `${face.family} · ${face.name} · ${face.weight}`,
-          metadata: {
-            family: face.family,
-            subfamily: face.name,
-            weightClass: face.weight,
-            italic: face.style !== 0,
-          },
-        })),
-    );
-    if (!items.length)
-      throw Error(
-        catalog.familiesError || catalog.facesError
-          ? 'Font check failed; refresh fonts'
-          : 'No OS outline fonts are active',
-      );
-    picker = editorPicker = openSearchPanel({
-      title: 'OS font outlines',
-      items,
-      action: mode === 'edit' ? 'Use font for Text' : 'Convert to paths',
-      fallbackFocus: () => document.querySelector('.canvas-stage')?.focus(),
-      onCancel: () => {
-        if (osOutlinePending === request) osOutlinePending = null;
-        if (editorPicker === picker) editorPicker = null;
-      },
-      onCommit: async (item) => {
-        if (request.preparing || picker.closed) return;
-        request.preparing = true;
-        picker.status('Preparing outlines; Escape cancels…', false);
-        try {
-          if (!valid()) throw Error('Document or selection changed; reopen OS font outlines');
-          const outline = item.face
-            ? await prepareDesktopText(source, item.face)
-            : await outlineOsText({
-                family: item.family,
-                style: item.style,
-                ...osTextIntent(source, { allowEmpty: mode === 'edit' }),
-              });
-          if (picker.closed || osOutlinePending !== request) return;
-          if (picker.activeId !== item.id) throw Error('Font choice changed; convert again');
-          if (
-            item.face
-              ? JSON.stringify(outline.face) !== JSON.stringify(item.face)
-              : outline.family !== item.family || outline.style !== item.style
-          )
-            throw Error('Unmatched OS font response; no outlines were applied');
-          if (!valid()) throw Error('Document or selection changed; OS outlines were not applied');
-          const result = commandChange(
-            mode === 'edit' ? 'set-os-font-text' : 'bake-os-text-outline',
-            { nodeId, outline },
-            mode === 'edit'
-              ? `${item.label} selected`
-              : `${item.label} converted to paths; no font data saved`,
-            false,
-            envelope,
-          );
-          if (result) {
-            characterEdit = null;
-            pointSelection = { nodeId: null, ids: new Set() };
-            picker.close();
-            editorPicker = null;
-            osOutlinePending = null;
-            render();
-          } else
-            picker.status('Conversion refused; document preserved. Close and repair the source.');
-        } catch (error) {
-          picker.status(error.message || String(error));
-        } finally {
-          request.preparing = false;
-        }
-      },
-    });
-  } catch (error) {
-    if (osOutlinePending === request) osOutlinePending = null;
-    notify(error.message || String(error), true);
-  }
-}
-async function loadInstalledFont(id, nodeId, characters) {
-  if (!id) return;
-  if (current().locked) {
-    notify('Composition is locked', true);
-    return;
-  }
-  const entry = systemFonts.find(([key]) => key === id);
-  if (!entry || entry[2]) {
-    notify('Installed font unavailable', true);
-    return;
-  }
-  const request = (fontRequest = {
-    id: ++fontRequestId,
-    layer: current().id,
-    node: nodeId,
-    ...(characters ? { characters } : {}),
-    before: readDocument(),
-    commandState: session.state,
-  });
-  notify(`Loading ${entry[1]}…`);
-  render();
-  try {
-    const bytes = await readSystemFont(id);
-    commitFont(bytes, entry[1], request);
-  } catch (err) {
-    if (fontRequest?.id === request.id)
-      notify(`Font rejected; current document preserved: ${err.message || err}`, true);
-  } finally {
-    if (fontRequest?.id === request.id) {
-      fontRequest = null;
-      render();
-    }
-  }
-}
 app.addEventListener(
   'cancel',
   (e) => {
@@ -8612,16 +8907,22 @@ function compactTextInspector() {
     });
     field.append(row);
   }
-  const symbols = { position: '↔', size: 'T↕', letterSpacing: 'VA', lineSpacing: 'A↕' };
+  const symbols = {
+    position: 'Position',
+    size: 'Font size',
+    letterSpacing: 'Tracking',
+    lineSpacing: 'Line spacing',
+  };
   for (const field of inspector.querySelectorAll('.field[data-node][data-key]')) {
     const symbol = symbols[field.dataset.key];
     if (!symbol) continue;
     const label = field.querySelector('label');
     if (!label) continue;
     label.title = label.textContent;
-    label.innerHTML = `<span aria-hidden="true">${symbol}</span><span class="visually-hidden">${esc(label.title)}</span>`;
+    label.textContent = symbol;
     field.classList.add('text-numeric-field');
   }
+  arrangeTextInspector(inspector, !!characterEdit?.selected?.size);
 }
 function stageTextInput(el, transaction) {
   const draft = textDraft(el);
@@ -9129,7 +9430,7 @@ app.addEventListener('change', async (e) => {
     )
       return;
     if (property === 'font' && el.value.startsWith('system-')) {
-      await loadInstalledFont(el.value, context.n.id, [...characterEdit.selected]);
+      notify(FONT_FILE_IMPORT_REQUIRED, true);
       return;
     }
     let value =
@@ -9138,9 +9439,11 @@ app.addEventListener('change', async (e) => {
         : Number(el.value) / (['width', 'height'].includes(property) ? 100 : 1);
     if (property !== 'font' && !el.value.trim()) {
       notify('Enter a value or choose Inherit', true);
+      settleNumericControl(el, null);
+      scheduleRender();
       return;
     }
-    commandChange(
+    const result = commandChange(
       'set-character-style',
       {
         nodeId: selectedNode().id,
@@ -9150,6 +9453,7 @@ app.addEventListener('change', async (e) => {
       'Selected typography updated',
       true,
     );
+    settleNumericControl(el, result);
     return;
   }
   if (d.characterTransform !== undefined) {
@@ -9268,7 +9572,7 @@ app.addEventListener('change', async (e) => {
     return;
   }
   if (d.font && el.value.startsWith('system-')) {
-    await loadInstalledFont(el.value, d.font);
+    notify(FONT_FILE_IMPORT_REQUIRED, true);
     return;
   }
   if (el.id === 'font-file') {
@@ -9299,7 +9603,7 @@ app.addEventListener('change', async (e) => {
           'Variable font loaded · embedded once in saved JSON',
           request.commandState,
         );
-      } else commitFont(bytes, file.name, request);
+      } else await commitFont(bytes, file.name, request);
     } catch (err) {
       notify(`Font rejected; current document preserved: ${err.message}`, true);
     }
@@ -9606,7 +9910,9 @@ app.addEventListener('change', async (e) => {
           if (d.color === 'alpha') {
             if (!el.value.trim()) throw Error('Alpha must be from 0 to 1');
             value.alpha = Number(el.value);
-          } else value.hex = el.value;
+          } else if (d.color.startsWith('hsl-'))
+            value.hex = updateHexHsl(value.hex, d.color.slice(4), el.value);
+          else value.hex = el.value;
         } else {
           if (el.matches('[data-mask-luminance]') && !['alpha', 'luminance'].includes(el.value))
             throw Error('Choose Alpha or Luminance');
@@ -9619,9 +9925,12 @@ app.addEventListener('change', async (e) => {
           if (
             q.type !== 'Boolean' &&
             !el.value.trim() &&
-            (['Linear Gradient Fill', 'Radial Gradient Fill', 'Closed Path Offset'].includes(
-              n.type,
-            ) ||
+            ([
+              'Linear Gradient Fill',
+              'Radial Gradient Fill',
+              'Angular Gradient Fill',
+              'Closed Path Offset',
+            ].includes(n.type) ||
               (n.type === 'Stroke' && field.dataset.key === 'width') ||
               (n.type === 'Geometry Repeater' && field.dataset.key === 'rotation'))
           )
@@ -9638,7 +9947,7 @@ app.addEventListener('change', async (e) => {
           });
           return;
         }
-        commandChange(
+        const result = commandChange(
           d.base !== undefined || d.colorBase !== undefined
             ? 'set-parameter-base'
             : isTransform(n)
@@ -9652,8 +9961,10 @@ app.addEventListener('change', async (e) => {
           undefined,
           true,
         );
+        settleNumericControl(el, result);
       }
     } catch (error) {
+      settleNumericControl(el, null);
       notify(error.message, true);
       scheduleRender();
     }
@@ -11643,6 +11954,7 @@ app.addEventListener('pointerdown', (e) => {
           'Multi Path',
           'Image',
           'Composition Reference',
+          'SVG',
         ].includes(n.type),
       ))
   ) {
@@ -11652,7 +11964,7 @@ app.addEventListener('pointerdown', (e) => {
         : [
             n.type === 'Transform'
               ? 'offset'
-              : ['Text', 'Image', 'Composition Reference'].includes(n.type)
+              : ['Text', 'Image', 'Composition Reference', 'SVG'].includes(n.type)
                 ? 'position'
                 : 'center',
           ];
@@ -12765,6 +13077,13 @@ function closeNodeContextMenu(restore = false) {
   contextMenuScroll.clear();
   if (restore) document.querySelector(focus)?.focus({ preventScroll: true });
 }
+function graphPanJoystickMenuItem() {
+  return `<button type="button" role="menuitem" data-node-context-action="toggle-pan-joystick" aria-controls="graph-pan-joystick">${graphPanJoystickVisible ? 'Hide' : 'Show'} pan joystick</button>`;
+}
+function toggleGraphPanJoystick() {
+  graphPanJoystickVisible = !graphPanJoystickVisible;
+  graphPanJoystick?.setVisible(graphPanJoystickVisible);
+}
 function openNodeContextMenu(nodeId, x, y) {
   closeNodeContextMenu();
   if (deletionBusy() || variableAction) {
@@ -12834,12 +13153,13 @@ function openNodeContextMenu(nodeId, x, y) {
   menu.setAttribute('role', 'menu');
   menu.setAttribute('aria-label', `Node actions: ${nodeDisplayName(n)}`);
   menu.tabIndex = -1;
-  menu.innerHTML = actions
-    .map(
-      ([id, label, reason, hint]) =>
-        `<button type="button" role="menuitem" data-node-context-action="${id}" ${reason ? 'disabled' : ''} title="${esc(reason || hint)}">${esc(label)}${reason ? `<small>${esc(reason)}</small>` : ''}</button>`,
-    )
-    .join('');
+  menu.innerHTML =
+    actions
+      .map(
+        ([id, label, reason, hint]) =>
+          `<button type="button" role="menuitem" data-node-context-action="${id}" ${reason ? 'disabled' : ''} title="${esc(reason || hint)}">${esc(label)}${reason ? `<small>${esc(reason)}</small>` : ''}</button>`,
+      )
+      .join('') + graphPanJoystickMenuItem();
   menu.addEventListener('click', (event) => {
     if (nodeContextMenu !== menu) return;
     const button = event.target.closest('button');
@@ -12854,7 +13174,8 @@ function openNodeContextMenu(nodeId, x, y) {
       variableAction
     )
       return;
-    if (action === 'copy') copyGraphNodes();
+    if (action === 'toggle-pan-joystick') toggleGraphPanJoystick();
+    else if (action === 'copy') copyGraphNodes();
     else if (action === 'paste') pasteGraphNodes();
     else if (action === 'output')
       commandChange('preview-node', { nodeId, position: freePosition('Fill') }, 'Output connected');
@@ -12993,16 +13314,20 @@ function openGraphBackgroundMenu(x, y) {
   menu.setAttribute('role', 'menu');
   menu.setAttribute('aria-label', 'Graph actions');
   menu.tabIndex = -1;
-  menu.innerHTML = `<button type="button" role="menuitem" data-node-context-action="paste" ${current().locked ? 'disabled' : ''}>Paste nodes · Ctrl+V</button>`;
+  menu.innerHTML = `<button type="button" role="menuitem" data-node-context-action="paste" ${current().locked ? 'disabled' : ''}>Paste nodes · Ctrl+V</button>${graphPanJoystickMenuItem()}`;
   menu.addEventListener('click', (event) => {
-    if (nodeContextMenu !== menu || !event.target.closest('button:not(:disabled)')) return;
+    if (nodeContextMenu !== menu) return;
+    const button = event.target.closest('button:not(:disabled)');
+    if (!button) return;
     closeNodeContextMenu(true);
     if (
       session === owner &&
       session.state.expectedRevision === revision &&
       current().id === layerId
-    )
-      pasteGraphNodes();
+    ) {
+      if (button.dataset.nodeContextAction === 'toggle-pan-joystick') toggleGraphPanJoystick();
+      else pasteGraphNodes();
+    }
   });
   placeContextMenu(menu, x, y);
 }
@@ -13093,6 +13418,34 @@ app.addEventListener('contextmenu', (e) => {
       e.clientY,
     );
   if (e.target.closest('.graph-scroll')) openGraphBackgroundMenu(e.clientX, e.clientY);
+});
+// Do not rely on a WebView synthesizing a contextmenu event for these keys.
+// Keep this route graph-only; editable fields retain their native text menus.
+app.addEventListener('keydown', (event) => {
+  if (
+    nodeContextMenu ||
+    document.querySelector('dialog[open], .command-menu[open]') ||
+    event.isComposing ||
+    event.keyCode === 229 ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    editingControl(event.target) ||
+    !(event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey))
+  )
+    return;
+  const target = event.target.closest?.('.graph-scroll,.graph-pan-joystick');
+  if (!target) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.repeat) return;
+  // Entering the menu ends this view control's hold before the shared busy
+  // guard runs. Never relax guards for authoring gestures or editable drafts.
+  graphPanJoystick?.stop();
+  const card = event.target.closest('.graph .node'),
+    rect = (card || target).getBoundingClientRect();
+  if (card) openNodeContextMenu(card.dataset.id, rect.left + 8, rect.top + 8);
+  else openGraphBackgroundMenu(rect.left + 8, rect.top + 8);
 });
 app.addEventListener(
   'toggle',
@@ -13237,6 +13590,7 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     const value = e.target.value;
     e.target.dataset.numericExpression = 'true';
+    numericInputDrafts.add(e.target);
     e.target.type = 'text';
     e.target.inputMode = 'decimal';
     e.target.value = `${value}${e.key}`;
@@ -13247,6 +13601,8 @@ document.addEventListener('keydown', (e) => {
     e.target.value = e.target.defaultValue;
     e.target.type = 'number';
     delete e.target.dataset.numericExpression;
+    numericInputDrafts.delete(e.target);
+    if (needsRender) scheduleRender();
     return;
   }
   if (numericExpressionInput && e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) {
@@ -13263,6 +13619,8 @@ document.addEventListener('keydown', (e) => {
         input.value = input.defaultValue;
         input.type = 'number';
         delete input.dataset.numericExpression;
+        numericInputDrafts.delete(input);
+        if (needsRender) scheduleRender();
         notify('Invalid calculation', true);
       }
       return;
@@ -13775,7 +14133,11 @@ registerClose(async () => {
   }
 }).catch((error) => notify(`Close protection unavailable: ${error.message}`, true));
 new window.MutationObserver(updateDocumentStatus).observe(app, { childList: true });
-if (desktop && typeof listOsOutlineFonts === 'function') void refreshOsFontCatalog();
+if (
+  desktop &&
+  (typeof listOsOutlineFonts === 'function' || typeof listDesktopFontFaces === 'function')
+)
+  void refreshOsFontCatalog();
 updateDocumentStatus();
 if (desktop)
   showRecoveryCopies(true).catch((error) => {
@@ -13785,11 +14147,14 @@ if (desktop)
   listSystemFonts()
     .then((items) => {
       systemFonts = items;
-      systemFontStatus = items.length ? '' : 'No Windows fonts found. Use Load TTF / OTF.';
+      systemFontStatus = items.length
+        ? ''
+        : 'No installed file candidates found. Use Advanced to import a file you may embed.';
       render();
     })
     .catch(() => {
-      systemFontStatus = 'Windows font discovery unavailable. Use Load TTF / OTF.';
+      systemFontStatus =
+        'Installed font discovery unavailable. Use Advanced for explicit file import.';
       render();
     });
 fetch('/fonts/DejaVuSans.ttf')
@@ -13816,6 +14181,9 @@ window.nect = {
   get gestureState() {
     return session.gestureState;
   },
+  colorPreviewSnapshot: () =>
+    sharedColors.previewDocument ? structuredClone(sharedColors.previewDocument) : null,
+  colorPreviewMetrics: () => sharedColors.metrics(),
   previewSnapshot: (gestureId) => session.previewSnapshot(gestureId),
   get commandState() {
     return session.state;
@@ -13930,17 +14298,26 @@ document.addEventListener('keydown', (event) => {
 });
 render();
 document.addEventListener('click', (event) => {
+  // Keep the live file input attached until the font chooser returns.
+  if (
+    event.target.closest(
+      '#font-file,[data-load-font],[data-load-character-font],[data-load-variable-font]',
+    )
+  )
+    return;
   if (event.target.closest('.command-menu')) return;
   document.querySelectorAll('.command-menu[open]').forEach((menu) => (menu.open = false));
-  if (event.target.closest('.canvas-toolbar,.guides-panel,.alignment-panel')) return;
-  if (alignmentPreferences.open || gridOpen || layoutOpen || guidesOpen) {
+  if (
+    event.target.closest(
+      '.canvas-toolbar,.guides-panel,.alignment-panel,.workspace-panel-bar,.workspace-drawer,.asset-library,.shared-colors-panel',
+    )
+  )
+    return;
+  if (gridOpen || layoutOpen || guidesOpen) {
     closeTransientPanels();
     if (canvasTextEdit) {
       // Closing view-only panels must not detach the focused native text editor.
-      for (const panel of app.querySelectorAll('.alignment-panel, .guides-panel')) panel.remove();
-      app
-        .querySelector('.canvas-toolbar [data-action="align-panel"]')
-        ?.setAttribute('aria-pressed', 'false');
+      for (const panel of app.querySelectorAll('.guides-panel')) panel.remove();
       for (const button of app.querySelectorAll(
         '.canvas-toolbar [data-action="grid-panel"], .canvas-toolbar [data-action="layout-panel"], .canvas-toolbar [data-action="guides-panel"]',
       ))
@@ -13950,13 +14327,24 @@ document.addEventListener('click', (event) => {
   }
 });
 document.addEventListener('keydown', (event) => {
-  if (event.key !== 'Escape') return;
+  // Modal dialogs own Escape. An open File menu underneath an unsaved-changes
+  // dialog must not cancel the browser's native dialog close action.
+  if (
+    event.key !== 'Escape' ||
+    event.defaultPrevented ||
+    event.isComposing ||
+    composing ||
+    event.keyCode === 229 ||
+    editingControl(event.target) ||
+    event.target.closest?.('dialog[open]')
+  )
+    return;
   const open = [...document.querySelectorAll('.command-menu[open]')];
-  if (!open.length && !alignmentPreferences.open && !gridOpen && !layoutOpen && !guidesOpen) return;
+  if (!open.length && !gridOpen && !layoutOpen && !guidesOpen) return;
   event.preventDefault();
   open.forEach((menu) => (menu.open = false));
   if (open.length) open[0].querySelector('summary')?.focus();
-  if (alignmentPreferences.open || gridOpen || layoutOpen || guidesOpen) {
+  if (gridOpen || layoutOpen || guidesOpen) {
     closeTransientPanels();
     render();
   }

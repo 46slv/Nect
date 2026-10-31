@@ -1,4 +1,4 @@
-import { characterPositionStatus, uid, validate } from './core.js';
+import { characterPositionStatus, parameters, uid, validate } from './core.js';
 import { candidateDocument } from './artwork-candidate.js';
 import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 
@@ -239,7 +239,18 @@ export function duplicateLayerGeneric(doc, layerId) {
   if (!source) throw Error('Layer is unavailable; select it again');
   if (source.locked) throw Error('Unlock this layer before duplicating it.');
   if (doc.layers.length >= 100) throw Error('Duplicate requires fewer than 100 layers.');
-  const layer = structuredClone(source);
+  // Documents are JSON trees, but programmatic clients can share descriptor
+  // objects. Copy each occurrence so an authored parameter rewrite cannot
+  // modify an aliased metadata record or a second parameter behind its back.
+  const copyOccurrences = (value) => {
+    if (Array.isArray(value)) return value.map(copyOccurrences);
+    if (value && typeof value === 'object')
+      return Object.fromEntries(
+        Object.entries(value).map(([key, child]) => [key, copyOccurrences(child)]),
+      );
+    return value;
+  };
+  const layer = copyOccurrences(source);
   const occupied = occupiedArtworkIds(doc);
   const ids = new Map();
   const collect = (value) => {
@@ -264,6 +275,22 @@ export function duplicateLayerGeneric(doc, layerId) {
     }
   };
   remap(layer);
+  // Expressions embed node IDs rather than storing them as whole-string fields.
+  // Restrict rewriting to authored parameters and nodes from this source layer:
+  // text/metadata and unresolved references must retain their original meaning.
+  const nodeIds = new Set(source.nodes.map((n) => n.id));
+  for (const n of layer.nodes)
+    for (const [, parameter] of parameters(n)) {
+      if (
+        !['Scalar', 'Vector2', 'Color'].includes(parameter.type) ||
+        typeof parameter.expression !== 'string'
+      )
+        continue;
+      parameter.expression = parameter.expression.replace(
+        /\bref\s*\(\s*"([a-zA-Z0-9:_-]+)"/g,
+        (match, id) => (nodeIds.has(id) ? match.replace(`"${id}"`, `"${ids.get(id)}"`) : match),
+      );
+    }
   layer.nodeGroups?.forEach((g, i) => {
     g.name = source.nodeGroups[i].name;
   });

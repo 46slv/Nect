@@ -1,4 +1,5 @@
 import { activateCommand } from './command-menu-actions.js';
+import { openMoreTypography } from './helpers/text-inspector.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -144,6 +145,7 @@ try {
   );
   await page.locator('[data-action="undo"]').click();
   assert.equal(await align().inputValue(), 'center');
+  await openMoreTypography(page);
   await page.locator(`.inspector-body [data-text-kerning="${ids.text}"]`).uncheck();
   assert.equal(
     await page.evaluate(

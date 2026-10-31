@@ -90,13 +90,13 @@ test('category picker scopes candidates only; keyboard, cancellation, stale elem
   assert.equal($('.picker-category'), null);
   assert.deepEqual(
     [...document.querySelectorAll('.picker-option')].map((row) => row.dataset.id),
-    ['Transform', 'Vector Transform'],
+    ['Polar Transform', 'Transform', 'Vector Transform'],
   );
   assert.equal(commits, 0);
   search('Fill');
-  assert.equal(picker.activeId, 'Fill');
+  assert.equal(picker.activeId, 'Angular Gradient Fill');
   scope('paint');
-  assert.equal(picker.activeId, 'Fill');
+  assert.equal(picker.activeId, 'Angular Gradient Fill');
   scope('transform');
   assert.equal(picker.activeId, undefined);
   assert.match($('.picker-scope').textContent, /変形内 0件/);
@@ -106,7 +106,7 @@ test('category picker scopes candidates only; keyboard, cancellation, stale elem
   $('.picker-clear-scope').click();
   assert.equal(input.value, 'Fill');
   assert.equal(select.value, '');
-  assert.equal(picker.activeId, 'Fill');
+  assert.equal(picker.activeId, 'Angular Gradient Fill');
   key(input, 'Enter', { isComposing: true });
   input.dispatchEvent(new win.Event('compositionstart', { bubbles: true }));
   key(input, 'Enter');

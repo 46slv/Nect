@@ -1,3 +1,4 @@
+import { importColorSlots } from './color-slots.js';
 import { cloneDocument, deserialize, validate } from './core.js';
 import {
   collectAssetReferences,
@@ -31,7 +32,9 @@ export function prepareCompositionImport(current, sourceText, compositionId) {
   };
   visit(compositionId);
   const selectedLayers = [...needed].map((id) => layers.get(id));
-  const copiedLayers = remapIds(selectedLayers, collectIds(selectedLayers), collectIds(current));
+  const occupied = collectIds(current);
+  const copiedLayers = remapIds(selectedLayers, collectIds(selectedLayers), occupied);
+  const colors = importColorSlots(current, source, copiedLayers, occupied);
   const references = collectAssetReferences(copiedLayers);
   const fonts = mergeAssetRegistry(references.fonts, source.fontAssets, current.fontAssets, 'font');
   const images = mergeAssetRegistry(
@@ -44,6 +47,7 @@ export function prepareCompositionImport(current, sourceText, compositionId) {
   const result = cloneDocument(current);
   result.layers.push(...copiedLayers);
   result.schemaVersion = Math.max(result.schemaVersion, source.schemaVersion);
+  if (colors !== undefined) result.colorSlots = colors;
   result.fontAssets = fonts.assets;
   result.imageAssets = images.assets;
   validate(result);

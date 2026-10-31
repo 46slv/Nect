@@ -1,0 +1,174 @@
+{
+  "schemaVersion": 27,
+  "name": "Angular Gradient — editable four-stop wheel",
+  "editor": {
+    "guides": [],
+    "visible": true,
+    "locked": false,
+    "gridVisible": false,
+    "gridSize": 8,
+    "gridAnchor": "center",
+    "gridAngle": 0,
+    "gridOpacity": 0.25,
+    "snap": false,
+    "snapGuides": true,
+    "snapArtboard": true,
+    "snapGrid": true,
+    "snapArtwork": false
+  },
+  "width": 960,
+  "height": 540,
+  "layers": [
+    {
+      "id": "layer-2e33a7c2-fdfa-402b-b3ee-61024c4b4123",
+      "name": "Composition 1",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "allowEmptyOutput": true,
+      "nodes": [
+        {
+          "id": "node-ae6e8e02-bd41-4f0d-a7f5-e4b2bbd233df",
+          "type": "Circle",
+          "name": "Circle",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [480, 270],
+              "expression": "",
+              "locked": false
+            },
+            "radius": {
+              "type": "Scalar",
+              "value": 200,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-9e1cf27b-c0ea-4d2a-9dda-1e4bf5754ef0",
+          "type": "Angular Gradient Fill",
+          "name": "Angular Gradient Fill",
+          "position": [340, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-ae6e8e02-bd41-4f0d-a7f5-e4b2bbd233df"
+            },
+            "center": {
+              "type": "Vector2",
+              "value": [480, 270],
+              "expression": "",
+              "locked": false
+            },
+            "angle": {
+              "type": "Scalar",
+              "value": -90,
+              "expression": "",
+              "locked": false
+            },
+            "clockwise": {
+              "type": "Boolean",
+              "value": true,
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ff0000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "color1": {
+              "type": "Color",
+              "value": {
+                "hex": "#00ff00",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "position1": {
+              "type": "Scalar",
+              "value": 0.3333333333333333,
+              "expression": "",
+              "locked": false
+            },
+            "color2": {
+              "type": "Color",
+              "value": {
+                "hex": "#0000ff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "position2": {
+              "type": "Scalar",
+              "value": 0.6666666666666666,
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ff0000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-e5b16315-0492-48b8-aeca-c0e7c17756d8",
+          "type": "Output",
+          "name": "Output",
+          "position": [680, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-9e1cf27b-c0ea-4d2a-9dda-1e4bf5754ef0"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-e5b16315-0492-48b8-aeca-c0e7c17756d8"
+    }
+  ]
+}

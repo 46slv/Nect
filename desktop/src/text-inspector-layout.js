@@ -1,0 +1,131 @@
+// View-only ordering. Move existing controls; keep their handlers and identity.
+const sections = new Map();
+function disclosure(document, key, title, scope = '', defaultOpen = false) {
+  const stateKey = JSON.stringify([scope, key]);
+  const details = document.createElement('details');
+  details.className = 'text-inspector-details';
+  details.dataset.textInspectorSection = key;
+  const summary = document.createElement('summary');
+  summary.textContent = title;
+  details.append(summary);
+  details.open = sections.has(stateKey) ? sections.get(stateKey) : defaultOpen;
+  // The global click handler can render while dismissing transient panels.
+  // Store the requested state before that render replaces this summary.
+  summary.addEventListener('click', (event) => {
+    event.preventDefault();
+    details.open = !details.open;
+    sections.set(stateKey, details.open);
+  });
+  details.addEventListener('toggle', () => {
+    if (details.isConnected) sections.set(stateKey, details.open);
+  });
+  return details;
+}
+// Save view-only Font/action disclosure state before a global click can rerender.
+// Native details toggling otherwise happens after the clicked summary is detached.
+const fontSections = new Map();
+const boundFontDisclosures = new WeakSet();
+export function retainTextFontDisclosures(root) {
+  for (const details of root.querySelectorAll('.text-font-advanced, .text-actions')) {
+    if (boundFontDisclosures.has(details)) continue;
+    const summary = details.querySelector(':scope > summary');
+    if (!summary) continue;
+    const control = details.querySelector(
+      '[data-load-font], [data-load-character-font], [data-bake-text-outline]',
+    );
+    const nodeId =
+      control?.dataset.loadFont ||
+      control?.dataset.loadCharacterFont ||
+      control?.dataset.bakeTextOutline ||
+      '';
+    const place = details.closest('.graph') ? 'graph' : 'inspector';
+    const kind = details.classList.contains('text-actions')
+      ? 'actions'
+      : details.classList.contains('text-character-font-advanced')
+        ? 'character-import'
+        : 'font-import';
+    const key = JSON.stringify([place, nodeId, kind]);
+    details.open = fontSections.get(key) || false;
+    summary.addEventListener('click', (event) => {
+      event.preventDefault();
+      details.open = !details.open;
+      fontSections.set(key, details.open);
+    });
+    details.addEventListener('toggle', () => {
+      if (details.isConnected) fontSections.set(key, details.open);
+    });
+    boundFontDisclosures.add(details);
+  }
+}
+export function arrangeTextInspector(root, editingCharacters = false) {
+  const controls = root.querySelector('.text-controls');
+  if (!controls?.querySelector('[data-text], [data-os-text]')) return;
+  root.classList.add('text-inspector');
+  retainTextFontDisclosures(root);
+  const doc = root.ownerDocument;
+  const textInput = controls.querySelector('[data-text], [data-os-text]');
+  const scope = JSON.stringify([
+    textInput?.dataset.text || textInput?.dataset.osText || '',
+    editingCharacters ? 'characters' : 'node',
+  ]);
+  const field = (selector) => controls.querySelector(selector)?.closest('.field');
+  // Native typography already exposes these literals. Keep the generic rows
+  // available for connections, expressions and locks without showing a second
+  // set of literal fields beside the native controls.
+  const parameterLinks = controls.querySelector('.native-text-typography')
+    ? ['size', 'letterSpacing', 'lineSpacing']
+        .map((key) => root.querySelector(`:scope > .field[data-key="${key}"]`))
+        .filter(Boolean)
+    : [];
+  const primary = [
+    field('[data-text], [data-os-text]'),
+    controls.querySelector('[data-apply-os-text]'),
+    controls.querySelector('[data-cancel-os-text]'),
+    controls.querySelector('[data-style-text-range]'),
+    controls.querySelector('[data-kern-text-cursor]'),
+    controls.querySelector('.text-font-choice') || field('[data-font]'),
+    controls.querySelector('fieldset:has([data-os-setting])'),
+    ...controls.querySelectorAll(':scope > [role="status"]'),
+    root.querySelector('.field[data-key="size"]'),
+    field('[data-writing-mode]'),
+    field('[data-text-alignment]'),
+    root.querySelector('.field[data-key="letterSpacing"]'),
+    root.querySelector('.field[data-key="lineSpacing"]'),
+    controls.querySelector('.text-wrap-controls'),
+    controls.querySelector('.text-leading-controls'),
+  ].filter((child) => child && !parameterLinks.includes(child));
+  const separate = [
+    ...controls.querySelectorAll(':scope > .text-font-advanced, :scope > .text-actions'),
+  ];
+  const advanced = disclosure(doc, 'typography', 'More typography', scope);
+  for (const child of [...controls.children]) {
+    if (!primary.includes(child) && !separate.includes(child)) advanced.append(child);
+  }
+  for (const child of primary) controls.append(child);
+  if (advanced.children.length > 1) controls.append(advanced);
+  if (parameterLinks.length) {
+    const driven = parameterLinks.some(
+      (row) => row.classList.contains('connected') || row.querySelector('[data-expression]'),
+    );
+    const links = disclosure(doc, 'parameter-links', 'Parameter links', scope, driven);
+    for (const row of parameterLinks) links.append(row);
+    controls.append(links);
+  }
+  controls.append(...separate);
+  const identity = root.querySelector(':scope > .inspector-node-type');
+  if (identity) identity.after(controls);
+  else root.prepend(controls);
+  const characters = root.querySelector('.character-panel');
+  if (characters) {
+    controls.after(characters);
+    if (editingCharacters) {
+      const typography = characters.querySelector('.character-typography');
+      if (typography) characters.querySelector('.character-actions')?.after(typography);
+      if (identity) identity.after(characters);
+      else root.prepend(characters);
+    }
+  }
+  const output = disclosure(doc, 'output', 'Node and output', scope);
+  for (const child of root.querySelectorAll(':scope > .viewer-assignment')) output.append(child);
+  if (output.children.length > 1) root.append(output);
+}

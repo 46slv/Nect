@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -134,10 +135,12 @@ try {
   await undo();
   assert.equal(await saved(), beforeDrag);
   // First click changes layers; second must still begin inline naming after its structural render.
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator('[data-select-layer="names-other"]').dblclick();
   await name().fill('Hidden Background');
   await name().press('Enter');
   assert.equal(await page.evaluate(() => window.nect.document.layers[1].name), 'Hidden Background');
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator('[data-select-layer="names-layer"]').click();
   const beforeHide = await saved(),
     visibleSVG = await svg();
@@ -169,6 +172,7 @@ try {
   await page.evaluate((json) => window.nect.load(json), hidden);
   assert.equal(await svg(), hiddenSVG);
   // Hidden + locked is still selectable and visibility is a view/output choice.
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator('[data-layer-lock="names-layer"]').click();
   await visibility().click();
   assert.equal(await svg(), visibleSVG);
@@ -178,6 +182,7 @@ try {
     await page.locator('.node[data-id="names-effect"] [data-bypass]').isDisabled(),
     true,
   );
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator('[data-layer-lock="names-layer"]').click();
   await page.evaluate((json) => window.nect.load(json), beforeHide);
   // Preserve every node, input and setting through bypass, Undo/Redo, JSON and cold CLI export.

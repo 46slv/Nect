@@ -14,22 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Approved offline integration
+## ACTIVE CHECKPOINT — 2026-10-28 Shared Color identity and persistence
 
-Goal: Integrate the already implemented Build commit display, offline preview discovery fixtures and imported expression-reference repair while preserving the merged joystick viewport behavior.
+Goal: Give the accepted REQ-211 color design real shared identities before UI integration; never infer identity from equal display colors.
 
-Current phase: One source writer on the isolated codex/integration-84-86-88-20261024 branch on SHIRO-WS. The reviewed candidates follow the approved PR84, PR86 and PR88 sequence; live PR state determines which unmerged stage remains. The native UI task remains separate and must not be duplicated or interrupted.
+Current phase: Root is sole production writer on codex/nect-color-core-20261028. Parallel Sol reviewers/test writers are released. The user requested root implementation; Codex is validation/parallel only, up to Sol high.
 
-Proven: PR87 is merged as main05102869b66c814af16db22e626c15bc217de306/tree5e2219a439457b694a124008874657b34a9692fa, with exact-main Core/Windows CI and actual Chrome directional checks passed. PR84 and PR86 initial source reviews passed; PR84 integration treeb8cd5868827c1553cff166579f2d2b17583eb47f preserves all PR87 files. Earlier PR CI remains historical until the current integration heads pass their required gates.
+Proven: PR #107 at 99d5d252 passed Windows CI 40706323357. Downloaded color-coverage/results.json proved four real Chrome raster cases, including partial alpha/clipping/order/Other; native acceptance remains NOT RUN. The next local schema-54 shared-color foundation has 19 focused tests and 70 related tests PASS plus production build PASS. Independent review found and root repaired preset validation, SVG registry loss, foreign-import ID retargeting, and legacy-ID allocation collisions.
 
-Next task: Complete exact-candidate review and focused checks, publish ordinary merge commits to the existing development branches, confirm required CI at each new head, then integrate any still-unmerged PR84, PR86 and PR88 in that order. Verify the final Windows artifact against its actual commit/tree/run and external archive digest.
+Implementation: Shared literal colorSlots and sibling parameter colorSlotId; atomic create/rename/set/bind/unbind commands, unbind freezes resolved Color, evaluator cache invalidation, all-composition/preset validation, referenced-slot import with independent collision remapping. No Color payload metadata, color-panel UI, palette resolver, Auto Chroma or automatic coverage provenance yet.
 
-Approach: Reuse existing pure discovery/version/identity validators and literal rendering. Keep the fixture client outside the production import graph, with injected source/request/clock and bounded expiry. Resolve checkpoint-only conflicts without altering unrelated product behavior.
+Next task: Publish and verify the exact foundation candidate; then propagate authored paint provenance into coverage and add the panel with existing history/save contracts. Preserve the proven earlier artifact instead of claiming it validates newer source.
 
-Done for next: Reviewed exact trees and terminal required checks for each authorized normal main merge; final archive/receipt/EXE identity, accurate remaining native acceptance limits and released source ownership.
+Done for next: Exact-head tests/CI, identity-preserving persistence and import, and no unreviewed source blocker before adding visible controls.
 
-State: Other source worktrees and PRs are preserved. PR86 product files are unchanged from its reviewed candidate; only this checkpoint combines the completed joystick evidence with current authorized integration work.
+State: PR #107 stacked on separately frozen PR #106 (462eb8d); neither main merge nor release. Root source worktree nect-hashi-color-core-20261028. Native acceptance is an independent pending obligation; no duplicate GUI owner.
 
-Authority: The owner's2026-10-24T17:16UTC instruction approves GitHub/publication work for these already requested tasks, including Ready-for-review transitions and normal main integration. No force/history rewrite, provider/feed activation, updater download/install/apply, keys, credentials, security/settings change, app replacement, restart or user-session operation.
+Authority: Accepted REQ-211 design and direct Nect implementation instructions allow edits/tests/development commits/push/Draft PR. No protected-main merge/release/force/history rewrite or authentication/permission/billing changes.
 
-Handoff: CONTINUE_CURRENT_TASK. Native UI remains a separate acceptance row; no browser/unit/compile result is native acceptance. Live update distribution and safe apply/rollback remain outside this offline increment. See desktop/docs/preview-update-check.md.
+Handoff: CONTINUE_CURRENT_TASK. Root owns production source.

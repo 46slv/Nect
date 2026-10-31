@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
-    "test": "node --test tests/*.test.js",
+    "test": "node --test --test-concurrency=1 tests/*.test.js",
     "test:regression": "node scripts/regression-runner.mjs",
     "check:native-build": "node scripts/check-native-build-config.mjs",
     "test:e2e": "npm run test:csp && node scripts/browser-suite-runner.mjs",

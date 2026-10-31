@@ -7,6 +7,7 @@ const positions = {
   Null: 'position',
   Text: 'position',
   Image: 'position',
+  SVG: 'position',
   'Composition Reference': 'position',
   Circle: 'center',
   Ellipse: 'center',

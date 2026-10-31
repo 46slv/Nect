@@ -1,4 +1,6 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { chromium } from 'playwright-core';
+import { openMoreTypography } from './helpers/text-inspector.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -98,6 +100,7 @@ try {
   assert.deepEqual((await read()).textWrap, { height: 120, policy: 'japanese-basic-v1' });
   await page.locator('[data-action="undo"]').click();
   assert.equal(await saved(), narrow);
+  await openMoreTypography(page);
   await field('text-path').selectOption(JSON.stringify(['wrap-path', 'wrap-path']));
   assert.equal(await saved(), narrow);
   assert.match(await page.locator('.status .message').innerText(), /TEXT_WRAP_PATH/);
@@ -228,7 +231,9 @@ try {
   const locked = JSON.parse(json);
   locked.layers[0].locked = true;
   await page.evaluate((json) => window.nect.load(json), JSON.stringify(locked));
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${locked.layers[0].id}"]`).click();
+  await ensureWorkspacePanel(page, 'inspector');
   const lockedText = locked.layers[0].nodes.find((n) => n.type === 'Text');
   await page.locator(`.graph .node[data-id="${lockedText.id}"] .node-head strong`).click();
   assert.equal(await field('text-wrap').isDisabled(), true);

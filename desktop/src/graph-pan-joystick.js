@@ -40,7 +40,14 @@ export function joystickOverviewLayout(width, height, joystick) {
   };
 }
 
-export function createGraphPanJoystick({ container, viewport, canPan, pan, onLayout }) {
+export function createGraphPanJoystick({
+  container,
+  viewport,
+  canPan,
+  pan,
+  onLayout,
+  visible = true,
+}) {
   const doc = container.ownerDocument,
     win = doc.defaultView,
     element = doc.createElement('button'),
@@ -74,7 +81,7 @@ export function createGraphPanJoystick({ container, viewport, canPan, pan, onLay
   };
   const active = () => pointer !== null || keys.size > 0;
   const usable = () =>
-    !disposed && element.isConnected && layout.size > 0 && !doc.hidden && canPan();
+    !disposed && visible && element.isConnected && layout.size > 0 && !doc.hidden && canPan();
   const cancelFrame = () => {
     if (frame !== null) win.cancelAnimationFrame(frame);
     frame = previousTime = null;
@@ -227,7 +234,7 @@ export function createGraphPanJoystick({ container, viewport, canPan, pan, onLay
       Math.max(0, viewport.offsetWidth - viewport.clientWidth),
       Math.max(0, viewport.offsetHeight - viewport.clientHeight),
     );
-    element.hidden = layout.size === 0;
+    element.hidden = !visible || layout.size === 0;
     element.style.width = element.style.height = `${layout.size}px`;
     element.style.right = `${layout.right}px`;
     element.style.bottom = `${layout.bottom}px`;
@@ -244,6 +251,17 @@ export function createGraphPanJoystick({ container, viewport, canPan, pan, onLay
     },
     get layout() {
       return layout;
+    },
+    get visible() {
+      return visible;
+    },
+    setVisible(value) {
+      visible = !!value;
+      if (!visible) {
+        stop();
+        if (doc.activeElement === element) viewport.focus({ preventScroll: true });
+      }
+      element.hidden = !visible || layout.size === 0;
     },
     stop,
     destroy() {

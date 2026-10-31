@@ -1,3 +1,20 @@
+import {
+  COLOR_SLOTS_SCHEMA_VERSION,
+  COLOR_DESIGN_SCHEMA_VERSION,
+  HARMONY_DESIGN_SCHEMA_VERSION,
+  CHROMA_OVERRIDE_SCHEMA_VERSION,
+  colorSlotCommands,
+  validateColorSlots,
+  validateColorSlotBinding,
+  resolveColorSlot,
+  applyColorSlotCommand,
+} from './color-slots.js';
+import {
+  insertSVGAsset,
+  validateSVGAsset,
+  validateAssetProvenance,
+  SVG_ASSET_SCHEMA_VERSION,
+} from './svg-asset.js';
 import { resolvePenEndpoint, penContourIds, insertContinuationPoint } from './pen-continuation.js';
 import {
   NODE_GROUP_SCHEMA_VERSION,
@@ -40,6 +57,7 @@ import { splitPathSegment } from './path-point-insertion.js';
 import { osOutlineGeometry } from './os-font-outline.js';
 import { validateOsFontText, osFontTextPath } from './os-font-text.js';
 import { desktopTextIntent, desktopOsReference, desktopFontTextPath } from './desktop-font-text.js';
+import { PRIVATE_FONT_SCHEMA_VERSION } from './private-font-source.js';
 import {
   createVariableDocumentPreparer as createVariableBridge,
   assertVariableDocumentReady,
@@ -76,6 +94,7 @@ import { autoHandlesGeometry } from './auto-handles-geometry.js';
 import { taperGeometry } from './taper-geometry.js';
 import { bendGeometry } from './bend-geometry.js';
 import { twistGeometry } from './twist-geometry.js';
+import { polarSettings, polarTransformGeometry } from './polar-transform.js';
 import { waveGeometry } from './wave-geometry.js';
 import { puckerBloatGeometry } from './pucker-bloat-geometry.js';
 import { dashIntervals } from './dash-intervals.js';
@@ -145,6 +164,11 @@ import {
 } from './guides.js';
 import { createLinearGradientFill, renderLinearGradientFill } from './linear-gradient.js';
 import { createRadialGradientFill, renderRadialGradientFill } from './radial-gradient.js';
+import {
+  ANGULAR_KEYS,
+  createAngularGradientFill,
+  renderAngularGradientFill,
+} from './angular-gradient.js';
 export {
   guideDefaults,
   guideSettings,
@@ -329,6 +353,16 @@ export const definitions = {
   Taper: { path: p('Path', null), amount: p('Scalar', 0) },
   'Bend Points': { path: p('Path', null), angle: p('Scalar', 0) },
   'Twist Points': { path: p('Path', null), angle: p('Scalar', 0) },
+  'Polar Transform': {
+    path: p('Path', null),
+    origin: p('Vector2', [0, 0]),
+    center: p('Vector2', [480, 270]),
+    width: p('Scalar', 960),
+    height: p('Scalar', 540),
+    radius: p('Scalar', 270),
+    angle: p('Scalar', -90),
+    inverse: p('Boolean', false),
+  },
   'Auto Handles': { path: p('Path', null), strength: p('Scalar', 1) },
   'Reverse Path': { path: p('Path', null) },
   'Wave Points': {
@@ -422,6 +456,7 @@ export const definitions = {
   Vector: { value: p('Vector2', [300, 250]) },
   Null: { position: p('Vector2', [300, 250]) },
   Reference: {},
+  SVG: { position: p('Vector2', [0, 0]) },
   'Composition Reference': { position: p('Vector2', [0, 0]) },
   Expression: { value: p('Scalar', 100) },
   Fill: { path: p('PaintedPath', null), color: p('Color', { hex: '#36434e', alpha: 1 }) },
@@ -438,6 +473,18 @@ export const definitions = {
     radius: p('Scalar', 150),
     startColor: p('Color', { hex: '#fff3b0', alpha: 1 }),
     endColor: p('Color', { hex: '#d94862', alpha: 1 }),
+  },
+  'Angular Gradient Fill': {
+    path: p('PaintedPath', null),
+    center: p('Vector2', [480, 270]),
+    angle: p('Scalar', -90),
+    clockwise: p('Boolean', true),
+    startColor: p('Color', { hex: '#ff0000', alpha: 1 }),
+    color1: p('Color', { hex: '#00ff00', alpha: 1 }),
+    position1: p('Scalar', 1 / 3),
+    color2: p('Color', { hex: '#0000ff', alpha: 1 }),
+    position2: p('Scalar', 2 / 3),
+    endColor: p('Color', { hex: '#ff0000', alpha: 1 }),
   },
   Halftone: {
     path: p('PaintedPath', null),
@@ -516,6 +563,9 @@ export function linearGradientSettings(read) {
   return createLinearGradientFill(
     Object.fromEntries(['start', 'end', 'startColor', 'endColor'].map((key) => [key, read(key)])),
   );
+}
+export function angularGradientSettings(read) {
+  return createAngularGradientFill(Object.fromEntries(ANGULAR_KEYS.map((key) => [key, read(key)])));
 }
 export function radialGradientSettings(read) {
   return createRadialGradientFill(
@@ -660,7 +710,7 @@ export function node(type, x = 40, y = 40) {
     ...(type === 'Image' ? { asset: '' } : {}),
     ...(type === 'Vector' ? { canvasPositionHandle: false } : {}),
     ...(type === 'Reference' ? { reference: null } : {}),
-    ...(type === 'Composition Reference' ? { compositionReference: null } : {}),
+    ...(['Composition Reference', 'SVG'].includes(type) ? { compositionReference: null } : {}),
   };
 }
 export function layer(name = 'Composition 1') {
@@ -747,7 +797,7 @@ export function outputPorts(n) {
       : [{ id: undefined, label: n.type === 'Null' ? 'Position' : '', type: outputType(n) }];
 }
 export function outputType(n, port) {
-  if (n.type === 'Composition Reference' || n.paintMode)
+  if (['Composition Reference', 'SVG'].includes(n.type) || n.paintMode)
     return port === undefined ? 'PaintedPath' : undefined;
   if (n.type === 'Separate Vector') return ['x', 'y'].includes(port) ? 'Scalar' : undefined;
   if (n.type === 'Text' && port === 'position') return 'Vector2';
@@ -759,6 +809,7 @@ export function outputType(n, port) {
       'Fill',
       'Linear Gradient Fill',
       'Radial Gradient Fill',
+      'Angular Gradient Fill',
       'Halftone',
       'Ordered Dither',
       'Error Diffusion Dither',
@@ -810,6 +861,7 @@ const bypassInputs = Object.freeze({
   Taper: 'path',
   'Bend Points': 'path',
   'Twist Points': 'path',
+  'Polar Transform': 'path',
   'Auto Handles': 'path',
   'Wave Points': 'path',
   'Simplify Path': 'path',
@@ -825,6 +877,7 @@ const bypassInputs = Object.freeze({
   Fill: 'path',
   'Linear Gradient Fill': 'path',
   'Radial Gradient Fill': 'path',
+  'Angular Gradient Fill': 'path',
   Halftone: 'path',
   'Ordered Dither': 'path',
   'Error Diffusion Dither': 'path',
@@ -1129,7 +1182,7 @@ function validateNodePreset(doc, preset) {
     throw Error('Preset must contain 1–1999 source/effect nodes');
   const ids = new Set(preset.nodes.map((n) => n.id));
   for (const n of preset.nodes) {
-    if (['Output', 'Image Output', 'Composition Reference'].includes(n.type))
+    if (['Output', 'Image Output', 'Composition Reference', 'SVG'].includes(n.type))
       throw Error('Preset cannot contain Output or Composition Reference nodes');
     if (nodeDependencies(n).some((d) => !ids.has(d.source)))
       throw Error('Preset has an external node reference; select its sources too');
@@ -1167,27 +1220,15 @@ function validateNodePreset(doc, preset) {
   const layer = blankLayer('Preset validation');
   layer.nodes.push(...clone(preset.nodes));
   const isolated = {
-    schemaVersion: preset.nodes.some((n) =>
-      parameters(n).some(([, q]) => q.type === 'Color' && q.expression),
-    )
-      ? Math.max(
-          ...preset.nodes.flatMap((n) =>
-            parameters(n)
-              .filter(([, q]) => q.type === 'Color' && q.expression)
-              .map(([, q]) => colorExpressionSchemaVersion(q.expression)),
-          ),
-        )
-      : preset.nodes.some((n) => isImageDither(n.type))
-        ? IMAGE_DITHER_SCHEMA_VERSION
-        : preset.nodes.some((n) => n.type === 'Boolean' && n.booleanInputOrder !== undefined)
-          ? BOOLEAN_INPUT_SCHEMA_VERSION
-          : NODE_PRESET_SCHEMA_VERSION,
+    // Detached nodes retain the source Document's supported feature floor.
+    schemaVersion: Math.max(NODE_PRESET_SCHEMA_VERSION, doc.schemaVersion),
     name: 'Preset validation',
     width: doc.width,
     height: doc.height,
     layers: [layer],
     fontAssets: preset.fontAssets,
     imageAssets: preset.imageAssets,
+    ...(doc.colorSlots === undefined ? {} : { colorSlots: clone(doc.colorSlots) }),
   };
   validate(isolated);
   // Detect the existing edited-Remap/source refusal before saving unusable data.
@@ -1488,6 +1529,11 @@ function vectorMathValue(operation, read) {
 // grant compatibility. The second identity reproduces the empty-expression-field era
 // from the same geometry, not from a second geometry evaluation.
 const evaluationFingerprints = new WeakMap();
+const evaluatedPaintSlots = new WeakMap();
+function setEvaluatedPaintSlot(value, paint, slotId) {
+  const previous = evaluatedPaintSlots.get(value);
+  if (slotId !== null || previous) evaluatedPaintSlots.set(value, { ...previous, [paint]: slotId });
+}
 function evaluatedFingerprint(value, currentEra = false) {
   const identity = value && evaluationFingerprints.get(value);
   return currentEra && identity && identity.canonical === value.fingerprint
@@ -1501,6 +1547,8 @@ export function remapFingerprintMatches(input, retainedFingerprint) {
   );
 }
 function copyEvaluationIdentity(source, result) {
+  if (source && evaluatedPaintSlots.has(source))
+    evaluatedPaintSlots.set(result, { ...evaluatedPaintSlots.get(source) });
   const identity = source && evaluationFingerprints.get(source);
   if (
     identity &&
@@ -2701,18 +2749,37 @@ export function evaluate(
       readingParameters.delete(id);
     }
   }
+  // Preserve only exact authored identity, never infer it from a display value.
+  function parameterColorSlot(q, seen = new Set()) {
+    if (!q || q.type !== 'Color') return null;
+    if (q.colorSlotId !== undefined) return q.colorSlotId;
+    if (q.source) {
+      if (seen.has(q.source)) return null;
+      seen.add(q.source);
+      const source = byId.get(q.source);
+      return source?.type === 'Color' ? parameterColorSlot(source.params.value, seen) : null;
+    }
+    return null; // Literal and expression-generated colors have no exact slot attribution.
+  }
   function readParameterValue(n, key) {
     if (isTransform(n) && !n.params[key] && key === 'position') return readParameter(n, 'anchor');
     if (isTransform(n) && !n.params[key] && key === 'scaleWidth') return readParameter(n, 'scale');
     let q = parameter(n, key);
     if (!q) throw Error(`Missing parameter ${key}`);
-    let value = q.source
-      ? run(q.source, q.sourcePort)
-      : q.expression
-        ? parameterExpression(q, resolveExpressionReference, parameterBaseValue(layer, n, key, q))
-        : n.type === 'Fill' && key === 'color' && q.value === null
-          ? { hex: layer.fill, alpha: 1 }
-          : clone(q.value);
+    let value =
+      q.colorSlotId !== undefined
+        ? resolveColorSlot(documentContext, q.colorSlotId)
+        : q.source
+          ? run(q.source, q.sourcePort)
+          : q.expression
+            ? parameterExpression(
+                q,
+                resolveExpressionReference,
+                parameterBaseValue(layer, n, key, q),
+              )
+            : n.type === 'Fill' && key === 'color' && q.value === null
+              ? { hex: layer.fill, alpha: 1 }
+              : clone(q.value);
     if (q.source && !socketCompatibleFor(byId.get(q.source), n, key, q.sourcePort))
       throw Error('Incompatible socket types');
     assertValue(q.type, value);
@@ -2739,7 +2806,9 @@ export function evaluate(
       const inputs = positionOutput ? [['position', n.params.position]] : evaluatedParameters(n);
       const deps = positionOutput ? parameterDependencies(inputs) : nodeDependencies(n, true);
       if (n.type === 'Reference') referenceTarget(layer, n);
-      const external = n.type === 'Composition Reference' ? referencedOutput(n) : null;
+      const external = ['Composition Reference', 'SVG'].includes(n.type)
+        ? referencedOutput(n)
+        : null;
       const parameterVersions = new Map();
       for (const dep of deps) {
         if (dep.parameterKey)
@@ -2778,9 +2847,10 @@ export function evaluate(
       const imageAsset = n.type === 'Image' ? imageAssets[n.asset] : undefined,
         cacheKey = JSON.stringify(
           positionOutput
-            ? [inputs, dependencyVersions]
+            ? [inputs, dependencyVersions, documentContext?.colorSlots]
             : [
                 n.type,
+                documentContext?.colorSlots,
                 !!n.bypassed,
                 n.reference,
                 n.compositionReference,
@@ -2866,7 +2936,7 @@ export function evaluate(
         if (result === null) throw Error(`Connect ${bypassInput(n)} to bypass ${n.type}`);
         if (n.type === 'Mask') result = evaluatedPaintedGroup([result], { prefix: n.id });
         assertValue(outputType(n), result);
-      } else if (n.type === 'Composition Reference') {
+      } else if (['Composition Reference', 'SVG'].includes(n.type)) {
         const position = read('position');
         result = evaluatedPaintedGroup([external.path], {
           matrix: [1, 0, 0, 1, ...position],
@@ -3312,6 +3382,25 @@ export function evaluate(
           n.id,
           null,
           'Canvas character editing is unavailable through Auto Handles; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Polar Transform') {
+        const source = read('path');
+        result = polarTransformGeometry(
+          source,
+          Object.fromEntries(
+            ['origin', 'center', 'width', 'height', 'radius', 'angle', 'inverse'].map((key) => [
+              key,
+              read(key),
+            ]),
+          ),
+        );
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Polar Transform; edit the source Text',
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
@@ -3995,9 +4084,37 @@ export function evaluate(
         result = cloneEvaluated(result);
         if (isPaintedGroup(result) && n.type !== 'Output')
           throw Error('Edit paint in the source Composition, or use Convert to Path');
-        if (n.type === 'Fill') result.fill = read('color');
-        if (n.type === 'Linear Gradient Fill') result.fill = linearGradientSettings(read);
-        if (n.type === 'Radial Gradient Fill') result.fill = radialGradientSettings(read);
+        if (n.type === 'Fill') {
+          result.fill = read('color');
+          setEvaluatedPaintSlot(result, 'fill', parameterColorSlot(n.params.color));
+        }
+        if (
+          ['Linear Gradient Fill', 'Radial Gradient Fill', 'Angular Gradient Fill'].includes(n.type)
+        )
+          setEvaluatedPaintSlot(result, 'fill', null);
+        if (n.type === 'Linear Gradient Fill') {
+          result.fill = linearGradientSettings(read);
+          setEvaluatedPaintSlot(result, 'fill', {
+            startColor: parameterColorSlot(n.params.startColor),
+            endColor: parameterColorSlot(n.params.endColor),
+          });
+        }
+        if (n.type === 'Radial Gradient Fill') {
+          result.fill = radialGradientSettings(read);
+          setEvaluatedPaintSlot(result, 'fill', {
+            startColor: parameterColorSlot(n.params.startColor),
+            endColor: parameterColorSlot(n.params.endColor),
+          });
+        }
+        if (n.type === 'Angular Gradient Fill') {
+          result.fill = angularGradientSettings(read);
+          setEvaluatedPaintSlot(result, 'fill', {
+            startColor: parameterColorSlot(n.params.startColor),
+            color1: parameterColorSlot(n.params.color1),
+            color2: parameterColorSlot(n.params.color2),
+            endColor: parameterColorSlot(n.params.endColor),
+          });
+        }
         if (n.type === 'Stroke') {
           const width = read('width');
           if (width < 0 || width > 100000) throw Error('Stroke width must be from 0 to 100000 px');
@@ -4009,6 +4126,7 @@ export function evaluate(
           if (Math.abs(dashOffset) > 100000)
             throw Error('Dash offset must be from -100000 to 100000 px');
           result.stroke = { ...read('color'), width, ...style, miterLimit, dashOffset };
+          setEvaluatedPaintSlot(result, 'stroke', parameterColorSlot(n.params.color));
         }
         if (n.type === 'Path Remap') {
           result.characterOccurrences = routeCharacters(
@@ -4320,6 +4438,7 @@ export function assertClosedOffsetChange(
     'Taper',
     'Bend Points',
     'Twist Points',
+    'Polar Transform',
     'Auto Handles',
     'Instance on Points',
     'Luminance Instances',
@@ -4545,6 +4664,7 @@ export function validate(doc) {
     assertValue('Vector2', value);
   }
   function param(q, type, layerFillFallback = false) {
+    validateColorSlotBinding(q, colorSlots);
     if (!q || q.type !== type) throw Error('Invalid parameter type');
     if (!(layerFillFallback && q.value === null)) assertValue(type, q.value);
     if (['Path', 'PaintedPath', 'Image'].includes(type) && q.value !== null)
@@ -4591,9 +4711,16 @@ export function validate(doc) {
       doc.schemaVersion !== NODE_GROUP_SCHEMA_VERSION &&
       doc.schemaVersion !== MASK_FEATHER_SCHEMA_VERSION &&
       doc.schemaVersion !== IMAGE_MASK_SCHEMA_VERSION &&
-      doc.schemaVersion !== MASK_LUMINANCE_SCHEMA_VERSION)
+      doc.schemaVersion !== MASK_LUMINANCE_SCHEMA_VERSION &&
+      doc.schemaVersion !== SVG_ASSET_SCHEMA_VERSION &&
+      doc.schemaVersion !== COLOR_SLOTS_SCHEMA_VERSION &&
+      doc.schemaVersion !== COLOR_DESIGN_SCHEMA_VERSION &&
+      doc.schemaVersion !== HARMONY_DESIGN_SCHEMA_VERSION &&
+      doc.schemaVersion !== CHROMA_OVERRIDE_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
+  const colorSlots = validateColorSlots(doc);
+  for (const slot of colorSlots.values()) id(slot.id);
   if (doc.schemaVersion === 1) migratePaint(doc);
   // Apply every migration against the file's incoming version. A feature later in
   // the node list must not advance the version before older nodes are backfilled.
@@ -4603,6 +4730,13 @@ export function validate(doc) {
   if (Object.values(doc.fontAssets || {}).some((a) => a.kind === VARIABLE_KIND))
     variableCheck(doc.schemaVersion >= 25, 'VARIABLE_SCHEMA');
   validateImageAssets(doc.imageAssets);
+  for (const asset of Object.values(doc.imageAssets || {})) {
+    if (asset.provenance !== undefined) {
+      if (doc.schemaVersion < SVG_ASSET_SCHEMA_VERSION)
+        throw Error('Asset provenance requires schemaVersion 53');
+      validateAssetProvenance(asset.provenance);
+    }
+  }
   validateGuides(doc.editor, id);
   if (doc.editor?.gridAnchor === 'center' && doc.schemaVersion < 27)
     throw Error('Centered grid requires schemaVersion 27');
@@ -4648,6 +4782,7 @@ export function validate(doc) {
       if (isImageDither(n.type) && !n.bypassed && ++activeImageDithers > MAX_ACTIVE_IMAGE_DITHERS)
         throw Error('At most 8 active Image Dithers per document');
       validateReference(n);
+      validateSVGAsset(n, sourceSchemaVersion);
       validateCompositionReference(n, sourceSchemaVersion);
       if (
         n.paintMode !== undefined &&
@@ -5032,8 +5167,18 @@ export function validate(doc) {
         throw Error(
           'Wave Points needs amplitude within ±100000 px, wavelength 0.0001–100000 px and phase within ±360 degrees',
         );
+      if (n.type === 'Polar Transform')
+        polarSettings(
+          Object.fromEntries(
+            ['origin', 'center', 'width', 'height', 'radius', 'angle', 'inverse'].map((key) => [
+              key,
+              n.params[key].value,
+            ]),
+          ),
+        );
       if (n.type === 'Linear Gradient Fill') linearGradientSettings((key) => n.params[key].value);
       if (n.type === 'Radial Gradient Fill') radialGradientSettings((key) => n.params[key].value);
+      if (n.type === 'Angular Gradient Fill') angularGradientSettings((key) => n.params[key].value);
       if (
         isImageDither(n.type) ||
         ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type)
@@ -5368,7 +5513,9 @@ export function renderElement(
         ? renderLinearGradientFill(fill, gradientId, precision)
         : fill?.kind === 'radial-gradient'
           ? renderRadialGradientFill(fill, gradientId, precision)
-          : null;
+          : fill?.kind === 'angular-gradient'
+            ? renderAngularGradientFill(fill, gradientId, value, precision)
+            : null;
   if (fill && !gradient) assertValue('Color', fill);
   if (stroke) {
     if (stroke.kind !== undefined && stroke.kind !== 'solid')
@@ -5433,7 +5580,12 @@ function exportValidatedScene(doc, fonts) {
         throw Error(
           `${l.name}: Character positions are suspended; restore text/mapping or reset all adjustments before export`,
         );
-      return { layer: l, value: result.path };
+      const paintProvenance = evaluatedPaintSlots.get(result.path);
+      return {
+        layer: l,
+        value: result.path,
+        ...(paintProvenance ? { paintProvenance: clone(paintProvenance) } : {}),
+      };
     });
 }
 export function exportSVG(doc, fonts = {}, options = {}) {
@@ -5734,6 +5886,37 @@ export class CommandSession {
   }
   #gestureCandidate(base, target, update) {
     if (!target || typeof target !== 'object') throw Error('Invalid gesture target');
+    if (target.kind === 'color-slots') {
+      const slots = new Set((base.colorSlots || []).map((slot) => slot.id));
+      if (
+        Object.getPrototypeOf(target) !== Object.prototype ||
+        Object.keys(target).length !== 2 ||
+        Object.keys(target).some((key) => !['kind', 'slotIds'].includes(key)) ||
+        !Array.isArray(target.slotIds) ||
+        !target.slotIds.length ||
+        target.slotIds.length > 256 ||
+        new Set(target.slotIds).size !== target.slotIds.length ||
+        target.slotIds.some((id) => typeof id !== 'string' || !slots.has(id))
+      )
+        throw Error('Select distinct existing shared Color slots');
+      if (
+        !update ||
+        Object.getPrototypeOf(update) !== Object.prototype ||
+        Object.keys(update).some((key) => !['updates', 'design'].includes(key)) ||
+        !Array.isArray(update.updates) ||
+        update.updates.length !== target.slotIds.length ||
+        update.updates.some(
+          (row) =>
+            !row ||
+            Object.getPrototypeOf(row) !== Object.prototype ||
+            Object.keys(row).length !== 2 ||
+            Object.keys(row).some((key) => !['slotId', 'value'].includes(key)) ||
+            !target.slotIds.includes(row.slotId),
+        )
+      )
+        throw Error('Color gesture updates must match the frozen slot targets');
+      return this.#commandCandidate('set-color-slots', update, base).candidate;
+    }
     if (target.kind === 'transform-anchor')
       return this.#commandCandidate(
         'reposition-transform-anchor',
@@ -5913,6 +6096,7 @@ export class CommandSession {
                 'Text',
                 'Image',
                 'Composition Reference',
+                'SVG',
                 'Vector',
                 'Null',
               ].includes(node.type)
@@ -5926,7 +6110,7 @@ export class CommandSession {
                     : 'offset'
                   : node.type === 'Vector'
                     ? 'value'
-                    : ['Text', 'Image', 'Null', 'Composition Reference'].includes(node.type)
+                    : ['Text', 'Image', 'Null', 'Composition Reference', 'SVG'].includes(node.type)
                       ? 'position'
                       : 'center'
               ],
@@ -6546,7 +6730,7 @@ export class CommandSession {
       const layer = base.layers.find((layer) => layer.id === target?.layerId),
         node = layer?.nodes.find((node) => node.id === target.nodeId);
       const q = node && target.kind === 'parameter' ? parameter(node, target.key) : null;
-      const initial =
+      let initial =
         target?.kind === 'text-font'
           ? { initial: true }
           : target?.kind === 'text-values'
@@ -6575,6 +6759,13 @@ export class CommandSession {
                             : q?.value,
                       }
                     : { width: node?.width ?? 264 };
+      if (target?.kind === 'color-slots')
+        initial = {
+          updates: (Array.isArray(target.slotIds) ? target.slotIds : []).map((slotId) => ({
+            slotId,
+            value: base.colorSlots?.find((slot) => slot.id === slotId)?.value,
+          })),
+        };
       this.#gestureCandidate(base, target, initial);
       this.#gesture = {
         id: uid('gesture'),
@@ -6782,6 +6973,12 @@ export class CommandSession {
     return { ...this.state, ...result, changed: revision !== this.#history.revision };
   }
   #commandCandidate(type, payload, before, deferVariable = false) {
+    if (colorSlotCommands.has(type)) {
+      const candidate = cloneDocument(before);
+      const result = applyColorSlotCommand(candidate, type, payload, () => uid('color'));
+      validate(candidate);
+      return { candidate, result };
+    }
     if (nodeGroupCommands.has(type)) {
       const candidate = cloneDocument(before),
         layer = candidate.layers.find((l) => l.id === payload.layerId);
@@ -6931,7 +7128,7 @@ export class CommandSession {
         result: {},
       };
     }
-    if (['set-os-font-text', 'clear-os-font-text'].includes(type)) {
+    if (['set-os-font-text', 'clear-os-font-text', 'replace-os-text-font'].includes(type)) {
       const candidate = cloneDocument(before),
         layer = candidate.layers.find((l) => l.id === payload.layerId),
         source = layer?.nodes.find((n) => n.id === payload.nodeId && n.type === 'Text');
@@ -6939,7 +7136,39 @@ export class CommandSession {
         throw Error('Select an unlocked enabled Text');
       if ([...this.#textDrafts.values()].some((d) => d.nodeId === source.id))
         throw Error('Finish or cancel the Text draft first');
-      if (type === 'clear-os-font-text') {
+      let replacement;
+      if (type === 'replace-os-text-font') {
+        if (!source.osFont) throw Error('Select OS font Text');
+        if (payload.characterIds !== undefined)
+          throw Error('OS font replacement requires whole Text');
+        const fromBytes = Object.hasOwn(payload, 'bytes');
+        if (fromBytes === Object.hasOwn(payload, 'fontId'))
+          throw Error('Choose exactly one replacement font');
+        if (fromBytes) {
+          if (!(payload.bytes instanceof ArrayBuffer) || payload.bytes.byteLength > MAX_FONT_BYTES)
+            throw Error('Font bytes require an ArrayBuffer up to 20 MB');
+          replacement = makeFontAsset(
+            payload.bytes.slice(0),
+            payload.fileName,
+            candidate.fontAssets,
+          );
+          candidate.fontAssets = { ...candidate.fontAssets, [replacement.id]: replacement.asset };
+        } else {
+          const asset = candidate.fontAssets?.[payload.fontId];
+          if (payload.fontId !== 'default' && !asset) throw Error('Missing replacement font');
+          if (asset?.kind) throw Error('OS font replacement requires a static font');
+          replacement = { id: payload.fontId, asset };
+        }
+        // The static legacy shaper defaults to ligatures-off. Keep a prepared
+        // Windows ligatures-on intent explicitly when the static layout/font
+        // can represent it; unsupported combinations fail below, never strip.
+        if (source.osFont.outline.ligatures === true && !source.fontFeatures) {
+          source.fontFeatures = { liga: true };
+          candidate.schemaVersion = Math.max(candidate.schemaVersion, OPENTYPE_SCHEMA_VERSION);
+        }
+        delete source.osFont;
+        source.font = replacement.id;
+      } else if (type === 'clear-os-font-text') {
         if (!source.osFont) throw Error('Select OS font Text');
         delete source.osFont;
         source.font = 'default';
@@ -6950,6 +7179,14 @@ export class CommandSession {
           'directwrite-v3',
           'directwrite-v4',
         ].includes(payload.outline?.engine);
+        // Source removal is an explicit installed-font choice. An edit adapter
+        // that forgot a file capability must not relabel its retained geometry
+        // as a same-named system font.
+        if (source.osFont?.source !== undefined && payload.source === undefined)
+          throw Error('Private font source is missing; reattach or choose an installed font');
+        if (!modern && payload.source !== undefined)
+          throw Error('Private font sources require DirectWrite Text');
+        const referenceSource = payload.source === null ? undefined : payload.source;
         const settings = payload.settings || {};
         if (
           settings.axes !== undefined &&
@@ -6981,7 +7218,7 @@ export class CommandSession {
           font: 'default',
           params: clone(source.params),
           osFont: modern
-            ? desktopOsReference(payload.outline)
+            ? desktopOsReference(payload.outline, referenceSource)
             : {
                 version: 1,
                 family: payload.outline?.family,
@@ -7021,7 +7258,7 @@ export class CommandSession {
               ))
           )
             throw Error('Mismatched prepared font axes');
-          desktopTextIntent(next, next.osFont.face);
+          desktopTextIntent(next, next.osFont.face, {}, next.osFont.source);
         } else
           osOutlineGeometry(payload.outline, { ...source, text: next.text }, uid, {
             allowEmpty: true,
@@ -7034,6 +7271,7 @@ export class CommandSession {
         Object.assign(source, next);
         candidate.schemaVersion = Math.max(
           candidate.schemaVersion,
+          source.osFont.source ? PRIVATE_FONT_SCHEMA_VERSION : 0,
           source.osFont.version === 5
             ? 34
             : source.osFont.version === 4
@@ -7047,22 +7285,28 @@ export class CommandSession {
         validateOsFontText(source, candidate.schemaVersion);
       }
       validate(candidate);
-      if (type === 'clear-os-font-text') {
+      if (['clear-os-font-text', 'replace-os-text-font'].includes(type)) {
         // Replacing a saved OS appearance must be all-or-nothing. Validation
         // alone checks IDs/types, not coverage or layout in the replacement face.
-        const replacement = evaluate(
+        const evaluated = evaluate(
           { ...layer, output: source.id },
           resolveFonts(candidate, this.#fonts()),
           candidate.imageAssets,
           candidate,
         );
-        if (replacement.error)
+        if (evaluated.error)
           throw Error(
-            `OS font retained: replacement font cannot render this Text. ${replacement.error}`,
+            `OS font retained: replacement font cannot render this Text. ${evaluated.error}`,
           );
       }
       serialize(candidate);
-      return { candidate, result: { nodeId: source.id } };
+      return {
+        candidate,
+        result: {
+          nodeId: source.id,
+          ...(replacement ? { fontId: replacement.id, fontName: replacement.asset?.name } : {}),
+        },
+      };
     }
     if (['bake-text-outline', 'bake-os-text-outline'].includes(type)) {
       const layer = before.layers.find((l) => l.id === payload.layerId);
@@ -7285,6 +7529,11 @@ export class CommandSession {
           candidate = this.#gestureCandidate(candidate, move.target, { delta: move.delta });
       return { candidate, result: {} };
     }
+    if (type === 'insert-svg-asset') {
+      const candidate = cloneDocument(before);
+      const result = insertSVGAsset(candidate, payload, resolveFonts(candidate, this.#fonts()));
+      return { candidate, result };
+    }
     if (type === 'add-svg-part') {
       const candidate = cloneDocument(before);
       const result = appendSVGPart(candidate, payload, resolveFonts(candidate, this.#fonts()));
@@ -7292,6 +7541,17 @@ export class CommandSession {
     }
     if (type === 'import-svg') {
       const candidate = importSVGTree(payload.source);
+      // Replace the active Composition's artwork, not the project-wide data
+      // carried by its Document projection. Other Compositions may still use
+      // these assets, presets, and newer-schema nodes.
+      candidate.name = before.name;
+      candidate.schemaVersion = Math.max(before.schemaVersion, candidate.schemaVersion);
+      for (const key of ['imageAssets', 'fontAssets', 'nodePresets', 'colorSlots']) {
+        if (Object.hasOwn(before, key))
+          candidate[key] = ['nodePresets', 'colorSlots'].includes(key)
+            ? clone(before[key])
+            : { ...before[key] };
+      }
       serialize(candidate);
       return {
         candidate,
@@ -7392,29 +7652,74 @@ export class CommandSession {
         }
         result = {};
       } else {
+        const route = payload.route ?? 'layer';
+        if (!['layer', 'graph'].includes(route)) throw Error('Invalid image placement route');
+        for (const key of ['at', 'nodePosition']) {
+          const value = payload[key];
+          if (
+            value !== undefined &&
+            (!Array.isArray(value) ||
+              value.length !== 2 ||
+              !value.every((v) => Number.isFinite(v) && Math.abs(v) <= 100000))
+          )
+            throw Error(`Invalid image ${key}`);
+        }
+        if (payload.anchor !== undefined && !['origin', 'center'].includes(payload.anchor))
+          throw Error('Invalid image placement anchor');
+        if (payload.joinBeforeOut) throw Error('Image graph placement is disconnected');
+        let target;
+        if (route === 'graph') {
+          target = candidate.layers.find((l) => l.id === payload.layerId);
+          if (!target || target.locked || target.guide || !target.visible)
+            throw Error('Choose an unlocked visible layer');
+          if (target.nodes.length >= 2000)
+            throw Error('Image insertion exceeds the 2000-node budget');
+        }
         const size = pngSize(decodeImage(payload.png)),
           assetId = uid('image');
+        if (payload.provenance !== undefined) {
+          validateAssetProvenance(payload.provenance);
+          candidate.schemaVersion = Math.max(candidate.schemaVersion, SVG_ASSET_SCHEMA_VERSION);
+        }
         if (Object.hasOwn(candidate.imageAssets || {}, assetId))
           throw Error('Image identity collision');
         candidate.imageAssets = {
           ...candidate.imageAssets,
-          [assetId]: { name: payload.name, mime: 'image/png', ...size, data: payload.png },
+          [assetId]: {
+            name: payload.name,
+            mime: 'image/png',
+            ...size,
+            data: payload.png,
+            ...(payload.provenance !== undefined ? { provenance: clone(payload.provenance) } : {}),
+          },
         };
         validateImageAssets(candidate.imageAssets);
-        const artwork = layer(payload.name),
-          generator = node('Image'),
-          output = node('Image Output', 380, 40),
+        const artwork = target || layer(payload.name),
+          generator = node(
+            'Image',
+            payload.nodePosition?.[0] ?? 40,
+            payload.nodePosition?.[1] ?? 40,
+          ),
           scale = Math.min(1, candidate.width / size.width, candidate.height / size.height);
         generator.asset = assetId;
         generator.params.size.value = [size.width * scale, size.height * scale];
-        generator.params.position.value = [
-          (candidate.width - generator.params.size.value[0]) / 2,
-          (candidate.height - generator.params.size.value[1]) / 2,
-        ];
-        output.params.path.source = generator.id;
-        artwork.nodes = [generator, output];
-        artwork.output = output.id;
-        candidate.layers.push(artwork);
+        generator.params.position.value = payload.at
+          ? payload.at.map(
+              (value, axis) =>
+                value - (payload.anchor === 'center' ? generator.params.size.value[axis] / 2 : 0),
+            )
+          : [
+              (candidate.width - generator.params.size.value[0]) / 2,
+              (candidate.height - generator.params.size.value[1]) / 2,
+            ];
+        if (target) target.nodes.push(generator);
+        else {
+          const output = node('Image Output', 380, 40);
+          output.params.path.source = generator.id;
+          artwork.nodes = [generator, output];
+          artwork.output = output.id;
+          candidate.layers.push(artwork);
+        }
         serialize(candidate);
         result = { layerId: artwork.id, nodeId: generator.id, assetId };
       }
@@ -8373,6 +8678,8 @@ export class CommandSession {
         } else {
           if (type === 'set-parameter-base' && !['Scalar', 'Vector2', 'Color'].includes(q.type))
             throw Error('Authored base editing requires a Scalar, Vector2 or Color parameter');
+          if (q.colorSlotId !== undefined)
+            throw Error('Unbind the shared Color before editing its fallback');
           if (type !== 'set-parameter-base' && (q.source || q.expression))
             throw Error(
               'Parameter is driven; disconnect input or clear expression before editing its fallback',
@@ -8405,7 +8712,7 @@ export class CommandSession {
     }
     if (
       candidate.layers.some((l) =>
-        l.nodes.some((n) => n.paintMode || n.type === 'Composition Reference'),
+        l.nodes.some((n) => n.paintMode || ['Composition Reference', 'SVG'].includes(n.type)),
       )
     )
       candidate.schemaVersion = Math.max(candidate.schemaVersion, 31);

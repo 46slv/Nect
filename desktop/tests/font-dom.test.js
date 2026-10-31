@@ -125,7 +125,10 @@ test('synthetic font UI preserves cancellation/errors/stale edits and commits re
     type: 'set-layer-state',
     payload: { layerId: win.nect.document.layers[0].id, key: 'locked', value: true },
   });
-  document.querySelector('.inspector-body [data-load-font]').click();
-  assert.match(document.querySelector('.message').textContent, /locked/);
+  const locked = snapshot();
+  const importButton = document.querySelector('.inspector-body [data-load-font]');
+  assert.equal(importButton.disabled, true);
+  importButton.click();
+  assert.equal(snapshot(), locked);
   await win.happyDOM.close();
 });

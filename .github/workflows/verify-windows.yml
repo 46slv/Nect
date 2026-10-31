@@ -133,6 +133,18 @@ jobs:
             desktop/test-results/workflow-*.svg
             desktop/test-results/japanese-*.json
             desktop/test-results/japanese-*.svg
+            desktop/test-results/asset-library/*.png
+            desktop/test-results/asset-library/results.json
+            desktop/test-results/asset-catalog/results.json
+            desktop/test-results/workspace-panels/*.png
+            desktop/test-results/workspace-panels/result.json
+            desktop/test-results/asset-drag/*.png
+            desktop/test-results/asset-drag/results.json
+            desktop/test-results/color-coverage/results.json
+            desktop/test-results/shared-colors-panel/*.png
+            desktop/test-results/shared-colors-panel/*.json
+            desktop/test-results/harmony-wheel-panel/*.png
+            desktop/test-results/harmony-wheel-panel/*.json
             desktop/test-results/native-isolation-rust.log
             desktop/test-results/native-acceptance-build.json
             desktop/test-results/windows-japanese-font-capability.json
