@@ -24,8 +24,11 @@ and one-Undo behavior; there is no new color-to-canvas drag capability here.
 
 Drawer preferences use a separate view-only key. They do not serialize input
 focus, transient drag or authored document state. Invalid or older preferences
-must not block editing. Native modal dialogs and in-progress text editing retain
-Escape precedence. A closed panel must not expose interactive hit surfaces.
+must not block editing. Native modal dialogs and focused editors own Escape:
+an editor can cancel its active interaction without a global drawer or popover
+close, and IME composition is protected. From a non-editing surface Escape
+dismisses the appropriate transient panel or drawer. A closed panel must not
+expose interactive hit surfaces.
 In Viewers mode the left Assets/Color overlay is temporarily hidden and inert,
 while the right Inspector remains available for viewer assignment; returning
 to Artwork restores the retained left panel. A minimum upper-pane height keeps
