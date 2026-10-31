@@ -176,7 +176,7 @@ try {
     if (mode === 'rename') {
       await ensureWorkspacePanel(page, 'layers');
       await page.locator(`[data-select-layer="${f.ids[3]}"]`).press('F2');
-      await ensureWorkspacePanel(page, 'inspector');
+      assert.equal(await page.locator('[data-rename-name]').evaluate((el) => el === document.activeElement), true);
     }
     if (mode === 'pen') {
       await page.locator('[data-tool="pen"]').click();
@@ -211,7 +211,10 @@ try {
     );
     if (mode === 'modal') await page.locator('dialog button').click();
     if (mode === 'ime') await page.locator('.canvas-stage').dispatchEvent('compositionend');
-    if (mode === 'rename') await page.locator('[data-rename-name]').press('Escape');
+    if (mode === 'rename') {
+      await page.locator('[data-rename-name]').press('Escape');
+      await ensureWorkspacePanel(page, 'inspector');
+    }
     if (mode === 'pen') await page.locator('[data-pen-cancel]').click();
   }
   // Unsupported late selection member must refuse both copies and leave Undo empty.

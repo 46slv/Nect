@@ -26,6 +26,10 @@ Drawer preferences use a separate view-only key. They do not serialize input
 focus, transient drag or authored document state. Invalid or older preferences
 must not block editing. Native modal dialogs and in-progress text editing retain
 Escape precedence. A closed panel must not expose interactive hit surfaces.
+In Viewers mode the left Assets/Color overlay is temporarily hidden and inert,
+while the right Inspector remains available for viewer assignment; returning
+to Artwork restores the retained left panel. A minimum upper-pane height keeps
+the edge controls usable at a short split while preserving the graph below.
 
 ## Design and evidence
 

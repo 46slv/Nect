@@ -33,18 +33,20 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     if (!root?.isConnected) return;
     const wrap = root.querySelector('.canvas-wrap');
     if (!wrap) return;
-    const stage = wrap.querySelector('.canvas-stage');
+    const viewerMode = wrap.dataset.viewerMode === 'viewers';
+    const stage = wrap.querySelector(viewerMode ? '.node-viewers' : '.canvas-stage');
     if (stage) {
       wrap.style.setProperty('--stage-left', `${stage.offsetLeft}px`);
       wrap.style.setProperty('--stage-right', `${Math.max(0, wrap.clientWidth - stage.offsetLeft - stage.clientWidth)}px`);
       wrap.style.setProperty('--stage-width', `${stage.clientWidth}px`);
     }
     if (stage) {
-      const toolbar = wrap.querySelector('.canvas-toolbar');
+      const toolbar = viewerMode ? null : wrap.querySelector('.canvas-toolbar');
       const top = Math.max(stage.offsetTop,
         toolbar ? toolbar.getBoundingClientRect().bottom - wrap.getBoundingClientRect().top + 8 : stage.offsetTop);
       const height = Math.max(0, stage.offsetTop + stage.clientHeight - top);
       wrap.style.setProperty('--drawer-top', `${top}px`);
+      wrap.style.setProperty('--drawer-height', `${height}px`);
       for (const overlay of wrap.querySelectorAll('.workspace-drawer, .workspace-panel-bar')) {
         overlay.style.top = `${top}px`;
         overlay.style.height = `${height}px`;
@@ -53,15 +55,21 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     for (const side of ['left', 'right']) {
       const host = wrap.querySelector(`[data-drawer-side="${side}"]`);
       const selected = item(active[side]);
-      const shown = !!selected && !(side === 'left' && retreated);
+      const shown = !!selected && !(side === 'left' && (retreated || viewerMode));
+      const bar = wrap.querySelector(`.workspace-panel-bar-${side}`);
+      if (viewerMode && side === 'left' &&
+          (host.contains(root.ownerDocument.activeElement) || bar?.contains(root.ownerDocument.activeElement)))
+        wrap.querySelector('.viewer-tabs [data-viewer-mode="viewers"]')?.focus({ preventScroll: true });
+      if (bar) { bar.hidden = viewerMode && side === 'left'; bar.inert = bar.hidden; }
       host.dataset.activePanel = selected?.id || '';
       host.hidden = !shown;
       host.inert = !shown;
     }
     for (const entry of ITEMS) {
       const button = trigger(entry.id);
-      button?.setAttribute('aria-expanded', String(active[entry.side] === entry.id));
-      button?.setAttribute('aria-pressed', String(active[entry.side] === entry.id));
+      const shown = active[entry.side] === entry.id && !(viewerMode && entry.side === 'left');
+      button?.setAttribute('aria-expanded', String(shown));
+      button?.setAttribute('aria-pressed', String(shown));
       if (entry.selector) {
         const panel = wrap.querySelector(entry.selector);
         if (panel) panel.hidden = active[entry.side] !== entry.id;
@@ -74,7 +82,9 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     const panel = getAssetPanel();
     if (slot) slot.hidden = active.left !== 'assets';
     if (panel) {
-      const visible = active.left === 'assets' && slot && !slot.hidden;
+      const visible = active.left === 'assets' && !viewerMode && slot && !slot.hidden;
+      if (viewerMode && panel.contains(root.ownerDocument.activeElement))
+        wrap.querySelector('.viewer-tabs [data-viewer-mode="viewers"]')?.focus({ preventScroll: true });
       panel.hidden = !visible;
       panel.inert = !visible;
       panel.style.opacity = retreated ? '0' : '';

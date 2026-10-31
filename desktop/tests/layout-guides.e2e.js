@@ -22,7 +22,8 @@ const edit = async (label, value) => {
   await input.press('Tab');
 };
 const click = async (selector) => {
-  if (/^\[data-(?:layer-guide|layer-lock|visible)/.test(selector)) await ensureWorkspacePanel(page, 'layers');
+  if (/^\[data-(?:layer-guide|layer-lock|visible)/.test(selector))
+    await ensureWorkspacePanel(page, 'layers');
   if (selector.startsWith('[data-layout-')) await openArtworkPanel(page, 'layout-panel');
   if (/^\[data-(?:lock|select|add)-guide/.test(selector))
     await openArtworkPanel(page, 'guides-panel');

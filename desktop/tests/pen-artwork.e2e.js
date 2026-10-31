@@ -629,6 +629,8 @@ try {
     );
     await ensureWorkspacePanel(page, 'layers');
     await page.locator(`[data-select-layer="${id}"]`).click();
+    await ensureWorkspacePanel(page, 'inspector');
+    assert.equal(await page.locator('.artwork-move-status').isVisible(), true);
     const beforeJSON = await snapshot(),
       beforeProject = await projectSnapshot(),
       before = JSON.parse(beforeJSON);

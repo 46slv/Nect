@@ -32,7 +32,7 @@ try {
   assert.ok(metrics.light.length && metrics.light.every((status) => status === 'loaded'));
   assert.ok(metrics.regular.length && metrics.regular.every((status) => status === 'loaded'));
   assert.ok(metrics.width > 0 && metrics.ink > 0);
-  assert.notEqual(metrics.width, metrics.fallbackWidth, 'Japanese and digits use the loaded face, not monospace fallback');
+  assert.notEqual(metrics.width, metrics.fallbackWidth, 'mixed sample metrics differ from monospace fallback');
   assert.match(metrics.uiFamily, /IBM Plex Sans JP/);
   assert.equal(metrics.uiWeight, '300');
   await page.evaluate(async () => {
@@ -50,5 +50,5 @@ try {
   await page.setViewportSize({ width: 1000, height: 900 });
   await page.screenshot({ path: 'test-results/workflow-ui-font-japanese-1000.png' });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-  console.log('UI font PASS: offline Light/Regular load, Japanese/digit metrics and long-label capture');
+  console.log('UI font PASS: offline Light/Regular browser load, mixed-sample metrics and long-label capture');
 } finally { await browser.close(); }

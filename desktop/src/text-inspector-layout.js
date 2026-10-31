@@ -64,7 +64,10 @@ export function arrangeTextInspector(root, editingCharacters = false) {
   retainTextFontDisclosures(root);
   const doc = root.ownerDocument;
   const textInput = controls.querySelector('[data-text], [data-os-text]');
-  const scope = JSON.stringify([textInput?.dataset.text || textInput?.dataset.osText || '', editingCharacters ? 'characters' : 'node']);
+  const scope = JSON.stringify([
+    textInput?.dataset.text || textInput?.dataset.osText || '',
+    editingCharacters ? 'characters' : 'node',
+  ]);
   const field = (selector) => controls.querySelector(selector)?.closest('.field');
   // Native typography already exposes these literals. Keep the generic rows
   // available for connections, expressions and locks without showing a second
@@ -101,7 +104,9 @@ export function arrangeTextInspector(root, editingCharacters = false) {
   for (const child of primary) controls.append(child);
   if (advanced.children.length > 1) controls.append(advanced);
   if (parameterLinks.length) {
-    const driven = parameterLinks.some((row) => row.classList.contains('connected') || row.querySelector('[data-expression]'));
+    const driven = parameterLinks.some(
+      (row) => row.classList.contains('connected') || row.querySelector('[data-expression]'),
+    );
     const links = disclosure(doc, 'parameter-links', 'Parameter links', scope, driven);
     for (const row of parameterLinks) links.append(row);
     controls.append(links);

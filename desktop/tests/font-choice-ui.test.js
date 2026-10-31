@@ -204,16 +204,25 @@ test('family disclosures keep exact source identity, real child styles and unkno
 });
 
 test('same-name file members remain exact choices without opaque identity in ordinary rows', () => {
-  const files = [{
-    token: 'process-only',
-    sha256: 'a'.repeat(64),
-    faces: [{ faceIndex: 0, face }, { faceIndex: 1, face }],
-  }];
-  const rows = fontPickerItems(fontPickerCatalogs({ fileNative: files }), text())
-    .filter((row) => row.choice.source === 'file-native');
+  const files = [
+    {
+      token: 'process-only',
+      sha256: 'a'.repeat(64),
+      faces: [
+        { faceIndex: 0, face },
+        { faceIndex: 1, face },
+      ],
+    },
+  ];
+  const rows = fontPickerItems(fontPickerCatalogs({ fileNative: files }), text()).filter(
+    (row) => row.choice.source === 'file-native',
+  );
   assert.equal(rows.length, 2);
   assert.notEqual(rows[0].id, rows[1].id);
-  assert.deepEqual(rows.map((row) => row.metadata.subfamily), [face.name, face.name]);
+  assert.deepEqual(
+    rows.map((row) => row.metadata.subfamily),
+    [face.name, face.name],
+  );
   assert.match(rows[0].detail, /Variant 1 of 2/);
   assert.match(rows[1].detail, /Variant 2 of 2/);
   for (const row of rows) {

@@ -167,7 +167,7 @@ export function updateViewers(root, state, doc, fonts, evaluations = new Map()) 
 export function mountViewers(
   root,
   state,
-  { doc, fonts, layer, node, busy, canAssign = true, evaluations },
+  { doc, fonts, layer, node, busy, canAssign = true, evaluations, onModeChange = () => {} },
 ) {
   const wrap = root.querySelector('.canvas-wrap');
   wrap.dataset.viewerMode = state.mode;
@@ -203,6 +203,7 @@ export function mountViewers(
     if (mode && !busy) {
       state.mode = mode;
       refresh();
+      onModeChange(mode);
     }
   };
   // Viewer focus never routes Delete, point nudge, tool keys or gestures to the editor.

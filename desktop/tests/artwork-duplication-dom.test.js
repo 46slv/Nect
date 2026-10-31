@@ -339,14 +339,18 @@ test('Duplicate in place is independent, undoable, selection-scoped and interrup
       select(f.layer.id);
       let before = saved(),
         prior = ui();
+      showPanel('layers');
       win.testBeginName(f.layer.id);
       flush();
+      assert.equal($('.layers').hidden, false);
+      assert.equal($('[data-rename-name]'), document.activeElement);
       assert.equal(duplicate().disabled, true);
       const edit = structuredClone(ui().nameEdit);
       force(f.layer.id);
       assert.equal(saved(), before);
       assert.deepEqual(ui().nameEdit, edit);
       key($('[data-rename-name]'), 'Escape');
+      showPanel('inspector');
       assert.equal(duplicate().disabled, false);
       stage().dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
       assert.equal(duplicate().disabled, true);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { createWorkspacePanels, DRAWER_PREFERENCES_KEY } from '../src/workspace-panels.js';
 
-const markup = `<div class="workspace"><nav class="tools"></nav><main class="middle"><div class="canvas-wrap"><div class="canvas-stage"></div></div><section class="graph-panel"></section></main><aside class="right"><section class="layers"><div class="panel-head">Layers</div></section><section class="alignment-panel">Align</section><section class="shared-colors-panel">Colors</section><section class="inspector">Inspector</section></aside></div>`;
+const markup = `<div class="workspace"><nav class="tools"></nav><main class="middle"><div class="canvas-wrap"><div class="canvas-stage"></div><div class="node-viewers"></div></div><section class="graph-panel"></section></main><aside class="right"><section class="layers"><div class="panel-head">Layers</div></section><section class="alignment-panel">Align</section><section class="shared-colors-panel">Colors</section><section class="inspector">Inspector</section></aside></div>`;
 function fixture() {
   const window = new Window();
   const root = window.document.createElement('div');
@@ -69,8 +69,10 @@ test('asset DOM and search survive switch, render and temporary drag retreat', (
   assert.equal(panel.style.opacity, '0');
   assert.equal(panel.style.pointerEvents, 'none');
   assert.equal(panel.isConnected, true);
+  slot.getBoundingClientRect = () => ({ left: 65, top: 80, width: 280, height: 400 });
   f.controller.setRetreat(false);
   assert.equal(panel.hidden, false);
+  assert.deepEqual([panel.style.left, panel.style.top, panel.style.width, panel.style.height], ['65px', '80px', '280px', '400px']);
   f.controller.select('colors');
   assert.equal(panel.hidden, true);
   f.root.innerHTML = markup;
@@ -129,4 +131,44 @@ test('drawer preferences restore real owners and ignore invalid or legacy data',
   const fallback = create(); fallback.attach(root);
   assert.equal(root.querySelector('.inspector').hidden, false);
   w.happyDOM.abort();
+});
+
+
+test('Viewer mode suspends the Assets portal and restores its live state on return', () => {
+  const f = fixture();
+  f.controller.select('assets');
+  const panel = f.panel, input = panel.querySelector('input');
+  input.value = 'viewer-round-trip';
+  const wrap = f.root.querySelector('.canvas-wrap');
+  wrap.dataset.viewerMode = 'viewers';
+  f.controller.refresh();
+  assert.equal(panel.hidden, true);
+  assert.equal(panel.inert, true);
+  assert.equal(f.root.querySelector('.workspace-panel-bar-left').hidden, true);
+  f.controller.select('inspector');
+  assert.equal(f.root.querySelector('.inspector').hidden, false);
+  wrap.dataset.viewerMode = 'artwork';
+  f.controller.refresh();
+  assert.equal(panel.hidden, false);
+  assert.equal(panel.querySelector('input'), input);
+  assert.equal(input.value, 'viewer-round-trip');
+  f.window.happyDOM.abort();
+});
+
+test('Viewer mode moves focus out of a suspended Color panel', () => {
+  const f = fixture();
+  const wrap = f.root.querySelector('.canvas-wrap');
+  const tabs = f.window.document.createElement('div');
+  tabs.className = 'viewer-tabs';
+  tabs.innerHTML = '<button data-viewer-mode="viewers">Viewers</button>';
+  wrap.prepend(tabs);
+  f.controller.select('colors');
+  const input = f.window.document.createElement('input');
+  f.root.querySelector('.shared-colors-panel').append(input);
+  input.focus();
+  wrap.dataset.viewerMode = 'viewers';
+  f.controller.refresh();
+  assert.equal(f.window.document.activeElement, tabs.querySelector('button'));
+  assert.equal(f.root.querySelector('[data-drawer-side="left"]').inert, true);
+  f.window.happyDOM.abort();
 });

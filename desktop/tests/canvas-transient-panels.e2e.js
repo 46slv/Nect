@@ -51,9 +51,10 @@ try {
         () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
       );
     const panelSelector = panel === 'align' ? '.alignment-panel' : '.guides-panel';
-    const panelButton = panel === 'align'
-      ? '[data-workspace-panel="align"]'
-      : `.canvas-toolbar [data-action="${panel}-panel"]`;
+    const panelButton =
+      panel === 'align'
+        ? '[data-workspace-panel="align"]'
+        : `.canvas-toolbar [data-action="${panel}-panel"]`;
     const expanded = 'aria-expanded';
     if ((await page.locator(panelButton).getAttribute(expanded)) !== 'true')
       await page.locator(panelButton).click();
@@ -112,8 +113,11 @@ try {
     );
     assert.equal(await editor.evaluate((el) => el.selectionEnd > el.selectionStart), true);
     assert.equal(await page.evaluate(() => window.editorBlurCount), 0);
-    assert.equal(await page.locator(panelSelector).isVisible(), panel === 'align',
-      `outside click ${panel === 'align' ? 'preserves' : 'closes'} ${panel}`);
+    assert.equal(
+      await page.locator(panelSelector).isVisible(),
+      panel === 'align',
+      `outside click ${panel === 'align' ? 'preserves' : 'closes'} ${panel}`,
+    );
     assert.equal(await page.locator(panelButton).getAttribute(expanded), String(panel === 'align'));
     assert.equal(
       await page.locator('.layout-preview').count(),

@@ -149,10 +149,9 @@ const assertAssetRetained = async () => {
     true,
     'color edits and rendering retain the mounted Assets panel',
   );
-  assert.equal(
-    await page.getByRole('searchbox', { name: 'Search assets', exact: true }).inputValue(),
-    'retained-search',
-  );
+  const panel = page.locator('[data-asset-library]');
+  assert.equal(await panel.isVisible(), false, 'Assets is suspended while Colors owns the left drawer');
+  assert.equal(await panel.locator('[data-asset-search]').inputValue(), 'retained-search');
 };
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
@@ -300,7 +299,8 @@ try {
     assert.equal(geometry.overflow, false, `no document overflow at ${width}`);
     assert.ok(geometry.colors.width > 0 && geometry.colors.height >= 76);
     assert.ok(
-      geometry.colors.x >= geometry.canvas.x - 1 && geometry.colors.right <= geometry.canvas.right + 1,
+      geometry.colors.x >= geometry.canvas.x - 1 &&
+        geometry.colors.right <= geometry.canvas.right + 1,
       `colors remain within the artboard surface at ${width}`,
     );
     assert.ok(
@@ -422,7 +422,7 @@ try {
     fullPage: false,
   });
   await page.getByRole('button', { name: 'Close Shared colors', exact: true }).click();
-  assert.equal(await page.locator('.shared-colors-panel').count(), 0);
+  assert.equal(await page.locator('.shared-colors-panel').isVisible(), false);
   assert.equal(await launcher.getAttribute('aria-pressed'), 'false');
   assert.equal(await launcher.evaluate((el) => el === document.activeElement), true);
   assert.equal(await saved(), afterChroma, 'closing an idle live panel does not author state');

@@ -4056,6 +4056,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     canAssign: selection.size === 1,
     busy: !!(penDraft || drag || wiring || composing || canvasTextEdit),
     evaluations: new Map(results.map(([layer, result]) => [layer.id, result])),
+    onModeChange: () => workspacePanels.refresh(),
   });
   const pngExportButton = app.querySelector('[data-action="export-png"]');
   if (pngExportButton) {
@@ -7565,6 +7566,17 @@ app.addEventListener('click', async (e) => {
           }
           break;
         case 'asset-library':
+          if (viewerState.mode === 'viewers') {
+            // Assets belong to Artwork, not the read-only Viewer surfaces. Use
+            // the real tab so its busy guard and mode refresh remain authoritative.
+            app.querySelector('.viewer-tabs [data-viewer-mode="artwork"]')?.click();
+            if (viewerState.mode === 'viewers') break;
+            if (workspacePanels.active.left === 'assets') {
+              workspacePanels.refresh();
+              getAssetLibraryPanel()?.querySelector('[data-asset-search]')?.focus({ preventScroll: true });
+              break;
+            }
+          }
           workspacePanels.select('assets');
           break;
         case 'add-svg-part':
@@ -14303,7 +14315,8 @@ document.addEventListener('click', (event) => {
 document.addEventListener('keydown', (event) => {
   // Modal dialogs own Escape. An open File menu underneath an unsaved-changes
   // dialog must not cancel the browser's native dialog close action.
-  if (event.key !== 'Escape' || event.defaultPrevented || event.target.closest?.('dialog[open]'))
+  if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || composing ||
+      event.keyCode === 229 || editingControl(event.target) || event.target.closest?.('dialog[open]'))
     return;
   const open = [...document.querySelectorAll('.command-menu[open]')];
   if (

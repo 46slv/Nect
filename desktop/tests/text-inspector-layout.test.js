@@ -128,9 +128,9 @@ test('Font imports and Text actions retain native summary clicks across synchron
   await w.happyDOM.close();
 });
 
-
 test('typography disclosure is retained per text target and editing context', async () => {
-  const w = new Window(), root = w.document.createElement('div');
+  const w = new Window(),
+    root = w.document.createElement('div');
   w.document.body.append(root);
   const render = (id, editingCharacters = false) => {
     root.innerHTML = `<div class="text-controls"><textarea data-text="${id}"></textarea><div>Advanced only</div></div>`;
@@ -147,9 +147,9 @@ test('typography disclosure is retained per text target and editing context', as
   await w.happyDOM.close();
 });
 
-
 test('native typography keeps one primary literal and preserves parameter links in a disclosure', () => {
-  const w = new Window(), root = w.document.createElement('div');
+  const w = new Window(),
+    root = w.document.createElement('div');
   w.document.body.append(root);
   root.innerHTML = `<div class="text-controls"><textarea data-os-text="native-scope"></textarea><fieldset class="native-text-typography"><input data-os-setting="size"></fieldset></div><div class="field" data-key="size"><input data-value><button data-connect-menu>Connect</button></div><div class="field connected" data-key="letterSpacing"><input data-value></div>`;
   const parameter = root.querySelector('[data-key="size"]');

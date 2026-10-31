@@ -146,8 +146,7 @@ const capture = async (name, action, state) => {
   await page.screenshot({ path: resolve(out, file), fullPage: false });
   captures.push({ file, action, state, ...geometry });
 };
-// Preserve separate status, wheel, palette and parameter rows while parameters scroll.
-// This asserts box containment/order only, not full interaction actionability.
+// Check the wheel/settings column and independently scrollable palette column.
 const checkPaletteTopLayout = async () => {
   assert.equal(await page.locator('.harmony-coverage-status').isVisible(), true);
   const layout = await page.locator('.shared-colors-panel').evaluate((panel) => {
@@ -196,13 +195,24 @@ const checkPaletteTopLayout = async () => {
       `${label} is contained at panel top: ${JSON.stringify(layout)}`,
     );
   assert.ok(layout.wheel.top >= layout.bar.bottom, 'Status row does not cover the wheel');
-  assert.ok(layout.swatches.top >= layout.wheel.bottom, 'Colors sit immediately below wheel');
-  assert.ok(layout.neutral.top >= layout.swatches.bottom, 'Neutral track follows palette chips');
+  assert.ok(layout.swatches.left >= layout.wheel.right, 'Palette occupies the column to the right of the wheel');
+  assert.ok(layout.swatches.top >= layout.bar.bottom, 'Status row does not cover palette');
+  assert.ok(layout.neutral.top >= layout.wheel.bottom, 'Neutral track follows wheel in the left column');
   assert.equal(layout.chips.length, 5);
   for (const chip of layout.chips) {
     assert.ok(chip.right - chip.left >= 38 && chip.bottom - chip.top >= 44);
     assert.ok(chip.left >= layout.swatches.left && chip.right <= layout.swatches.right);
   }
+  const swatches = page.locator('.harmony-palette-swatches');
+  for (const chip of await swatches.locator('[data-wheel-select]').all()) {
+    await chip.scrollIntoViewIfNeeded();
+    assert.equal(await chip.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return top === el || el.contains(top);
+    }), true, 'each scrollable palette chip is reachable');
+  }
+  await swatches.evaluate((el) => { el.scrollTop = 0; });
   assert.equal(
     layout.coverage.title,
     layout.coverage.text,
@@ -212,12 +222,12 @@ const checkPaletteTopLayout = async () => {
   assert.ok(layout.parameters.top >= layout.coverage.bounds.bottom, 'status never covers settings');
   assert.ok(
     layout.parameters.top >= layout.neutral.bottom,
-    'Parameters scroll below wheel and palette',
+    'Parameters scroll below the wheel and neutral track',
   );
   assert.equal(layout.buttons, 0, 'Live controls have no Preview/Apply gate');
 };
 const checkGraphToolbar = async (width) => {
-  const compact = width === 900;
+  const compact = width < 820;
   await page.waitForFunction(
     (expected) =>
       document.querySelector('.graph-toolbar').classList.contains('graph-toolbar-compact') ===
@@ -286,7 +296,7 @@ const checkGraphToolbar = async (width) => {
   await summary.press('Enter');
   await checkVisibleControls(true);
   await capture(
-    'graph-toolbar-more-900',
+    `graph-toolbar-more-${width}`,
     'Open More with native keyboard activation',
     'Original Fit selection / Reset view / Overview buttons reachable',
   );
@@ -343,7 +353,7 @@ const checkGraphToolbar = async (width) => {
       .evaluate((el) => document.activeElement === el),
     true,
   );
-  await page.setViewportSize({ width: 900, height: 720 });
+  await page.setViewportSize({ width, height: 720 });
   await page.waitForSelector('.graph-view-more');
   assert.equal(await summary.evaluate((el) => document.activeElement === el), true);
   assert.equal(await menu.getAttribute('open'), null, 'resize does not reopen stale More');
@@ -411,6 +421,10 @@ try {
     assert.equal(await page.locator('.graph-pan-joystick').isVisible(), true);
     assert.equal(await encoded(), original, 'Hide/show does not author the project');
   }
+  // The graph now spans the workspace: 900px is expanded, while 800px
+  // exercises the same compact More keyboard and responsive contracts.
+  await page.setViewportSize({ width: 800, height: 720 });
+  await checkGraphToolbar(800);
   await page.setViewportSize({ width: 1600, height: 1000 });
   // Source search deliberately supports Transform, not Geometry Repeater.
   // Select a production-supported route rather than inventing a candidate.

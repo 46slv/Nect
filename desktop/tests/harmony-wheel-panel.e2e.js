@@ -78,6 +78,8 @@ const pressNumber = async (locator) => {
   const box = await locator.boundingBox();
   assert.ok(box && box.width > 24 && box.height > 0);
   const point = { x: box.x + Math.min(14, box.width / 3), y: box.y + box.height / 2 };
+  assert.equal(await locator.evaluate((el, p) => document.elementFromPoint(p.x, p.y) === el, point), true,
+    `numeric control is reachable at its drag start: ${JSON.stringify({ box, point })}`);
   await page.mouse.move(point.x, point.y);
   await page.mouse.down();
   return point;
@@ -384,6 +386,12 @@ try {
   await page.waitForFunction(() => window.nect.colorPreviewSnapshot() !== null);
   const strength = page.locator('[data-chroma-strength]');
   const secondPoint = await pressNumber(strength);
+  const visibleWheel = await page.locator('.shared-colors-panel').evaluate((panel) => {
+    const wheel = panel.querySelector('.harmony-wheel').getBoundingClientRect();
+    const port = panel.getBoundingClientRect();
+    return wheel.width > 0 && wheel.height > 0 && wheel.top >= port.top && wheel.bottom <= port.bottom;
+  });
+  assert.equal(visibleWheel, true, 'wheel remains visible while adjusting Colorfulness');
   const rotationOnly = await encoded();
   assert.equal((await snapshot()).colorDesign.wheel.hueRotation, 75);
   assert.equal((await snapshot()).colorDesign.colorfulness, created.colorDesign.colorfulness);

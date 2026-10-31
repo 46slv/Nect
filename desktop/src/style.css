@@ -2126,7 +2126,7 @@ input[data-scrub-step].scrubbing {
   gap: 1px;
   background: #aab5c1;
 }
-.canvas-wrap[data-viewer-mode='viewers'] > :not(.viewer-tabs):not(.node-viewers) {
+.canvas-wrap[data-viewer-mode='viewers'] > :not(.viewer-tabs):not(.node-viewers):not(.tools):not(.workspace-drawer):not(.workspace-panel-bar) {
   display: none;
 }
 .canvas-wrap[data-viewer-mode='viewers'] > .node-viewers {
@@ -2722,6 +2722,13 @@ input[data-scrub-step].scrubbing {
   display: flex;
   gap: 4px;
 }
+.asset-library-metadata {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+}
+.asset-library-metadata summary { cursor: pointer; }
+.asset-library-metadata label { margin-top: 6px; }
 .asset-library input:focus-visible,
 .asset-library button:focus-visible,
 .asset-library select:focus-visible {
@@ -3314,6 +3321,16 @@ input[data-color-scrub-step] {
 .workspace-drawer-left .harmony-neutral-lane { grid-column: 1; grid-row: 3; }
 .workspace-drawer-left .harmony-coverage-status { grid-column: 1; grid-row: 4; }
 .workspace-drawer-left .chroma-settings-scroll { grid-column: 1; grid-row: 5; }
+/* Preserve a usable settings viewport at short splits. The wheel scales with
+   available stage height; if even that cannot fit, the panel itself scrolls. */
+.workspace-drawer > .shared-colors-panel:has(.harmony-wheel) { overflow: auto; }
+.workspace-drawer-left .shared-colors-panel:has(.harmony-wheel) .auto-chroma-controls {
+  flex: 1 0 auto;
+  grid-template-rows: auto auto auto auto minmax(96px, 1fr);
+}
+.workspace-drawer-left .harmony-wheel {
+  width: min(100%, 190px, max(72px, calc(var(--drawer-height, 500px) * .35)));
+}
 /* The creation rail belongs to the upper surface, not the full-width graph. */
 .workspace, .workspace.has-workspace-panels, .workspace.has-workspace-assets { display: block; }
 .workspace > .middle { height: 100%; }
@@ -3374,3 +3391,32 @@ input[data-color-scrub-step] {
   top: var(--drawer-top, 80px);
   max-height: calc(100% - var(--drawer-top, 80px) - 8px);
 }
+/* When the split is very short, all creation tools remain reachable. */
+.canvas-wrap > .tools { overflow-y: auto; overscroll-behavior: contain; }
+
+/* Drawer surfaces meet their edge controls rather than floating as cards. */
+.workspace-drawer {
+  box-sizing: border-box;
+  right: var(--stage-right, 0px);
+  width: min(398px, calc((var(--stage-width, 100%) - 16px) / 2));
+  padding-right: 58px;
+  border: 0;
+  box-shadow: none;
+}
+.workspace-drawer-left {
+  left: var(--stage-left, 48px);
+  right: auto;
+  padding-right: 0;
+  padding-left: 58px;
+}
+.workspace-drawer[data-active-panel='inspector'] {
+  width: min(538px, calc((var(--stage-width, 100%) - 16px) / 2));
+}
+.graph-scroll {
+  background-image: radial-gradient(#9eafbb 1px, transparent 1px);
+}
+#app > header { gap: 4px; padding-inline: 10px; }
+
+/* A short split retains the full, usable edge controls and a graph below. */
+.canvas-wrap { min-height: 320px; }
+.workspace-panel-bar[hidden] { display: none !important; }

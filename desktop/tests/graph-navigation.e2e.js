@@ -106,10 +106,12 @@ try {
   const beforeZoomDrag = await position(),
     p = await grab();
   await page.mouse.move(p[0] + 90, p[1] + 30);
+  const guides = await page.locator('.graph-snap-guides').evaluate((el) => el.innerHTML);
   await page.mouse.up();
   const moved = await position();
   assert.ok(Math.abs(moved[0] - beforeZoomDrag[0] - 90 / zoom) < 3);
-  assert.ok(Math.abs(moved[1] - beforeZoomDrag[1] - 30 / zoom) < 3);
+  assert.ok(Math.abs(moved[1] - beforeZoomDrag[1] - 30 / zoom) < 3,
+    `zoomed drag Y: ${JSON.stringify({ moved, beforeZoomDrag, zoom, point: p, viewport: box, scroll: await scroll(), guides })}`);
   await grab();
   await page.mouse.move(...target);
   await page.waitForTimeout(180);

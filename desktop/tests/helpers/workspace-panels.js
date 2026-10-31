@@ -3,5 +3,7 @@
 export async function ensureWorkspacePanel(page, id) {
   const button = page.locator(`[data-workspace-panel="${id}"]`);
   if ((await button.getAttribute('aria-expanded')) !== 'true') await button.click();
-  await page.locator(`#workspace-drawer-${['assets', 'colors'].includes(id) ? 'left' : 'right'}`).waitFor({ state: 'visible' });
+  await page
+    .locator(`#workspace-drawer-${['assets', 'colors'].includes(id) ? 'left' : 'right'}`)
+    .waitFor({ state: 'visible' });
 }

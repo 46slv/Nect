@@ -250,6 +250,8 @@ try {
       before = await saved();
     await ensureWorkspacePanel(page, 'layers');
     await page.locator(`[data-select-layer="${first.layerId}"]`).click();
+    await ensureWorkspacePanel(page, 'inspector');
+    assert.equal(await page.locator('.artwork-move-status').isVisible(), true);
     assert.match(
       await page.locator('.artwork-move-status').innerText(),
       {

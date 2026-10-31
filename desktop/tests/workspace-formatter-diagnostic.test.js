@@ -11,8 +11,8 @@ import * as prettier from 'prettier';
 const files = [
   {
     "path": "desktop/docs/workspace-drawers.md",
-    "gitBlob": "19c9f752e90849d2a09682f738aee7ad7bf3da6c",
-    "sha256": "db2b415f3f6a7f94a9bc9f77601b26eac22a4aa8245aab2ee21c269ce89177f8"
+    "gitBlob": "55b286e6447976d8ba7a67ada239d8822343bb49",
+    "sha256": "9b8c9c697244b5183c915a3974f031fc320da7bcd0fd56880e107434fbabad27"
   },
   {
     "path": "desktop/scripts/browser-suite-runner.mjs",
@@ -21,8 +21,8 @@ const files = [
   },
   {
     "path": "desktop/src/asset-library.js",
-    "gitBlob": "7ff15c2f06f6e1209ef990d9dce0afc69afcdf74",
-    "sha256": "ea65ee23dd46f4925781b26a1d6c7eadfbadd8cf88a249ce4d26225637d59a23"
+    "gitBlob": "2b56032d8ff9a428e4deb4f85e700bea855cf16b",
+    "sha256": "b80283c22ca625c078a286f7999d647b44c2bd8ff5f068780bcc5c44e5d89712"
   },
   {
     "path": "desktop/src/font-choice-ui.js",
@@ -31,8 +31,13 @@ const files = [
   },
   {
     "path": "desktop/src/main.js",
-    "gitBlob": "e920e906fc87276399fe6231fdf6316bf47931ab",
-    "sha256": "22096e698d749ab643911c05b3122b23f0a36facfac6115e7bd07266874dd1a0"
+    "gitBlob": "b7e2bdd253f1c51e25b815a7bf3c6e60d851b126",
+    "sha256": "4dc0919e357c484963706406ec3d1c85a74d5ea78db460816fe6455d80d2aef3"
+  },
+  {
+    "path": "desktop/src/node-viewers.js",
+    "gitBlob": "6855da7ed8531f6523b325a30817a1fad18ca115",
+    "sha256": "6ae69cc727dd94a0d67cc046093ab468a5eadcdeb0aa6bc88b3b77eac9f73d7b"
   },
   {
     "path": "desktop/src/shared-colors-panel.js",
@@ -41,18 +46,18 @@ const files = [
   },
   {
     "path": "desktop/src/style.css",
-    "gitBlob": "0562362379492d73cb57b2f57d2dbbbee7d6826b",
-    "sha256": "cbf22d4a064cf56a3f5832fab2ac38050937cbea3bf02ac7307e0fb1cc383e80"
+    "gitBlob": "340b40726fa69557f5756e98379ead09c836583c",
+    "sha256": "2506a3d496ba1a4257ca6e29f33c09250f1cc9a490a8fd43f96d33b195343962"
   },
   {
     "path": "desktop/src/text-inspector-layout.js",
-    "gitBlob": "1b3b14c0bb1e2319e8d03996cab8deeb4d47a7df",
-    "sha256": "56759187f989fd76284403e8ba0bc4707d3c8314212786e0602246ff283bdc9c"
+    "gitBlob": "f58ffcb92f4436ee8774c80f7d32485b529cb411",
+    "sha256": "e745b006b290d6cbf0d6e7e59fe5f0810ae6a065cddcc3201d21f0df561346a8"
   },
   {
     "path": "desktop/src/workspace-panels.js",
-    "gitBlob": "2102bc60a72001bd2802af5da336e50cd5b6b23e",
-    "sha256": "266d299ebfd9301ac98043df8052a885df72c885111998550f0fa3faf1b97529"
+    "gitBlob": "6d7468d42d764b308ea783e5a1d2f26213fc15db",
+    "sha256": "2e84708d985421f7613342deb5012e186a019c5e53a270cc5a82ca0ce52233b2"
   },
   {
     "path": "desktop/tests/artboard-units.e2e.js",
@@ -76,8 +81,8 @@ const files = [
   },
   {
     "path": "desktop/tests/artwork-duplication-dom.test.js",
-    "gitBlob": "346fb72c959ae5ba50af5065df11f3aabfac7847",
-    "sha256": "7843af85bc37d618da69fa44c8dcd62c2cdfc28aa519ea0482c87b8b8150c711"
+    "gitBlob": "9ae1ffd1c05de6415211418c4378361e5ac6fbca",
+    "sha256": "6e7d7085a1eaac436436480c538733daeab59d904c1ae268ffca805f20754afa"
   },
   {
     "path": "desktop/tests/artwork-duplication.e2e.js",
@@ -91,8 +96,8 @@ const files = [
   },
   {
     "path": "desktop/tests/artwork-multi-duplication.e2e.js",
-    "gitBlob": "ee256762c82d8a0c632cd5c4d0328b296e42be18",
-    "sha256": "dfd3242204fa3fe59175ec4193715b9b1a3fa21ed57178a76e6813653b865800"
+    "gitBlob": "a190a1ee718af09b292c54afaf73930a514cc94e",
+    "sha256": "3f2eaa5bb837384a09aa8f0f0d8bcb0c99b3c3406ae774d10e72c4ef8482e47f"
   },
   {
     "path": "desktop/tests/artwork-multi-move.e2e.js",
@@ -111,28 +116,33 @@ const files = [
   },
   {
     "path": "desktop/tests/artwork-workflow.e2e.js",
-    "gitBlob": "a8f145720a634f73283fb2337007bfb0a53c3932",
-    "sha256": "a6401c1b6216ceaea94b54086afd408bef87d5f4a8d6dce69c4b72bc1e9d9869"
+    "gitBlob": "f9fd81e556d277bf9450d62878a1d85a66f46a1b",
+    "sha256": "a937a2a8227460a42474b3d5f65b0e39beb5482e16ea2a6be72ca2d585c79011"
   },
   {
     "path": "desktop/tests/asset-drag.e2e.js",
-    "gitBlob": "3939a2a9243219ef9fa7ff2672bbf4c61ce9551f",
-    "sha256": "dcc7a699f5b931a27424c6137a1cb6da0aa5f8c0ffd8c7c423f8a8cd8270ded2"
+    "gitBlob": "d68e2c0f1c54a7df8d740f4689ddd9976f20a115",
+    "sha256": "1894b5e45f1634219115b1c7996888ba9dd931fda345285a6ab10d2614d8886b"
+  },
+  {
+    "path": "desktop/tests/asset-library.e2e.js",
+    "gitBlob": "b15d5806ccf02e17b1c2f43b05ddb792cc99db82",
+    "sha256": "c9c04208e5a412e4bbf566daee3e7d345e956b1da9a1319a32571f77a6cea9f2"
   },
   {
     "path": "desktop/tests/blank-artwork.e2e.js",
-    "gitBlob": "a29c3c71099881dd11d3e5ae00a8954242d86e43",
-    "sha256": "cd1034bc3826e42749a5d33a61c968b718d750b03a7056da895bd86e76613a8e"
+    "gitBlob": "85a861892c1819bab8b8079469953ba1caa24369",
+    "sha256": "72f40aab8c7c28f6398fd323dfb88e6049f08877a539aa729f395d0fdb81265c"
   },
   {
     "path": "desktop/tests/browser-suite-runner.test.js",
-    "gitBlob": "37a3169ada77505f4fa2e12ed8b414f4ce57e41e",
-    "sha256": "47ea87c2c37b87530b9a6ed9c41f37099eb1364ac2f4e9346158a5fefb49ca09"
+    "gitBlob": "12c4896175d8979d9e6494a9ccf99e0c3216d35b",
+    "sha256": "e30eaeb18428030365a86b3f2ed4e236690aabafa886fb89259a72ccf86b0b23"
   },
   {
     "path": "desktop/tests/canvas-transient-panels.e2e.js",
-    "gitBlob": "befad9ffbf8e7e4e3a72ee619258f0a4321f65ff",
-    "sha256": "0a6e7bd029decc1d7557f3209231c917d6a4b3b1daa94d6211aa993495585d70"
+    "gitBlob": "61dea7e7170f63f7ef4efc81ac08b71ac6899557",
+    "sha256": "d295879c8685be79dde2b67c9daccf7c49e9b301432d97b24e977b405791f1c2"
   },
   {
     "path": "desktop/tests/editor-names-bypass.e2e.js",
@@ -146,23 +156,28 @@ const files = [
   },
   {
     "path": "desktop/tests/font-choice-ui.test.js",
-    "gitBlob": "295d606dba88b1527ee1614c973a557c7829c6c8",
-    "sha256": "140622cf82e78cacecd0cac526da6276df4a69934fb9cd6b21c594e4d6b0cc55"
+    "gitBlob": "ee9d42668516f01a4579392da7534ed5a2908888",
+    "sha256": "2a8ba826f3b70ca30dbb40ce02f1270560176ced0e7fb9a9c49c05634a5963ee"
+  },
+  {
+    "path": "desktop/tests/graph-navigation.e2e.js",
+    "gitBlob": "535fe55fb4e251df38788e26511106891eb957ec",
+    "sha256": "c9e8f4369d661e66de5b84dfb9ff04b9c51e601cacf76b0b185b3e664d42bd6b"
   },
   {
     "path": "desktop/tests/harmony-wheel-panel.e2e.js",
-    "gitBlob": "fcf76fb7edfe3e537a0e184e2410fb81896184fc",
-    "sha256": "18db83f7b6b495b3c07dcfb1a75fb658156613da69200fa06766a39d2a41bbdd"
+    "gitBlob": "8bd444e01f3b533cd5cc0cdd887e256df2016355",
+    "sha256": "a771b54338c120ee700bd47d71ae910e48579c3ce77b7279406d86a6a0c0964b"
   },
   {
     "path": "desktop/tests/helpers/workspace-panels.js",
-    "gitBlob": "c8a8e1554a9ab402144850b1025a00a16d8baec1",
-    "sha256": "a25015945805b601156973dc30c7175c755bc2bef5795c30017724f67ebd7c6a"
+    "gitBlob": "fb5a077caa2e64f13f04264554a64d52004125c7",
+    "sha256": "55446fe86e1f452995144a8cb88aa426deab077fea245b92c0127915fbf0e1ae"
   },
   {
     "path": "desktop/tests/images.e2e.js",
-    "gitBlob": "084874b7d737222e553760946a1ff1a3eee75af2",
-    "sha256": "31345d41601a5b13d6fb9b0831d83fbae5e4f29c13578672b7b6ccf9fb1a87ae"
+    "gitBlob": "1299053aa3c8c76e136e19b1329e4cf5fb9b2fd4",
+    "sha256": "ddf13129d2fb7a9bf71d11600f3d2ca34f8a07544dd13bb3e37d132145c6b4db"
   },
   {
     "path": "desktop/tests/join-stroke.e2e.js",
@@ -176,13 +191,13 @@ const files = [
   },
   {
     "path": "desktop/tests/layout-guides.e2e.js",
-    "gitBlob": "4ba2d532a86a333c70c882e007a7a13374c8a3a4",
-    "sha256": "0226793d060fb83e53d5b6f7804b9b9358372ac52c9f74ec18b237caca4341dc"
+    "gitBlob": "93d3fa4735260a317b63b2888d4ff20efd00dd3e",
+    "sha256": "b3200b2cb99270a9bce1a18602a12eef60b2bbae5ae0e166db614ed0fa9052ec"
   },
   {
     "path": "desktop/tests/pen-artwork.e2e.js",
-    "gitBlob": "e2538d7d64a953c34a75dc71ac2be8f8689af07c",
-    "sha256": "85acbe25ec0421be5875886374480da401e03ba080c0dc22dd513cf57783549b"
+    "gitBlob": "b0cfe72b70add227ff5154afb41e0a70236d6de6",
+    "sha256": "9429dbfd603544941aec576b1f0a506b57a0a124480da95af9d4a8fe9828bd84"
   },
   {
     "path": "desktop/tests/polygon-star.e2e.js",
@@ -196,8 +211,8 @@ const files = [
   },
   {
     "path": "desktop/tests/private-font-flow.e2e.js",
-    "gitBlob": "280eee4be3985bffcc02d8c184354818857762a6",
-    "sha256": "a39ead6350a7ff6c71c026b692e948cb6ea2df8daa7c9057d5b82eb659ab46e0"
+    "gitBlob": "0e7414a5d0f03c296d834f85bd42eb0f0a26bd65",
+    "sha256": "0941973c5a681eaca30ec31a50b4df7b75f4ff834b5c557e247addbb1173540a"
   },
   {
     "path": "desktop/tests/project-file-atomicity.js",
@@ -206,8 +221,8 @@ const files = [
   },
   {
     "path": "desktop/tests/shared-colors-panel.e2e.js",
-    "gitBlob": "2b7cca907b4a51d416490e8a445639a3c995b4fe",
-    "sha256": "6ead68ea81a44de207aa9980b8a1a4ef598e56a07b9c389b2f8f85491e8e2f6d"
+    "gitBlob": "807bde42e9a793879f25cca18b7c35e8728fde3a",
+    "sha256": "8acfaaa2395e30004ac76804ede2fb31f733f07e4c23c8e3c75bc6d5007a5ca0"
   },
   {
     "path": "desktop/tests/system-font.e2e.js",
@@ -216,8 +231,8 @@ const files = [
   },
   {
     "path": "desktop/tests/text-inspector-layout.test.js",
-    "gitBlob": "d16260951c9fe2d5b3512c2c2ad33d7ec8868404",
-    "sha256": "272d55ac81d7a41a01fa0c132016926b072e22198c7b2d504271ddcbaba4c095"
+    "gitBlob": "eac1d507b359a5f2a1e259e80dea8dbeb651db30",
+    "sha256": "09341a54f98fb085935e5224a0543c1ba74d940ec5e8fadf657268e3b1db4158"
   },
   {
     "path": "desktop/tests/text-trial-feedback.e2e.js",
@@ -241,28 +256,33 @@ const files = [
   },
   {
     "path": "desktop/tests/ui-font-contract.test.js",
-    "gitBlob": "b3f92520fd7b97ab0b348b4d756addb03981139f",
-    "sha256": "b2678e0f23d6c7f125b6ccbd6839898a594b54b56ada6d73d11c15f4d588ced5"
+    "gitBlob": "3d764b15d4d9f088b96e089756619aa8851b062c",
+    "sha256": "a51d62d084c1cdfb813adfc981bca836ff25ad4a71d898a077f667410d139ec7"
   },
   {
     "path": "desktop/tests/ui-font.e2e.js",
-    "gitBlob": "944c666d4cd56120275ddb31d6538de979e216b1",
-    "sha256": "0402386d32a86755bd9015349800ebb37e4421c6da3a87154ee2220053fd5b20"
+    "gitBlob": "a09e678c9f0b09e904aed1f9478ec90b4cdf4293",
+    "sha256": "613cca281694f5dfc9324e9442a69850e0b1f36cb836bd4fca6a7a966158ce85"
+  },
+  {
+    "path": "desktop/tests/ui-review-captures.e2e.js",
+    "gitBlob": "2c080c02c25b49b8450ba0cd6d4f1c62379fed6e",
+    "sha256": "a674d2995e1024fd89a8aa3e6617bc9795081f2c6676d7bc2dd2bf51d6e0abf8"
   },
   {
     "path": "desktop/tests/unified-font-picker.e2e.js",
-    "gitBlob": "27c4399c22ff3e8f2462739eee53893e782693d3",
-    "sha256": "e20170e316635d2bde3ec775a4a2583563476cc6605e19f7afeb5b29df95f160"
+    "gitBlob": "45611da4233215ff9fc2da0a284dfb4b578954fc",
+    "sha256": "9a636db36ea56753c1a94e1153c78ddc703a98f930987e1b85fabe0c0dac7345"
   },
   {
     "path": "desktop/tests/workspace-panels.e2e.js",
-    "gitBlob": "e6b9c672a148eb3295962880ba2093d28e1b1152",
-    "sha256": "55a0e5b164c0dae966dde330e6743a4f33084c24c2c4c8a441a57e28399df240"
+    "gitBlob": "3426ef5ad1aa62dae6217b79dfa558b272cd81f6",
+    "sha256": "a708e3db2a6b21c48dab38f0da395010d4e7d4f0560ea4d950e454faab8a4c16"
   },
   {
     "path": "desktop/tests/workspace-panels.test.js",
-    "gitBlob": "1b122b860f7abfcc6a46d2c27f347c1504a00a2f",
-    "sha256": "0401b6bbb4dbff96a003a076fd4314cd0f20f0beea522897961e77334b2c7648"
+    "gitBlob": "2c6620abe00a21167746dafacc287f331339e56f",
+    "sha256": "ac3419d0453e1a4f5b3311e2ae089ad989d679dc7801b7d0548024e213f111be"
   }
 ];
 const root = fileURLToPath(new URL('../../', import.meta.url));

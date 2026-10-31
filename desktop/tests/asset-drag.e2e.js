@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { blankDocument, blankLayer, serialize } from '../src/core.js';
 import { activateCommand } from './command-menu-actions.js';
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { preloadVariableFontDependency } from './helpers/browser-fixture-setup.js';
 
 const baseURL = process.env.BASE_URL || 'http://127.0.0.1:5173';
@@ -16,6 +17,8 @@ await writeFile(
   resolve(folder, 'drag-mark.svg'),
   '<svg width="40" height="20" viewBox="0 0 40 20"><rect width="40" height="20" fill="#2468ab"/></svg>',
 );
+for (let i = 0; i < 30; i++)
+  await writeFile(resolve(folder, `drag-extra-${String(i).padStart(2, '0')}.svg`), '<svg width="10" height="10"><rect width="10" height="10"/></svg>');
 await writeFile(
   resolve(folder, 'drag-pixel.png'),
   Buffer.from(
@@ -190,7 +193,9 @@ try {
   const dropAsset = async (name, route) => {
     const point = await targetPoint(route);
     const before = await startDrag(name);
+    const scrollBefore = await panel.locator('.asset-library-grid').evaluate((el) => el.scrollTop);
     await finishDrag(point);
+    assert.equal(await panel.locator('.asset-library-grid').evaluate((el) => el.scrollTop), scrollBefore);
     await page.waitForFunction(
       (before) => window.assetDragEvents.slice(before).some((e) => e.type === 'drop'),
       before,
@@ -225,12 +230,17 @@ try {
   await panel.getByRole('searchbox', { name: 'Search assets', exact: true }).fill('drag');
   const identity = await panel.elementHandle();
   const beforeCancel = await state();
+  const grid = panel.locator('.asset-library-grid');
+  assert.equal(await grid.evaluate((el) => el.scrollHeight > el.clientHeight), true);
   await startDrag('drag-mark.svg');
+  const beforeCancelScroll = await grid.evaluate((el) => el.scrollTop);
+  assert.ok(beforeCancelScroll > 0, 'native drag starts from a scrolled grid');
   await page.keyboard.press('Escape');
   await page.mouse.up();
   await page.waitForFunction(() => document.querySelector('[data-asset-library]')?.style.opacity !== '0');
   assert.equal(await page.evaluate((node) => node === document.querySelector('[data-asset-library]'), identity), true);
   assert.equal(await panel.getByRole('searchbox', { name: 'Search assets', exact: true }).inputValue(), 'drag');
+  assert.equal(await grid.evaluate((el) => el.scrollTop), beforeCancelScroll);
   assert.deepEqual(await state(), beforeCancel, 'canceled drag leaves document and history unchanged');
 
   for (const name of ['drag-mark.svg', 'drag-pixel.png'])
@@ -239,6 +249,8 @@ try {
       const isSVG = name.endsWith('.svg');
       await card(name).click();
       await panel.locator('[data-asset-place-layer]:enabled').waitFor();
+      const details = panel.getByText('Asset details', { exact: true });
+      if (!(await details.evaluate((el) => el.parentElement.open))) await details.click();
       await panel.getByLabel('Asset license', { exact: true }).fill('Self-authored drag fixture');
       if (isSVG) await panel.getByLabel('Join before Out', { exact: true }).check();
       if (route === 'graph') {
@@ -328,6 +340,7 @@ try {
   await activateCommand(page, 'undo');
   assert.equal(await page.locator('[data-action="redo"]').isDisabled(), false);
   for (const reason of ['unsupported-target', 'Escape']) {
+    if (reason === 'unsupported-target') await ensureWorkspacePanel(page, 'layers');
     const before = await state();
     const eventIndex = await startDrag('drag-mark.svg');
     if (reason === 'Escape') {
