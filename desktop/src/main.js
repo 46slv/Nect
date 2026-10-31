@@ -9299,6 +9299,7 @@ app.addEventListener('compositionend', (e) => {
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
+  if (el.closest('[data-ui-sound-settings]')) return;
   if (d.pointSpacing !== undefined) {
     stagePointSpacing(el);
     return;
