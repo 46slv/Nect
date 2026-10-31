@@ -252,7 +252,11 @@ try {
   await page.waitForFunction(
     () => document.querySelector('[data-asset-library]')?.style.opacity !== '0',
   );
-  await page.waitForFunction(() => [...document.querySelectorAll('.workspace-panel-bar')].every((bar) => bar.dataset.dragging === 'false' && bar.dataset.near !== 'true'));
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('.workspace-panel-bar')].every(
+      (bar) => bar.dataset.dragging === 'false' && bar.dataset.near !== 'true',
+    ),
+  );
   assert.equal(
     await page.evaluate(
       (node) => node === document.querySelector('[data-asset-library]'),

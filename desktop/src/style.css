@@ -27,6 +27,11 @@
   --line: #d8dde2;
   --muted: #5f6872;
   --selection: #526a7c;
+  --surface-workspace: #e9edf0;
+  --surface-pane-solid: #f8fafb;
+  --surface-pane: rgb(248 250 251 / 97%);
+  --surface-popover: #fff;
+  --surface-control: #fff;
 }
 * {
   box-sizing: border-box;
@@ -3784,7 +3789,14 @@ input[data-color-scrub-step] {
   transform: scaleX(0.82);
   transition: transform 200ms ease-out 300ms;
 }
-.workspace-panel-bar:is(:focus-within, [data-near='true'], [data-open='true'], [data-dragging='true']) > svg > path {
+.workspace-panel-bar:is(
+    :focus-within,
+    [data-near='true'],
+    [data-open='true'],
+    [data-dragging='true']
+  )
+  > svg
+  > path {
   transform: scaleX(1);
   transition: transform 100ms ease-out;
 }
@@ -3796,7 +3808,15 @@ input[data-color-scrub-step] {
 }
 @media (prefers-reduced-motion: reduce) {
   .workspace-panel-bar > svg > path,
-  .workspace-panel-bar:is(:hover, :focus-within, [data-near='true'], [data-open='true'], [data-dragging='true']) > svg > path {
+  .workspace-panel-bar:is(
+      :hover,
+      :focus-within,
+      [data-near='true'],
+      [data-open='true'],
+      [data-dragging='true']
+    )
+    > svg
+    > path {
     transition-duration: 0s;
   }
 }
@@ -3814,13 +3834,15 @@ input[data-color-scrub-step] {
   z-index: -1;
   pointer-events: none;
   background: rgb(248 250 251 / 96%);
-  box-shadow: 0 3px 12px #2439471a, inset 0 1px #ffffff99;
+  box-shadow:
+    0 3px 12px #2439471a,
+    inset 0 1px #ffffff99;
 }
 .workspace-drawer > .shared-colors-panel {
   background: transparent;
 }
 .asset-library.asset-library-docked {
-  background: rgb(242 243 245 / 96%);
+  background: transparent;
   box-shadow: none;
 }
 .command-menu-items,
@@ -3829,7 +3851,9 @@ input[data-color-scrub-step] {
 .node-context-menu,
 .search-panel,
 .guides-panel {
-  box-shadow: 0 5px 16px #26374722, inset 0 1px #ffffffb3;
+  box-shadow:
+    0 5px 16px #26374722,
+    inset 0 1px #ffffffb3;
 }
 #app > header > button,
 .header-group > button,
@@ -3858,7 +3882,9 @@ input[data-color-scrub-step] {
 .tools button.active {
   background: #dae3e9;
   border-color: var(--selection);
-  box-shadow: inset 0 1px #ffffffb3, 0 1px 2px #2637471a;
+  box-shadow:
+    inset 0 1px #ffffffb3,
+    0 1px 2px #2637471a;
 }
 .tools button.active:not(:disabled):hover {
   background: #d2e0e8;
@@ -3882,7 +3908,10 @@ input[data-color-scrub-step] {
   border: 1px solid #b7c8d1a0;
   border-radius: 50%;
   background: #ffffff4d;
-  transition: background-color 120ms ease-out, border-color 120ms ease-out, box-shadow 120ms ease-out;
+  transition:
+    background-color 120ms ease-out,
+    border-color 120ms ease-out,
+    box-shadow 120ms ease-out;
 }
 .workspace-panel-bar .workspace-icon {
   position: relative;
@@ -3893,11 +3922,17 @@ input[data-color-scrub-step] {
     background: #f7fafbe6;
     border-color: #8ca5b4;
   }
+  .workspace-panel-bar button[aria-pressed='true']:not(:disabled):not(:active):hover::before {
+    background: var(--surface-control);
+    border-color: #7894a5;
+  }
 }
 .workspace-panel-bar button[aria-pressed='true']::before {
-  background: #eaf2f6;
+  background: var(--surface-control);
   border-color: #7894a5;
-  box-shadow: inset 0 1px #ffffffd9, 0 1px 3px #26374726;
+  box-shadow:
+    inset 0 1px #ffffffd9,
+    0 1px 3px #26374726;
 }
 .workspace-panel-bar button:not(:disabled):active::before {
   background: #cadbe4;
@@ -3952,4 +3987,101 @@ input[data-color-scrub-step] {
 
 #app > header > .brand {
   margin-right: 10px;
+}
+
+/* Low-frequency output controls stay labeled and reachable without consuming
+   another permanent header row. The nested preset editor scrolls in place. */
+.output-settings-items {
+  width: min(340px, calc(100vw - 20px));
+  max-height: min(70vh, 600px);
+  overflow: auto;
+}
+.output-settings-items .header-setting,
+.output-settings-items > label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.output-settings-items #export-presets .export-preset-menu {
+  position: static;
+  min-width: 0;
+  width: 100%;
+  box-shadow: none;
+}
+.output-settings-items .export-preset-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* C-shaped bar and pane share one surface. The strip is fixed; only the
+   curved edge grows, so visible circles and rectangular hit targets stay put. */
+.workspace-panel-bar {
+  width: 78px;
+  gap: 2px;
+}
+.workspace-panel-bar > svg {
+  top: 0;
+  height: 100%;
+  fill: var(--surface-pane);
+  stroke: #cbd5dc;
+}
+.workspace-panel-bar-left > svg {
+  transform: scaleX(-1);
+}
+.workspace-panel-bar-right > svg {
+  transform: none;
+}
+.workspace-panel-bar > svg > path {
+  transform-origin: 6px 50%;
+}
+.workspace-panel-bar-left button {
+  align-self: flex-end;
+  margin-left: 0;
+  margin-right: 6px;
+}
+.workspace-panel-bar-right button {
+  align-self: flex-start;
+  margin-left: 6px;
+  margin-right: 0;
+}
+.workspace-drawer {
+  padding-right: 78px;
+}
+.workspace-drawer-left {
+  padding-right: 0;
+  padding-left: 78px;
+}
+.workspace-drawer::before {
+  right: 78px;
+}
+.workspace-drawer-left::before {
+  left: 78px;
+  right: 0;
+}
+.canvas-wrap > .guides-panel {
+  left: calc(var(--stage-left, 48px) + 78px);
+}
+
+/* Surface depth: workspace < pane < floating controls/popovers. Artwork and
+   document layer colors are deliberately outside this UI-only scale. */
+.canvas-wrap,
+.graph-scroll {
+  background-color: var(--surface-workspace);
+}
+#app > header,
+.tools {
+  background: var(--surface-pane-solid);
+}
+.command-menu-items,
+.export-preset-menu,
+.text-tool-menu,
+.node-context-menu,
+.search-panel,
+.guides-panel {
+  background: var(--surface-popover);
+}
+.header-group > button,
+.canvas-toolbar button.active,
+.canvas-toolbar button[aria-pressed='true'],
+.tools button.active {
+  background: var(--surface-control);
 }

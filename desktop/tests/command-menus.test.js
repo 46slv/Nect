@@ -27,7 +27,7 @@ test('command menus are idempotent and preserve an open Import menu', () => {
   importMenu.open = true;
   ensureCommandMenus(app, window.document);
 
-  assert.equal(app.querySelectorAll('.command-menu').length, 3);
+  assert.equal(app.querySelectorAll('.command-menu').length, 4);
   assert.equal(importMenu.isConnected, true);
   assert.equal(importMenu.open, true);
   assert.equal(importMenu.querySelector('[data-action="import-svg"]'), svg);
@@ -38,7 +38,7 @@ test('command menus are idempotent and preserve an open Import menu', () => {
   );
 
   const menus = [...app.querySelectorAll('.command-menu')];
-  const [, , exportMenu] = menus;
+  const exportMenu = menus.find((entry) => entry.querySelector('summary')?.textContent === 'Export');
   for (const active of [menus[0], menus[1], exportMenu, menus[0]]) {
     active.open = true;
     active.dispatchEvent(new window.Event('toggle'));
@@ -69,19 +69,21 @@ test('toolbar grouping keeps labeled output and history controls reachable once'
     <button data-action="undo">Undo</button><button data-action="redo">Redo</button></header>`;
   window.document.body.append(app);
   ensureCommandMenus(app, window.document);
-  const output = app.querySelector('[role="group"][aria-label="Output settings"]');
+  const output = app.querySelector('[data-output-settings]');
   assert.ok(output);
   for (const [id, label] of [
-    ['svg-export-sizing', 'SVG'],
-    ['svg-export-unit', 'Unit'],
-    ['svg-export-precision', 'Precision'],
-    ['png-export-mode', 'PNG'],
+    ['svg-export-sizing', 'SVG sizing'],
+    ['svg-export-unit', 'SVG units'],
+    ['svg-export-precision', 'SVG precision'],
+    ['png-export-mode', 'PNG size mode'],
   ]) {
     assert.equal(output.querySelectorAll(`#${id}`).length, 1);
     assert.equal(output.querySelector(`#${id}`).parentElement.textContent, label);
   }
   assert.ok(output.querySelector('#export-presets'));
   assert.ok(app.querySelector('[aria-label="History"] [data-action="undo"]'));
-  assert.ok(app.querySelector('[aria-label="Composition and assets"] [data-action="asset-library"]'));
+  assert.ok(
+    app.querySelector('[aria-label="Composition and assets"] [data-action="asset-library"]'),
+  );
   window.happyDOM.abort();
 });

@@ -54,13 +54,25 @@ try {
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: out + '/01-closed.png' });
   const initial = await state();
+  const initialFit = await page.evaluate(() => {
+    const stage = document.querySelector('.canvas-stage');
+    const svg = document.querySelector('.artboard');
+    const doc = window.nect.document;
+    const expected = Math.max(0.05, Math.min(2, (stage.clientWidth - 70) / doc.width, (stage.clientHeight - 70) / doc.height));
+    return { actual: parseFloat(svg.style.width) / doc.width, expected };
+  });
+  assert.ok(Math.abs(initialFit.actual - initialFit.expected) < 0.001, 'initial fit reflects settled UI font metrics');
+  // A circle's visible face plus focus ring must remain inside the C surface;
+  // its transparent 30px rectangular hit target is checked separately.
   const contourFits = (locator) => locator.evaluate((bar) => {
-    const path = bar.querySelector(':scope > svg > path');
-    const inverse = path.getScreenCTM().inverse();
+    const regions = [bar.querySelector('[data-rail-fill]'), bar.querySelector(':scope > svg > rect')];
     return [...bar.querySelectorAll('button')].every((button) => {
       const rect = button.getBoundingClientRect();
-      return [[rect.left + 1, rect.top + 1], [rect.right - 1, rect.top + 1], [rect.left + 1, rect.bottom - 1], [rect.right - 1, rect.bottom - 1]]
-        .every(([x, y]) => path.isPointInFill(new DOMPoint(x, y).matrixTransform(inverse)));
+      const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+      return Array.from({ length: 32 }, (_, index) => index * Math.PI / 16).every((angle) => {
+        const point = new DOMPoint(cx + 16 * Math.cos(angle), cy + 16 * Math.sin(angle));
+        return regions.some((region) => region.isPointInFill(point.matrixTransform(region.getScreenCTM().inverse())));
+      });
     });
   });
   const rightBar = page.locator('.workspace-panel-bar-right');
@@ -70,11 +82,13 @@ try {
   await page.locator('.canvas-stage').focus();
   await page.mouse.move(0, 0);
   await page.waitForTimeout(550);
-  assert.equal(await contourFits(rightBar), true, 'right idle contour contains all hit corners');
+  assert.equal(await contourFits(rightBar), true, 'right idle contour contains faces and focus rings');
   await page.screenshot({ path: out + '/peek-right-idle.png', animations: 'disabled' });
   const rightBounds = await rightBar.boundingBox();
   await page.mouse.move(rightBounds.x - 10, rightBounds.y + rightBounds.height / 2);
-  await page.waitForFunction(() => document.querySelector('.workspace-panel-bar-right').dataset.near === 'true');
+  await page.waitForFunction(
+    () => document.querySelector('.workspace-panel-bar-right').dataset.near === 'true',
+  );
   await page.screenshot({ path: out + '/peek-right-near.png', animations: 'disabled' });
   await page.mouse.move(0, 0);
   await page.waitForTimeout(550);
@@ -94,53 +108,75 @@ try {
   const faces = await page.locator('.workspace-panel-bar button').evaluateAll((buttons) =>
     buttons.map((button) => {
       const style = getComputedStyle(button, '::before');
-      return { width: parseFloat(style.width), height: parseFloat(style.height), radius: style.borderRadius };
+      return {
+        width: parseFloat(style.width),
+        height: parseFloat(style.height),
+        radius: style.borderRadius,
+      };
     }),
   );
-  assert.ok(faces.every((face) => face.width === 26 && face.height === 26 && face.radius === '50%'));
+  assert.ok(
+    faces.every((face) => face.width === 26 && face.height === 26 && face.radius === '50%'),
+  );
   // The painted handle grows near the pointer without moving its stable hit
   // boxes or changing panel state, then relaxes after a short leave delay.
   const leftBar = page.locator('.workspace-panel-bar-left');
   const leftBounds = await leftBar.boundingBox();
-  const hitBoxes = () => leftBar.locator('button').evaluateAll((buttons) =>
-    buttons.map((button) => {
-      const rect = button.getBoundingClientRect();
-      return [rect.x, rect.y, rect.width, rect.height];
-    }),
-  );
-  const contourWidth = () => leftBar.locator(':scope > svg > path').evaluate((path) => path.getBoundingClientRect().width);
+  const hitBoxes = () =>
+    leftBar.locator('button').evaluateAll((buttons) =>
+      buttons.map((button) => {
+        const rect = button.getBoundingClientRect();
+        return [rect.x, rect.y, rect.width, rect.height];
+      }),
+    );
+  const contourWidth = () =>
+    leftBar.locator('[data-rail-fill]').evaluate((path) => path.getBoundingClientRect().width);
   await page.waitForTimeout(550);
   const idleWidth = await contourWidth();
   const stableTargets = await hitBoxes();
   const idleFits = await contourFits(leftBar);
-  assert.equal(idleFits, true, 'idle contour contains the full fixed hit boxes');
+  assert.equal(idleFits, true, 'idle contour contains faces and focus rings');
   await page.screenshot({ path: out + '/peek-idle.png' });
   await page.mouse.move(leftBounds.x + leftBounds.width + 10, leftBounds.y + leftBounds.height / 2);
-  await page.waitForFunction(() => document.querySelector('.workspace-panel-bar-left').dataset.near === 'true');
+  await page.waitForFunction(
+    () => document.querySelector('.workspace-panel-bar-left').dataset.near === 'true',
+  );
   await page.waitForTimeout(160);
   const nearWidth = await contourWidth();
   assert.ok(nearWidth > idleWidth + 4, 'contour expands on proximity');
   same(await hitBoxes(), stableTargets, 'peek never changes button hit geometry');
-  assert.equal(await page.locator('[data-workspace-panel="assets"]').getAttribute('aria-expanded'), 'false');
+  assert.equal(
+    await page.locator('[data-workspace-panel="assets"]').getAttribute('aria-expanded'),
+    'false',
+  );
   await page.screenshot({ path: out + '/peek-near.png' });
   await page.mouse.move(Math.round(page.viewportSize().width / 2), 1);
-  await page.waitForFunction(() => document.querySelector('.workspace-panel-bar-left').dataset.near === 'false');
+  await page.waitForFunction(
+    () => document.querySelector('.workspace-panel-bar-left').dataset.near === 'false',
+  );
   await page.waitForTimeout(100);
-  assert.ok((await contourWidth()) > idleWidth + 4, 'leave hysteresis retains expanded contour briefly');
+  assert.ok(
+    (await contourWidth()) > idleWidth + 4,
+    'leave hysteresis retains expanded contour briefly',
+  );
   await page.waitForTimeout(500);
   assert.ok(Math.abs((await contourWidth()) - idleWidth) < 1, 'contour eventually returns to idle');
   same(await state(), initial, 'peek is view-only');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.mouse.move(leftBounds.x + leftBounds.width + 10, leftBounds.y + leftBounds.height / 2);
-  await page.waitForFunction(() => document.querySelector('.workspace-panel-bar-left').dataset.near === 'true');
-  const reducedPeek = await leftBar.locator(':scope > svg > path').evaluate((path) => ({
+  await page.waitForFunction(
+    () => document.querySelector('.workspace-panel-bar-left').dataset.near === 'true',
+  );
+  const reducedPeek = await leftBar.locator('[data-rail-fill]').evaluate((path) => ({
     duration: getComputedStyle(path).transitionDuration,
     width: path.getBoundingClientRect().width,
   }));
   assert.equal(reducedPeek.duration, '0s');
   assert.ok(reducedPeek.width > idleWidth + 4, 'reduced motion changes geometry immediately');
   await page.mouse.move(Math.round(page.viewportSize().width / 2), 1);
-  await page.waitForFunction(() => document.querySelector('.workspace-panel-bar-left').dataset.near === 'false');
+  await page.waitForFunction(
+    () => document.querySelector('.workspace-panel-bar-left').dataset.near === 'false',
+  );
   await page.waitForTimeout(100);
   assert.ok((await contourWidth()) > idleWidth + 4, 'reduced motion retains leave hysteresis');
   await page.waitForTimeout(260);
@@ -158,22 +194,44 @@ try {
         : element.matches?.('[data-asset-library]')
           ? 'portal'
           : null;
-      if (kind) window.__nectMotionEvents.push({ kind, property: event.propertyName, pseudo: event.pseudoElement, time: performance.now() });
+      if (kind)
+        window.__nectMotionEvents.push({
+          kind,
+          property: event.propertyName,
+          pseudo: event.pseudoElement,
+          time: performance.now(),
+        });
     });
   });
-  const supportsDiscrete = await page.evaluate(() => CSS.supports('transition-behavior: allow-discrete'));
+  const supportsDiscrete = await page.evaluate(() =>
+    CSS.supports('transition-behavior: allow-discrete'),
+  );
   // First-ever Assets mount starts at its docked location before revealing.
   await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
   if (supportsDiscrete)
-    await page.waitForFunction(() =>
-      ['drawer', 'portal'].every((kind) => window.__nectMotionEvents.some((event) => event.kind === kind && event.property === 'opacity')) &&
-      window.__nectMotionEvents.some((event) => event.kind === 'drawer' && event.property === 'transform' && event.pseudo === '::before'),
+    await page.waitForFunction(
+      () =>
+        ['drawer', 'portal'].every((kind) =>
+          window.__nectMotionEvents.some(
+            (event) => event.kind === kind && event.property === 'opacity',
+          ),
+        ) &&
+        window.__nectMotionEvents.some(
+          (event) =>
+            event.kind === 'drawer' &&
+            event.property === 'transform' &&
+            event.pseudo === '::before',
+        ),
     );
   const firstMotionEvents = await page.evaluate(() => [...window.__nectMotionEvents]);
   await page.screenshot({ path: out + '/motion-first-open.png' });
   await page.screenshot({ path: out + '/peek-open.png', animations: 'disabled' });
-  const selectedFace = await page.locator('[data-workspace-panel="assets"]').evaluate((button) => getComputedStyle(button, '::before').backgroundColor);
-  const idleFace = await page.locator('[data-workspace-panel="colors"]').evaluate((button) => getComputedStyle(button, '::before').backgroundColor);
+  const selectedFace = await page
+    .locator('[data-workspace-panel="assets"]')
+    .evaluate((button) => getComputedStyle(button, '::before').backgroundColor);
+  const idleFace = await page
+    .locator('[data-workspace-panel="colors"]')
+    .evaluate((button) => getComputedStyle(button, '::before').backgroundColor);
   assert.notEqual(selectedFace, idleFace, 'selected face remains visually distinct');
   await page.emulateMedia({ forcedColors: 'active' });
   await page.locator('[data-workspace-panel="assets"]').focus();
@@ -187,7 +245,11 @@ try {
       focusOnOther: document.activeElement === focused && focused.matches(':focus-visible'),
     };
   });
-  assert.deepEqual(forcedStates, { selectedBorder: '3px', focusedOutline: '2px', focusOnOther: true });
+  assert.deepEqual(forcedStates, {
+    selectedBorder: '3px',
+    focusedOutline: '2px',
+    focusOnOther: true,
+  });
   await page.emulateMedia({ forcedColors: 'none' });
   await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
   await page.waitForTimeout(250);
@@ -230,15 +292,22 @@ try {
   // legitimately coalesced before a browser has painted the first state.
   await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
   await page.waitForTimeout(250);
-  await page.evaluate(() => { window.__nectMotionEvents = []; });
+  await page.evaluate(() => {
+    window.__nectMotionEvents = [];
+  });
   await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
   if (supportsDiscrete)
-    await page.waitForFunction(() => window.__nectMotionEvents.some((event) => event.kind === 'drawer' && event.property === 'opacity'));
+    await page.waitForFunction(() =>
+      window.__nectMotionEvents.some(
+        (event) => event.kind === 'drawer' && event.property === 'opacity',
+      ),
+    );
   const motion = await page.evaluate(() => {
     const host = document.querySelector('[data-drawer-side="left"]');
     const slot = host.querySelector('[data-workspace-asset-slot]');
     const portal = document.querySelector('[data-asset-library]');
-    const a = slot.getBoundingClientRect(), b = portal.getBoundingClientRect();
+    const a = slot.getBoundingClientRect(),
+      b = portal.getBoundingClientRect();
     return {
       duration: getComputedStyle(host).transitionDuration,
       hostTransform: getComputedStyle(host).transform,
@@ -275,28 +344,38 @@ try {
     enabled: host.dataset.motionEnabled,
     running: host.getAnimations().some((animation) => animation.playState === 'running'),
   }));
-  assert.equal(afterRerender.enabled, 'false', 'ordinary editor rerender does not replay drawer motion');
+  assert.equal(
+    afterRerender.enabled,
+    'false',
+    'ordinary editor rerender does not replay drawer motion',
+  );
   assert.equal(afterRerender.running, false);
   await page.locator('[data-tool="select"]').click();
   await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
   same(await state(), initial, 'ordinary rerender preserves viewport and document');
   const svgIdentity = await page.locator('.artboard').elementHandle();
-  const insideShape = await page.evaluate(() =>
-    [...document.querySelectorAll('.workspace-panel-bar')].every((bar) => {
-      const path = bar.querySelector('path'),
-        inverse = path.getScreenCTM().inverse();
-      return [...bar.querySelectorAll('button')].every((button) => {
-        const r = button.getBoundingClientRect();
-        return [
-          [r.left + 1, r.top + 1],
-          [r.right - 1, r.top + 1],
-          [r.left + 1, r.bottom - 1],
-          [r.right - 1, r.bottom - 1],
-        ].every(([x, y]) => path.isPointInFill(new DOMPoint(x, y).matrixTransform(inverse)));
-      });
+  assert.equal(await contourFits(leftBar), true, 'left face and focus ring remain in the contour');
+  assert.equal(await contourFits(rightBar), true, 'right face and focus ring remain in the contour');
+  const targetGeometry = await page.locator('.workspace-panel-bar').evaluateAll((bars) => bars.map((bar) =>
+    [...bar.querySelectorAll('button')].map((button) => {
+      const r = button.getBoundingClientRect();
+      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height };
     }),
-  );
-  assert.equal(insideShape, true, 'all button hit boxes fit inside the accepted silhouette');
+  ));
+  const hitSafety = await page.evaluate(() => {
+    const tools = document.querySelector('.tools').getBoundingClientRect();
+    return [...document.querySelectorAll('.workspace-panel-bar button')].map((button) => {
+      const r = button.getBoundingClientRect();
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { clearOfTools: r.right <= tools.left || r.left >= tools.right || r.bottom <= tools.top || r.top >= tools.bottom, receivesCenter: button === top || button.contains(top) };
+    });
+  });
+  assert.ok(hitSafety.every((target) => target.clearOfTools && target.receivesCenter), 'drawer targets do not cover the creation rail and receive their center');
+  for (const targets of targetGeometry) {
+    assert.ok(targets.every((target) => target.width >= 30 && target.height >= 30));
+    for (let i = 1; i < targets.length; i++)
+      assert.ok(targets[i - 1].bottom <= targets[i].top, 'adjacent hit targets do not overlap');
+  }
   const stage = page.locator('.canvas-stage'),
     graph = page.locator('.graph-panel');
   const initialGraph = await graph.boundingBox();
@@ -437,20 +516,46 @@ try {
     const before = await state();
     const toolbar = await page.evaluate(() => {
       const groups = [...document.querySelectorAll('.canvas-toolbar-group')];
-      const visible = [...document.querySelectorAll('#app > header button, #app > header select, #app > header summary, .canvas-toolbar button')]
-        .filter((element) => element.getClientRects().length);
+      const visible = [
+        ...document.querySelectorAll(
+          '#app > header button, #app > header select, #app > header summary, .canvas-toolbar button',
+        ),
+      ].filter((element) => element.getClientRects().length);
       return {
         names: groups.map((group) => group.getAttribute('aria-label')),
-        clipped: visible.filter((element) => {
-          const rect = element.getBoundingClientRect();
-          return rect.left < -1 || rect.right > innerWidth + 1;
-        }).map((element) => element.getAttribute('aria-label') || element.textContent.trim()),
+        clipped: visible
+          .filter((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.left < -1 || rect.right > innerWidth + 1;
+          })
+          .map((element) => element.getAttribute('aria-label') || element.textContent.trim()),
       };
     });
     assert.deepEqual(toolbar.names, ['Zoom', 'Editing aids', 'Grid and guides']);
     assert.deepEqual(toolbar.clipped, [], `visible toolbar controls fit at ${width}`);
+    const outputSummary = page.locator('[data-output-settings] > summary');
+    assert.equal(await outputSummary.isVisible(), true);
+    await outputSummary.click();
     for (const name of ['SVG output sizing', 'SVG export units', 'SVG geometry precision', 'PNG size mode'])
       assert.equal(await page.getByRole('combobox', { name, exact: true }).isVisible(), true);
+    const depth = await page.evaluate(() => {
+      const channels = (value) => value.match(/[\d.]+/g).map(Number);
+      const lum = (rgb) => rgb.slice(0, 3).map((v) => { const x = v / 255; return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+      const pane = channels(getComputedStyle(document.querySelector('.workspace-drawer'), '::before').backgroundColor);
+      const workspace = channels(getComputedStyle(document.querySelector('.canvas-wrap')).backgroundColor);
+      const popup = channels(getComputedStyle(document.querySelector('.output-settings-items')).backgroundColor);
+      return { workspace: lum(workspace), paneOverBlack: lum(pane.slice(0, 3).map((v) => v * (pane[3] ?? 1))), popup: lum(popup), iconOpacity: getComputedStyle(document.querySelector('.workspace-panel-bar .workspace-icon')).opacity };
+    });
+    assert.ok(depth.workspace < depth.paneOverBlack && depth.paneOverBlack < depth.popup, 'surface depth remains ordered even over a black underlay');
+    assert.equal(depth.iconOpacity, '1');
+    const outputBox = await page.locator('.output-settings-items').boundingBox();
+    assert.ok(outputBox.x >= 0 && outputBox.x + outputBox.width <= width);
+    if (width === 900 || width === 1366)
+      await page.screenshot({ path: out + `/output-settings-${width}.png`, animations: 'disabled' });
+    await outputSummary.focus();
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('[data-output-settings]').evaluate((el) => el.open), false);
+    assert.equal(await outputSummary.evaluate((el) => el === document.activeElement), true);
     if (width === 900 || width === 1366) {
       assert.equal(await page.locator('[data-action="undo"]').isDisabled(), initial.undo);
       await page.screenshot({ path: out + `/toolbar-${width}.png`, animations: 'disabled' });
@@ -465,7 +570,10 @@ try {
     await page.getByRole('button', { name: 'Toggle Shared Colors panel', exact: true }).click();
     same(await state(), before, `both drawers preserve geometry at ${width}`);
     if (width === 900 || width === 1366)
-      await page.screenshot({ path: out + `/toolbar-${width}-selected.png`, animations: 'disabled' });
+      await page.screenshot({
+        path: out + `/toolbar-${width}-selected.png`,
+        animations: 'disabled',
+      });
     assert.equal(
       await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
       false,
@@ -576,11 +684,16 @@ try {
     last = await lastTool.boundingBox();
   assert.ok(last.y >= rail.y && last.y + last.height <= rail.y + rail.height + 1);
   await page.setViewportSize({ width: 1000, height: 600 });
-  if ((await inspectorTrigger.getAttribute('aria-expanded')) === 'true') await inspectorTrigger.click();
+  if ((await inspectorTrigger.getAttribute('aria-expanded')) === 'true')
+    await inspectorTrigger.click();
   await splitter.focus();
   await page.mouse.move(0, 0);
   await page.waitForTimeout(550);
-  assert.equal(await contourFits(rightBar), true, 'short-split right idle contour contains all hit corners');
+  assert.equal(
+    await contourFits(rightBar),
+    true,
+    'short-split right idle contour contains faces and focus rings',
+  );
   for (const button of await page.locator('.workspace-panel-bar button').all()) {
     const b = await button.boundingBox(),
       bar = await button.locator('..').boundingBox();
@@ -593,25 +706,8 @@ try {
       'short split retains each usable edge target',
     );
   }
-  assert.equal(
-    await page.evaluate(() =>
-      [...document.querySelectorAll('.workspace-panel-bar')].every((bar) => {
-        const path = bar.querySelector('path'),
-          inverse = path.getScreenCTM().inverse();
-        return [...bar.querySelectorAll('button')].every((button) => {
-          const r = button.getBoundingClientRect();
-          return [
-            [r.left + 1, r.top + 1],
-            [r.right - 1, r.top + 1],
-            [r.left + 1, r.bottom - 1],
-            [r.right - 1, r.bottom - 1],
-          ].every(([x, y]) => path.isPointInFill(new DOMPoint(x, y).matrixTransform(inverse)));
-        });
-      }),
-    ),
-    true,
-    'short split keeps the same silhouette around all hit targets',
-  );
+  assert.equal(await contourFits(leftBar), true, 'short-split left face and focus ring fit');
+  assert.equal(await contourFits(rightBar), true, 'short-split right face and focus ring fit');
 
   // The visible Artboard controls address the active Composition, not its selected layer.
   await activateCommand(page, 'add-composition');
@@ -633,13 +729,36 @@ try {
     projectBefore.compositions.filter((composition) => composition.id !== activeId),
   );
   assert.deepEqual(errors, []);
-  await writeFile(out + '/result.json', JSON.stringify({ ok: true, errors, motion: { supportsDiscrete, duration: motion.duration, firstMotionEvents, reopenedMotionEvents, portalDelta: motion.portalDelta }, peek: { idleWidth, nearWidth, leaveDelayMs: 300 }, evidenceLimit: 'Transition events, computed timing and stills; no video or native WebView audition.' }, null, 2));
+  await writeFile(
+    out + '/result.json',
+    JSON.stringify(
+      {
+        ok: true,
+        errors,
+        motion: {
+          supportsDiscrete,
+          duration: motion.duration,
+          firstMotionEvents,
+          reopenedMotionEvents,
+          portalDelta: motion.portalDelta,
+        },
+        peek: { idleWidth, nearWidth, leaveDelayMs: 300 },
+        evidenceLimit:
+          'Transition events, computed timing and stills; no video or native WebView audition.',
+      },
+      null,
+      2,
+    ),
+  );
   console.log(
     'workspace overlay PASS: stable fit/manual geometry, panel state, boundaries and asset identity',
   );
 } catch (error) {
   await page.screenshot({ path: out + '/failure.png' }).catch(() => {});
-  await writeFile(out + '/result.json', JSON.stringify({ ok: false, errors, failure: String(error) }, null, 2)).catch(() => {});
+  await writeFile(
+    out + '/result.json',
+    JSON.stringify({ ok: false, errors, failure: String(error) }, null, 2),
+  ).catch(() => {});
   throw error;
 } finally {
   await browser.close();

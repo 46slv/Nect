@@ -31,14 +31,30 @@ export function ensureCommandMenus(app, document) {
   composition.title = 'Add a Composition from another project';
   importMenu.querySelector('.command-menu-items').append(composition);
   const exportMenu = makeMenu('Export', ['export', 'export-png']);
-  const scale = header.querySelector('#png-scale');
-  if (scale) {
-    const label = document.createElement('label');
-    label.className = 'command-menu-scale';
-    label.append('PNG scale', scale);
-    exportMenu.querySelector('.command-menu-items').append(label);
+  const outputSettings = makeMenu('Output settings', []);
+  outputSettings.dataset.outputSettings = '';
+  const outputItems = outputSettings.querySelector('.command-menu-items');
+  outputItems.classList.add('output-settings-items');
+  for (const [label, selector] of [
+    ['SVG sizing', '#svg-export-sizing'],
+    ['SVG units', '#svg-export-unit'],
+    ['SVG precision', '#svg-export-precision'],
+    ['PNG size mode', '#png-export-mode'],
+    ['PNG scale', '#png-scale'],
+  ]) {
+    const control = header.querySelector(selector);
+    if (!control) continue;
+    const wrapper = document.createElement('label');
+    wrapper.className = 'header-setting';
+    wrapper.append(label, control);
+    outputItems.append(wrapper);
   }
-  brand?.after(project, importMenu, exportMenu);
+  for (const element of [
+    header.querySelector('#png-ppi')?.closest('label'),
+    header.querySelector('[data-png-dimensions]'),
+    header.querySelector('#export-presets'),
+  ]) if (element) outputItems.append(element);
+  brand?.after(project, importMenu, exportMenu, outputSettings);
   header.querySelectorAll('[data-recovery-status], [data-recovery-open]').forEach((button) => {
     project.querySelector('.command-menu-items').append(button);
   });
@@ -54,32 +70,11 @@ export function ensureCommandMenus(app, document) {
     nodes[0].before(container);
     nodes.forEach((node) => container.append(node));
   };
-  group('File', [project, importMenu, exportMenu]);
+  group('File', [project, importMenu, exportMenu, outputSettings]);
   group('Composition and assets', [
     header.querySelector('[data-active-composition]')?.closest('label'),
     header.querySelector('[data-action="add-composition"]'),
     header.querySelector('[data-action="asset-library"]'),
-  ]);
-  const output = [
-    ['SVG', '#svg-export-sizing'],
-    ['Unit', '#svg-export-unit'],
-    ['Precision', '#svg-export-precision'],
-    ['PNG', '#png-export-mode'],
-  ].map(([label, selector]) => {
-    const control = header.querySelector(selector);
-    if (!control) return null;
-    const wrapper = document.createElement('label');
-    wrapper.className = 'header-setting';
-    wrapper.append(label);
-    control.before(wrapper);
-    wrapper.append(control);
-    return wrapper;
-  });
-  group('Output settings', [
-    ...output,
-    header.querySelector('#png-ppi')?.closest('label'),
-    header.querySelector('[data-png-dimensions]'),
-    header.querySelector('#export-presets'),
   ]);
   group('History', [
     header.querySelector('[data-action="undo"]'),

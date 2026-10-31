@@ -3915,6 +3915,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   graphPanJoystick?.destroy();
   graphPanJoystick = null;
   const exportPresetsOpen = app.querySelector('#export-presets')?.open ?? false;
+  const outputSettingsOpen = app.querySelector('[data-output-settings]')?.open ?? false;
   const pointScroll =
     !resetView && document.activeElement?.closest('.point-panel')
       ? [...app.querySelectorAll('.point-panel-rows')].map((el) => el.scrollTop)
@@ -4132,6 +4133,8 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   // Finalize header geometry before fitting. Deferring menu compaction to the
   // observer changes the stage height between the two presses of a double-click.
   ensureCommandMenus(app, document);
+  const outputSettings = app.querySelector('[data-output-settings]');
+  if (outputSettings) outputSettings.open = outputSettingsOpen;
   ensureGraphToolbarOverflow(app, document);
   ensureBuildInfo(app, document);
   fitCanvas();
@@ -14116,6 +14119,10 @@ document.addEventListener('keyup', (e) => {
   }
 });
 window.addEventListener('resize', fitCanvas);
+// Reconcile the initial fit after UI font metrics settle; manual navigation wins.
+void document.fonts?.ready?.then(() => {
+  if (canvasFit && !navigationBusy()) fitCanvas();
+});
 window.addEventListener('beforeunload', (e) => {
   if (!desktop && (documents.hasDraft() || documents.dirty || documents.saving)) {
     e.preventDefault();
@@ -14308,7 +14315,12 @@ document.addEventListener('click', (event) => {
   )
     return;
   if (event.target.closest('.command-menu')) return;
-  document.querySelectorAll('.command-menu[open]').forEach((menu) => (menu.open = false));
+  document.querySelectorAll('.command-menu[open]').forEach((menu) => {
+    const ownedFocus = menu.contains(document.activeElement);
+    menu.open = false;
+    if (ownedFocus && menu.contains(document.activeElement))
+      menu.querySelector('summary')?.focus({ preventScroll: true });
+  });
   if (
     event.target.closest(
       '.canvas-toolbar,.guides-panel,.alignment-panel,.workspace-panel-bar,.workspace-drawer,.asset-library,.shared-colors-panel',

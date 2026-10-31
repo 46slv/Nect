@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { createWorkspacePanels, DRAWER_PREFERENCES_KEY } from '../src/workspace-panels.js';
+import { createWorkspacePanels, DRAWER_PREFERENCES_KEY, workspaceRailGeometry } from '../src/workspace-panels.js';
 
 const markup = `<div class="workspace"><nav class="tools"></nav><main class="middle"><div class="canvas-wrap"><div class="canvas-stage"></div><div class="node-viewers"></div></div><section class="graph-panel"></section></main><aside class="right"><section class="layers"><div class="panel-head">Layers</div></section><section class="alignment-panel">Align</section><section class="shared-colors-panel">Colors</section><section class="inspector">Inspector</section></aside></div>`;
 function fixture() {
@@ -306,19 +306,38 @@ test('proximity is pointer-only; drag and blur cannot leave a stale peek', () =>
   bar.getBoundingClientRect = () => ({ left: 40, right: 112, top: 50, bottom: 450, height: 400 });
   const frames = new Map();
   let next = 1;
-  f.window.requestAnimationFrame = (callback) => { const id = next++; frames.set(id, callback); return id; };
+  f.window.requestAnimationFrame = (callback) => {
+    const id = next++;
+    frames.set(id, callback);
+    return id;
+  };
   f.window.cancelAnimationFrame = (id) => frames.delete(id);
-  const flush = () => { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach((callback) => callback()); };
-  const pointer = (type, init) => f.window.document.dispatchEvent(new f.window.PointerEvent(type, { bubbles: true, ...init }));
+  const flush = () => {
+    const callbacks = [...frames.values()];
+    frames.clear();
+    callbacks.forEach((callback) => callback());
+  };
+  const pointer = (type, init) =>
+    f.window.document.dispatchEvent(new f.window.PointerEvent(type, { bubbles: true, ...init }));
   pointer('pointermove', { pointerType: 'mouse', clientX: 120, clientY: 250 });
   flush();
   assert.equal(bar.dataset.near, 'true');
   pointer('pointermove', { pointerType: 'touch', clientX: 500, clientY: 500 });
   flush();
   assert.equal(bar.dataset.near, 'true');
-  f.root.querySelector('.canvas-stage').dispatchEvent(new f.window.PointerEvent('pointerdown', { bubbles: true, isPrimary: true, clientX: 300, clientY: 250 }));
+  const stage = f.root.querySelector('.canvas-stage');
+  stage.addEventListener('pointerdown', (event) => event.stopPropagation());
+  stage.addEventListener('pointermove', (event) => event.stopPropagation());
+  stage.dispatchEvent(
+      new f.window.PointerEvent('pointerdown', {
+        bubbles: true,
+        isPrimary: true,
+        clientX: 300,
+        clientY: 250,
+      }),
+    );
   assert.equal(bar.dataset.dragging, 'false');
-  pointer('pointermove', { pointerType: 'mouse', buttons: 1, clientX: 306, clientY: 250 });
+  stage.dispatchEvent(new f.window.PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse', buttons: 1, clientX: 306, clientY: 250 }));
   assert.equal(bar.dataset.dragging, 'true');
   pointer('pointercancel', { pointerType: 'mouse' });
   assert.equal(bar.dataset.dragging, 'false');
@@ -359,4 +378,13 @@ test('synchronous Assets mount refresh sees the original motion request', () => 
   assert.equal(root.querySelectorAll('.workspace-panel-bar[data-dragging="false"]').length, 2);
   assert.equal(root.querySelectorAll('.workspace-panel-bar[data-near="true"]').length, 0);
   window.happyDOM.abort();
+});
+
+test('rail geometry scales to two and three controls and short panels', () => {
+  for (const count of [2, 3]) for (const height of [80, 228, 500]) {
+    const geometry = workspaceRailGeometry(height, count);
+    assert.equal(geometry.height, height);
+    assert.doesNotMatch(geometry.edge, /NaN|Infinity/);
+    assert.match(geometry.fill, /H6 Z$/);
+  }
 });

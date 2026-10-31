@@ -16,7 +16,20 @@ const ITEMS = [
   },
   { id: 'inspector', side: 'right', label: 'Focus Inspector', selector: '.inspector' },
 ];
-const SHAPE = 'M0 0 H10 C10 30 12 49 34 68 C51 83 51 145 34 160 C12 179 10 198 10 228 H0 Z';
+// C-reference proportions, scaled to a 26px face and a 6px optical gap.
+// The filled strip joins the bar to its panel; the curved edge stays one path.
+export function workspaceRailGeometry(height, count) {
+  const h = height > 0 ? height : 228;
+  const n = count === 3 ? 3 : 2;
+  const first = h / 2 - (n - 1) * 16;
+  const last = h / 2 + (n - 1) * 16;
+  const shoulder = Math.min(33.1, Math.max(0, first));
+  const factor = shoulder / 33.1;
+  const x = (value) => Number((6 + value / 0.82).toFixed(3));
+  const y = (value) => Number(value.toFixed(3));
+  const edge = `M6 0 V${y(first - shoulder)} C6 ${y(first - 25.2 * factor)} ${x(6.86)} ${y(first - 20.8 * factor)} ${x(14.7)} ${y(first - 18.9 * factor)} C${x(25)} ${y(first - 16.3 * factor)} ${x(33.6)} ${y(first - 10.3 * factor)} ${x(33.6)} ${y(first)} V${y(last)} C${x(33.6)} ${y(last + 10.3 * factor)} ${x(25)} ${y(last + 16.3 * factor)} ${x(14.7)} ${y(last + 18.9 * factor)} C${x(6.86)} ${y(last + 20.8 * factor)} 6 ${y(last + 25.2 * factor)} 6 ${y(last + shoulder)} V${y(h)}`;
+  return { height: h, fill: `${edge} H6 Z`, edge };
+}
 
 export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColors, storage }) {
   let root,
@@ -83,7 +96,8 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
         const rect = bar.getBoundingClientRect();
         const center = (rect.top + rect.bottom) / 2;
         const near =
-          x >= rect.left - 24 && x <= rect.right + 24 &&
+          x >= rect.left - 24 &&
+          x <= rect.right + 24 &&
           Math.abs(y - center) <= Math.min(rect.height / 2, 114) + 24;
         if (bar.dataset.near !== String(near)) bar.dataset.near = String(near);
       });
@@ -91,8 +105,11 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
   }
   function onPointerMove(event) {
     if (event.buttons && pointerDown) {
-      if (!pointerDragging && pointerStart &&
-          Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y) >= 4) {
+      if (
+        !pointerDragging &&
+        pointerStart &&
+        Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y) >= 4
+      ) {
         pointerDragging = true;
         setRailFlag('dragging', true);
       }
@@ -142,8 +159,13 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     if (event.relatedTarget) return;
     // Replacing a DOM node under the pointer can emit a null relatedTarget;
     // only a viewport exit should clear an in-progress drag/peek.
-    if (event.clientX > 0 && event.clientX < view.innerWidth &&
-        event.clientY > 0 && event.clientY < view.innerHeight) return;
+    if (
+      event.clientX > 0 &&
+      event.clientX < view.innerWidth &&
+      event.clientY > 0 &&
+      event.clientY < view.innerHeight
+    )
+      return;
     clearPeek();
   }
   function onWindowBlur() {
@@ -151,11 +173,11 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
   }
   function bindPointerEvents(doc, bind) {
     const method = bind ? 'addEventListener' : 'removeEventListener';
-    doc?.[method]('pointermove', onPointerMove);
-    doc?.[method]('pointerdown', onPointerDown);
-    doc?.[method]('pointerup', onPointerEnd);
-    doc?.[method]('pointercancel', onPointerEnd);
-    doc?.[method]('pointerout', onPointerOut);
+    doc?.[method]('pointermove', onPointerMove, true);
+    doc?.[method]('pointerdown', onPointerDown, true);
+    doc?.[method]('pointerup', onPointerEnd, true);
+    doc?.[method]('pointercancel', onPointerEnd, true);
+    doc?.[method]('pointerout', onPointerOut, true);
     view?.[method]('blur', onWindowBlur);
   }
   function refresh() {
@@ -192,6 +214,15 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
       for (const overlay of wrap.querySelectorAll('.workspace-drawer, .workspace-panel-bar')) {
         overlay.style.top = `${top}px`;
         overlay.style.height = `${height}px`;
+      }
+      for (const bar of wrap.querySelectorAll('.workspace-panel-bar')) {
+        const count = bar.querySelectorAll('button').length;
+        const geometry = workspaceRailGeometry(height, count);
+        const svg = bar.querySelector(':scope > svg');
+        svg.setAttribute('viewBox', `0 0 78 ${geometry.height}`);
+        svg.querySelector('rect').setAttribute('height', String(geometry.height));
+        svg.querySelector('[data-rail-fill]').setAttribute('d', geometry.fill);
+        svg.querySelector('[data-rail-edge]').setAttribute('d', geometry.edge);
       }
     }
     for (const side of ['left', 'right']) {
@@ -356,7 +387,8 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
       const bar = root.ownerDocument.createElement('nav');
       bar.className = `workspace-panel-bar workspace-panel-bar-${side}`;
       bar.setAttribute('aria-label', `${side === 'left' ? 'Assets and colors' : 'Editing'} panels`);
-      bar.innerHTML = `<svg viewBox="0 0 58 228" preserveAspectRatio="none" aria-hidden="true"><path d="${SHAPE}"></path></svg>`;
+      const geometry = workspaceRailGeometry(228, ITEMS.filter((entry) => entry.side === side).length);
+      bar.innerHTML = `<svg viewBox="0 0 78 ${geometry.height}" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="0" width="6" height="${geometry.height}" stroke="none"></rect><path data-rail-fill d="${geometry.fill}" stroke="none"></path><path data-rail-edge d="${geometry.edge}" fill="none"></path></svg>`;
       for (const entry of ITEMS.filter((entry) => entry.side === side)) {
         const button = root.ownerDocument.createElement('button');
         button.type = 'button';

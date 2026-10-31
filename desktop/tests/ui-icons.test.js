@@ -4,8 +4,19 @@ import { workspaceIcon } from '../src/ui-icons.js';
 
 test('workspace symbols are unique, font-independent, decorative SVGs', () => {
   const names = [
-    'direct', 'select', 'pen', 'Circle', 'Rectangle', 'Polygon', 'Star', 'Text',
-    'assets', 'colors', 'layers', 'align', 'inspector',
+    'direct',
+    'select',
+    'pen',
+    'Circle',
+    'Rectangle',
+    'Polygon',
+    'Star',
+    'Text',
+    'assets',
+    'colors',
+    'layers',
+    'align',
+    'inspector',
   ];
   const icons = names.map(workspaceIcon);
   assert.equal(new Set(icons).size, names.length);

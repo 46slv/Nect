@@ -1,4 +1,4 @@
-// Temporary read-only CI formatter receipt; remove before final verification.
+// Temporary read-only CI diagnostic; remove before final acceptance.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
@@ -15,18 +15,18 @@ const files = [
   },
   {
     "path": "desktop/src/command-menus.js",
-    "gitBlob": "04151df05359851ead36360f19c9f60722838548",
-    "sha256": "57c4077ecda05d58258ee55d0360070134b7d39aa2c67073430cf02ddac69eb1"
+    "gitBlob": "671e204c22fa71fe7fe37738403d71c4120cd57d",
+    "sha256": "c5fca2bfe09cce33b00e80af46500629d8fb2a09dbe4f5aab57b600da9f3ae80"
   },
   {
     "path": "desktop/src/main.js",
-    "gitBlob": "b48bee4f8d9ab9662e41ff4c2568dc0acd323f8a",
-    "sha256": "6cb08f74c7679649188f2a05f22056b7f400ed503746b23fedf61513e3ee4d91"
+    "gitBlob": "eab21ba8a7287d7496b0c62a99f5d7600be98218",
+    "sha256": "7b52174405415ea2d951939c8cefa4cf83ea9d6c7912f2bcd5129c07c152a7fb"
   },
   {
     "path": "desktop/src/style.css",
-    "gitBlob": "82858f3caf681e60bd375526771cdbc1d438389b",
-    "sha256": "8aee4d6cc6e6ced9f216b3b1af4e360bc5674cbf98c631563d8fc0c6d759861b"
+    "gitBlob": "c16731063fbb4b7ff60994ab56c480145b53015d",
+    "sha256": "66aad8919d1c4ee98b25263a4aa8bfd808051337aabfc7a689f023f394691e49"
   },
   {
     "path": "desktop/src/text-tool.js",
@@ -34,19 +34,19 @@ const files = [
     "sha256": "82900d2959efb5c4c9da8b0f54e189a19a6d3f2424b5315501fb768aae0e1400"
   },
   {
-    "path": "desktop/src/ui-icons.js",
-    "gitBlob": "2e76f31e70f0097bd177ba14d023c90064a01c20",
-    "sha256": "4873e6801022394d6686c1661db461b19f9b7268e4736dbe1128504e0865ea7f"
+    "path": "desktop/src/workspace-panels.js",
+    "gitBlob": "d2fde764fc9369e8d74f9e1738414cafdd5b1d86",
+    "sha256": "26dacec56f9bb1ef80090b07cb70b156e4f0776f667ac5e4a77e1c81621e88bb"
   },
   {
-    "path": "desktop/src/workspace-panels.js",
-    "gitBlob": "341ed52f83996022c134cc8becb6a7e2b8c27897",
-    "sha256": "63ff8aa44b2947a8f0de74a5b8e4048c3fe038fcdfe0b2d48590b76f8d042530"
+    "path": "desktop/tests/artboard-units.e2e.js",
+    "gitBlob": "48b0a25317ba0cceddacaaaa87f626d1c127ba83",
+    "sha256": "0faece7ad40404724302d32b56810415201511a0a5b7745735fe9a10890b5fa0"
   },
   {
     "path": "desktop/tests/asset-drag.e2e.js",
-    "gitBlob": "e7027e0e834fd9e5f027e686667b52ed609d09b8",
-    "sha256": "a41d504eb9b74fcdfccbde7d61c380e8c486179cb3335991345ce5c790d03a06"
+    "gitBlob": "4d5877a5e86dcad16e9a2dfc0c3572b3fafbedc8",
+    "sha256": "8675c051524326b147a2953b99d27857508a7506744385bc79304f6f34c79a39"
   },
   {
     "path": "desktop/tests/canvas-transient-panels.e2e.js",
@@ -55,8 +55,8 @@ const files = [
   },
   {
     "path": "desktop/tests/command-menus.test.js",
-    "gitBlob": "11a8afbe0e5cdfbaa87276d1a799554f0248b851",
-    "sha256": "891435971dd51bb5e8766e99348351f553e9a501e322e4cea41f87fb4c427718"
+    "gitBlob": "6da6149d774b344e97a10d3decdd10391c3e66c9",
+    "sha256": "c7db195dcb4373568dad823a6f089bf56716cf00f23850dad4f54cf56b53c714"
   },
   {
     "path": "desktop/tests/editor-names-bypass-dom.test.js",
@@ -69,19 +69,19 @@ const files = [
     "sha256": "7754b9a9e4250581f2700e55dc6a8b877b07a8be2eb080d5d5172ac37b76caa5"
   },
   {
+    "path": "desktop/tests/images.e2e.js",
+    "gitBlob": "0623a648fe983e8e7af339e98f54562908348a39",
+    "sha256": "e033c7deaf812576fd119c529617a44a59ec40a2220703e29a4a892bd8316378"
+  },
+  {
     "path": "desktop/tests/shared-colors-panel.e2e.js",
-    "gitBlob": "321f104e906530c678ae0a5270ecd70a92cf8577",
-    "sha256": "816556668d9ea480a793943dd1d79904ccbbc5d366fa55fe8ef3fca53cf8803c"
+    "gitBlob": "45076bb0b3afa454e2f98988ef0e705ec2e838a6",
+    "sha256": "e8a08757ecbcffdaf997b52d52e575d4b5c62246149bb48d030fb1f95455b5aa"
   },
   {
     "path": "desktop/tests/text-tool-dom.test.js",
     "gitBlob": "a2215054b62c982a3f020c7afd37a88619727c79",
     "sha256": "b834eea361e630344775855c275ea276d3a2fbf6cc6fe6a253b75a0c519a819c"
-  },
-  {
-    "path": "desktop/tests/ui-icons.test.js",
-    "gitBlob": "de1676399b094cf693c413c7c38b02c679af2925",
-    "sha256": "9503a9ae34db83f5b2c731c7605a389dea3e65ed06a4406e8c37ed473a8c421a"
   },
   {
     "path": "desktop/tests/ui-review-captures.e2e.js",
@@ -90,33 +90,41 @@ const files = [
   },
   {
     "path": "desktop/tests/workspace-panels.e2e.js",
-    "gitBlob": "9685394ff3d4c32c6b9f04a7dac7b8c3b9ee69de",
-    "sha256": "0046534586adfc7b5f79cb9ec925de2d0738c4ee1ace70db2a9309b7a9c374ba"
+    "gitBlob": "b28ea3bbf2a7b61f9f74862dc30a84818598b284",
+    "sha256": "8fd247246049e096f5189c2a8ecefcb97b18e3a07159bd11225a785f3a32458a"
   },
   {
     "path": "desktop/tests/workspace-panels.test.js",
-    "gitBlob": "8578ad837716fc7f8a9888e203e344814df03157",
-    "sha256": "d4a4374382ec5d6af636f989f805db207a3eedfa6132923d308919b24f291239"
+    "gitBlob": "aa81aa010991c3751411f48da332d710f69fec08",
+    "sha256": "cea9ec6d3a367d07ece785db0a5a9a305fb61f37b920af35c9eb9c18b62c9ffc"
+  },
+  {
+    "path": "desktop/src/ui-icons.js",
+    "gitBlob": "b1ade5dbf0f660edf8583d793724b32813137843",
+    "sha256": "21f774934d79318bd81ed59000067ab298ade752c216f31e28f75b93ebac40e9"
+  },
+  {
+    "path": "desktop/tests/ui-icons.test.js",
+    "gitBlob": "8bbbaa1449135d12b9cf07ea70deb5e5fbab99e0",
+    "sha256": "48ec58142a7b938ef4b274d1f40b2eb7405b2366de8582fbf842f1c43c20fff8"
   }
 ];
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const blob = (value) => createHash('sha1').update(`blob ${Buffer.byteLength(value)}\0`).update(value).digest('hex');
-test('capture formatter output for frozen UI candidate', { skip: !process.env.CI }, async () => {
+test('capture installed formatter for frozen UI candidate', { skip: !process.env.CI }, async () => {
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
   const receipt = { runId: process.env.GITHUB_RUN_ID, checkout: git('rev-parse', 'HEAD'), tree: git('rev-parse', 'HEAD^{tree}'), prettier: prettier.version, files: [], errors: [] };
   if (prettier.version !== '3.6.2') receipt.errors.push('Unexpected installed Prettier version');
-  for (const expected of files) {
-    try {
-      const path = resolve(root, expected.path);
-      const original = await readFile(path, 'utf8');
-      assert.equal(blob(original), expected.gitBlob, `Unexpected preimage: ${expected.path}`);
-      assert.equal(hash(original), expected.sha256, `Unexpected bytes: ${expected.path}`);
-      const formatted = await prettier.format(original, { ...(await prettier.resolveConfig(path)), filepath: path });
-      receipt.files.push({ ...expected, formattedSha256: hash(formatted), formatted });
-      assert.equal(await readFile(path, 'utf8'), original);
-    } catch (error) { receipt.errors.push(`${expected.path}: ${error.message}`); }
-  }
+  for (const expected of files) try {
+    const path = resolve(root, expected.path);
+    const original = await readFile(path, 'utf8');
+    assert.equal(blob(original), expected.gitBlob);
+    assert.equal(hash(original), expected.sha256);
+    const formatted = await prettier.format(original, { ...(await prettier.resolveConfig(path)), filepath: path });
+    receipt.files.push({ ...expected, formattedSha256: hash(formatted), formatted });
+    assert.equal(await readFile(path, 'utf8'), original);
+  } catch (error) { receipt.errors.push(`${expected.path}: ${error.message}`); }
   const directory = resolve(root, 'desktop/test-results');
   await mkdir(directory, { recursive: true });
   await writeFile(resolve(directory, 'workflow-ui-formatter.json'), JSON.stringify(receipt));
