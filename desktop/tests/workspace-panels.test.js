@@ -399,6 +399,6 @@ test('rail geometry scales to two and three controls and short panels', () => {
       assert.equal(geometry.height, height);
       assert.doesNotMatch(geometry.edge, /NaN|Infinity/);
       assert.match(geometry.fill, /H6 Z$/);
-    assert.match(geometry.edge, / L/, 'rounded tab retains the short straight shoulder');
+      assert.match(geometry.edge, / L/, 'rounded tab retains the short straight shoulder');
     }
 });

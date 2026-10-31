@@ -260,11 +260,13 @@ const checkGraphToolbar = async (width) => {
       return {
         documentWidth: document.documentElement.scrollWidth,
         viewportWidth: innerWidth,
+        height: bounds.height,
         controls: controls.map((el) => {
           const r = el.getBoundingClientRect();
           const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
           return {
             action: el.dataset.action || el.id || el.tagName,
+            height: r.height,
             contained: r.left >= bounds.left && r.right <= bounds.right,
             centerHit: top === el || el.contains(top),
           };
@@ -272,8 +274,10 @@ const checkGraphToolbar = async (width) => {
       };
     }, secondary);
     assert.ok(layout.documentWidth <= layout.viewportWidth, 'toolbar does not widen the document');
+    assert.ok(layout.height <= 32, 'graph toolbar is compact');
     for (const control of layout.controls) {
       assert.equal(control.contained, true, `${width}: ${control.action} inside graph width`);
+      if (!['OUTPUT'].includes(control.action)) assert.ok(control.height >= 30, `${width}: ${control.action} retains a 30px target`);
       assert.equal(control.centerHit, true, `${width}: ${control.action} center is unobscured`);
     }
   };

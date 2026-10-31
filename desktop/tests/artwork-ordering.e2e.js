@@ -129,7 +129,11 @@ try {
       const bounds = await order(target.id, direction).boundingBox();
       const sidebar = await page.locator('[data-drawer-side=right] .layers').boundingBox();
       assert.ok(
-        bounds && sidebar && bounds.x >= sidebar.x && bounds.x + bounds.width <= sidebar.x + sidebar.width && bounds.x + bounds.width <= width,
+        bounds &&
+          sidebar &&
+          bounds.x >= sidebar.x &&
+          bounds.x + bounds.width <= sidebar.x + sidebar.width &&
+          bounds.x + bounds.width <= width,
         'controls fit the visible Layers sidebar and viewport',
       );
     }

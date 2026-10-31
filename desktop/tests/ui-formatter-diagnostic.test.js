@@ -25,13 +25,13 @@ const files = [
   },
   {
     "path": "desktop/src/main.js",
-    "gitBlob": "60b05eaf5e03450ae77fe3da600af9dc01acac07",
-    "sha256": "405f65f67d295a72efedd096644d732e446316908ce60bbf7e0b6dabdd677a08"
+    "gitBlob": "464bdf5b35107b7bcc7edf31871ad8cc051b9224",
+    "sha256": "c72ccb6ce2b6ed592e4be1ab0d299d5d8de7d7991ea196490d1c6f511e7c180b"
   },
   {
     "path": "desktop/src/style.css",
-    "gitBlob": "cd83dc5db32e66fd5746eb53714bc76bceba4c88",
-    "sha256": "2c0eeafec0069421425a2ecfefef2849a3fc56ccf92790dd8456e24dfe702e38"
+    "gitBlob": "f37ccf1d0e684ee2e460c572fe7997db951148ff",
+    "sha256": "1aaf50c291c3799136f329cb817411a836c9ebdc2cc3eebc19b66059f850e629"
   },
   {
     "path": "desktop/src/text-tool.js",
@@ -50,8 +50,8 @@ const files = [
   },
   {
     "path": "desktop/tests/artwork-ordering.e2e.js",
-    "gitBlob": "e21a8aa42dc89ac3a770bef41e821213667aa8f5",
-    "sha256": "8df1a38f0b2340a4b1dd344aee470651d6475a4acc485db2124e9c1973d93b15"
+    "gitBlob": "2ff551d4301c19335be30ca5bb78090dfa148ec1",
+    "sha256": "fbbdb8e94a846cc2e42611a654d29dd8736ec6bc028ece34c7b6bb9ca8358842"
   },
   {
     "path": "desktop/tests/asset-drag.e2e.js",
@@ -64,6 +64,11 @@ const files = [
     "sha256": "28569f3c2536201cc96c6189d8b814fa3a74e8b66c2e4871a5215abd96e5147d"
   },
   {
+    "path": "desktop/tests/command-download.test.js",
+    "gitBlob": "63ac63bd5c1ee857239b1d9eb2a42fc47bb69674",
+    "sha256": "4fe53f999e9c7fd3974a4d25afb4275a0b51770625753fa4fb2eb34f0963201b"
+  },
+  {
     "path": "desktop/tests/command-menu-actions.js",
     "gitBlob": "b26efe1584cc8052e1f06b276c5857f06ea03bf3",
     "sha256": "a2be444d329703ff671b31e2500aee79510e09aa91837086ddcb446e8113a49e"
@@ -72,6 +77,11 @@ const files = [
     "path": "desktop/tests/command-menus.test.js",
     "gitBlob": "594799eb109ba87d1396604f51f7ca5149664343",
     "sha256": "95a3e9e6adf790a1fae6523d7e3cef4aa813b913b91501668d3e048424428a75"
+  },
+  {
+    "path": "desktop/tests/command-session.e2e.js",
+    "gitBlob": "2bdc091c90a26c8393a0d9661a6888dd18a5dc8d",
+    "sha256": "1067ebb5a89149fe2c204934d8625d7e858712a5b949e7d10f3dea93648664b5"
   },
   {
     "path": "desktop/tests/editor-names-bypass-dom.test.js",
@@ -100,8 +110,8 @@ const files = [
   },
   {
     "path": "desktop/tests/pen-menu-keyboard-dom.test.js",
-    "gitBlob": "6c366c7137593286a6c15853d43bdd87c7b717aa",
-    "sha256": "b0725c9301e1a524ef1f5f7e38ecc8d5eb1162883cf91fef6b630d8cfb810747"
+    "gitBlob": "f3095ba24596273ff24bb15ac7fb9d31d73d1c8d",
+    "sha256": "70224dfe584c90bdc27336417ee4d7f984b12900ab049b715f976a232647853f"
   },
   {
     "path": "desktop/tests/project-composition-import.e2e.js",
@@ -120,28 +130,28 @@ const files = [
   },
   {
     "path": "desktop/tests/ui-review-captures.e2e.js",
-    "gitBlob": "73846ecd3566f0f23e9b4d7e794fa751be9a4d58",
-    "sha256": "80a6444e50f9d38d2ecd8c634d8d12a8379ab7281d1f1fdbaf3a00f7489c8101"
+    "gitBlob": "c19373672ac74aeecda86514cc91b1e7b3780467",
+    "sha256": "84b16a56b92b18288eb2c3242dc250f05b50e0f4cc449246ac9f5fc40fd1927f"
   },
   {
     "path": "desktop/tests/workspace-panels.e2e.js",
-    "gitBlob": "36633f9824103cb172d21da4752bfe2cf92281ac",
-    "sha256": "65b7dd1efb180d7d7b6424b9cf9d9bafa1ad90037a301873d5fba33b0b478c27"
+    "gitBlob": "e6ed2a73e76c5c03bc2dc876b75468d67a0222e6",
+    "sha256": "2d101b7091317e87c01d1d6647f872acd5db44f5d798385a4675be6b86c84a91"
   },
   {
     "path": "desktop/tests/workspace-panels.test.js",
-    "gitBlob": "9607bc1f7e42a739c4612e4e9df03a1e62804d8b",
-    "sha256": "86d275e5c236230c8136e421c2205e0a65774e6f188d9f73f3c556c6d4c6128a"
+    "gitBlob": "1bdb9fff079b5c295b1dbab5b44d773dad620fa5",
+    "sha256": "bb29e3bf1f4d931c59a5e7fc3cdc453bbb092d9fdb11f2cd394463b29a8075ea"
   },
   {
     "path": "desktop/src/ui-icons.js",
-    "gitBlob": "b1ade5dbf0f660edf8583d793724b32813137843",
-    "sha256": "21f774934d79318bd81ed59000067ab298ade752c216f31e28f75b93ebac40e9"
+    "gitBlob": "9d0935056b19c33312ad6d488e0a5ab2e5fd1600",
+    "sha256": "d1faec6e5281faa203bf9415257b04a3e13996e2bd970d2e40f2489d0d948379"
   },
   {
     "path": "desktop/tests/ui-icons.test.js",
-    "gitBlob": "8bbbaa1449135d12b9cf07ea70deb5e5fbab99e0",
-    "sha256": "48ec58142a7b938ef4b274d1f40b2eb7405b2366de8582fbf842f1c43c20fff8"
+    "gitBlob": "94e01a6d5291c97fd0a4ac880ece89fd77623580",
+    "sha256": "fd3e56ff66577131f543552da0e8f0f80a7d8010d27345afc486f97413b4dad9"
   }
 ];
 const root = fileURLToPath(new URL('../../', import.meta.url));

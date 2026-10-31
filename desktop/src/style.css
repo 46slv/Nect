@@ -4015,7 +4015,7 @@ input[data-color-scrub-step] {
   grid-template-columns: minmax(0, 1fr);
 }
 
-/* C-shaped bar and pane share one surface. The strip is fixed; only the
+/* Rounded-tab bar and pane share one surface. The strip is fixed; only the
    curved edge grows, so visible circles and rectangular hit targets stay put. */
 .workspace-panel-bar {
   width: 78px;
@@ -4105,4 +4105,40 @@ input[data-color-scrub-step] {
 .header-end .build-info .command-menu-items {
   left: auto;
   right: 0;
+}
+
+/* A thinner graph strip keeps 30px action targets and all existing commands. */
+.graph-toolbar {
+  height: 32px;
+  padding: 0 8px;
+}
+.graph-toolbar button,
+.graph-toolbar select,
+.graph-view-more > summary {
+  box-sizing: border-box;
+  min-height: 30px;
+}
+.node-preset-controls {
+  padding: 1px 8px;
+}
+.node-preset-controls button,
+.node-preset-controls input,
+.node-preset-controls select {
+  box-sizing: border-box;
+  min-height: 30px;
+}
+.header-group > button[data-action="asset-library"],
+.header-group > button[data-action="undo"],
+.header-group > button[data-action="redo"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.header-group .workspace-icon,
+.field-tools .workspace-icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  pointer-events: none;
 }

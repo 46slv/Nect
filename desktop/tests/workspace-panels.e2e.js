@@ -68,7 +68,7 @@ try {
     Math.abs(initialFit.actual - initialFit.expected) < 0.001,
     'initial fit reflects settled UI font metrics',
   );
-  // A circle's visible face plus focus ring must remain inside the C surface;
+  // A circle's visible face plus focus ring must remain inside the rounded surface;
   // its transparent 30px rectangular hit target is checked separately.
   const contourFits = (locator) =>
     locator.evaluate((bar) => {
@@ -88,6 +88,11 @@ try {
         });
       });
     });
+  for (const [action, icon] of [['asset-library', 'assets'], ['undo', 'undo'], ['redo', 'redo']]) {
+    const button = page.locator(`[data-action="${action}"]`);
+    assert.equal(await button.locator(`svg[data-icon="${icon}"]`).count(), 1);
+    assert.ok((await button.textContent()).trim(), `${action} retains its visible text label`);
+  }
   const rightBar = page.locator('.workspace-panel-bar-right');
   const inspectorTrigger = page.getByRole('button', { name: 'Focus Inspector', exact: true });
   assert.equal(await inspectorTrigger.getAttribute('aria-expanded'), 'true');
@@ -577,8 +582,15 @@ try {
     const title = await page.locator('[data-document-title]').boundingBox();
     const help = await page.locator('[data-action="help"]').boundingBox();
     const build = await page.locator('[data-build-info] > summary').boundingBox();
-    assert.ok(end && title && help && build && end.x >= 0 && end.x + end.width <= width, 'document/help/build group fits the viewport');
-    assert.ok(Math.abs(title.y + title.height / 2 - (help.y + help.height / 2)) < 2 && Math.abs(help.y + help.height / 2 - (build.y + build.height / 2)) < 2, 'document/help/build wrap together');
+    assert.ok(
+      end && title && help && build && end.x >= 0 && end.x + end.width <= width,
+      'document/help/build group fits the viewport',
+    );
+    assert.ok(
+      Math.abs(title.y + title.height / 2 - (help.y + help.height / 2)) < 2 &&
+        Math.abs(help.y + help.height / 2 - (build.y + build.height / 2)) < 2,
+      'document/help/build wrap together',
+    );
 
     const outputSummary = page.locator('[data-output-settings] > summary');
     assert.equal(await outputSummary.isVisible(), true);

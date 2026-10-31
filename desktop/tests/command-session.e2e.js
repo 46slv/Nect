@@ -80,6 +80,9 @@ try {
   await clickUndo();
   assert.deepEqual(await page.evaluate(() => window.nect.snapshot()), property.before);
   await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'redo' }));
+  const expressionButton = field().locator('[data-fx]');
+  assert.equal(await expressionButton.locator('svg[data-icon="expression"]').count(), 1);
+  assert.match(await expressionButton.getAttribute('aria-label'), /Expression and parameter references/);
   page.once('dialog', (dialog) => dialog.accept('20 * 9'));
   await field().locator('[data-fx]').click();
   assert.equal(await field().locator('[data-expression]').inputValue(), '20 * 9');
