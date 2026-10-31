@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -35,7 +36,7 @@ try {
   connect(layer, rectangle.id, fill.id, 'path');
   connect(layer, fill.id, out.id, 'path');
   await page.evaluate((s) => window.nect.load(s), serialize(doc));
-  await page.locator('[data-action="graph-reset"]').click();
+  await activateBoundaryCommand(page, 'graph-reset');
   await page.locator(`.node[data-id="${rectangle.id}"] .type-tag`).click();
   const field = page.locator(
     `.inspector-body .field[data-node="${rectangle.id}"][data-key="center"] input[data-axis="0"]:not([data-base])`,

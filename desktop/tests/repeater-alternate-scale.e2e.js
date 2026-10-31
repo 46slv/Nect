@@ -1,3 +1,5 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -43,6 +45,8 @@ try {
   } else {
     page = await browser.newPage({ viewport: { width: 1469, height: 827 } });
     await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   }
   page.on('pageerror', (e) => errors.push(e.message));
   await page.waitForFunction(
@@ -68,9 +72,9 @@ try {
   for (const kind of cdp ? ['linear', 'radial'] : ['radial']) {
     const f = alternateRepeaterFixture(kind);
     await page.evaluate((s) => window.nect.load(s), serialize(f.doc));
-    await $('[data-action="graph-reset"]').click();
+    await activateBoundaryCommand(page, 'graph-reset');
     await $(`.graph .node[data-id="${f.repeat.id}"] .type-tag`).click();
-    await $('[data-action="fit"]').click();
+    await activateBoundaryCommand(page, 'fit');
     await settle();
     const field = $(
       `.inspector-body .field[data-node="${f.repeat.id}"][data-key="alternateScale"]`,

@@ -1,3 +1,4 @@
+import { revealNodeGroups } from './helpers/boundary-controls.js';
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -63,10 +64,7 @@ try {
     button = (kind) => page.locator(`[data-node-group-action="${kind}"]`),
     act = (kind) => button(kind).click(),
     choose = (id) => page.locator('[data-node-group-select]').selectOption(id),
-    open = async () => {
-      if (!(await page.locator('[data-node-groups]').evaluate((e) => e.open)))
-        await page.locator('[data-node-groups] > summary').click();
-    };
+    open = async () => revealNodeGroups(page);
   const nodes = JSON.parse(await saved()).layers[0].nodes,
     svg = await page.evaluate(() => window.nect.export());
   const geometryNeutral = async () => {

@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 
@@ -89,11 +90,11 @@ try {
     assert.equal(await saved(), original, 'pointer navigation is document/history neutral');
   }
   for (const zoomStep of ['100%', '5%', '200%']) {
-    await page.locator('[data-action="graph-reset"]').click();
+    await activateBoundaryCommand(page, 'graph-reset');
     if (zoomStep === '5%')
-      for (let i = 0; i < 17; i++) await page.locator('[data-action="graph-zoom-out"]').click();
+      for (let i = 0; i < 17; i++) await activateBoundaryCommand(page, 'graph-zoom-out');
     if (zoomStep === '200%')
-      for (let i = 0; i < 4; i++) await page.locator('[data-action="graph-zoom-in"]').click();
+      for (let i = 0; i < 4; i++) await activateBoundaryCommand(page, 'graph-zoom-in');
     await stick.focus();
     await page.keyboard.down('ArrowRight');
     await page.waitForFunction(() => document.querySelector('.graph-scroll').scrollLeft > 10);
@@ -150,7 +151,7 @@ try {
     else await page.keyboard.up('ArrowRight');
     assert.equal(await saved(), original, 'Hide/show and resumed pan are document/history neutral');
   }
-  await page.locator('[data-action="graph-overview"]').click();
+  await activateBoundaryCommand(page, 'graph-overview');
   const [stickBox, overviewBox, viewportBox] = await Promise.all([
     stick.boundingBox(),
     page.locator('.graph-overview').boundingBox(),

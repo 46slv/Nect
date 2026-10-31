@@ -159,9 +159,12 @@ test('inline stable-ID names, visibility and reversible typed bypass survive sel
   type('Background');
   key(input(), 'Enter');
   assert.equal(win.nect.document.layers[1].name, 'Background');
+  assert.equal(query(`[data-visible="${other}"] svg`).dataset.icon, 'eye');
+  assert.match(query(`[data-visible="${other}"]`).getAttribute('aria-label'), /^Hide layer:/);
   query(`[data-visible="${other}"]`).click();
   assert.equal(win.nect.document.layers[1].visible, false);
-  assert.equal(query(`[data-visible="${other}"]`).textContent, 'Show');
+  assert.match(query(`[data-visible="${other}"]`).getAttribute('aria-label'), /^Show layer:/);
+  assert.equal(query(`[data-visible="${other}"] svg`).dataset.icon, 'eye-off');
   assert.equal(query(`[data-visible="${other}"]`).getAttribute('aria-pressed'), 'false');
   assert.ok(query(`[data-layer="${other}"]`).classList.contains('is-hidden'));
   query(`[data-layer-lock="${other}"]`).click();
@@ -169,6 +172,7 @@ test('inline stable-ID names, visibility and reversible typed bypass survive sel
   assert.equal(input(), null);
   query(`[data-visible="${other}"]`).click();
   assert.equal(win.nect.document.layers[1].visible, true);
+  assert.equal(query(`[data-visible="${other}"] svg`).dataset.icon, 'eye');
   // Return to source layer, bypass the selected Transform without disconnecting or changing params.
   query(`[data-select-layer="${l.id}"]`).click();
   const beforeBypass = saved(),

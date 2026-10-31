@@ -426,6 +426,11 @@ try {
     fullPage: false,
   });
   await page.getByRole('button', { name: 'Close Shared colors', exact: true }).click();
+  assert.equal(
+    await page.locator('[data-drawer-side="left"]').evaluate((el) => el.hidden && el.inert),
+    true,
+  );
+  await page.locator('.shared-colors-panel').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.shared-colors-panel').isVisible(), false);
   assert.equal(await launcher.getAttribute('aria-pressed'), 'false');
   assert.equal(await launcher.evaluate((el) => el === document.activeElement), true);

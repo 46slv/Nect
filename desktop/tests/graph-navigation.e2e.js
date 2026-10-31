@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -165,11 +166,11 @@ try {
   assert.ok((await scroll())[0] >= 95 && (await scroll())[1] >= 45);
   // Joystick moves only the viewport at 5%, 100% and 200% zoom.
   for (const zoomStep of ['reset', 'low', 'high']) {
-    await page.locator('[data-action="graph-reset"]').click();
+    await activateBoundaryCommand(page, 'graph-reset');
     if (zoomStep === 'low')
-      for (let i = 0; i < 17; i++) await page.locator('[data-action="graph-zoom-out"]').click();
+      for (let i = 0; i < 17; i++) await activateBoundaryCommand(page, 'graph-zoom-out');
     if (zoomStep === 'high')
-      for (let i = 0; i < 4; i++) await page.locator('[data-action="graph-zoom-in"]').click();
+      for (let i = 0; i < 4; i++) await activateBoundaryCommand(page, 'graph-zoom-in');
     const beforeStick = await scroll();
     const beforeNode = await position();
     await page.locator('.graph-pan-joystick').focus();
@@ -182,7 +183,7 @@ try {
     assert.ok((await scroll())[0] > beforeStick[0]);
     assert.deepEqual(await position(), beforeNode);
   }
-  await page.locator('[data-action="graph-reset"]').click();
+  await activateBoundaryCommand(page, 'graph-reset');
   await page.locator(`.node[data-id="${id}"] [data-collapse]`).click();
   const input = page.locator(`.node[data-id="${id}"] input[type="number"]`).first();
   const ib = await input.boundingBox(),
@@ -206,7 +207,7 @@ try {
     '321',
   );
   await stillStopped();
-  await page.locator('[data-action="graph-reset"]').click();
+  await activateBoundaryCommand(page, 'graph-reset');
   await fs.mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/graph-navigation.png' });
   assert.deepEqual(errors, []);

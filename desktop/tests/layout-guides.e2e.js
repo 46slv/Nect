@@ -1,3 +1,4 @@
+import { revealBoundary } from './helpers/boundary-controls.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { openArtworkPanel } from './helpers/artwork-panels.js';
@@ -22,6 +23,7 @@ const edit = async (label, value) => {
   await input.press('Tab');
 };
 const click = async (selector) => {
+  if (/^\[data-action="(?:grid|layout|guides)-panel"\]/.test(selector)) await revealBoundary(page, 'canvas');
   if (/^\[data-(?:layer-guide|layer-lock|visible)/.test(selector))
     await ensureWorkspacePanel(page, 'layers');
   if (selector.startsWith('[data-layout-')) await openArtworkPanel(page, 'layout-panel');

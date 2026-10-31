@@ -140,7 +140,7 @@ test('Text Tool workspace selection and Canvas creation through production handl
       assert.equal($('[data-tool="select"]').classList.contains('active'), true);
       choose('vertical-rl');
       assert.equal(textButton().dataset.textVariant, 'vertical-rl');
-      assert.equal(textButton().textContent, 'T↧');
+      assert.equal(textButton().querySelector('svg').dataset.icon, 'Text-vertical');
       assert.equal(snapshot(), before);
       assert.deepEqual(state(), initial);
       $('[data-tool="select"]').click();

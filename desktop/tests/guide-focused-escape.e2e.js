@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 // One dedicated native Tauri/WebView2 before/after case; CDP is synthetic input.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -30,7 +31,7 @@ try {
     guides: [{ id: 'focused-guide', axis: 'x', position: 600, locked: false }],
   };
   await page.evaluate((text) => window.nect.load(text), serialize(doc));
-  await page.locator('[data-action="guides-panel"]').click();
+  await activateBoundaryCommand(page, 'guides-panel');
   const input = page.locator('[data-guide-position="focused-guide"]');
   await input.focus();
   const read = () =>
@@ -99,7 +100,7 @@ try {
     ])
       assert.deepEqual(released[field], before[field], field);
     assert.equal(escaped.json, before.json);
-    await page.locator('[data-action="guides-panel"]').click();
+    await activateBoundaryCommand(page, 'guides-panel');
     const field = page.locator('[data-guide-position="focused-guide"]');
     await field.fill('610');
     await field.press('Tab');

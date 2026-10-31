@@ -38,7 +38,9 @@ test('command menus are idempotent and preserve an open Import menu', () => {
   );
 
   const menus = [...app.querySelectorAll('.command-menu')];
-  const [, , exportMenu] = menus;
+  const exportMenu = menus.find(
+    (entry) => entry.querySelector('summary')?.textContent === 'Export',
+  );
   for (const active of [menus[0], menus[1], exportMenu, menus[0]]) {
     active.open = true;
     active.dispatchEvent(new window.Event('toggle'));
@@ -50,4 +52,40 @@ test('command menus are idempotent and preserve an open Import menu', () => {
     menus.some((entry) => entry.open),
     false,
   );
+});
+
+test('toolbar grouping keeps labeled output and history controls reachable once', () => {
+  const window = new Window();
+  const app = window.document.createElement('div');
+  app.innerHTML = `<header><div class="brand">Nect</div>
+    <button data-action="new">New</button><button data-action="open">Open</button>
+    <button data-action="save">Save</button><button data-action="save-as">Save As</button>
+    <button data-action="add-composition">Add composition</button><button data-action="asset-library">Assets</button>
+    <button data-action="export">Export SVG</button><button data-action="export-png">Export PNG</button>
+    <select id="svg-export-sizing" aria-label="SVG output sizing"></select>
+    <select id="svg-export-unit" aria-label="SVG export units"></select>
+    <select id="svg-export-precision" aria-label="SVG geometry precision"></select>
+    <select id="png-export-mode" aria-label="PNG size mode"></select>
+    <label>PPI<input id="png-ppi"></label><output data-png-dimensions></output>
+    <details id="export-presets"><summary>Export presets</summary></details>
+    <button data-action="undo">Undo</button><button data-action="redo">Redo</button></header>`;
+  window.document.body.append(app);
+  ensureCommandMenus(app, window.document);
+  const output = app.querySelector('[data-output-settings]');
+  assert.ok(output);
+  for (const [id, label] of [
+    ['svg-export-sizing', 'SVG sizing'],
+    ['svg-export-unit', 'SVG units'],
+    ['svg-export-precision', 'SVG precision'],
+    ['png-export-mode', 'PNG size mode'],
+  ]) {
+    assert.equal(output.querySelectorAll(`#${id}`).length, 1);
+    assert.equal(output.querySelector(`#${id}`).parentElement.textContent, label);
+  }
+  assert.ok(output.querySelector('#export-presets'));
+  assert.ok(app.querySelector('[aria-label="History"] [data-action="undo"]'));
+  assert.ok(
+    app.querySelector('.command-menu [data-action="asset-library"]'),
+  );
+  window.happyDOM.abort();
 });

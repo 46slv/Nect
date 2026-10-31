@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
@@ -239,7 +240,7 @@ try {
     { width: 1600, height: 1000 },
   ]) {
     await page.setViewportSize(viewport);
-    await page.locator('[data-action="fit"]').click();
+    await activateBoundaryCommand(page, 'fit');
     await page.screenshot({
       path: `test-results/artwork-selection-${viewport.width}x${viewport.height}.png`,
       fullPage: true,
@@ -308,7 +309,7 @@ try {
     return tr.id;
   });
   await page.locator(`[data-id="${overlapTransform}"] .node-head strong`).click();
-  await page.locator('[data-action="actual-size"]').click();
+  await activateBoundaryCommand(page, 'actual-size');
   const controls = await page.locator('[data-transform-handle]').evaluateAll((els) =>
     els.map((el) => {
       const p = new DOMPoint(0, 0).matrixTransform(el.getScreenCTM());
@@ -325,7 +326,7 @@ try {
     ['rotation', true],
   ]);
   // At low zoom the stroke corridor remains narrow and empty artboard stays empty.
-  for (let i = 0; i < 5; i++) await page.locator('[data-action="zoom-out"]').click();
+  for (let i = 0; i < 5; i++) await activateBoundaryCommand(page, 'zoom-out');
   const blank = await screen([760, 460]);
   assert.equal(
     await page.evaluate(
@@ -339,7 +340,7 @@ try {
     { width: 1600, height: 1000 },
   ]) {
     await page.setViewportSize(viewport);
-    await page.locator('[data-action="fit"]').click();
+    await activateBoundaryCommand(page, 'fit');
     await page.screenshot({
       path: `test-results/artwork-workflow-${viewport.width}x${viewport.height}.png`,
       fullPage: true,

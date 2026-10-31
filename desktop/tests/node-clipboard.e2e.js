@@ -1,3 +1,5 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import assert from 'node:assert/strict';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -82,9 +84,11 @@ try {
     errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}`);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await page.waitForFunction(() => window.nect);
   await page.evaluate((s) => window.nect.load(s), serialize(doc));
-  await page.locator('[data-action="graph-fit"]').click();
+  await activateBoundaryCommand(page, 'graph-fit');
   const ids = [image.id, key.id, shape.id, mask.id, text.id, ref.id];
   const selectedIds = () =>
     page
@@ -199,7 +203,7 @@ try {
   await page.locator('.graph-scroll').focus();
   await page.keyboard.press('Control+Shift+z');
   assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), after);
-  await page.locator('[data-action="graph-fit"]').click();
+  await activateBoundaryCommand(page, 'graph-fit');
   await page.locator(`.graph .node[data-id="${copy('Mask').id}"] .node-head .type-tag`).click();
   await page.locator(`.graph [data-preview="${copy('Mask').id}"]`).click();
   const exported = await page.evaluate(() => window.nect.export());
@@ -259,7 +263,7 @@ try {
   // A selected input's external Image dependency must not jump to another layer.
   await page.locator(`[data-select-layer="${src.id}"]`).click();
   await page.locator(`[data-select-layer="${dst.id}"]`).click();
-  await page.locator('[data-action="graph-fit"]').click();
+  await activateBoundaryCommand(page, 'graph-fit');
   await page.locator(`.graph .node[data-id="${copy('Keyer').id}"] .node-head .type-tag`).click();
   await page.locator('.graph-scroll').focus();
   await page.keyboard.press('Control+c');

@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -136,7 +137,7 @@ try {
     assert.ok(wireScroll > initialScroll);
     await stopped();
     assert.deepEqual(await state(), baseline);
-    await page.locator('[data-action="graph-reset"]').click();
+    await activateBoundaryCommand(page, 'graph-reset');
     await rectangle(ids.slice(0, 2), { reverse: true });
     assert.deepEqual(await selected(), ids.slice(0, 2).sort());
     await pick(ids[0]);
@@ -165,7 +166,7 @@ try {
     assert.deepEqual(await selected(), combined);
     await page.mouse.click(...blank);
     assert.deepEqual(await selected(), []);
-    await page.locator('[data-action="graph-zoom-out"]').click();
+    await activateBoundaryCommand(page, 'graph-zoom-out');
     const vb = await viewport.boundingBox();
     await page.mouse.move(vb.x + 450, vb.y + 260);
     await page.mouse.down({ button: 'middle' });
@@ -204,7 +205,7 @@ try {
     // At native and zoomed graph scales, pan far enough to reach an offscreen port.
     for (const zoomed of [false, true]) {
       await reset();
-      if (zoomed) await page.locator('[data-action="graph-zoom-out"]').click();
+      if (zoomed) await activateBoundaryCommand(page, 'graph-zoom-out');
       const before = await state();
       await beginWire();
       const cursor = await edge();

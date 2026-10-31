@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import { openArtworkPanel, forceArtworkPanelCommand } from './helpers/artwork-panels.js';
@@ -70,8 +71,8 @@ try {
   for (const [action, axis, edge] of actions) {
     await load();
     // Zoom and pan before alignment; command and history must preserve the view.
-    await page.locator('[data-action="actual-size"]').click();
-    await page.locator('[data-action="zoom-out"]').click();
+    await activateBoundaryCommand(page, 'actual-size');
+    await activateBoundaryCommand(page, 'zoom-out');
     await page.locator('.canvas-stage').hover();
     await page.mouse.wheel(35, 20);
     const before = await saved(),
@@ -154,10 +155,10 @@ try {
   await page.evaluate((json) => window.nect.load(json), json);
   assert.equal(await page.evaluate(() => window.nect.export()), exported);
   await select();
-  await page.locator('[data-action="fit"]').click();
+  await activateBoundaryCommand(page, 'fit');
   await page.screenshot({ path: 'test-results/artwork-alignment-1600.png' });
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.locator('[data-action="fit"]').click();
+  await activateBoundaryCommand(page, 'fit');
   await page.screenshot({ path: 'test-results/artwork-alignment-1280.png' });
   assert.deepEqual(errors, []);
   console.log(

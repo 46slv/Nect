@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { activeCompositionDocument } from '../src/composition-project-model.js';
@@ -73,6 +74,8 @@ async function pixels(data, mime) {
 }
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await loadDemoFixture(page);
   await page.waitForSelector('.shape');
   await fs.mkdir('test-results', { recursive: true });

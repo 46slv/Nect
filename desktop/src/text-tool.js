@@ -1,6 +1,8 @@
+import { workspaceIcon } from './ui-icons.js';
+
 export const textVariants = Object.freeze([
-  { id: 'horizontal-tb', label: 'Horizontal Text', icon: 'T' },
-  { id: 'vertical-rl', label: 'Vertical Text', icon: 'T↧' },
+  { id: 'horizontal-tb', label: 'Horizontal Text' },
+  { id: 'vertical-rl', label: 'Vertical Text' },
 ]);
 
 // Workspace input only. The caller owns the single semantic creation command.
@@ -41,7 +43,7 @@ export function textToolGroup({ root, active, available, activate, create, point
     const b = button(),
       v = textVariants.find((v) => v.id === variant);
     if (!b) return;
-    b.textContent = v.icon;
+    b.innerHTML = workspaceIcon(v.id === 'vertical-rl' ? 'Text-vertical' : 'Text');
     b.dataset.textVariant = variant;
     b.title = `${v.label} — Hold for variants`;
     b.setAttribute('aria-label', v.label);

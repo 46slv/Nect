@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
@@ -19,6 +20,8 @@ const field = (id, key) =>
 const saved = () => page.evaluate(() => JSON.stringify(window.nect.document));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await loadDemoFixture(page);
   await page.waitForSelector('.shape');
   await page.locator('#add-node').selectOption('Closed Path Offset');

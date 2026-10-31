@@ -243,7 +243,7 @@ test('shipped joystick preserves exact document/history and isolates editing thr
     [...document.querySelectorAll('header .command-menu > summary')].map(
       (summary) => summary.textContent,
     ),
-    ['Project', 'Import', 'Export', 'Build'],
+    ['Project', 'Import', 'Export', 'Output settings', 'Build'],
   );
   menu.open = true;
   fire(element, 'pointerdown', 620, 240);

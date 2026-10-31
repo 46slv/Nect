@@ -1,3 +1,4 @@
+import { revealCommandMenu } from './command-menu-actions.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -76,6 +77,7 @@ function captureBrowserDownloads() {
 }
 
 async function exportPngAndInspect(page, deviceScaleFactor) {
+  await revealCommandMenu(page, 'Output settings');
   await page.locator('#png-export-mode').selectOption('ppi');
   await page.locator('#png-ppi').fill('300');
   await page.waitForFunction(

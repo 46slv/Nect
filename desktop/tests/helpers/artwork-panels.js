@@ -1,3 +1,4 @@
+import { revealBoundary } from './boundary-controls.js';
 import assert from 'node:assert/strict';
 
 const panelCommands = new WeakMap();
@@ -15,6 +16,7 @@ const authoredState = (page) =>
 
 // Artwork acceptance queries transient controls after canvas/graph/history actions.
 export async function openArtworkPanel(page, action = 'align-panel') {
+  await revealBoundary(page, 'canvas');
   const toggle = page.locator(`.canvas-toolbar [data-action="${action}"]`);
   const attribute = action === 'align-panel' ? 'aria-pressed' : 'aria-expanded';
   if ((await toggle.getAttribute(attribute)) !== 'true') {

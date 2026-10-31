@@ -1,3 +1,4 @@
+import { revealBoundary } from './helpers/boundary-controls.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 
@@ -56,8 +57,10 @@ try {
         ? '[data-workspace-panel="align"]'
         : `.canvas-toolbar [data-action="${panel}-panel"]`;
     const expanded = 'aria-expanded';
-    if ((await page.locator(panelButton).getAttribute(expanded)) !== 'true')
+    if ((await page.locator(panelButton).getAttribute(expanded)) !== 'true') {
+      if (panel !== 'align') await revealBoundary(page, 'canvas');
       await page.locator(panelButton).click();
+    }
     if (panel === 'layout') await page.getByLabel('Preview layout', { exact: true }).check();
     // Reopening a canceled direct edit retains its view-only panel state.
     await open();
@@ -166,6 +169,7 @@ try {
     );
     const afterBlur = await page.evaluate(() => window.nect.document);
     if (panel === 'align') await page.locator(panelButton).click();
+    await revealBoundary(page, 'canvas');
     await page.locator(panelButton).click();
     assert.equal(await page.locator(panelButton).getAttribute(expanded), 'true');
     assert.equal(await page.locator(panelSelector).count(), 1, `${panel} reopens`);
@@ -173,8 +177,14 @@ try {
       await page.getByLabel('Preview layout', { exact: true }).check();
       assert.ok((await page.locator('.layout-preview').count()) > 0);
     }
+    await revealBoundary(page, 'canvas');
     await page.locator(panelButton).click();
     assert.equal(await page.locator(panelButton).getAttribute(expanded), 'false');
+    if (panel === 'align') {
+      const host = page.locator('[data-drawer-side="right"]');
+      assert.equal(await host.evaluate((el) => el.hidden && el.inert), true);
+    }
+    await page.locator(panelSelector).waitFor({ state: 'hidden' });
     assert.equal(await page.locator(panelSelector).isVisible(), false);
     assert.equal(await page.locator('.layout-preview').count(), 0);
     assert.deepEqual(await page.evaluate(() => window.nect.document), afterBlur);

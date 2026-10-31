@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 // Production Chromium/CSP UI converting an existing geometry-only native Text.
 // Captured GDI+ geometry remains a legacy saved snapshot, never a modern face
 // discovery/preparation response. This is not WebView2 acceptance.
@@ -108,6 +109,8 @@ try {
     { raw },
   );
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await page.waitForFunction(() => window.nect);
   await page.evaluate((contents) => window.nect.load(contents), savedNative);
   await page.locator(`.graph .node[data-id="${text.id}"] .node-head .type-tag`).click();

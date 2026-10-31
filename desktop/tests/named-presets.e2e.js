@@ -1,3 +1,6 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { revealNodePresets } from './helpers/boundary-controls.js';
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import assert from 'node:assert/strict';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -59,6 +62,8 @@ try {
   const page = await browser.newPage({ viewport: { width: 1800, height: 1100 } });
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}`);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await page.waitForFunction(() => window.nect);
   const settled = () =>
     page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
@@ -74,7 +79,7 @@ try {
       { type, payload },
     );
   const select = async (ids) => {
-    await page.locator('[data-action="graph-fit"]').click();
+    await activateBoundaryCommand(page, 'graph-fit');
     const previous = await page
       .locator('.graph .node.selected')
       .evaluateAll((nodes) => nodes.map((n) => n.dataset.id));
@@ -96,7 +101,9 @@ try {
   await page.evaluate((s) => window.nect.load(s), serialize(doc));
   const initial = await snapshot();
   await select([shape.id, fill.id]);
+  await revealNodePresets(page);
   await page.locator('#node-preset-name').fill('Rectangle blue');
+  await revealNodePresets(page);
   await page.locator('[data-action="save-node-preset"]').click();
   await settled();
   let data = await page.evaluate(() => window.nect.document);
@@ -116,8 +123,10 @@ try {
     value: [999, 999],
   });
   await page.locator(`[data-select-layer="${dst.id}"]`).click();
+  await revealNodePresets(page);
   await page.locator('#node-preset').selectOption(presetId);
   const beforeApply = await snapshot();
+  await revealNodePresets(page);
   await page.locator('[data-action="apply-node-preset"]').click();
   await settled();
   data = await page.evaluate(() => window.nect.document);
@@ -157,9 +166,12 @@ try {
     'applied node edits through ordinary Inspector, independent of preset, with Undo/Redo',
   );
   await select(added.map((n) => n.id));
+  await revealNodePresets(page);
   await page.locator('#node-preset').selectOption(presetId);
+  await revealNodePresets(page);
   await page.locator('#node-preset-name').fill('Rectangle wide');
   const beforeUpdate = await snapshot();
+  await revealNodePresets(page);
   await page.locator('[data-action="update-node-preset"]').click();
   await settled();
   data = await page.evaluate(() => window.nect.document);
@@ -173,6 +185,7 @@ try {
   assert.equal(await snapshot(), updated);
   checks.push('UI update retains preset identity, changes name and snapshot in one Undo/Redo');
   let before = await state();
+  await revealNodePresets(page);
   await page.locator('[data-action="save-node-preset"]').click();
   await settled();
   assert.match(await page.locator('.status').innerText(), /name already/);
@@ -254,7 +267,9 @@ try {
   await page.evaluate((s) => window.nect.load(s), encoded);
   assert.equal(await snapshot(), encoded);
   await page.locator(`[data-select-layer="${dst.id}"]`).click();
+  await revealNodePresets(page);
   await page.locator('#node-preset').selectOption(presetId);
+  await revealNodePresets(page);
   await page.locator('[data-action="apply-node-preset"]').click();
   await settled();
   data = await page.evaluate(() => window.nect.document);
@@ -265,7 +280,7 @@ try {
   checks.push(
     'saved document reloads with named preset and updated ordinary-node snapshot; invalid saved snapshot refuses without replacing document',
   );
-  await page.locator('[data-action="graph-fit-selection"]').click();
+  await activateBoundaryCommand(page, 'graph-fit-selection');
   await mkdir('test-results/named-presets', { recursive: true });
   await page.screenshot({ path: 'test-results/named-presets/editor.png' });
   assert.deepEqual(errors, []);

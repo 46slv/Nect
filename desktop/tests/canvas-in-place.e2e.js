@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 const browser = await chromium.launch({
@@ -179,7 +180,7 @@ try {
     [true, false],
   ]) {
     await setup(vertical, transformed);
-    await page.locator('[data-action="zoom-in"]').click();
+    await activateBoundaryCommand(page, 'zoom-in');
     const stage = await page.locator('.canvas-stage').boundingBox();
     await page.keyboard.down('Space');
     await page.mouse.move(stage.x + stage.width - 80, stage.y + 100);

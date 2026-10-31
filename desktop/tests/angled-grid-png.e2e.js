@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -33,7 +34,7 @@ try {
   for (const angle of [0, 45]) {
     if (angle) {
       await page.keyboard.press('Escape');
-      await page.locator('[data-action="grid-panel"]').click();
+      await activateBoundaryCommand(page, 'grid-panel');
       const field = page.locator('[data-guide-setting="gridAngle"]');
       await field.fill('45');
       await field.press('Tab');
