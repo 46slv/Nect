@@ -322,7 +322,11 @@ test('Artwork creation and placement use independent layers and explicit, safe e
           position(ids),
           origin.map((value, axis) => value + [1, 0][axis]),
         );
-        assert.equal(document.activeElement === stage(), true, 'A nudge keeps keyboard ownership on Canvas');
+        assert.equal(
+          document.activeElement === stage(),
+          true,
+          'A nudge keeps keyboard ownership on Canvas',
+        );
         assert.equal(key(document.activeElement, 'ArrowDown', { shiftKey: true }), true);
         assert.deepEqual(
           position(ids),

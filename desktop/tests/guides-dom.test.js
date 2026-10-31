@@ -1,4 +1,4 @@
-import { revealDOMBoundary } from './helpers/dom-workspace-controls.js';
+import { openDOMPanel, revealDOMBoundary } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -31,7 +31,8 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const $ = (q) => document.querySelector(q),
     click = (q) => {
-      if (/^\[data-action="(?:grid|layout|guides)-panel"\]/.test(q)) revealDOMBoundary(document, 'canvas');
+      if (/^\[data-action="(?:grid|layout|guides)-panel"\]/.test(q))
+        revealDOMBoundary(document, 'canvas');
       $(q).click();
     },
     get = () => win.nect.document;
@@ -195,6 +196,7 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   win.nect.load(JSON.stringify(newDocument()));
   const artwork = win.nect.export(),
     layerId = get().layers[0].id;
+  openDOMPanel(document, 'layers');
   click(`[data-layer-guide="${layerId}"]`);
   assert.equal(get().layers[0].guide, true);
   assert.ok($('.guide-layer-shape'));

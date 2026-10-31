@@ -82,9 +82,11 @@ test('layer ordering is a stable-ID permutation with exact selection, focus and 
       flush();
     },
     click = (selector) => {
-      if (/^\[data-action="(?:actual-size|zoom-in|zoom-out|fit)"/.test(selector))
+      if (/^\[data-action="(?:actual-size|zoom-in|zoom-out|fit|guides-panel)"/.test(selector))
         revealDOMBoundary(document, 'canvas');
       if (/^\[data-action="graph-/.test(selector)) revealDOMBoundary(document, 'graph');
+      if (/^\[data-(?:character-mode|point-panel-mode)/.test(selector))
+        openDOMPanel(document, 'inspector');
       $(selector).click();
       flush();
     },
@@ -167,7 +169,11 @@ test('layer ordering is a stable-ID permutation with exact selection, focus and 
       );
       assert.deepEqual(selectionState(), prior);
       assert.equal(ui().past, past + 1);
-      assert.equal(document.activeElement === order(target.id), true, 'ordering control retains focus');
+      assert.equal(
+        document.activeElement === order(target.id),
+        true,
+        'ordering control retains focus',
+      );
       assert.equal(order(target.id).getAttribute('aria-disabled'), 'true');
       assert.equal(order(target.id).disabled, false, 'boundary is focusable disabled semantics');
       assert.deepEqual(
@@ -198,7 +204,11 @@ test('layer ordering is a stable-ID permutation with exact selection, focus and 
       order(target.id, 'backward').click();
       flush();
       assert.equal(saved(), before);
-      assert.equal(document.activeElement === order(target.id, 'backward'), true, 'ordering control retains focus');
+      assert.equal(
+        document.activeElement === order(target.id, 'backward'),
+        true,
+        'ordering control retains focus',
+      );
     },
   );
 
@@ -248,6 +258,7 @@ test('layer ordering is a stable-ID permutation with exact selection, focus and 
           prior = selectionState(),
           past = ui().past;
         // Remap fixture's added layer is at the front, so send it backward.
+        openDOMPanel(document, 'layers');
         order(target, mode === 'remap' ? 'backward' : 'forward').click();
         flush();
         const after = saved();

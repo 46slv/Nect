@@ -55,6 +55,7 @@ try {
     .filter({ has: page.locator('[data-text]') })
     .locator('.node-head strong')
     .click();
+  await ensureWorkspacePanel(page, 'inspector');
   const text = page.locator('.inspector-body [data-text]');
   await text.fill('Abg 123');
   await text.dispatchEvent('change');

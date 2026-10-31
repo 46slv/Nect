@@ -214,7 +214,10 @@ const fixtureOwningScenarios = [
 
 test('legacy browser startup cases explicitly declare demo versus independent fixture setup', async () => {
   assert.ok(demoScenarios.length > 0 && fixtureOwningScenarios.length > 0);
-  assert.equal(new Set([...demoScenarios, ...fixtureOwningScenarios]).size, demoScenarios.length + fixtureOwningScenarios.length);
+  assert.equal(
+    new Set([...demoScenarios, ...fixtureOwningScenarios]).size,
+    demoScenarios.length + fixtureOwningScenarios.length,
+  );
   for (const [names, setup] of [
     [demoScenarios, /await loadDemoFixture\(page\);/],
     [fixtureOwningScenarios, /await page\.waitForFunction\(\(\) => window\.nect\);/],

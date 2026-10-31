@@ -119,7 +119,8 @@ test('graph overview navigation is view-only, measured, guarded and cancellable'
   win.nect.load(serialize(doc));
   // Outside Graph clicks dismiss Canvas popovers and replace their layout.
   // Close the unrelated Align panel before installing per-element geometry mocks.
-  if ($('[data-workspace-panel=align]')?.getAttribute('aria-expanded') === 'true') $('[data-workspace-panel=align]').click();
+  if ($('[data-workspace-panel=align]')?.getAttribute('aria-expanded') === 'true')
+    $('[data-workspace-panel=align]').click();
   setup();
   assert.equal($('.graph-overview').hidden, true);
   revealDOMBoundary(document, 'graph');

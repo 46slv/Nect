@@ -4226,19 +4226,65 @@ input[data-color-scrub-step] {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 1px 8px;
-  border: 1px solid var(--line);
+  padding: 1px 48px 1px 8px;
+  border: 0;
+  background: transparent;
+  isolation: isolate;
+}
+.graph-panel > .graph-toolbar::before,
+.graph-panel > .canvas-toolbar::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0 47px 0 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
   background: var(--surface-pane-solid);
   box-shadow: 0 2px 5px #26374720;
+  pointer-events: none;
 }
 .graph-panel > .graph-toolbar {
   left: 0;
-  border-radius: 0 0 24px 0;
+  border-radius: 0;
 }
 .graph-panel > .canvas-toolbar {
   right: 0;
   left: auto;
-  border-radius: 0 0 0 24px;
+  max-width: calc(100% - 220px);
+  padding: 1px 8px 1px 48px;
+  border-radius: 0;
+}
+.graph-panel > .canvas-toolbar::before {
+  inset: 0 0 0 47px;
+}
+.boundary-shoulder {
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  right: 0;
+  width: 48px;
+  height: 34px;
+  overflow: visible;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 3px #26374720);
+}
+.canvas-toolbar > .boundary-shoulder {
+  right: auto;
+  left: 0;
+  transform: scaleX(-1);
+}
+.boundary-shoulder-face {
+  fill: var(--surface-pane-solid);
+}
+.boundary-shoulder-edge {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.canvas-wrap > .hint {
+  left: calc(var(--stage-left, 48px) + 12px);
+  max-width: calc(var(--stage-width, 100%) - 24px);
+  pointer-events: none;
 }
 .boundary-graph-extras,
 .boundary-canvas-extras {

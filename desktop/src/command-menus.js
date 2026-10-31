@@ -10,6 +10,15 @@ export function ensureCommandMenus(app, document) {
         if (other !== menu) other.open = false;
       });
     });
+    // A command commits the menu choice immediately; settings and nested
+    // disclosures stay open. Do not leave a floating menu over the next panel.
+    menu.addEventListener('click', (event) => {
+      const command = event.target.closest?.('button[data-action]');
+      if (!exclusive || !command || command.disabled) return;
+      const ownedFocus = menu.contains(document.activeElement);
+      menu.open = false;
+      if (ownedFocus) summary.focus({ preventScroll: true });
+    });
     const summary = document.createElement('summary');
     summary.textContent = label;
     const items = document.createElement('div');

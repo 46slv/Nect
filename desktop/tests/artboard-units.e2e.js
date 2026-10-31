@@ -83,10 +83,6 @@ async function exportPngAndInspect(page, deviceScaleFactor) {
   await page.waitForFunction(
     () => document.querySelector('[data-png-dimensions]')?.dataset.valid === 'true',
   );
-  await page
-    .locator('summary')
-    .filter({ hasText: /^Export$/ })
-    .click();
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 5000 }).catch(() => null),
     page.locator('[data-action="export-png"]').click(),

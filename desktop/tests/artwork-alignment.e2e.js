@@ -1,7 +1,7 @@
 import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
-import { openArtworkPanel, forceArtworkPanelCommand } from './helpers/artwork-panels.js';
+import { openArtworkPanel, forceArtworkPanelCommand, activeGraphLayer } from './helpers/artwork-panels.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
@@ -79,7 +79,8 @@ try {
       bb = await bounds(),
       beforeView = await view(),
       beforeSelection = await selected();
-    const active = await page.locator('.graph-layer-name').innerText();
+    const active = await activeGraphLayer(page);
+    assert.ok(active, 'rendered graph has an authored active layer');
     assert.deepEqual(beforeSelection, [...ids].sort());
     const min = Math.min(...bb.map((b) => b[axis][0])),
       max = Math.max(...bb.map((b) => b[axis][2]));
@@ -95,7 +96,7 @@ try {
       assert.ok(Math.abs(ab[i][1 - axis][0] - bb[i][1 - axis][0]) < 0.0002);
     }
     assert.deepEqual(await selected(), beforeSelection);
-    assert.equal(await page.locator('.graph-layer-name').innerText(), active);
+    assert.equal(await activeGraphLayer(page), active);
     assert.deepEqual(await view(), beforeView);
     await page.locator(`[data-align-artwork="${action}"]`).click();
     assert.equal(await saved(), after);

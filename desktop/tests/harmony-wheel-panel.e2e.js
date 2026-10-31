@@ -336,6 +336,7 @@ try {
   await page
     .locator(`.inspector-body [data-shared-color-binding][data-shared-color-node="${fill.id}"]`)
     .selectOption(primary);
+  await ensureWorkspacePanel(page, 'colors');
   const original = await encoded(),
     originalState = await commandState(),
     positions = await markerPositions();

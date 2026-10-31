@@ -31,7 +31,8 @@ test('Grid origin selector renders all nine phases, one Undo/Redo, reload and re
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const $ = (q) => document.querySelector(q),
     click = (q) => {
-      if (/^\[data-action="(?:grid|layout|guides)-panel"\]/.test(q)) revealDOMBoundary(document, 'canvas');
+      if (/^\[data-action="(?:grid|layout|guides)-panel"\]/.test(q))
+        revealDOMBoundary(document, 'canvas');
       $(q).click();
     },
     get = () => win.nect.document;

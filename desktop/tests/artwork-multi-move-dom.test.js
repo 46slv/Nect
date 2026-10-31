@@ -82,7 +82,11 @@ test('Multiple independent artworks select and move as one transaction', async (
     ui = () => win.artworkUI();
   let alignScenario = false;
   const openAlign = () => {
-    if (!alignScenario || $('[data-workspace-panel="align"]').getAttribute('aria-expanded') === 'true') return;
+    if (
+      !alignScenario ||
+      $('[data-workspace-panel="align"]').getAttribute('aria-expanded') === 'true'
+    )
+      return;
     const before = saved(),
       past = ui().past,
       active = ui().activeLayer,

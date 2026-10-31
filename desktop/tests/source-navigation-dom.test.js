@@ -106,7 +106,11 @@ test('Source Inspector round trips, guards, stale lists and document epochs', as
       assert.equal(api.read().selected, curve.id);
       assert.ok(q('.inspector [data-point-panel]'));
       assert.equal(q('.inspector [data-point-panel] input'), null, 'no implicit point selection');
-      assert.equal(document.activeElement === q('[data-source-heading]'), true, 'source heading receives focus');
+      assert.equal(
+        document.activeElement === q('[data-source-heading]'),
+        true,
+        'source heading receives focus',
+      );
       click('[data-source-nav="back"]');
       assert.equal(api.read().selected, fill.id);
       assert.equal(api.read().ticket, false);
@@ -305,7 +309,11 @@ test('Source Inspector round trips, guards, stale lists and document epochs', as
     );
     assert.equal(api.read().picker, false);
     assert.equal(api.read().selected, fill.id);
-    assert.equal(document.activeElement === q('[data-source-nav="open"]'), true, 'source control receives focus');
+    assert.equal(
+      document.activeElement === q('[data-source-nav="open"]'),
+      true,
+      'source control receives focus',
+    );
   });
   win.happyDOM.abort();
 });

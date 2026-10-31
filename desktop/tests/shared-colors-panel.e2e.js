@@ -225,6 +225,7 @@ try {
   await shapeHasColor('#2468ab', 0.5);
   const halfAlphaShare = await rendererShare();
   assert.ok([45, 46].includes(halfAlphaShare.percent), 'equal-area 0.5 / 0.6 raster-alpha fixture');
+  await ensureWorkspacePanel(page, 'colors');
   await assertCoverage(slotId, otherSlotId, halfAlphaShare.percent, 'bound alpha 0.5');
   await assertAssetRetained();
 

@@ -3,7 +3,12 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { activateCommand, revealCommandMenu } from './command-menu-actions.js';
-import { revealBoundary, activateBoundaryCommand, revealNodePresets, revealNodeGroups } from './helpers/boundary-controls.js';
+import {
+  revealBoundary,
+  activateBoundaryCommand,
+  revealNodePresets,
+  revealNodeGroups,
+} from './helpers/boundary-controls.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 
 const out = resolve('test-results/workspace-panels');
@@ -80,6 +85,10 @@ try {
   assert.equal(await page.locator('[data-action="graph-fit"]').isVisible(), false);
   assert.equal(await page.locator('[data-zoom="canvas"]').isVisible(), true);
   assert.equal(await page.locator('[data-action="fit"]').isVisible(), false);
+  const hint = await page.locator('.canvas-wrap > .hint').boundingBox();
+  const initialStageBox = await page.locator('.canvas-stage').boundingBox();
+  assert.ok(hint.x >= initialStageBox.x && hint.x + hint.width <= initialStageBox.x + initialStageBox.width,
+    'canvas hint stays within the content edge rather than under the creation rail');
   await page.screenshot({ path: out + '/boundary-closed.png', animations: 'disabled' });
   for (let i = 0; i < 2; i++) {
     await graphToggle.press('Enter');
@@ -617,9 +626,19 @@ try {
     const left = await page.locator('[data-drawer-side="left"]').boundingBox();
     const canvasBounds = await page.locator('.canvas-stage').boundingBox();
     const graphBounds = await page.locator('.graph-panel').boundingBox();
-    assert.ok(left && canvasBounds && graphBounds && left.y >= canvasBounds.y - 1 && left.y + left.height <= canvasBounds.y + canvasBounds.height + 1, `${id} left drawer remains within Artboard`);
+    assert.ok(
+      left &&
+        canvasBounds &&
+        graphBounds &&
+        left.y >= canvasBounds.y - 1 &&
+        left.y + left.height <= canvasBounds.y + canvasBounds.height + 1,
+      `${id} left drawer remains within Artboard`,
+    );
     assert.ok(left.y + left.height <= graphBounds.y + 1, `${id} left drawer never covers Graph`);
-    assert.equal(await page.locator('[data-drawer-side="right"]').evaluate((el) => el.hidden && el.inert), true);
+    assert.equal(
+      await page.locator('[data-drawer-side="right"]').evaluate((el) => el.hidden && el.inert),
+      true,
+    );
     same(await state(), initial, `${id} containment check preserves cameras and history`);
   }
   await ensureWorkspacePanel(page, 'assets');
@@ -937,15 +956,25 @@ try {
   for (let i = 0; i < 20; i++) await splitter.press('ArrowDown');
   await revealNodePresets(page);
   await page.setViewportSize({ width: 900, height: 600 });
-  const popupInside = (selector) => page.waitForFunction((s) => {
-    const el = document.querySelector(s);
-    if (!el) return false;
-    const r = el.getBoundingClientRect();
-    return r.width > 0 && r.height > 0 && r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
-  }, selector);
+  const popupInside = (selector) =>
+    page.waitForFunction((s) => {
+      const el = document.querySelector(s);
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return (
+        r.width > 0 &&
+        r.height > 0 &&
+        r.left >= 0 &&
+        r.top >= 0 &&
+        r.right <= innerWidth &&
+        r.bottom <= innerHeight
+      );
+    }, selector);
   await popupInside('.boundary-popover[open] > .node-preset-controls');
   const popupState = await state();
-  const presetSummary = page.locator('.boundary-popover > summary').filter({ hasText: /^Presets$/ });
+  const presetSummary = page
+    .locator('.boundary-popover > summary')
+    .filter({ hasText: /^Presets$/ });
   await presetSummary.focus();
   await presetSummary.press('Escape');
   assert.equal(await presetSummary.evaluate((el) => el === document.activeElement), true);
@@ -953,7 +982,10 @@ try {
   await revealNodeGroups(page);
   await popupInside('.boundary-popover[open] > .boundary-group-content');
   await page.locator('[data-node-group-name]').focus();
-  assert.equal(await page.locator('[data-node-group-name]').evaluate((el) => el === document.activeElement), true);
+  assert.equal(
+    await page.locator('[data-node-group-name]').evaluate((el) => el === document.activeElement),
+    true,
+  );
   const groupsSummary = page.locator('[data-node-groups] > summary');
   await groupsSummary.focus();
   await groupsSummary.press('Escape');

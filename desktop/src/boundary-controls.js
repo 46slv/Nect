@@ -78,7 +78,10 @@ export function ensureBoundaryControls(app, document) {
     const width = Math.min(420, Math.max(0, view.innerWidth - 16));
     popup.style.maxHeight = `${Math.max(0, view.innerHeight - 16)}px`;
     popup.style.left = `${Math.max(8, Math.min(rect.left, view.innerWidth - width - 8))}px`;
-    const height = Math.min(popup.getBoundingClientRect().height, Math.max(0, view.innerHeight - 16));
+    const height = Math.min(
+      popup.getBoundingClientRect().height,
+      Math.max(0, view.innerHeight - 16),
+    );
     const below = view.innerHeight - rect.bottom - 8;
     const above = rect.top - 8;
     const preferred = below >= height || below >= above ? rect.bottom + 4 : rect.top - height - 4;
@@ -120,6 +123,22 @@ export function ensureBoundaryControls(app, document) {
   viewToggle.setAttribute('aria-label', 'Toggle artboard view controls');
   viewToggle.setAttribute('aria-controls', 'boundary-canvas-extras');
   canvas.prepend(output, viewToggle, canvasExtras);
+  // A fixed-width E-shoulder joins each control surface to the boundary.
+  // It is decorative only: neither hit targets nor camera geometry move.
+  for (const toolbar of [graph, canvas]) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'boundary-shoulder');
+    svg.setAttribute('viewBox', '0 0 48 34');
+    svg.setAttribute('aria-hidden', 'true');
+    const face = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    face.setAttribute('d', 'M0 0 H48 C41 0 37 2 32 6 L19 25 C14 31 9 34 0 34 Z');
+    face.setAttribute('class', 'boundary-shoulder-face');
+    const edge = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    edge.setAttribute('d', 'M0 0 H48 C41 0 37 2 32 6 L19 25 C14 31 9 34 0 34');
+    edge.setAttribute('class', 'boundary-shoulder-edge');
+    svg.append(face, edge);
+    toolbar.append(svg);
+  }
   panel.append(canvas);
   Object.assign(scope, {
     graphToolbar: graph,

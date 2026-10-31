@@ -77,3 +77,14 @@ export async function forceArtworkPanelCommand(page, attribute, action) {
     { attribute, action, attributes },
   );
 }
+
+// The active graph is identified by its rendered node IDs, not a removed label.
+export async function activeGraphLayer(page) {
+  return page.evaluate(() => {
+    const ids = [...document.querySelectorAll('.graph .node')].map((node) => node.dataset.id);
+    if (!ids.length) return null;
+    return window.nect.document.layers.find((layer) =>
+      layer.nodes.length === ids.length && ids.every((id) => layer.nodes.some((node) => node.id === id)),
+    )?.id ?? null;
+  });
+}

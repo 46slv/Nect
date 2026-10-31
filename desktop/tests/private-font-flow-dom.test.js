@@ -1,4 +1,4 @@
-import { openDOMPanel } from './helpers/dom-workspace-controls.js';
+import { openDOMPanel, revealDOMBoundary } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -237,6 +237,7 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
   q('.inspector-body [data-apply-os-text]').click();
   await tick();
   q('.inspector-body [data-cancel-os-text]').click();
+  revealDOMBoundary(document, 'canvas');
   q('[data-action="snap"]').click();
   const unrelated = q('.status .message').textContent;
   assert.doesNotMatch(unrelated, /Font file missing/);

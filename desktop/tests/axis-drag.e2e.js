@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
@@ -240,6 +241,7 @@ try {
   {
     const ids = await setup('Text', true);
     await page.evaluate(() => (window.nect.document.editor.snap = false));
+    await ensureWorkspacePanel(page, 'inspector');
     await page.locator('[data-character-mode]').click();
     const hit = (id) => page.locator(`.character-hit[data-character="${id}"]`);
     await hit('c1').click();

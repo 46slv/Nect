@@ -1156,6 +1156,7 @@ let history = session.historyView,
   pan = [0, 0],
   graphHeight = 42,
   graphZoom = 1,
+  graphFitInset = 0,
   graphOverviewOpen = false,
   graphOverviewObserver = null,
   graphOverviewNodes = null,
@@ -4121,6 +4122,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
       option.selected = characterEdit.selected.has(option.value);
   if (resetView) {
     graphZoom = 1;
+    graphFitInset = 0;
     canvasFit = true;
     pan = [0, 0];
   }
@@ -5491,10 +5493,11 @@ function updateGraphBounds(requiredScroll = null) {
   // Scale the rendered graph without relaying inherited CSS zoom through every
   // control. The outer space owns scroll extents, including both 16px margins.
   graph.style.transform = `scale(${graphZoom})`;
-  graph.style.left = graph.style.top = 16 * graphZoom + 'px';
+  graph.style.left = 16 * graphZoom + 'px';
+  graph.style.top = (16 + graphFitInset) * graphZoom + 'px';
   const space = graph.parentElement;
   space.style.width = (parseFloat(graph.style.width) + 32) * graphZoom + 'px';
-  space.style.height = (parseFloat(graph.style.height) + 32) * graphZoom + 'px';
+  space.style.height = (parseFloat(graph.style.height) + 32 + graphFitInset) * graphZoom + 'px';
 }
 function freePosition(type) {
   const measurements = {};
@@ -5648,6 +5651,7 @@ function sourceNavigationAction(button) {
       pointFocus = ticket.pointFocus;
     }
     graphZoom = ticket.graphZoom;
+    graphFitInset = ticket.graphFitInset ?? 0;
     render();
     const viewport = app.querySelector('.graph-scroll');
     const scroll = ticket.center.map((value, axis) =>
@@ -5707,6 +5711,7 @@ function sourceNavigationAction(button) {
       points: structuredClone(pointSelection),
       pointFocus: structuredClone(pointFocus),
       graphZoom,
+      graphFitInset,
       center: [
         (viewport.scrollLeft + viewport.clientWidth / 2) / graphZoom,
         (viewport.scrollTop + viewport.clientHeight / 2) / graphZoom,
@@ -6899,6 +6904,7 @@ function replaceDocument(
   canvasFit = true;
   pan = [0, 0];
   graphZoom = 1;
+  graphFitInset = 0;
   tool = 'select';
   selectedGuide = null;
   activeLayer = initialLayerId(history.doc);
@@ -6924,6 +6930,7 @@ function compositionViewDefaults(doc) {
     canvasFit: true,
     pan: [0, 0],
     graphZoom: 1,
+    graphFitInset: 0,
     graphScroll: [0, 0],
     tool: 'select',
     guideIds: guideSettings(doc).guides.map((guide) => guide.id),
@@ -6945,6 +6952,7 @@ function saveCompositionViewState() {
     canvasFit,
     pan: [...pan],
     graphZoom,
+    graphFitInset,
     graphScroll: graph ? [graph.scrollLeft, graph.scrollTop] : [0, 0],
     tool,
     viewerState,
@@ -6971,6 +6979,7 @@ function restoreCompositionViewState() {
   canvasFit = state.canvasFit;
   pan = [...state.pan];
   graphZoom = state.graphZoom;
+  graphFitInset = state.graphFitInset ?? 0;
   tool = state.tool;
   viewerState = state.viewerState;
   return state.graphScroll;
@@ -7770,9 +7779,9 @@ app.addEventListener('click', async (e) => {
               const viewport = document.querySelector('.graph-scroll'),
                 card = document.querySelector(`.node[data-id="${node.id}"]`);
               const scroll = [
-                (node.position[0] + (card?.offsetWidth || node.width || 264) / 2) * graphZoom -
+                (node.position[0] + (card?.offsetWidth || node.width || 264) / 2 + 16) * graphZoom -
                   viewport.clientWidth / 2,
-                (node.position[1] + (card?.offsetHeight || 100) / 2) * graphZoom -
+                (node.position[1] + (card?.offsetHeight || 100) / 2 + 16 + graphFitInset) * graphZoom -
                   viewport.clientHeight / 2,
               ].map((value) => Math.max(0, value));
               updateGraphBounds(scroll);
@@ -7806,6 +7815,7 @@ app.addEventListener('click', async (e) => {
           break;
         case 'graph-reset':
           if (!navigationBusy()) {
+            graphFitInset = 0;
             zoomGraph(1);
             document.querySelector('.graph-scroll').scrollTo(0, 0);
           }
@@ -10746,7 +10756,7 @@ function graphOverviewGeometry(remeasure = true) {
   if (remeasure || !graphOverviewNodes)
     graphOverviewNodes = [...document.querySelectorAll('.graph .node')].map((el) => ({
       x: el.offsetLeft + 16,
-      y: el.offsetTop + 16,
+      y: el.offsetTop + 16 + graphFitInset,
       width: el.offsetWidth,
       height: el.offsetHeight,
     }));
@@ -10855,12 +10865,17 @@ function fitGraph(selectedOnly = false) {
     })),
   );
   if (!bounds) return;
-  const fit = fitScale(bounds, [viewport.clientWidth, viewport.clientHeight], 32, GRAPH_LIMITS);
+  // Fit reserves a fixed screen-space band for the permanent boundary controls.
+  // Express it in graph units so zoom anchoring and overview share one origin.
+  const safeTop = Math.min(38, Math.max(0, viewport.clientHeight - 1));
+  const fit = fitScale(bounds, [viewport.clientWidth, viewport.clientHeight - safeTop], 32, GRAPH_LIMITS);
   graphZoom = fit.scale;
-  // Scroll space includes the scaled 16px margin as well as the cards.
+  graphFitInset = safeTop / graphZoom;
+  // Scroll space includes the 16px margin and this view-only inset.
   const scroll = [
     (bounds.x + bounds.width / 2 + 16) * graphZoom - viewport.clientWidth / 2,
-    (bounds.y + bounds.height / 2 + 16) * graphZoom - viewport.clientHeight / 2,
+    (bounds.y + bounds.height / 2 + 16 + graphFitInset) * graphZoom -
+      (viewport.clientHeight + safeTop) / 2,
   ];
   updateGraphBounds(scroll);
   viewport.scrollLeft = Math.max(0, scroll[0]);

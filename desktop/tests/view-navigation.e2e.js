@@ -194,7 +194,19 @@ try {
   await graph.focus();
   await page.keyboard.press('Shift+2');
   await click('graph-fit');
-  await page.locator(`.node[data-id="${ids[0]}"] .node-head strong`).click();
+  const fitPoint = await graphPoint(await center(graph));
+  const fitScroll = await scroll();
+  const boundaryToggle = page.getByRole('button', { name: 'Toggle node graph controls', exact: true });
+  await boundaryToggle.press('Enter');
+  await boundaryToggle.press('Enter');
+  near(await graphPoint(await center(graph)), fitPoint, 1);
+  near(await scroll(), fitScroll, 1);
+  const firstTitle = page.locator(`.node[data-id="${ids[0]}"] .node-head strong`);
+  assert.equal(await firstTitle.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+  }), true, 'Fit all keeps the node title reachable beside the boundary controls');
+  await firstTitle.click();
   // Focus-scoped keyboard shortcuts and native button Space.
   await stage.focus();
   await page.keyboard.press('Control+1');

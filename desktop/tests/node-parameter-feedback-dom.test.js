@@ -1,4 +1,4 @@
-import { openDOMPanel } from './helpers/dom-workspace-controls.js';
+import { openDOMPanel, revealDOMBoundary } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -155,6 +155,7 @@ test('node parameter feedback: split XY, searchable connections and expressions,
   graph.dispatchEvent(ordinary);
   assert.equal(ordinary.defaultPrevented, false);
   const zoom = document.querySelector('[data-zoom="graph"]').textContent;
+  revealDOMBoundary(document, 'graph');
   document.querySelector('[data-action="find-node"]').click();
   await tick();
   const finder = document.querySelector('.search-panel'),
@@ -165,6 +166,6 @@ test('node parameter feedback: split XY, searchable connections and expressions,
   assert.equal(document.querySelector('.node.selected').dataset.id, other.id);
   assert.equal(document.querySelector('[data-zoom="graph"]').textContent, zoom);
   assert.equal(JSON.stringify(win.nect.document), snapshot);
-  assert.equal(document.activeElement, document.querySelector('.graph-scroll'));
+  assert.equal(document.activeElement === document.querySelector('.graph-scroll'), true, 'Find restores graph focus');
   win.happyDOM.abort();
 });

@@ -24,6 +24,7 @@ function defaults(suffix) {
     canvasFit: true,
     pan: [0, 0],
     graphZoom: 1,
+    graphFitInset: 0,
     graphScroll: [0, 0],
     tool: 'select',
     guideIds: [`guide-${suffix}`],
@@ -47,6 +48,7 @@ test('Composition view snapshots stay isolated by stable Composition ID', () => 
     canvasFit: false,
     pan: [-32, 18],
     graphZoom: 1.5,
+    graphFitInset: 25,
     graphScroll: [220, 410],
     selectedGuide: 'guide-a',
   });
@@ -61,8 +63,13 @@ test('Composition view snapshots stay isolated by stable Composition ID', () => 
   assert.equal(store.restore('composition-a', a, defaults('a')).zoom, 2.25);
   assert.deepEqual(store.restore('composition-a', a, defaults('a')).pan, [-32, 18]);
   assert.deepEqual(store.restore('composition-a', a, defaults('a')).graphScroll, [220, 410]);
+  assert.equal(store.restore('composition-a', a, defaults('a')).graphFitInset, 25);
   assert.equal(store.restore('composition-a', a, defaults('a')).selectedGuide, 'guide-a');
   assert.equal(store.restore('composition-b', b, defaults('b')).zoom, 0.75);
+  const oldView = defaults('b');
+  delete oldView.graphFitInset;
+  store.save('old-view', oldView);
+  assert.equal(store.restore('old-view', b, defaults('b')).graphFitInset, 0);
   assert.deepEqual(store.restore('composition-b', b, defaults('b')).selection, []);
 });
 

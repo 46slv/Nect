@@ -58,6 +58,7 @@ try {
     return { p: p.id, s: s.id, l: l.id };
   });
   await page.locator(`.node[data-id="${ids.s}"] .node-head strong`).click();
+  await ensureWorkspacePanel(page, 'inspector');
   const field = (key) =>
     page.locator(`.inspector-body .field[data-node="${ids.s}"][data-key="${key}"]`);
   const count = () => field('points').locator('[data-value]');

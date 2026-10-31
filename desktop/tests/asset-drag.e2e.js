@@ -106,8 +106,7 @@ try {
     );
   };
   const ensurePanel = async () => {
-    if (!(await panel.count()))
-      await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
+    await ensureWorkspacePanel(page, 'assets');
     await panel.waitFor({ state: 'visible' });
   };
   const reset = async () => {
@@ -373,7 +372,6 @@ try {
   await activateCommand(page, 'undo');
   assert.equal(await page.locator('[data-action="redo"]').isDisabled(), false);
   for (const reason of ['unsupported-target', 'Escape']) {
-    if (reason === 'unsupported-target') await ensureWorkspacePanel(page, 'layers');
     const before = await state();
     const eventIndex = await startDrag('drag-mark.svg');
     if (reason === 'Escape') {
@@ -381,7 +379,7 @@ try {
       await page.keyboard.press('Escape');
       await page.mouse.up();
     } else {
-      const box = await page.locator('.layers .panel-head').boundingBox();
+      const box = await page.locator('header').boundingBox();
       await finishDrag([box.x + 35, box.y + box.height / 2]);
     }
     await page.waitForFunction(
