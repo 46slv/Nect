@@ -478,7 +478,8 @@ function openSearchPanel({
       row.setAttribute('role', treeMode ? 'treeitem' : 'option');
       row.setAttribute('aria-disabled', String(!!item.disabled));
       const name = document.createElement('span');
-      name.textContent = families && item.metadata?.subfamily ? item.metadata.subfamily : item.label;
+      name.textContent =
+        families && item.metadata?.subfamily ? item.metadata.subfamily : item.label;
       row.setAttribute('aria-label', `${item.label}${item.detail ? ` · ${item.detail}` : ''}`);
       row.append(name);
       if (item.detail) {
@@ -7573,7 +7574,9 @@ app.addEventListener('click', async (e) => {
             if (viewerState.mode === 'viewers') break;
             if (workspacePanels.active.left === 'assets') {
               workspacePanels.refresh();
-              getAssetLibraryPanel()?.querySelector('[data-asset-search]')?.focus({ preventScroll: true });
+              getAssetLibraryPanel()
+                ?.querySelector('[data-asset-search]')
+                ?.focus({ preventScroll: true });
               break;
             }
           }
@@ -7856,11 +7859,14 @@ app.addEventListener('click', async (e) => {
       }
       const currentNode = current().nodes.find((node) => node.id === nodeId);
       const choice = currentNode?.osFont?.source && privateFontChoice(currentNode.osFont.source);
-      if (privateFontMissingStatus?.owner === owner &&
-          privateFontMissingStatus.layerId === layerId &&
-          privateFontMissingStatus.nodeId === nodeId &&
-          samePrivateFontSource(privateFontMissingStatus.source, currentNode?.osFont?.source) &&
-          choice && sameFontFace(choice.face, currentNode.osFont.face))
+      if (
+        privateFontMissingStatus?.owner === owner &&
+        privateFontMissingStatus.layerId === layerId &&
+        privateFontMissingStatus.nodeId === nodeId &&
+        samePrivateFontSource(privateFontMissingStatus.source, currentNode?.osFont?.source) &&
+        choice &&
+        sameFontFace(choice.face, currentNode.osFont.face)
+      )
         notify('Font file attached for this session');
       render();
       const control = [...document.querySelectorAll('[data-change-font]')].find(
@@ -14315,17 +14321,18 @@ document.addEventListener('click', (event) => {
 document.addEventListener('keydown', (event) => {
   // Modal dialogs own Escape. An open File menu underneath an unsaved-changes
   // dialog must not cancel the browser's native dialog close action.
-  if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || composing ||
-      event.keyCode === 229 || editingControl(event.target) || event.target.closest?.('dialog[open]'))
-    return;
-  const open = [...document.querySelectorAll('.command-menu[open]')];
   if (
-    !open.length &&
-    !gridOpen &&
-    !layoutOpen &&
-    !guidesOpen
+    event.key !== 'Escape' ||
+    event.defaultPrevented ||
+    event.isComposing ||
+    composing ||
+    event.keyCode === 229 ||
+    editingControl(event.target) ||
+    event.target.closest?.('dialog[open]')
   )
     return;
+  const open = [...document.querySelectorAll('.command-menu[open]')];
+  if (!open.length && !gridOpen && !layoutOpen && !guidesOpen) return;
   event.preventDefault();
   open.forEach((menu) => (menu.open = false));
   if (open.length) open[0].querySelector('summary')?.focus();

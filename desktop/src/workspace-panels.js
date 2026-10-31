@@ -6,26 +6,45 @@ const ITEMS = [
   { id: 'assets', side: 'left', label: 'Toggle Assets panel', glyph: '▧' },
   { id: 'colors', side: 'left', label: 'Toggle Shared Colors panel', glyph: '●' },
   { id: 'layers', side: 'right', label: 'Focus Layers', glyph: '▤', selector: '.layers' },
-  { id: 'align', side: 'right', label: 'Toggle Alignment panel', glyph: '↔', selector: '.alignment-panel' },
+  {
+    id: 'align',
+    side: 'right',
+    label: 'Toggle Alignment panel',
+    glyph: '↔',
+    selector: '.alignment-panel',
+  },
   { id: 'inspector', side: 'right', label: 'Focus Inspector', glyph: '≡', selector: '.inspector' },
 ];
 const SHAPE = 'M0 0 H10 C10 30 12 49 34 68 C51 83 51 145 34 160 C12 179 10 198 10 228 H0 Z';
 
 export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColors, storage }) {
-  let root, view, observer, active = { left: null, right: 'inspector' }, retreated = false;
-  let attachVersion = 0, restorePending = true;
+  let root,
+    view,
+    observer,
+    active = { left: null, right: 'inspector' },
+    retreated = false;
+  let attachVersion = 0,
+    restorePending = true;
   try {
     const saved = JSON.parse(storage?.getItem(DRAWER_PREFERENCES_KEY) || 'null');
     if (saved && typeof saved === 'object') {
       for (const side of ['left', 'right']) {
-        if (saved[side] === null || ITEMS.some((entry) => entry.side === side && entry.id === saved[side]))
+        if (
+          saved[side] === null ||
+          ITEMS.some((entry) => entry.side === side && entry.id === saved[side])
+        )
           active[side] = saved[side];
       }
     }
-  } catch { /* Bad or obsolete preferences never prevent editing. */ }
+  } catch {
+    /* Bad or obsolete preferences never prevent editing. */
+  }
   function save() {
-    try { storage?.setItem(DRAWER_PREFERENCES_KEY, JSON.stringify(active)); }
-    catch { /* View preferences are optional. */ }
+    try {
+      storage?.setItem(DRAWER_PREFERENCES_KEY, JSON.stringify(active));
+    } catch {
+      /* View preferences are optional. */
+    }
   }
   const item = (id) => ITEMS.find((entry) => entry.id === id);
   const trigger = (id) => root?.querySelector(`[data-workspace-panel="${id}"]`);
@@ -37,13 +56,20 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     const stage = wrap.querySelector(viewerMode ? '.node-viewers' : '.canvas-stage');
     if (stage) {
       wrap.style.setProperty('--stage-left', `${stage.offsetLeft}px`);
-      wrap.style.setProperty('--stage-right', `${Math.max(0, wrap.clientWidth - stage.offsetLeft - stage.clientWidth)}px`);
+      wrap.style.setProperty(
+        '--stage-right',
+        `${Math.max(0, wrap.clientWidth - stage.offsetLeft - stage.clientWidth)}px`,
+      );
       wrap.style.setProperty('--stage-width', `${stage.clientWidth}px`);
     }
     if (stage) {
       const toolbar = viewerMode ? null : wrap.querySelector('.canvas-toolbar');
-      const top = Math.max(stage.offsetTop,
-        toolbar ? toolbar.getBoundingClientRect().bottom - wrap.getBoundingClientRect().top + 8 : stage.offsetTop);
+      const top = Math.max(
+        stage.offsetTop,
+        toolbar
+          ? toolbar.getBoundingClientRect().bottom - wrap.getBoundingClientRect().top + 8
+          : stage.offsetTop,
+      );
       const height = Math.max(0, stage.offsetTop + stage.clientHeight - top);
       wrap.style.setProperty('--drawer-top', `${top}px`);
       wrap.style.setProperty('--drawer-height', `${height}px`);
@@ -57,10 +83,19 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
       const selected = item(active[side]);
       const shown = !!selected && !(side === 'left' && (retreated || viewerMode));
       const bar = wrap.querySelector(`.workspace-panel-bar-${side}`);
-      if (viewerMode && side === 'left' &&
-          (host.contains(root.ownerDocument.activeElement) || bar?.contains(root.ownerDocument.activeElement)))
-        wrap.querySelector('.viewer-tabs [data-viewer-mode="viewers"]')?.focus({ preventScroll: true });
-      if (bar) { bar.hidden = viewerMode && side === 'left'; bar.inert = bar.hidden; }
+      if (
+        viewerMode &&
+        side === 'left' &&
+        (host.contains(root.ownerDocument.activeElement) ||
+          bar?.contains(root.ownerDocument.activeElement))
+      )
+        wrap
+          .querySelector('.viewer-tabs [data-viewer-mode="viewers"]')
+          ?.focus({ preventScroll: true });
+      if (bar) {
+        bar.hidden = viewerMode && side === 'left';
+        bar.inert = bar.hidden;
+      }
       host.dataset.activePanel = selected?.id || '';
       host.hidden = !shown;
       host.inert = !shown;
@@ -75,7 +110,9 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
         if (panel) panel.hidden = active[entry.side] !== entry.id;
       }
     }
-    root.querySelector('.canvas-toolbar [data-action="align-panel"]')?.setAttribute('aria-pressed', String(active.right === 'align'));
+    root
+      .querySelector('.canvas-toolbar [data-action="align-panel"]')
+      ?.setAttribute('aria-pressed', String(active.right === 'align'));
     const colors = wrap.querySelector('.shared-colors-panel');
     if (colors) colors.hidden = active.left !== 'colors';
     const slot = wrap.querySelector('[data-workspace-asset-slot]');
@@ -84,7 +121,9 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     if (panel) {
       const visible = active.left === 'assets' && !viewerMode && slot && !slot.hidden;
       if (viewerMode && panel.contains(root.ownerDocument.activeElement))
-        wrap.querySelector('.viewer-tabs [data-viewer-mode="viewers"]')?.focus({ preventScroll: true });
+        wrap
+          .querySelector('.viewer-tabs [data-viewer-mode="viewers"]')
+          ?.focus({ preventScroll: true });
       panel.hidden = !visible;
       panel.inert = !visible;
       panel.style.opacity = retreated ? '0' : '';
@@ -94,8 +133,12 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
         const rect = slot.getBoundingClientRect();
         panel.classList.add('asset-library-docked');
         Object.assign(panel.style, {
-          left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`,
-          height: `${rect.height}px`, right: 'auto', bottom: 'auto',
+          left: `${rect.left}px`,
+          top: `${rect.top}px`,
+          width: `${rect.width}px`,
+          height: `${rect.height}px`,
+          right: 'auto',
+          bottom: 'auto',
         });
       }
     }
@@ -113,10 +156,14 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     if (id === 'colors') onColors?.();
     refresh();
     if (focus) {
-      const target = id === 'assets'
-        ? getAssetPanel()?.querySelector('[data-asset-search]')
-        : root.querySelector(entry.selector || '.shared-colors-panel');
-      if (target) { if (id !== 'assets') target.tabIndex = -1; target.focus({ preventScroll: true }); }
+      const target =
+        id === 'assets'
+          ? getAssetPanel()?.querySelector('[data-asset-search]')
+          : root.querySelector(entry.selector || '.shared-colors-panel');
+      if (target) {
+        if (id !== 'assets') target.tabIndex = -1;
+        target.focus({ preventScroll: true });
+      }
     }
   }
   function close(id, focus = true) {
@@ -143,7 +190,10 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
       view?.addEventListener('resize', refresh);
       root.ownerDocument.addEventListener('keydown', onKeydown);
       const ResizeObserver = view?.ResizeObserver;
-      if (ResizeObserver) { observer = new ResizeObserver(refresh); observer.observe(wrap); }
+      if (ResizeObserver) {
+        observer = new ResizeObserver(refresh);
+        observer.observe(wrap);
+      }
       refresh();
       return;
     }
@@ -177,7 +227,10 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
         button.title = entry.label;
         button.setAttribute('aria-label', entry.label);
         button.setAttribute('aria-controls', `workspace-drawer-${side}`);
-        button.addEventListener('click', (event) => { event.stopPropagation(); select(entry.id); });
+        button.addEventListener('click', (event) => {
+          event.stopPropagation();
+          select(entry.id);
+        });
         bar.append(button);
       }
       wrap.append(bar);
@@ -185,29 +238,55 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     view?.addEventListener('resize', refresh);
     root.ownerDocument.addEventListener('keydown', onKeydown);
     const ResizeObserver = view?.ResizeObserver;
-    if (ResizeObserver) { observer = new ResizeObserver(refresh); observer.observe(wrap); }
+    if (ResizeObserver) {
+      observer = new ResizeObserver(refresh);
+      observer.observe(wrap);
+    }
     refresh();
     // Restore only real owners, after render has completed. A newer close or
     // attach wins; transient drag/focus state is never persisted.
     const version = ++attachVersion;
-    if (restorePending) queueMicrotask(() => {
-      if (version !== attachVersion || !restorePending) return;
-      restorePending = false;
-      if (active.left === 'assets' && !getAssetPanel()) onAssets(false);
-      if (active.left === 'colors' && !root.querySelector('.shared-colors-panel')) onColors?.();
-      if (active.right === 'align') onAlign();
-      refresh();
-    });
+    if (restorePending)
+      queueMicrotask(() => {
+        if (version !== attachVersion || !restorePending) return;
+        restorePending = false;
+        if (active.left === 'assets' && !getAssetPanel()) onAssets(false);
+        if (active.left === 'colors' && !root.querySelector('.shared-colors-panel')) onColors?.();
+        if (active.right === 'align') onAlign();
+        refresh();
+      });
   }
   function onKeydown(event) {
-    if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing ||
-        event.target.closest?.('dialog[open], input, textarea, select, [contenteditable="true"]')) return;
+    if (
+      event.key !== 'Escape' ||
+      event.defaultPrevented ||
+      event.isComposing ||
+      event.target.closest?.('dialog[open], input, textarea, select, [contenteditable="true"]')
+    )
+      return;
     const drawer = event.target.closest?.('[data-drawer-side]');
     const rail = event.target.closest?.('.workspace-panel-bar');
-    const side = drawer?.dataset.drawerSide || (rail?.classList.contains('workspace-panel-bar-left') ? 'left' : rail ? 'right' : null);
+    const side =
+      drawer?.dataset.drawerSide ||
+      (rail?.classList.contains('workspace-panel-bar-left') ? 'left' : rail ? 'right' : null);
     const id = side ? active[side] : null;
-    if (id) { event.preventDefault(); close(id); }
+    if (id) {
+      event.preventDefault();
+      close(id);
+    }
   }
-  function setRetreat(value) { retreated = !!value && active.left === 'assets'; refresh(); }
-  return { attach, refresh, select, close, setRetreat, get active() { return active; } };
+  function setRetreat(value) {
+    retreated = !!value && active.left === 'assets';
+    refresh();
+  }
+  return {
+    attach,
+    refresh,
+    select,
+    close,
+    setRetreat,
+    get active() {
+      return active;
+    },
+  };
 }

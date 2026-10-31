@@ -17,11 +17,19 @@ function fixture() {
       panel.innerHTML = '<input value="kept">';
       window.document.body.append(panel);
     },
-    onAlign: () => {}, onColors: () => {},
+    onAlign: () => {},
+    onColors: () => {},
   });
   controller.attach(root);
   controller.close('inspector', false);
-  return { window, root, controller, get panel() { return panel; } };
+  return {
+    window,
+    root,
+    controller,
+    get panel() {
+      return panel;
+    },
+  };
 }
 
 test('separate sides switch one real panel each without changing the graph', () => {
@@ -57,7 +65,8 @@ test('same trigger closes, hidden panels are inert, and dismissal restores focus
 test('asset DOM and search survive switch, render and temporary drag retreat', () => {
   const f = fixture();
   f.controller.select('assets');
-  const panel = f.panel, input = panel.querySelector('input');
+  const panel = f.panel,
+    input = panel.querySelector('input');
   input.value = 'retained search';
   const slot = f.root.querySelector('[data-workspace-asset-slot]');
   slot.getBoundingClientRect = () => ({ left: 55, top: 70, width: 300, height: 420 });
@@ -65,14 +74,20 @@ test('asset DOM and search survive switch, render and temporary drag retreat', (
   const rect = [panel.style.left, panel.style.top, panel.style.width, panel.style.height];
   slot.getBoundingClientRect = () => ({ left: 0, top: 0, width: 0, height: 0 });
   f.controller.setRetreat(true);
-  assert.deepEqual([panel.style.left, panel.style.top, panel.style.width, panel.style.height], rect);
+  assert.deepEqual(
+    [panel.style.left, panel.style.top, panel.style.width, panel.style.height],
+    rect,
+  );
   assert.equal(panel.style.opacity, '0');
   assert.equal(panel.style.pointerEvents, 'none');
   assert.equal(panel.isConnected, true);
   slot.getBoundingClientRect = () => ({ left: 65, top: 80, width: 280, height: 400 });
   f.controller.setRetreat(false);
   assert.equal(panel.hidden, false);
-  assert.deepEqual([panel.style.left, panel.style.top, panel.style.width, panel.style.height], ['65px', '80px', '280px', '400px']);
+  assert.deepEqual(
+    [panel.style.left, panel.style.top, panel.style.width, panel.style.height],
+    ['65px', '80px', '280px', '400px'],
+  );
   f.controller.select('colors');
   assert.equal(panel.hidden, true);
   f.root.innerHTML = markup;
@@ -94,50 +109,79 @@ test('repeat attach does not multiply triggers and Escape does not steal text ed
   f.controller.select('inspector');
   const inspector = f.root.querySelector('.inspector');
   const input = f.window.document.createElement('input');
-  inspector.append(input); input.focus();
+  inspector.append(input);
+  input.focus();
   input.dispatchEvent(new f.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   assert.equal(f.root.querySelector('[data-drawer-side="right"]').hidden, false);
   inspector.focus();
   inspector.dispatchEvent(new f.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   assert.equal(f.root.querySelector('[data-drawer-side="right"]').hidden, true);
-  assert.equal(f.window.document.activeElement, f.root.querySelector('[data-workspace-panel="inspector"]'));
+  assert.equal(
+    f.window.document.activeElement,
+    f.root.querySelector('[data-workspace-panel="inspector"]'),
+  );
   f.window.happyDOM.abort();
 });
 
-
 test('drawer preferences restore real owners and ignore invalid or legacy data', async () => {
-  const w = new Window(), root = w.document.createElement('div');
+  const w = new Window(),
+    root = w.document.createElement('div');
   w.document.body.append(root);
-  const values = new Map([[DRAWER_PREFERENCES_KEY, JSON.stringify({ left: 'assets', right: 'layers' })], ['nect.workspace-panels.v1', '{broken']]);
-  let panel = null, opens = 0, focused = null;
-  const storage = { getItem: (key) => values.get(key), setItem: (key, value) => values.set(key, value) };
-  const create = () => createWorkspacePanels({
-    storage, getAssetPanel: () => panel,
-    onAssets: (focus) => { opens++; focused = focus; panel = w.document.createElement('aside'); w.document.body.append(panel); },
-    onAlign: () => {}, onColors: () => {},
-  });
+  const values = new Map([
+    [DRAWER_PREFERENCES_KEY, JSON.stringify({ left: 'assets', right: 'layers' })],
+    ['nect.workspace-panels.v1', '{broken'],
+  ]);
+  let panel = null,
+    opens = 0,
+    focused = null;
+  const storage = {
+    getItem: (key) => values.get(key),
+    setItem: (key, value) => values.set(key, value),
+  };
+  const create = () =>
+    createWorkspacePanels({
+      storage,
+      getAssetPanel: () => panel,
+      onAssets: (focus) => {
+        opens++;
+        focused = focus;
+        panel = w.document.createElement('aside');
+        w.document.body.append(panel);
+      },
+      onAlign: () => {},
+      onColors: () => {},
+    });
   root.innerHTML = markup;
-  const controller = create(); controller.attach(root);
+  const controller = create();
+  controller.attach(root);
   await Promise.resolve();
-  assert.equal(opens, 1); assert.equal(focused, false);
+  assert.equal(opens, 1);
+  assert.equal(focused, false);
   assert.equal(root.querySelector('.layers').hidden, false);
   assert.equal(panel.hidden, false);
   controller.select('inspector');
-  assert.deepEqual(JSON.parse(values.get(DRAWER_PREFERENCES_KEY)), { left: 'assets', right: 'inspector' });
+  assert.deepEqual(JSON.parse(values.get(DRAWER_PREFERENCES_KEY)), {
+    left: 'assets',
+    right: 'inspector',
+  });
   controller.setRetreat(true);
-  assert.deepEqual(JSON.parse(values.get(DRAWER_PREFERENCES_KEY)), { left: 'assets', right: 'inspector' });
+  assert.deepEqual(JSON.parse(values.get(DRAWER_PREFERENCES_KEY)), {
+    left: 'assets',
+    right: 'inspector',
+  });
   values.set(DRAWER_PREFERENCES_KEY, '{broken');
   root.innerHTML = markup;
-  const fallback = create(); fallback.attach(root);
+  const fallback = create();
+  fallback.attach(root);
   assert.equal(root.querySelector('.inspector').hidden, false);
   w.happyDOM.abort();
 });
 
-
 test('Viewer mode suspends the Assets portal and restores its live state on return', () => {
   const f = fixture();
   f.controller.select('assets');
-  const panel = f.panel, input = panel.querySelector('input');
+  const panel = f.panel,
+    input = panel.querySelector('input');
   input.value = 'viewer-round-trip';
   const wrap = f.root.querySelector('.canvas-wrap');
   wrap.dataset.viewerMode = 'viewers';

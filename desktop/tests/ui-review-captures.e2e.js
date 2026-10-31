@@ -195,9 +195,15 @@ const checkPaletteTopLayout = async () => {
       `${label} is contained at panel top: ${JSON.stringify(layout)}`,
     );
   assert.ok(layout.wheel.top >= layout.bar.bottom, 'Status row does not cover the wheel');
-  assert.ok(layout.swatches.left >= layout.wheel.right, 'Palette occupies the column to the right of the wheel');
+  assert.ok(
+    layout.swatches.left >= layout.wheel.right,
+    'Palette occupies the column to the right of the wheel',
+  );
   assert.ok(layout.swatches.top >= layout.bar.bottom, 'Status row does not cover palette');
-  assert.ok(layout.neutral.top >= layout.wheel.bottom, 'Neutral track follows wheel in the left column');
+  assert.ok(
+    layout.neutral.top >= layout.wheel.bottom,
+    'Neutral track follows wheel in the left column',
+  );
   assert.equal(layout.chips.length, 5);
   for (const chip of layout.chips) {
     assert.ok(chip.right - chip.left >= 38 && chip.bottom - chip.top >= 44);
@@ -206,13 +212,19 @@ const checkPaletteTopLayout = async () => {
   const swatches = page.locator('.harmony-palette-swatches');
   for (const chip of await swatches.locator('[data-wheel-select]').all()) {
     await chip.scrollIntoViewIfNeeded();
-    assert.equal(await chip.evaluate((el) => {
-      const r = el.getBoundingClientRect();
-      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return top === el || el.contains(top);
-    }), true, 'each scrollable palette chip is reachable');
+    assert.equal(
+      await chip.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return top === el || el.contains(top);
+      }),
+      true,
+      'each scrollable palette chip is reachable',
+    );
   }
-  await swatches.evaluate((el) => { el.scrollTop = 0; });
+  await swatches.evaluate((el) => {
+    el.scrollTop = 0;
+  });
   assert.equal(
     layout.coverage.title,
     layout.coverage.text,

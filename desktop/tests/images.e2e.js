@@ -15,7 +15,9 @@ page.on('dialog', (d) => d.accept());
 const value = async (name, text) => {
   const artboard = name.startsWith('Artboard ');
   await ensureWorkspacePanel(page, artboard ? 'layers' : 'inspector');
-  const el = page.locator(artboard ? '.artboard-settings' : '.inspector-body').getByRole('spinbutton', { name, exact: true });
+  const el = page
+    .locator(artboard ? '.artboard-settings' : '.inspector-body')
+    .getByRole('spinbutton', { name, exact: true });
   const previous = await el.elementHandle();
   const changed = (await el.inputValue()) !== String(text);
   await el.fill(String(text));

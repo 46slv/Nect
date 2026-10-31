@@ -150,7 +150,11 @@ const assertAssetRetained = async () => {
     'color edits and rendering retain the mounted Assets panel',
   );
   const panel = page.locator('[data-asset-library]');
-  assert.equal(await panel.isVisible(), false, 'Assets is suspended while Colors owns the left drawer');
+  assert.equal(
+    await panel.isVisible(),
+    false,
+    'Assets is suspended while Colors owns the left drawer',
+  );
   assert.equal(await panel.locator('[data-asset-search]').inputValue(), 'retained-search');
 };
 try {

@@ -176,7 +176,10 @@ try {
     if (mode === 'rename') {
       await ensureWorkspacePanel(page, 'layers');
       await page.locator(`[data-select-layer="${f.ids[3]}"]`).press('F2');
-      assert.equal(await page.locator('[data-rename-name]').evaluate((el) => el === document.activeElement), true);
+      assert.equal(
+        await page.locator('[data-rename-name]').evaluate((el) => el === document.activeElement),
+        true,
+      );
     }
     if (mode === 'pen') {
       await page.locator('[data-tool="pen"]').click();
