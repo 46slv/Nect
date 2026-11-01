@@ -1,4 +1,10 @@
-import { KEY_COLOR_RECIPE_VERSION, restoreKeyColorRecipe } from './key-color-recipe.js';
+import {
+  KEY_COLOR_RECIPE_VERSION,
+  KEY_COLOR_SOLVER_VERSION,
+  KEY_COLOR_SEMANTICS_VERSION,
+  createKeyColorRecipe,
+  restoreKeyColorRecipe,
+} from './key-color-recipe.js';
 
 // Native receipts remain historical, never live palette ownership. An explicit
 // one-shot application may materialize values without enabling a UI or defaults.
@@ -20,6 +26,8 @@ function assertJsonSnapshot(value, path = '$.committedSnapshot', ancestors = new
   if (!value || typeof value !== 'object') throw Error(`Invalid retained JSON value at ${path}`);
   if (ancestors.has(value)) throw Error(`Cyclic retained JSON value at ${path}`);
   const array = Array.isArray(value);
+  if (array && Object.getPrototypeOf(value) !== Array.prototype)
+    throw Error(`Invalid retained JSON array at ${path}`);
   if (!array && ![Object.prototype, null].includes(Object.getPrototypeOf(value)))
     throw Error(`Invalid retained JSON object at ${path}`);
   if (Object.getOwnPropertySymbols(value).length)
@@ -78,6 +86,105 @@ function snapshotWithExistingSlots(value, slots) {
   for (const row of snapshot.resolved)
     if (!slots.has(row.id)) throw Error('Missing retained key-color slot reference');
   return snapshot;
+}
+// Developer/test-fixture boundary only: no product plan, coefficients, roles,
+// generated count, names or allocation are selected here. Validate raw data
+// before the pure model's structuredClone can discard unsupported properties.
+function initializationRequest(raw) {
+  assertJsonSnapshot(raw, '$.initialization');
+  // Detach the entire guarded request, not just model intent. In particular,
+  // allocations must never execute caller-supplied inherited/proxy methods.
+  const payload = structuredClone(raw);
+  fields(payload, [
+    'version',
+    'modelVersion',
+    'solverVersion',
+    'colorSemanticsVersion',
+    'paletteId',
+    'intent',
+    'allocations',
+  ]);
+  if (
+    payload.version !== 1 ||
+    payload.modelVersion !== KEY_COLOR_RECIPE_VERSION ||
+    payload.solverVersion !== KEY_COLOR_SOLVER_VERSION ||
+    payload.colorSemanticsVersion !== KEY_COLOR_SEMANTICS_VERSION
+  )
+    throw Error('Unsupported key-color initialization version');
+  const { intent } = payload;
+  fields(intent, ['keyColor', 'preset', 'slots', 'settings']);
+  fields(intent.keyColor, ['id', 'role', 'value', 'hueHint']);
+  fields(intent.keyColor.value, ['hex', 'alpha']);
+  fields(intent.settings, ['areaAware']);
+  fields(intent.preset, ['id', 'version', 'harmony', 'hueSteps', 'slots']);
+  if (intent.preset.version !== 1) throw Error('Unsupported initialization preset version');
+  if (
+    !Array.isArray(intent.slots) ||
+    intent.slots.length > 255 ||
+    !Array.isArray(intent.preset.slots) ||
+    intent.preset.slots.length > 255 ||
+    !Array.isArray(payload.allocations) ||
+    payload.allocations.length > 256
+  )
+    throw Error('Invalid key-color initialization lists');
+  for (const slot of intent.slots) fields(slot, ['id', 'role', 'deltaL', 'deltaRatioCmax']);
+  for (const plan of intent.preset.slots)
+    fields(plan, [
+      'id',
+      'role',
+      'position',
+      'lightnessScale',
+      'lightnessOffset',
+      'chromaScale',
+      'chromaOffset',
+      'alpha',
+    ]);
+  const allocated = new Set();
+  for (const allocation of payload.allocations) {
+    fields(allocation, ['slotId', 'name']);
+    if (
+      typeof allocation.slotId !== 'string' ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(allocation.slotId) ||
+      allocated.has(allocation.slotId)
+    )
+      throw Error('Invalid or duplicate key-color allocation ID');
+    if (
+      typeof allocation.name !== 'string' ||
+      !allocation.name.trim() ||
+      allocation.name.length > 128
+    )
+      throw Error('Invalid Color slot name');
+    allocated.add(allocation.slotId);
+  }
+  const intended = new Set([intent.keyColor.id, ...intent.slots.map((slot) => slot.id)]);
+  if (allocated.size !== intended.size || [...intended].some((id) => !allocated.has(id)))
+    throw Error('Key-color allocations must exactly cover explicit intent IDs');
+  return payload;
+}
+export function keyColorRecipeInitializationSlotIds(payload) {
+  return initializationRequest(payload).allocations.map((allocation) => allocation.slotId);
+}
+export function prepareKeyColorRecipeInitialization(doc, payload, slots) {
+  const request = initializationRequest(payload),
+    slotIds = request.allocations.map((allocation) => allocation.slotId);
+  if (Object.hasOwn(doc, 'keyColorRecipe'))
+    throw Error('Retained key-color recipe exists; initialization is create-only');
+  if (slots.size + slotIds.length > 256) throw Error('Shared Color slot budget exceeded');
+  if (slotIds.some((id) => slots.has(id)))
+    throw Error('Key-color initialization requires fresh slot IDs');
+  // Fresh slots have no historic colors. An omitted derived mapping must reject,
+  // never become invented dormant history. The pure create path enforces this.
+  const snapshot = createKeyColorRecipe({ paletteId: request.paletteId, ...request.intent }),
+    proposed = new Map(snapshot.resolved.map((row) => [row.id, row]));
+  const prepared = prepareKeyColorRecipeApplication(doc, { snapshot }, proposed);
+  return {
+    snapshot: prepared.snapshot,
+    slots: request.allocations.map(({ slotId, name }) => ({
+      id: slotId,
+      name,
+      value: { ...proposed.get(slotId).value },
+    })),
+  };
 }
 export function prepareKeyColorRecipeApplication(doc, payload, slots) {
   fields(payload, ['snapshot']);

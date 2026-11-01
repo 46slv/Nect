@@ -1,4 +1,8 @@
-import { validateCompositionProject } from './composition-project-model.js';
+import {
+  validateCompositionProject,
+  assertFreshCompositionEntityIds,
+} from './composition-project-model.js';
+import { keyColorRecipeInitializationSlotIds } from './key-color-recipe-document.js';
 import { prepareProjectCompositionsImport } from './composition-project-import.js';
 
 function documentFor(project, compositionId, cloneDocument) {
@@ -481,6 +485,17 @@ export class CompositionSessionOwner {
   }
 
   dispatch(command) {
+    if (command?.type === 'initialize-key-color-recipe') {
+      this.#assertCurrentCommand(command);
+      this.#assertQuiescent();
+      // Reject inactive-Composition ID collisions before inner Session commit.
+      // The generic post-validation fallback rebuilds a Session; that is not an
+      // acceptable failure path for this exact-envelope initialization boundary.
+      const proposedIds = keyColorRecipeInitializationSlotIds(command.payload);
+      if (Object.hasOwn(this.#history.doc, 'keyColorRecipe'))
+        throw Error('Retained key-color recipe exists; initialization is create-only');
+      assertFreshCompositionEntityIds(this.#history.doc, proposedIds);
+    }
     if (command?.type === 'import-project-compositions') {
       this.#assertCurrentCommand(command);
       this.#assertQuiescent();

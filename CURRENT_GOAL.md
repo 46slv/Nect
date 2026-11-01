@@ -14,22 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-10-28 Shared Color identity and persistence
+## ACTIVE CHECKPOINT — 2026-11-01 explicit key-color initialization infrastructure
 
-Goal: Give the accepted REQ-211 color design real shared identities before UI integration; never infer identity from equal display colors.
+Goal: Add developer/test-fixture-only atomic initialization from fully explicit supported versioned intent and exact fresh stable-ID/name allocation. Do not treat this as ordinary-user creation or approved product coefficients.
 
-Current phase: Root is sole production writer on codex/nect-color-core-20261028. Parallel Sol reviewers/test writers are released. The user requested root implementation; Codex is validation/parallel only, up to Sol high.
+Current phase: Sole source lane on `feat/keycolor-atomic-initialization`, isolated worktree `/tmp/nect-keycolor-atomic-initialization-20261101`, exact base `e462c1aab68c9e531e5e64d887889b308811d548`. Independent review is read-only.
 
-Proven: PR #107 at 99d5d252 passed Windows CI 40706323357. Downloaded color-coverage/results.json proved four real Chrome raster cases, including partial alpha/clipping/order/Other; native acceptance remains NOT RUN. The next local schema-54 shared-color foundation has 19 focused tests and 70 related tests PASS plus production build PASS. Independent review found and root repaired preset validation, SVG registry loss, foreign-import ID retargeting, and legacy-ID allocation collisions.
+Proven: 21 new real Document/Composition tests pass, and the combined initialization/retention/Apply regression is 70/70 PASS. Exact C1 HEX/alpha0 and IDs/names; revision-zero receipt and one Undo/Redo/native round trip; legacy preservation; receipt-present refusal; fresh-only/global collisions including inactive Composition/Layer/Node/Point/Guide/Node-group; allocation/version/mapping/raw JSON/alpha/budget rejection with exact Session envelope and pending Redo; detached preparation, stale request and unchanged blank defaults. Independent read-only review found and verified repair of an inherited Array/proxy allocation-method atomicity hole: nonordinary arrays reject and the whole guarded request is detached before consumption. No remaining actionable review findings; independent focused regression 70/70 PASS and diff-check PASS. Existing prototype/retention/Apply/editor semantics are unchanged.
 
-Implementation: Shared literal colorSlots and sibling parameter colorSlotId; atomic create/rename/set/bind/unbind commands, unbind freezes resolved Color, evaluator cache invalidation, all-composition/preset validation, referenced-slot import with independent collision remapping. No Color payload metadata, color-panel UI, palette resolver, Auto Chroma or automatic coverage provenance yet.
+Approach: Closed v1 initialization request pins model2, experimental-affine-v1 and linear-srgb-straight-v1. Reuse raw lossless-JSON guard before whole-request detachment and pure createKeyColorRecipe. Append new slots and schema58 retained-only receipt in one private Session candidate. Composition proposed-ID preflight runs before inner Session commit, not the generic post-validation rebuild fallback.
 
-Next task: Publish and verify the exact foundation candidate; then propagate authored paint provenance into coverage and add the panel with existing history/save contracts. Preserve the proven earlier artifact instead of claiming it validates newer source.
+Next task: Complete aggregate format/unit/build checks, independent source review, source-bound receipt and authorized development-branch/Draft PR publication; follow normal CI to a terminal result for the exact candidate tree. Repair bounded findings within this lane.
 
-Done for next: Exact-head tests/CI, identity-preserving persistence and import, and no unreviewed source blocker before adding visible controls.
+Done for next: Independent review has no unresolved actionable finding, local checks and exact-tree CI evidence are reconciled, source-bound receipt and Draft PR are available. This packet completes infrastructure only; ordinary-user creation still needs an accepted versioned initial plan/role-count mapping, especially dark-role lightness ordering, or explicit approval of a particular experimental plan.
 
-State: PR #107 stacked on separately frozen PR #106 (462eb8d); neither main merge nor release. Root source worktree nect-hashi-color-core-20261028. Native acceptance is an independent pending obligation; no duplicate GUI owner.
+State: Local candidate based on main after #153/#154 completion. No creation button/preset factory/coefficient editor/JSON import UX/main wiring; no sticky ownership/load solve/default change. Browser/native acceptance is not claimed; known local browser sandbox failures are not retried or bypassed. No font bytes, user documents, native app launches or denied/session paths are accessed.
 
-Authority: Accepted REQ-211 design and direct Nect implementation instructions allow edits/tests/development commits/push/Draft PR. No protected-main merge/release/force/history rewrite or authentication/permission/billing changes.
+Authority: Current explicit bounded implementation request permits Nect code/tests/docs, coherent commit, development-branch publication and Draft PR. Do not mark Ready, merge, release, force-push, rewrite history or submit approval reviews. Do not change authentication, permissions or billing.
 
-Handoff: CONTINUE_CURRENT_TASK. Root owns production source.
+Handoff: CONTINUE_CURRENT_TASK. Parent retains overall Mission ownership; this isolated lane owns only initialization implementation/verification/publication.

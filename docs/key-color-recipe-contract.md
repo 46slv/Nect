@@ -7,6 +7,9 @@ That adapter stores historical receipts and permits a separate explicit one-shot
 application of active HEX/alpha values to unlocked existing slots. Loading does
 not generate/apply colors. No generator UI binding, Field evaluator, automatic
 legacy conversion or replacement is introduced; the pure solver is unchanged.
+The separate [developer/test-fixture initialization API](../desktop/docs/key-color-recipe-initialization.md)
+allocates only fully explicit fresh IDs and a revision-zero historical receipt;
+it introduces no product preset/default or ordinary-user creation flow.
 
 ## Source and decision boundary
 
