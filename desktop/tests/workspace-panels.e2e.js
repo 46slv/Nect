@@ -104,13 +104,17 @@ try {
   await graphToggle.press('Enter');
   await page.screenshot({ path: out + '/boundary-graph-open.png', animations: 'disabled' });
   await viewToggle.press('Enter');
-  assert.equal(await graphToggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(await graphToggle.getAttribute('aria-expanded'), 'true');
   assert.equal(await viewToggle.getAttribute('aria-expanded'), 'true');
   assert.equal(await page.locator('[data-action="fit"]').isVisible(), true);
-  same(await state(), initial, 'switching boundary ends does not move either camera');
+  assert.equal(await page.locator('[data-action="graph-fit"]').isVisible(), true);
+  same(await state(), initial, 'opening both boundary ends does not move either camera');
   await page.screenshot({ path: out + '/boundary-view-open.png', animations: 'disabled' });
   await viewToggle.press('Escape');
   assert.equal(await viewToggle.evaluate((el) => el === document.activeElement), true);
+  assert.equal(await graphToggle.getAttribute('aria-expanded'), 'true');
+  await graphToggle.press('Escape');
+  assert.equal(await graphToggle.getAttribute('aria-expanded'), 'false');
   same(await state(), initial, 'closing view controls is view-only');
   // A circle's visible face plus focus ring must remain inside the rounded surface;
   // its transparent 30px rectangular hit target is checked separately.

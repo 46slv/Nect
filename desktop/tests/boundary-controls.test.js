@@ -34,17 +34,36 @@ test('boundary disclosures retain real controls and keep hidden content inert', 
   assert.equal(graphExtras.hidden || graphExtras.inert, false);
   find.focus();
   view.click();
-  assert.equal(graphExtras.hidden && graphExtras.inert, true);
-  assert.equal(window.document.activeElement, view);
+  assert.equal(graphExtras.hidden || graphExtras.inert, false);
+  assert.equal(window.document.activeElement, find);
   assert.equal(view.getAttribute('aria-expanded'), 'true');
+  assert.equal(canvasExtras.hidden || canvasExtras.inert, false);
   view.dispatchEvent(
     new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
   );
   assert.equal(view.getAttribute('aria-expanded'), 'false');
   assert.equal(window.document.activeElement, view);
+  assert.equal(graph.getAttribute('aria-expanded'), 'true');
+  view.click();
+  graph.click();
+  assert.equal(graph.getAttribute('aria-expanded'), 'false');
+  assert.equal(view.getAttribute('aria-expanded'), 'true');
+  assert.equal(canvasExtras.hidden || canvasExtras.inert, false);
+  graph.click();
+  find.focus();
+  graph.click();
+  assert.equal(window.document.activeElement, graph);
+  assert.equal(view.getAttribute('aria-expanded'), 'true');
+  graph.click();
+  zoom.focus();
   app.querySelector('.canvas-wrap').dataset.viewerMode = 'viewers';
   syncBoundaryViewerMode(app);
   assert.equal(app.querySelector('.canvas-toolbar').hidden, true);
   assert.equal(window.document.activeElement, app.querySelector('[data-viewer-mode="viewers"]'));
+  assert.equal(graph.getAttribute('aria-expanded'), 'true');
+  app.querySelector('.canvas-wrap').dataset.viewerMode = 'artwork';
+  syncBoundaryViewerMode(app);
+  assert.equal(app.querySelector('.canvas-toolbar').hidden, false);
+  assert.equal(view.getAttribute('aria-expanded'), 'true');
   window.happyDOM.abort();
 });
