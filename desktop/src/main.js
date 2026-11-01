@@ -882,7 +882,15 @@ app.addEventListener(
     const field = swatch.closest('.field'),
       node = current().nodes.find((n) => n.id === field?.dataset.node),
       q = node && parameter(node, field.dataset.key);
-    if (!q || q.type !== 'Color' || q.locked || node.locked || current().locked || q.colorSlotId !== undefined) return;
+    if (
+      !q ||
+      q.type !== 'Color' ||
+      q.locked ||
+      node.locked ||
+      current().locked ||
+      q.colorSlotId !== undefined
+    )
+      return;
     const label = node.name + ' ' + field.dataset.key;
     hslPicker.open({
       anchor: swatch,
