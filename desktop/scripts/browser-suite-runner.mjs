@@ -83,6 +83,7 @@ export const browserTestFiles = Object.freeze([
   'tests/ui-font.e2e.js',
   'tests/hsl-workspace-integration.e2e.js',
   'tests/ui-sound.e2e.js',
+  'tests/workspace-escape.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };

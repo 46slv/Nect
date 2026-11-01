@@ -14228,6 +14228,9 @@ document.addEventListener('keydown', (e) => {
     updateNavigation();
   }
   if (e.key === 'Escape') {
+    // Let the drawer's bubble handler dismiss its own surface. Rendering here
+    // detaches focus and rebinds that handler before the event can reach it.
+    if (!drag && !wiring && e.target.closest('[data-drawer-side], .workspace-panel-bar')) return;
     characterEdit = null;
     // Node cancellation renders once below, after the common Escape cleanup.
     cancelInteraction(drag?.type !== 'node');
