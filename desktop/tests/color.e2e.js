@@ -26,7 +26,7 @@ async function setColor(id, key, hex, alpha) {
       window.nect.document.layers[0].nodes.find((n) => n.id === id).params[key].value.hex === hex,
     { id, key, hex },
   );
-  await picker.locator('[data-hsl-close]').click();
+  if (await picker.count()) await picker.locator('[data-hsl-close]').click();
   const input = field(id, key).locator('[data-color="alpha"]');
   await input.fill(String(alpha));
   await input.press('Tab');
