@@ -10,6 +10,7 @@ import {
   validateRetainedKeyColorRecipe,
   applyRetainedKeyColorRecipeCommand,
   prepareKeyColorRecipeApplication,
+  prepareKeyColorRecipeInitialization,
 } from './key-color-recipe-document.js';
 // Authored shared colors. Identity is independent of the resolved Color value.
 export const COLOR_SLOTS_SCHEMA_VERSION = 54;
@@ -31,6 +32,7 @@ export const colorSlotCommands = new Set([
   'set-color-slot',
   'set-color-slots',
   'apply-key-color-recipe-snapshot',
+  'initialize-key-color-recipe',
   'bind-color-slot',
   'unbind-color-slot',
   ...keyColorRecipeDocumentCommands,
@@ -202,6 +204,20 @@ function prepareColorSlotUpdates(slots, updates) {
 }
 export function applyColorSlotCommand(doc, type, payload, makeId) {
   const slots = validateColorSlots(doc);
+  if (type === 'initialize-key-color-recipe') {
+    const prepared = prepareKeyColorRecipeInitialization(doc, payload, slots);
+    // One private candidate: fresh slots and the revision-zero historical
+    // receipt enter the same Session transaction, never chained public edits.
+    doc.colorSlots = [...(doc.colorSlots || []), ...prepared.slots];
+    for (const slot of prepared.slots) slots.set(slot.id, slot);
+    const result = applyRetainedKeyColorRecipeCommand(
+      doc,
+      'retain-key-color-recipe-snapshot',
+      { snapshot: prepared.snapshot },
+      slots,
+    );
+    return { ...result, slotIds: prepared.slots.map((slot) => slot.id) };
+  }
   if (type === 'apply-key-color-recipe-snapshot') {
     const prepared = prepareKeyColorRecipeApplication(doc, payload, slots),
       updates = prepareColorSlotUpdates(slots, prepared.updates),

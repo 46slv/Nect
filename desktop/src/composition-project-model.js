@@ -125,6 +125,20 @@ function assertGlobalEntityIds(project) {
     if (!isRecord(preset)) throw Error('Invalid node preset');
     assertUniqueId(preset.id, 'Node preset', ids);
   }
+  return ids;
+}
+
+// A narrow create-only preflight for explicit IDs. Inactive Composition entities
+// participate in the same namespace as global shared Colors. Call before the
+// inner Document Session commits, not after a project-adapter rollback.
+export function assertFreshCompositionEntityIds(project, proposedIds) {
+  const ids = assertGlobalEntityIds(project);
+  // Document validation also registers graph-organization group IDs. Include
+  // inactive groups here without broadening the legacy project validator.
+  for (const composition of project.compositions)
+    for (const layer of composition.layers)
+      for (const group of layer.nodeGroups || []) ids.add(group.id);
+  for (const id of proposedIds) assertUniqueId(id, 'Proposed entity', ids);
 }
 
 function assertCompositionProjectFields(project) {
