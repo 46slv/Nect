@@ -314,7 +314,8 @@ try {
   await field(importedGradient, 'endColor').locator('[data-hsl-picker-open]').click();
   await page.locator('[data-hsl-hex]').fill('#fedcba');
   await page.locator('[data-hsl-hex]').press('Tab');
-  await page.locator('[data-hsl-close]').click();
+  if (await page.locator('.hsl-color-popover').count())
+    await page.locator('[data-hsl-close]').click();
   await page.waitForFunction(
     () =>
       document
