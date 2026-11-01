@@ -3,8 +3,10 @@
 Status: **experimental pure generator, not an active editor palette or default**.
 `desktop/src/key-color-recipe.js` also validates optional historical snapshots in
 the [schema58 retained-only adapter](../desktop/docs/key-color-recipe-retention.md).
-That adapter stores receipts without generating or applying colors. No generator
-UI binding, Field evaluator, legacy conversion or replacement is introduced.
+That adapter stores historical receipts and permits a separate explicit one-shot
+application of active HEX/alpha values to unlocked existing slots. Loading does
+not generate/apply colors. No generator UI binding, Field evaluator, automatic
+legacy conversion or replacement is introduced; the pure solver is unchanged.
 
 ## Source and decision boundary
 
