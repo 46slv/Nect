@@ -2,7 +2,9 @@
 
 The packet is **opt-in historical persistence, not a live color driver**. A
 separate explicit Session command can materialize its active resolved values once;
-loading never does so. No new coefficients, UI or defaults are selected. The pure
+loading never does so. No new coefficients or defaults are selected. The separate
+[opt-in experimental editor](key-color-recipe-editor.md) opens only an existing
+retained receipt for explicit Preview/Apply. The pure
 model is carried from reviewed prototype `535052c4415207143294dea561ad3f96dbdf5456`;
 its experimental affine coefficients and pure editing/alpha policies are unchanged.
 See [the prototype contract](../../docs/key-color-recipe-contract.md).
@@ -36,7 +38,8 @@ absolute L, role, Lock, alpha and settings retain their original meanings.
 ## Typed Session operations
 
 Use the existing Session envelope (`sessionId`, exact `expectedRevision`, `type`,
-`payload`). There is no UI trigger in this packet.
+`payload`). Retain/replace/clear remain explicit API operations; the separate
+experimental editor only exposes Apply for an already-retained receipt.
 
 | Type                                | Payload        | Preconditions / result                                        |
 | ----------------------------------- | -------------- | ------------------------------------------------------------- |
@@ -115,7 +118,8 @@ Any concurrent edit, Undo/Redo or Composition switch makes that envelope stale;
 it must not be silently refreshed at Apply. Pure edits create detached candidates;
 invalid pending input must not dispatch an older valid preview, and should disable
 Apply until corrected or cancelled. No pending intent, preview or error is stored
-in the native packet by this command, and this patch implements no preview UI.
+in the native packet by this command. The separate
+[experimental editor](key-color-recipe-editor.md) follows this preview contract.
 
 ## IDs, dormant references and global ownership
 

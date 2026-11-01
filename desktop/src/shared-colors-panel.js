@@ -18,6 +18,7 @@ export function createSharedColorsPanel({
   live = false,
   onPreview = () => {},
   onClose = () => {},
+  onOpenKeyColorRecipe = () => {},
   externalVisibility = false,
 }) {
   let activeColorPointer = null,
@@ -245,6 +246,14 @@ export function createSharedColorsPanel({
   app.addEventListener(
     'pointerdown',
     (event) => {
+      // Opening the separate experimental draft must not finish a legacy live
+      // gesture. Prevent native blur/change before it can commit the old field.
+      if (event.target.closest?.('[data-key-color-recipe-open]')) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        controller.cancelEdit();
+        return;
+      }
       if (activeColorPointer !== null) {
         if (event.pointerId !== activeColorPointer) {
           event.preventDefault();
@@ -338,9 +347,17 @@ export function createSharedColorsPanel({
     }
   }
   app.addEventListener('click', (event) => {
-    const button = event.target.closest?.('[data-shared-color-add],[data-shared-color-close]');
+    const button = event.target.closest?.(
+      '[data-shared-color-add],[data-shared-color-close],[data-key-color-recipe-open]',
+    );
     if (!button) return;
     event.stopImmediatePropagation();
+    if (button.hasAttribute('data-key-color-recipe-open')) {
+      controller.cancelEdit();
+      render();
+      onOpenKeyColorRecipe(app.querySelector('[data-key-color-recipe-open]'));
+      return;
+    }
     if (button.hasAttribute('data-shared-color-close')) return close();
     perform(() =>
       dispatch(
@@ -494,7 +511,7 @@ export function createSharedColorsPanel({
         )
         .join('');
       const savedColors = `<div class="shared-color-list" aria-label="Saved shared colors"><h3 class="shared-colors-heading">${live && chroma.editing ? 'Live colors' : 'Saved colors'}</h3>${rows || '<p class="font-note">Add a color, then link a Color field.</p>'}</div>${getDocument().colorDesign?.version === 2 ? '' : '<p class="font-note" data-color-coverage-status role="status">Measuring visible area…</p>'}`;
-      return `<section class="shared-colors-panel" aria-label="Shared colors" ${stamp()}><header><strong>Shared colors</strong>${!live || getDocument().colorDesign?.version !== 2 ? '<button type="button" data-harmony-create>Create palette</button>' : ''}<button type="button" data-shared-color-add aria-label="Add shared color">+</button><button type="button" data-shared-color-close aria-label="Close Shared colors">×</button></header>${live || getDocument().colorDesign?.version === 2 ? chroma.html({ savedColors }) : savedColors + chroma.html()}</section>`;
+      return `<section class="shared-colors-panel" aria-label="Shared colors" ${stamp()}><header><strong>Shared colors</strong>${!live || getDocument().colorDesign?.version !== 2 ? '<button type="button" data-harmony-create>Create palette</button>' : ''}<button type="button" data-shared-color-add aria-label="Add shared color">+</button><button type="button" data-shared-color-close aria-label="Close Shared colors">×</button></header><button type="button" class="key-color-recipe-launcher" data-key-color-recipe-open>Key color · Experimental</button>${live || getDocument().colorDesign?.version === 2 ? chroma.html({ savedColors }) : savedColors + chroma.html()}</section>`;
     },
     bindingControl(node, key, q, layerId) {
       const slots = getDocument().colorSlots || [];

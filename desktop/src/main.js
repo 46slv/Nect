@@ -20,6 +20,7 @@ import { colorCoveragePasses } from './color-coverage-passes.js';
 import { sampleColorCoverage } from './color-coverage-sampling.js';
 import { rasterizeCoverageAlpha } from './color-coverage-raster.js';
 import { createSharedColorsPanel } from './shared-colors-panel.js';
+import { createKeyColorRecipePanel } from './key-color-recipe-panel.js';
 import { createHslColorPicker } from './hsl-color-popover.js';
 import { mountAssetLibrary, getAssetLibraryPanel, closeAssetLibrary } from './asset-library.js';
 import { createWorkspacePanels } from './workspace-panels.js';
@@ -919,6 +920,13 @@ let editorPicker = null,
 let keyerInputPicker = null;
 const ALIGN_PREFERENCES_KEY = 'nect.alignment-panel.v1';
 let alignmentPreferences = readAlignmentPreferences();
+const keyColorRecipePanel = createKeyColorRecipePanel({
+  document,
+  getSession: () => session,
+  getDocument: () => history.doc,
+  dispatch: (type, payload, envelope) => commandChange(type, payload, undefined, false, envelope),
+  notify: (message, error) => notify(message, error),
+});
 const sharedColors = createSharedColorsPanel({
   app,
   live: true,
@@ -931,6 +939,10 @@ const sharedColors = createSharedColorsPanel({
   render: () => render(),
   notify: (message, error) => notify(message, error),
   onClose: () => workspacePanels.close('colors'),
+  onOpenKeyColorRecipe: (anchor) => {
+    hslPicker.close();
+    keyColorRecipePanel.open(anchor);
+  },
 });
 const hslPicker = createHslColorPicker({
   document,
@@ -1380,6 +1392,7 @@ const documents = new DocumentLifecycle({
       composing ||
       session.hasTextComposition ||
       session.hasGesture ||
+      keyColorRecipePanel.editing ||
       [...textDrafts.values()].some((draft) => draft.state.changed) ||
       osTextDrafts.size > 0 ||
       [...app.querySelectorAll('textarea[data-text]')].some(
@@ -1828,9 +1841,11 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
     result = session.dispatch({
       ...envelope,
       type,
-      // Palette creation/addition are project commands with closed payload schemas.
+      // Project palette commands have closed payloads; do not inject layer identity.
       payload:
-        type === 'create-harmony-palette' || type === 'add-harmony-color'
+        type === 'create-harmony-palette' ||
+        type === 'add-harmony-color' ||
+        type === 'apply-key-color-recipe-snapshot'
           ? payload
           : { layerId: current().id, ...payload },
     });
@@ -1852,6 +1867,7 @@ function settleNumericControl(input, result) {
   else input.defaultValue = input.value;
 }
 function resetTransient() {
+  keyColorRecipePanel.close(false);
   hslPicker.close();
   sharedColors.cancelEdit();
   keyerInputPicker?.close();
@@ -4058,6 +4074,7 @@ function updatePngExportPreview() {
   if (button) button.disabled = !preview.size;
 }
 function render(resetView = false, artworkResolution = null, graphScrollOverride = null) {
+  keyColorRecipePanel.reconcile();
   keyerInputPicker?.validate();
   textTools?.cancel();
   const osOwners = new Set(
