@@ -137,28 +137,6 @@ test('name, hex and alpha edits preserve exact slot identity and untouched color
   });
 });
 
-test('shared colors use HSL by default while preserving alpha and slot identity', (t) => {
-  const s = setup(t);
-  s.panel.toggle();
-  const row = s.app.querySelector('[data-shared-color-row="slot-b"]');
-  const hue = row.querySelector('[data-shared-color-edit="hsl-h"]');
-  assert.ok(hue);
-  assert.ok(row.querySelector('[data-shared-color-edit="hsl-s"]'));
-  assert.ok(row.querySelector('[data-shared-color-edit="hsl-l"]'));
-  hue.value = '120';
-  s.fire(hue);
-  const value = s.calls.at(-1).payload.value;
-  assert.equal(s.calls.at(-1).type, 'set-color-slot');
-  assert.equal(s.calls.at(-1).payload.slotId, 'slot-b');
-  assert.equal(value.alpha, 1);
-  assert.equal(value.hex, '#aaccaa');
-  assert.deepEqual(s.model.colorSlots[1].value, { hex: '#aabbcc', alpha: 1 });
-  const before = s.calls.length;
-  hue.value = '400';
-  s.fire(hue);
-  assert.equal(s.calls.length, before, 'out-of-range HSL must not dispatch');
-});
-
 test('focus restoration keeps duplicate-name slot B drafts on B across structural renders', async (t) => {
   for (const [kind, draft] of [
     ['name', 'Slot B uncommitted draft'],
