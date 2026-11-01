@@ -20,7 +20,13 @@ test('sRGB colors round-trip through UI-only HSL coordinates', () => {
   }
   assert.equal(hslToHex(360, 100, 50), '#ff0000');
   assert.throws(() => hexToHsl('rgb(0,0,0)'), /sRGB/);
-  for (const args of [[-1, 20, 50], [361, 20, 50], [0, 101, 50], [0, 50, -1], [0, NaN, 50]])
+  for (const args of [
+    [-1, 20, 50],
+    [361, 20, 50],
+    [0, 101, 50],
+    [0, 50, -1],
+    [0, NaN, 50],
+  ])
     assert.throws(() => hslToHex(...args), /HSL/);
 });
 
