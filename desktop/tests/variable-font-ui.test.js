@@ -63,6 +63,20 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
   source = resolveMainRelativeImports(source);
+  source += `
+window.installedPreparationTest = {
+  busy: () => !!variableAction,
+  history: () => history.past.length,
+  delayNext() {
+    const owner = session, original = owner.prepareCommand;
+    owner.prepareCommand = async function (...args) {
+      owner.prepareCommand = original;
+      const token = await original.apply(this, args);
+      return new Promise(resolve => { window.finishInstalledPreparation = () => resolve(token); });
+    };
+  },
+};`;
+
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const wait = async (condition, label = 'condition') => {
     const end = Date.now() + 15000;
@@ -351,7 +365,7 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
   assert.ok(q('[aria-label="Font family"]'), 'static family filters survive mixed documents');
   assert.ok(row('system-static').querySelector('.picker-star'));
   assert.equal(row('system-variable').getAttribute('aria-disabled'), 'true');
-  assert.equal(row('system-static').getAttribute('aria-disabled'), 'true');
+  assert.equal(row('system-static').getAttribute('aria-disabled'), 'false');
   row(staticAsset.id).click();
   await apply();
   assert.notEqual(current().font, 'default');
@@ -377,14 +391,14 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
   assert.equal(current().characterPositions.styles.c1.font, 'default');
   assert.equal(win.nect.evaluate().error, null);
   const mixedRange = snapshot();
-  // A byte-only discovery never starts a normal picker read, even in a mixed document.
+  // Browsing an installed face never reads bytes, even in a mixed document.
   let installedReads = 0;
   readInstalled = async () => {
     installedReads++;
     return staticBytes;
   };
   await openPicker();
-  assert.equal(row('system-static').getAttribute('aria-disabled'), 'true');
+  assert.equal(row('system-static').getAttribute('aria-disabled'), 'false');
   row('system-static').click();
   q('.picker-cancel').click();
   await new Promise((r) => setTimeout(r, 40));
@@ -425,5 +439,40 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
   assert.equal(win.nect.evaluate().error, null);
   q('[data-action="undo"]').click();
   await wait(() => snapshot() === mixedBefore, 'mixed variable switch single undo');
+  // Hold real CommandSession preparation after the installed bytes have loaded.
+  // Cancel must release busy immediately; the old token cannot cancel a newer Apply.
+  await win.nect.load(imported);
+  const preparation = win.installedPreparationTest;
+  const pendingBefore = snapshot(),
+    historyBefore = preparation.history();
+  preparation.delayNext();
+  await openPicker();
+  row('system-static').click();
+  await wait(() => !q('.picker-apply').disabled);
+  q('.picker-apply').click();
+  await wait(() => !!win.finishInstalledPreparation, 'installed replacement preparation');
+  const finishOld = win.finishInstalledPreparation;
+  assert.equal(preparation.busy(), true);
+  q('.picker-cancel').click();
+  assert.equal(preparation.busy(), false, 'Cancel releases the variable preparation immediately');
+  assert.equal(snapshot(), pendingBefore);
+  assert.equal(preparation.history(), historyBefore);
+  preparation.delayNext();
+  await openPicker();
+  row('system-static').click();
+  await wait(() => !q('.picker-apply').disabled);
+  q('.picker-apply').click();
+  await wait(() => win.finishInstalledPreparation !== finishOld, 'next installed preparation');
+  const finishNew = win.finishInstalledPreparation;
+  finishOld();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(preparation.busy(), true, 'late cancelled completion preserves the newer operation');
+  assert.equal(snapshot(), pendingBefore);
+  assert.equal(preparation.history(), historyBefore);
+  finishNew();
+  await wait(() => !q('dialog[open]') && !current().variation, 'installed static replacement');
+  assert.equal(preparation.busy(), false);
+  assert.equal(preparation.history(), historyBefore + 1);
+  assert.equal(win.nect.evaluate().error, null);
   win.nect.load(serialize(doc));
 });

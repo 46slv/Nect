@@ -1156,7 +1156,9 @@ async function preparedChange(
   envelope = session.state,
   preview = false,
   isCurrent = () => true,
+  signal,
 ) {
+  if (signal?.aborted) return null;
   cancelVariableAction();
   variableBridge ||= createVariableDocumentPreparer();
   const action = {
@@ -1166,6 +1168,11 @@ async function preparedChange(
     controller: new AbortController(),
   };
   variableAction = action;
+  const cancelFromParent = () => {
+    if (variableAction === action) cancelVariableAction();
+    else action.controller.abort();
+  };
+  signal?.addEventListener('abort', cancelFromParent, { once: true });
   notify('Preparing variable text… Escape cancels');
   try {
     const token = await action.owner.prepareCommand(
@@ -1201,6 +1208,8 @@ async function preparedChange(
       render();
     }
     return null;
+  } finally {
+    signal?.removeEventListener('abort', cancelFromParent);
   }
 }
 async function prepareOpenDocument(next, options = {}) {
@@ -6117,6 +6126,7 @@ function openFontPicker(control, query = '') {
         commandState: envelope,
         ...(characterIds === undefined ? {} : { characters: characterIds }),
         isCurrent: () => !signal.aborted && fresh(),
+        signal,
       };
       fontRequest = request;
       try {
@@ -8575,6 +8585,7 @@ async function commitFont(bytes, name, request) {
       request.commandState,
       false,
       request.isCurrent,
+      request.signal,
     );
     if (!result) return;
   } else {
