@@ -2,7 +2,7 @@
 
 Status: investigation and proposed staged contract, 2026-10-17. Broad font support includes real weights/styles, variable fonts, Japanese vertical typography, shaping and fallback; corner rounding is a separate geometry capability. This document does not claim universal font or Unicode support.
 
-## Current implementation checkpoint — 2026-10-17 13:41 UTC
+## Historical implementation checkpoint — 2026-10-17 13:41 UTC
 
 Source checkpoint `961e0feb421f538f31c1cde1ca752ff2155ba820` integrates the following bounded parts of this plan:
 
@@ -13,6 +13,8 @@ Source checkpoint `961e0feb421f538f31c1cde1ca752ff2155ba820` integrates the foll
 - Integration evidence: core/document 65, UI 4 and CLI 5 focused checks passed, followed by one production build (94 modules). Emitted local Worker: 369,128 bytes. No CSP changes, no main-thread fontkit fallback. Real browser/WebView/IME/native package acceptance remains open; serialized output limits are not hard heap quotas.
 
 See [document bridge](variable-font-document-bridge.md), [UI scope](variable-font-ui.md), [CLI](variable-font-cli.md), and [static style selection](font-style-selection.md) for current contracts. The matrix and staged implementation discussion below retain the original investigation as historical evidence; their “missing” labels are not current for these completed slices.
+
+The later Windows [private-file route](private-font-files.md) opens TTC/OTC collections without embedding them, selects an actual member using the container SHA-256 and face index, and retains saved geometry. Editing after restart requires explicit reattachment of the same file and member. The portable browser direct-embedding route still rejects TTC/OTC. Supplied-font compatibility and packaged Windows interaction remain separate acceptance work.
 
 ## Original investigation evidence boundary
 
@@ -35,11 +37,11 @@ Executed only focused Node checks: `node --test tests/fonts.test.js tests/typogr
 
 Keep the same core commands for GUI/headless use. Do not replace deterministic outlines with browser-only text or use font names as durable identity.
 
-## Coverage matrix
+## Historical coverage matrix (2026-10-17)
 
 “Verified” is intentionally limited to named fixtures and exercised routes. “Partial” does not promise all fonts with the same table tags work.
 
-| Capability                              | Current evidence/status                                                                                                                                                                                                             | Completion gap / acceptance boundary                                                                                                                                                         |
+| Capability                              | Evidence/status at investigation                                                                                                                                                                                                    | Completion gap / acceptance boundary                                                                                                                                                         |
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Static TrueType `glyf` and OpenType CFF | Verified with both Japanese fixtures, finite outlines and JSON/CLI/SVG round-trip. `fonts.js` validates directory and lazy TTF locations.                                                                                           | Expand malformed/composite/CFF corpus; do not infer every legal font is supported.                                                                                                           |
 | TTC/OTC collections                     | Partial: native extractor enumerates/repackages static faces, preserving layout/license tables and rebuilding checksums; direct import rejects `ttcf`. Native Rust has extraction tests, not rerun here.                            | Direct import face picker, deterministic face identity and collection bounds; test shared tables and several faces.                                                                          |
@@ -71,7 +73,7 @@ With bundled `public/fonts/DejaVuSans.ttf`, `layoutText` at 40 px produced:
 - `אבג`: glyph IDs in logical input order, with the same unsupported character-mapping reason. No bidi correctness claim.
 - `a\u0305`: explicit unsupported combining-sequence error.
 
-## Next implementation: F1, real static styles
+## Historical proposal: F1, real static styles
 
 This is the smallest user-visible advance toward broad support without replacing layout or disturbing the concurrent corner work. Keep later phases coarse until F1 results are known.
 
@@ -96,7 +98,7 @@ This is the smallest user-visible advance toward broad support without replacing
 
 **Done:** the above focused checks pass, existing font/range checks still pass, documented support is “static family/style selection.” Do not call variable fonts complete.
 
-## Subsequent checkpoints and dependencies
+## Historical proposed checkpoints and dependencies
 
 ### F2: shared shaping seam and cluster-safe editing
 

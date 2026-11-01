@@ -1,9 +1,11 @@
 # Local fonts and Japanese text
 
-## Use it
+## Use it: portable embedded fonts
+
+These steps describe the portable, embedded-font route. For Windows file-native fonts, including TTC/OTC collections, see [Private font files](private-font-files.md).
 
 1. Add/select a Text node. The node and Inspector both have a multiline Text field.
-2. Choose **Load TTF / OTF…**, then select a static outline font containing the required characters. The bundled DejaVu Sans does not contain Japanese. Fonts are shared across all Text nodes in that project through the Font dropdown.
+2. In **Advanced font import**, choose **Import TTF / OTF…**, then select a static outline font containing the required characters. The bundled DejaVu Sans does not contain Japanese. Fonts are shared across all Text nodes in that project through the Font dropdown.
 3. Set Writing to **Vertical ↓ / columns ←** for Japanese vertical layout, or Horizontal for the existing baseline layout. Enter creates a new line/column. Horizontal [Wrap width · auto height](text-wrap.md) optionally adds derived lines. Vertical wrapping and clipping are unsupported.
 4. `size` is in artwork pixels. `letterSpacing` adds pixels after each glyph; `lineSpacing` is a multiplier of size. They are ordinary Scalar parameters, so expression, connection, lock and undo work as on other fields.
 5. Save JSON retains editable text and full font bytes. Reopening can display **and edit new characters** without selecting the font again. SVG export contains paths only. The same project exports through `node cli/export.js project.json artwork.svg` without installed system fonts.
@@ -22,17 +24,24 @@ Nect's reference is the Windows DirectWrite path implementation at [src/text.cpp
 
 ## Font bytes, permissions and limits
 
-No font discovery service, upload or external request is used. The file chooser reads local bytes; only the user's explicit JSON save includes them in a local file/download. User-selected fonts are never automatically added to this repository. Check a font's license before embedding or sharing a project: OS/2 flags are only a technical check and do not guarantee permission under its full license.
+For portable embedded fonts, no font discovery service, upload or external request is used. The file chooser reads local bytes; only the user's explicit JSON save includes them in a local file/download. User-selected fonts are never automatically added to this repository. Check a font's license before embedding or sharing a project: OS/2 flags are only a technical check and do not guarantee permission under its full license.
 
-Manual file picker / project assets accept static `.ttf` TrueType outlines and `.otf` CFF/TrueType outlines. The manual picker rejects TTC/OTC collections; the Windows installed-font route below extracts one static face first. WOFF/WOFF2, variable fonts/CFF2 and color/bitmap fonts are rejected explicitly. Restricted, preview/print-only and bitmap-only embedding flags are rejected. File/table/TrueType glyph location bounds are checked before use; the active Text is evaluated with a candidate font before import commits. Parser isolation for hostile untrusted fonts remains future hardening, not a multi-tenant service claim.
+The portable static-font import / project asset route accepts `.ttf` TrueType outlines and `.otf` CFF/TrueType outlines; direct browser embedding rejects TTC/OTC collections. WOFF/WOFF2, variable fonts/CFF2 and color/bitmap fonts are rejected by this static route. Restricted, preview/print-only and bitmap-only embedding flags are rejected. File/table/TrueType glyph location bounds are checked before use; the active Text is evaluated with a candidate font before import commits. Parser isolation for hostile untrusted fonts remains future hardening, not a multi-tenant service claim.
+
+The separate Windows [private-file route](private-font-files.md) opens TTF/OTF/TTC/OTC files without installation or embedding. A collection choice retains the container SHA-256 and actual face index; saved geometry preserves appearance, while editing after restart requires explicit reattachment of the same file and member.
+
+Portable embedded-font limits:
 
 - One font: at most 20,000,000 bytes
 - A project: at most 8 imported fonts, 32,000,000 combined raw font bytes
-- Project JSON: at most 50,000,000 UTF-8 bytes across browser, CLI and native open/save
-- Text: at most 10,000 UTF-16 code units per node; 500,000 generated path commands
 - Duplicate file bytes reuse the same asset, regardless of filename
 - Parsed font cache: at most 8 entries / 32 MB raw bytes
 - Undo: immutable font asset records are shared, not copied per edit; the usual 100-step bound also drops oldest history above 96 MB of distinct raw font assets
+
+Shared project and Text limits:
+
+- Project JSON: at most 50,000,000 UTF-8 bytes across browser, CLI and native open/save
+- Text: at most 10,000 UTF-16 code units per node; 500,000 generated path commands
 
 Cancellation, corrupt or unsupported files, missing required glyphs, lock state, a newer import, and document changes during an asynchronous read leave the active project untouched. Font import is one undoable transaction. New/open/undo/redo re-resolve fonts from that document's own assets. Invalid asset data and dangling font IDs reject a candidate JSON before replacement. Text with missing glyphs remains editable and may be saved; SVG export refuses an erroneous visible composition.
 
@@ -50,11 +59,11 @@ Changing text, selected font, direction, size or spacing invalidates Text and do
 
 ## Windows installed fonts
 
-The Windows desktop app discovers the conventional system `%WINDIR%\\Fonts` and per-user `%LOCALAPPDATA%\\Microsoft\\Windows\\Fonts` directories automatically. The Text inspector has one **Font** selector for the bundled font, fonts already embedded in the project, and an **Installed Windows fonts** group. Selecting an installed font automatically loads and applies it without finding a file or clicking a second control. The selector keeps the active font visible, shows loading status, and restores the active choice on failure. Internal full names identify styles. Discovery reads bounded metadata only; the selected face alone is embedded, undoable, and portable in saved JSON. Restart to discover newly installed fonts. Registered fonts stored elsewhere are not enumerated; use the manual TTF/OTF picker. The browser keeps its manual picker.
+The Windows Font picker includes document fonts and available DirectWrite geometry-only faces. Normal selection does not embed installed font bytes; byte-only installed discoveries remain disabled in the normal picker, while permitted file import for embedding is a separate action. For an uninstalled file, including a collection, Windows also has the separate [private-file route](private-font-files.md).
 
-Static TTF/OTF and individual static TTC/OTC collection faces are supported by this native route. It reconstructs a standalone SFNT, retains original OS/2 embedding flags and vertical/layout tables, recomputes offsets/checksums, and drops the now-invalid DSIG. Variable/CFF2 and color/bitmap faces are shown disabled with a reason. Existing parser/license checks still reject restricted embedding, malformed outlines or missing characters before any document mutation. Installation does not grant redistribution rights: check the actual font license before sharing a project.
+The legacy installed-font byte extractor supports static TTF/OTF and individual static TTC/OTC collection faces. It reconstructs a standalone SFNT, retains original OS/2 embedding flags and vertical/layout tables, recomputes offsets/checksums, and drops the now-invalid DSIG; byte-only discoveries are not directly selectable in the current normal picker. Its parser/license checks reject restricted embedding, malformed outlines or missing characters before document mutation. Installation does not grant redistribution rights: check the actual font license before sharing a project.
 
-Bounds: 4,096 directory entries per root, 4,096 displayed faces, 256 faces per collection, 256 tables per face, 64 KiB name metadata, 128 MB source container and 20 MB extracted face. Existing 8-font / 32 MB combined assets / 50 MB project limits still apply. Native IPC accepts only catalog-issued opaque IDs and rechecks the canonical allowed directory; it does not expose arbitrary path reading or broaden app permissions. Invalid or unreadable files are skipped. Windows native acceptance remains distinct from CI packaging and synthetic UI tests.
+The legacy extractor's bounds are 4,096 directory entries per root, 4,096 displayed faces, 256 faces per collection, 256 tables per face, 64 KiB name metadata, 128 MB source container and 20 MB extracted face. Existing 8-font / 32 MB combined assets / 50 MB project limits apply to embedded assets. Its native IPC accepts only catalog-issued opaque IDs and rechecks the canonical allowed directory. Invalid or unreadable files are skipped. Windows native acceptance remains distinct from CI packaging and synthetic UI tests.
 
 ## Inline anchors and explicit kerning
 
