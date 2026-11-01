@@ -2949,6 +2949,7 @@ input[data-scrub-step].scrubbing {
 .key-color-recipe-dialog {
   box-sizing: border-box;
   width: min(760px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
   max-height: calc(100dvh - 24px);
   padding: 16px;
   border: 1px solid var(--line);

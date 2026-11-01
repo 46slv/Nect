@@ -172,6 +172,9 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
         `<h3>Shared literals · before → after</h3><p>Only active rows below will change. No artwork changes until Apply.</p><table><thead><tr><th>Stable slot</th><th>Current shared literal</th><th>Proposed shared literal</th></tr></thead><tbody>${prepared.updates.map(({ slotId, value }) => `<tr data-key-color-compare="${esc(slotId)}"><th scope="row">${esc(slots.get(slotId).name)}<br><code>${esc(slotId)}</code></th><td data-key-color-before>${literal(slots.get(slotId).value)}</td><td data-key-color-after>${literal(value)}</td></tr>`).join('')}</tbody></table>`;
       dialog.querySelector('[data-key-color-apply]').disabled = false;
       status('Preview ready. Apply writes these shared literals and the receipt together.');
+      // Preview is an explicit review step: bring its actual before/after
+      // literals into the bounded scrollport, not only a below-the-fold heading.
+      dialog.querySelector('[data-key-color-comparison]').scrollIntoView?.({ block: 'start' });
     } catch (error) {
       clearPreview();
       status(error.message, true);

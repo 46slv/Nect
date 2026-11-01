@@ -104,6 +104,15 @@ try {
     /α 0$/,
   );
   assert.equal(await page.locator('[data-key-color-compare="dormant"]').count(), 0);
+  assert.equal(
+    await page.locator('[data-key-color-compare="key"]').evaluate((row) => {
+      const a = row.getBoundingClientRect();
+      const b = row.closest('.key-color-recipe-body').getBoundingClientRect();
+      return a.top >= b.top - 1 && a.bottom <= b.bottom + 1;
+    }),
+    true,
+    'explicit Preview brings the actual before/after row into its scrollport',
+  );
   await page.screenshot({ path: resolve(output, 'preview-desktop.png'), fullPage: true });
   await field('deltaL').fill('');
   assert.equal(await page.locator('[data-key-color-apply]').isDisabled(), true);
