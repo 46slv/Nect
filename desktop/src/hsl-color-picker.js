@@ -130,13 +130,28 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     setHsl({ ...hsl, s: Number(s.toFixed(2)), l: Number(l.toFixed(2)) });
   }
 
-  function close() {
+  function close(restoreFocus = false) {
+    const oldTrigger = trigger,
+      oldTarget = target;
     pointer = null;
     popover?.remove();
     popover = null;
     target = null;
     trigger = null;
     paintedHue = null;
+    if (restoreFocus) {
+      const replacement =
+        oldTrigger?.isConnected
+          ? oldTrigger
+          : [...document.querySelectorAll('[data-hsl-picker-open]')].find((item) => {
+              const field = item.closest('.field');
+              return (
+                field?.dataset.node === oldTarget?.nodeId &&
+                field?.dataset.key === oldTarget?.key
+              );
+            });
+      replacement?.focus({ preventScroll: true });
+    }
   }
 
   function open({ anchor, label, color, context }) {
@@ -170,7 +185,14 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
       win = document.defaultView,
       maxX = Math.max(8, (win?.innerWidth || 1000) - width - 8),
       maxY = Math.max(8, (win?.innerHeight || 800) - height - 8);
-    el.style.left = clamp(rect.right + 8 + width > maxX ? rect.left - width - 8 : rect.right + 8, 8, maxX) + 'px';
+    el.style.left =
+      clamp(
+        rect.right + width + 16 <= (win?.innerWidth || 1000)
+          ? rect.right + 8
+          : rect.left - width - 8,
+        8,
+        maxX,
+      ) + 'px';
     el.style.top = clamp(rect.top, 8, maxY) + 'px';
     paint();
     el.querySelector('[data-hsl-number="h"]').focus({ preventScroll: true });
@@ -180,12 +202,23 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
   function handleEdit(input, commitChange) {
     if (!popover) return;
     if (input.matches('[data-hsl-number]')) {
-      if (!input.value.trim()) return;
+      if (!input.value.trim()) {
+        if (commitChange) {
+          hex = committedHex;
+          hsl = hexToHsl(hex);
+          paint();
+        }
+        return;
+      }
       const value = Number(input.value),
         channel = input.dataset.hslNumber,
         limit = channel === 'h' ? 360 : 100;
       if (!Number.isFinite(value) || value < 0 || value > limit) {
-        if (commitChange) paint();
+        if (commitChange) {
+          hex = committedHex;
+          hsl = hexToHsl(hex);
+          paint();
+        }
         return;
       }
       setHsl({ ...hsl, [channel]: value }, input);
@@ -193,7 +226,11 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
       setHsl({ ...hsl, h: Number(input.value) }, input);
     } else if (input.matches('[data-hsl-hex]')) {
       if (!/^#[0-9a-f]{6}$/i.test(input.value)) {
-        if (commitChange) paint();
+        if (commitChange) {
+          hex = committedHex;
+          hsl = hexToHsl(hex);
+          paint();
+        }
         return;
       }
       hex = input.value.toLowerCase();
@@ -209,7 +246,7 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     event.stopImmediatePropagation();
     if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) {
       event.preventDefault();
-      close();
+      close(true);
     }
   }, true);
   document.addEventListener('click', (event) => {
@@ -226,14 +263,16 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     if (popover?.contains(event.target)) handleEdit(event.target, true);
   }, true);
   document.addEventListener('click', (event) => {
-    if (event.target.closest?.('[data-hsl-close]') && popover?.contains(event.target)) close();
+    if (event.target.closest?.('[data-hsl-close]') && popover?.contains(event.target)) close(true);
   }, true);
   document.addEventListener('pointerdown', (event) => {
     if (!popover || event.target !== popover.querySelector('[data-hsl-plane]') || event.button !== 0 || event.isPrimary === false) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     pointer = { id: event.pointerId, baseline: committedHex };
-    event.target.setPointerCapture?.(event.pointerId);
+    try {
+      event.target.setPointerCapture?.(event.pointerId);
+    } catch {}
     fromPlane(event);
   }, true);
   document.addEventListener('pointermove', (event) => {
