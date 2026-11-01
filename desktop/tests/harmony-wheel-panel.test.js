@@ -260,7 +260,7 @@ test('preview/cancel are local; Apply sends all stable IDs and exact v2 recipe o
   assert.deepEqual(s.model, before);
 });
 
-test('hue rotation changes grid colors but leaves spoke geometry fixed; incompatible combinations are disabled and rejected', (t) => {
+test('hue rotation leaves spoke geometry fixed; incompatible counts are disabled and rejected, not presets', (t) => {
   const s = setup(t);
   const transforms = [...s.app.querySelectorAll('[data-wheel-marker]')].map((m) =>
     m.getAttribute('transform'),
@@ -279,10 +279,213 @@ test('hue rotation changes grid colors but leaves spoke geometry fixed; incompat
   assert.ok(!s.query('[data-chroma-apply]'));
   assert.ok(s.query('[data-wheel-setting="hueSteps"] option[value="12"]').hasAttribute('selected'));
   s.change('[data-wheel-setting="hueSteps"]', 9);
-  assert.ok(s.query('[data-wheel-setting="harmony"] option[value="split"]').disabled);
-  assert.ok(s.query('[data-wheel-setting="harmony"] option[value="complementary"]').disabled);
+  for (const option of s.app.querySelectorAll('[data-wheel-setting="harmony"] option'))
+    assert.equal(option.disabled, false);
+  s.change('[data-wheel-setting="harmony"]', 'complementary');
+  assert.equal(s.query('[data-wheel-setting="hueSteps"] option[selected]').value, '10');
+  assert.equal(s.query('[data-wheel-setting="hueSteps"] option[value="9"]').disabled, true);
+  assert.equal(s.query('[data-wheel-setting="hueSteps"] option[value="10"]').disabled, false);
   assert.deepEqual(s.calls, []);
 });
+
+const allHueCounts = Array.from({ length: 70 }, (_, i) => i + 3);
+const presetHueCounts = {
+  triadic: allHueCounts.filter((n) => n % 3 === 0),
+  complementary: allHueCounts.filter((n) => n % 2 === 0),
+  analogous: allHueCounts,
+  split: allHueCounts.filter((n) => n >= 6 && n % 2 === 0),
+};
+
+for (const [harmony, allowed] of Object.entries(presetHueCounts))
+  test(`${harmony} drives all count options, preserves valid counts and maps every other count to nearest (ties higher)`, (t) => {
+    const win = new Window();
+    t.after(() => win.happyDOM.abort());
+    win.document.body.innerHTML = '<main></main>';
+    const app = win.document.querySelector('main'),
+      doc = fixture(),
+      notices = [];
+    const render = () => {
+      app.innerHTML = panel.html({
+        slots: doc.colorSlots,
+        profile: 'balanced',
+        colorfulness: 0.72,
+        section: 'settings',
+      });
+    };
+    const panel = createHarmonyWheelPanel({
+      app,
+      live: true,
+      envelope: () => ({}),
+      render,
+      notify: (...args) => notices.push(args),
+      onEdit: () => {},
+      getState: () => ({}),
+      buildGrid: () => [], // Exhaust the settings matrix without rebuilding unrelated color grids.
+    });
+    for (const count of allHueCounts) {
+      const wheel = { ...DEFAULT_HARMONY_WHEEL, harmony: 'analogous', hueSteps: count };
+      panel.synchronize({ ...doc.colorDesign, wheel }, 'settings-matrix');
+      render();
+      const preset = app.querySelector('[data-wheel-setting="harmony"]');
+      preset.value = harmony;
+      preset.dispatchEvent(new win.Event('change', { bubbles: true }));
+      const expected = [...allowed].sort(
+        (a, b) => Math.abs(a - count) - Math.abs(b - count) || b - a,
+      )[0];
+      assert.deepEqual(panel.design.wheel, { ...wheel, harmony, hueSteps: expected });
+      assert.deepEqual(panel.design.palette, doc.colorDesign.palette);
+      const options = [...app.querySelectorAll('[data-wheel-setting="hueSteps"] option')];
+      assert.deepEqual(
+        options.map((option) => Number(option.value)),
+        allHueCounts,
+      );
+      assert.deepEqual(
+        options.filter((option) => !option.disabled).map((option) => Number(option.value)),
+        allowed,
+      );
+      // happy-dom's parsed select.value can ignore selected attributes; inspect the rendered choice.
+      assert.equal(
+        app.querySelector('[data-wheel-setting="hueSteps"] option[selected]').value,
+        String(expected),
+      );
+      assert.ok(
+        [...app.querySelectorAll('[data-wheel-setting="harmony"] option')].every(
+          (option) => !option.disabled,
+        ),
+      );
+      const slider = app.querySelector('[data-wheel-range="hueSteps"]');
+      assert.equal(slider.min, String(allowed[0]));
+      assert.equal(slider.max, '72');
+      assert.equal(slider.step, String(allowed[1] - allowed[0]));
+      assert.equal(slider.value, String(expected));
+      slider.value = String(count);
+      const requested = Number(slider.value); // Native range controls clamp outside their bounds.
+      slider.dispatchEvent(new win.Event('change', { bubbles: true }));
+      const mapped = [...allowed].sort(
+        (a, b) => Math.abs(a - requested) - Math.abs(b - requested) || b - a,
+      )[0];
+      assert.equal(panel.design.wheel.hueSteps, mapped);
+      assert.equal(app.querySelector('[data-wheel-range="hueSteps"]').value, String(mapped));
+      const countSelect = app.querySelector('[data-wheel-setting="hueSteps"]');
+      countSelect.value = String(count);
+      countSelect.dispatchEvent(new win.Event('change', { bubbles: true }));
+      assert.equal(panel.design.wheel.hueSteps, allowed.includes(count) ? count : mapped);
+      assert.deepEqual(panel.design.palette, doc.colorDesign.palette);
+    }
+    assert.equal(notices.length, allHueCounts.length - allowed.length);
+    assert.ok(notices.every(([message]) => /Harmony does not fit/.test(message)));
+  });
+
+test('preset-first draft changes preserve palette identity; Cancel authors nothing and Apply is one Undo/Redo', (t) => {
+  const s = setup(t, { realSession: true }),
+    before = serialize(s.model),
+    palette = structuredClone(s.model.colorDesign.palette),
+    past = s.session.historyView.past.length;
+  s.change('[data-wheel-setting="hueSteps"]', 9);
+  s.change('[data-wheel-entry]', 'accent');
+  s.change('[data-wheel-setting="harmony"]', 'complementary');
+  assert.equal(s.query('[data-wheel-setting="hueSteps"] option[selected]').value, '10');
+  assert.equal(s.query('[data-wheel-entry]').value, 'accent');
+  s.change('[data-wheel-setting="harmony"]', 'split');
+  assert.equal(s.query('[data-wheel-setting="hueSteps"] option[selected]').value, '10');
+  s.preview();
+  s.click('[data-chroma-cancel]');
+  assert.equal(serialize(s.model), before);
+  assert.equal(s.session.historyView.past.length, past);
+  assert.equal(s.query('[data-wheel-setting="harmony"] option[selected]').value, 'split');
+  assert.equal(s.query('[data-wheel-setting="hueSteps"] option[selected]').value, '10');
+  assert.deepEqual(s.calls, []);
+  s.preview();
+  s.apply();
+  assert.equal(s.calls.length, 1);
+  assert.equal(s.session.historyView.past.length, past + 1);
+  assert.deepEqual(s.model.colorDesign.palette, palette);
+  assert.deepEqual(s.model.colorDesign.wheel, {
+    ...DEFAULT_HARMONY_WHEEL,
+    harmony: 'split',
+    hueSteps: 10,
+  });
+  const after = serialize(s.model);
+  s.session.dispatch({ ...s.session.state, type: 'undo', payload: {} });
+  s.render();
+  assert.equal(serialize(s.model), before);
+  s.session.dispatch({ ...s.session.state, type: 'redo', payload: {} });
+  s.render();
+  assert.equal(serialize(s.model), after);
+  assert.equal(serialize(deserialize(after)), after);
+  assert.deepEqual(s.notices, []);
+});
+
+test('live incompatible preset switch authors both settings in one history step without changing palette entries', (t) => {
+  const s = setup(t, { realSession: true, live: true });
+  s.change('[data-wheel-setting="hueSteps"]', 9);
+  const before = serialize(s.model),
+    palette = structuredClone(s.model.colorDesign.palette),
+    past = s.session.historyView.past.length;
+  s.change('[data-wheel-setting="harmony"]', 'complementary');
+  assert.deepEqual(s.model.colorDesign.wheel, {
+    ...DEFAULT_HARMONY_WHEEL,
+    harmony: 'complementary',
+    hueSteps: 10,
+  });
+  assert.deepEqual(s.model.colorDesign.palette, palette);
+  assert.equal(s.session.historyView.past.length, past + 1);
+  assert.equal(s.panel.previewDocument, null);
+  const after = serialize(s.model);
+  s.session.dispatch({ ...s.session.state, type: 'undo', payload: {} });
+  s.render();
+  assert.equal(serialize(s.model), before);
+  s.session.dispatch({ ...s.session.state, type: 'redo', payload: {} });
+  s.render();
+  assert.equal(serialize(s.model), after);
+  s.change('[data-wheel-setting="hueSteps"]', 9);
+  assert.equal(
+    serialize(s.model),
+    after,
+    'A disabled/incompatible count cannot author a live edit',
+  );
+  assert.equal(s.session.historyView.past.length, past + 1);
+  assert.match(s.notices.at(-1)[0], /Harmony does not fit/);
+});
+
+for (const completion of ['pointerup', 'pointercancel', 'Escape'])
+  test(`preset-constrained live hue slider ${completion} keeps one complete edit or restores its baseline`, async (t) => {
+    const s = setup(t, { realSession: true, live: true });
+    s.change('[data-wheel-setting="harmony"]', 'complementary');
+    const before = serialize(s.model),
+      palette = structuredClone(s.model.colorDesign.palette),
+      past = s.session.historyView.past.length,
+      slider = s.query('[data-wheel-range="hueSteps"]');
+    s.fire(slider, 'pointerdown', { pointerId: 61, button: 0 });
+    for (const count of [9, 13]) {
+      slider.value = String(count);
+      s.fire(slider, 'input');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(s.panel.previewDocument.colorDesign.wheel.hueSteps, 14);
+    assert.equal(serialize(s.model), before);
+    assert.equal(s.session.historyView.past.length, past);
+    if (completion === 'Escape') s.fire(slider, 'keydown', { key: 'Escape' });
+    else s.fire(s.app, completion, { pointerId: 61 });
+    assert.deepEqual(s.model.colorDesign.palette, palette);
+    assert.equal(s.panel.previewDocument, null);
+    if (completion === 'pointerup') {
+      assert.equal(s.model.colorDesign.wheel.hueSteps, 14);
+      assert.equal(s.session.historyView.past.length, past + 1);
+      const after = serialize(s.model);
+      s.session.dispatch({ ...s.session.state, type: 'undo', payload: {} });
+      s.render();
+      assert.equal(serialize(s.model), before);
+      s.session.dispatch({ ...s.session.state, type: 'redo', payload: {} });
+      s.render();
+      assert.equal(serialize(s.model), after);
+    } else {
+      assert.equal(serialize(s.model), before);
+      assert.equal(s.session.historyView.past.length, past);
+      assert.equal(s.query('[data-wheel-range="hueSteps"]').value, '12');
+    }
+    assert.deepEqual(s.notices, []);
+  });
 
 test('ring-count changes resnap every chromatic entry to the nearest new center, preserving IDs/roles/neutrals', (t) => {
   const s = setup(t),

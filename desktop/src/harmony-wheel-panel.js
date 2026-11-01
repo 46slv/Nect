@@ -10,6 +10,7 @@ const esc = (value) =>
   );
 const roles = ['Primary', 'Secondary', 'Accent', 'Background', 'Text'];
 const presets = ['triadic', 'complementary', 'analogous', 'split'];
+const hueSteps = Array.from({ length: 70 }, (_, index) => index + 3);
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const polar = (r, angle) =>
   [r * Math.cos((angle * Math.PI) / 180), r * Math.sin((angle * Math.PI) / 180)].join(' ');
@@ -32,6 +33,12 @@ function compatible(wheel, change) {
     return false;
   }
 }
+const allowedHueSteps = (wheel) =>
+  hueSteps.filter((value) => compatible(wheel, { hueSteps: value }));
+const nearestHueSteps = (allowed, requested) =>
+  allowed.reduce((best, value) =>
+    Math.abs(value - requested) <= Math.abs(best - requested) ? value : best,
+  ); // On a tie, keep the higher count rather than dropping detail.
 
 // View drafts project live through the owning Session; completion authors one validated edit.
 export function createHarmonyWheelPanel({
@@ -138,6 +145,8 @@ export function createHarmonyWheelPanel({
       if (!raw.trim()) throw Error('Enter a wheel setting');
       const value = key === 'harmony' ? raw : Number(raw);
       const next = { ...wheel, [key]: value };
+      if (key === 'harmony' && presets.includes(value))
+        next.hueSteps = nearestHueSteps(allowedHueSteps(next), wheel.hueSteps);
       harmonyCells(next); // Validate before altering either settings or entries.
       if (key === 'lightnessSteps') {
         const originalWheel = live ? savedWheel : wheel;
@@ -235,15 +244,7 @@ export function createHarmonyWheelPanel({
     if (!wheel || !['hueSteps', 'hueRotation', 'lightnessSteps', 'lightnessRange'].includes(key))
       return null;
     if (key === 'hueSteps') {
-      const allowed = Array.from({ length: 70 }, (_, index) => index + 3).filter((value) =>
-        compatible(wheel, { hueSteps: value }),
-      );
-      const requested = Number(range.value);
-      range.value = String(
-        allowed.reduce((best, value) =>
-          Math.abs(value - requested) < Math.abs(best - requested) ? value : best,
-        ),
-      );
+      range.value = String(nearestHueSteps(allowedHueSteps(wheel), Number(range.value)));
     }
     return [...app.querySelectorAll('[data-wheel-setting]')].find(
       (el) => el.dataset.wheelSetting === key,
@@ -493,9 +494,7 @@ export function createHarmonyWheelPanel({
         number: palette.indexOf(item) + 1,
       }));
       const item = entry();
-      const hueValues = Array.from({ length: 70 }, (_, index) => index + 3).filter((value) =>
-        compatible(wheel, { hueSteps: value }),
-      );
+      const hueValues = allowedHueSteps(wheel);
       const chromaControl =
         item?.kind === 'chromatic'
           ? `<label>Chroma <select data-wheel-chroma-mode data-wheel-id="${esc(item.id)}" aria-label="Selected color chroma mode"><option value="auto" ${item.overrideC === undefined ? 'selected' : ''}>Auto (global)</option><option value="override" ${item.overrideC === undefined ? '' : 'selected'}>Override</option></select></label>${item.overrideC === undefined ? '' : `<label>Chroma override <input type="number" data-color-scrub-step="0.001" title="Drag horizontally to adjust; click to type" data-wheel-chroma data-wheel-id="${esc(item.id)}" min="0" max="${MAX_CHROMA}" step="0.001" value="${item.overrideC}" aria-label="Selected color chroma override"></label><p class="font-note">sRGB gamut may limit output.</p>`}${lockedSlotIds.includes(item.id) ? '<p class="font-note">Keep preserves this color.</p>' : ''}`
@@ -523,13 +522,10 @@ export function createHarmonyWheelPanel({
         ? `<div class="harmony-neutral-lane"><span>Neutral</span><div class="harmony-neutral-track">${neutralMarkers}</div></div>`
         : '';
       const visual = `<section class="harmony-wheel-panel" aria-label="Harmony palette"><svg class="harmony-wheel" viewBox="-115 -115 230 230" aria-label="Discrete harmony wheel"><g class="harmony-wheel-grid" aria-hidden="true">${grid}</g><g class="harmony-wheel-spokes" aria-hidden="true">${points.map((p) => `<line x1="0" y1="0" x2="${p.x * 100}" y2="${p.y * 100}"/>`).join('')}<circle cx="0" cy="0" r="2"/></g>${points.map((p) => `<g tabindex="0" role="button" data-wheel-marker="${esc(p.id)}" aria-pressed="${selected === p.id}" aria-label="${esc(names.get(p.id) || p.id)}, palette color ${p.number}. Arrow keys change ring." transform="translate(${p.x * 100} ${p.y * 100})"><title>Ring ${p.ring + 1} of ${wheel.lightnessSteps}</title><circle r="7"/><circle r="5.7" data-wheel-marker-color style="fill:${esc(values.get(p.id))};stroke:none"/><text text-anchor="middle" dominant-baseline="central" style="fill:${markerInk(values.get(p.id))}">${p.number}</text></g>`).join('')}</svg><div class="harmony-palette-swatches" role="group" aria-label="${preview ? 'Preview palette colors' : 'Saved palette colors'}">${chips}</div>${neutralLane}<p class="harmony-coverage-status font-note" data-color-coverage-status role="status">Measuring visible area…</p></section>`;
-      const settings = `<section class="harmony-wheel-parameters" aria-label="Harmony settings"><div class="harmony-wheel-settings"><label>Harmony <select data-wheel-setting="harmony" aria-label="Harmony preset">${presets.map((v) => `<option value="${v}" ${v === wheel.harmony ? 'selected' : ''} ${compatible(wheel, { harmony: v }) ? '' : 'disabled'}>${v === 'split' ? 'Split complementary' : v}</option>`).join('')}</select></label><label>Hue cells <span class="color-parameter-value">${live ? `<input type="range" data-wheel-range="hueSteps" min="${hueValues[0]}" max="${hueValues.at(-1)}" step="${hueValues.length > 1 ? hueValues[1] - hueValues[0] : 1}" value="${wheel.hueSteps}" aria-label="Hue cells slider">` : ''}<select data-wheel-setting="hueSteps" aria-label="Hue cells">${Array.from(
-        { length: 70 },
-        (_, i) => i + 3,
-      )
+      const settings = `<section class="harmony-wheel-parameters" aria-label="Harmony settings"><div class="harmony-wheel-settings"><label>Harmony <select data-wheel-setting="harmony" aria-label="Harmony preset">${presets.map((v) => `<option value="${v}" ${v === wheel.harmony ? 'selected' : ''}>${v === 'split' ? 'Split complementary' : v}</option>`).join('')}</select></label><label>Hue cells <span class="color-parameter-value">${live ? `<input type="range" data-wheel-range="hueSteps" min="${hueValues[0]}" max="${hueValues.at(-1)}" step="${hueValues.length > 1 ? hueValues[1] - hueValues[0] : 1}" value="${wheel.hueSteps}" aria-label="Hue cells slider">` : ''}<select data-wheel-setting="hueSteps" aria-label="Hue cells">${hueSteps
         .map(
           (v) =>
-            `<option value="${v}" ${v === wheel.hueSteps ? 'selected' : ''} ${compatible(wheel, { hueSteps: v }) ? '' : 'disabled'}>${v}</option>`,
+            `<option value="${v}" ${v === wheel.hueSteps ? 'selected' : ''} ${hueValues.includes(v) ? '' : 'disabled'}>${v}</option>`,
         )
         .join(
           '',
