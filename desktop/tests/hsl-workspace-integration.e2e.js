@@ -86,6 +86,17 @@ try {
     id,
   );
   const edited = await documentText();
+  // The typed command authors synchronously, but the editor intentionally
+  // rerenders on the next task so an in-flight field keeps its focus/draft.
+  await page.waitForFunction(
+    (id) =>
+      document
+        .querySelector(
+          `.inspector-body .field[data-node="${id}"][data-key="color"] [data-hsl-picker-open]`,
+        )
+        ?.getAttribute('style') === 'background:#00ff00',
+    id,
+  );
   assert.equal(
     await field.locator('[data-hsl-picker-open]').getAttribute('style'),
     'background:#00ff00',
