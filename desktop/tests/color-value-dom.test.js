@@ -86,7 +86,9 @@ test('actual Color editor exposes typed completion, base/expression/result, canc
     assert.match(field().querySelector('output').textContent, /#abcdef.*0.6/);
     assert.ok(field().querySelector('[data-expression]'), 'saved expression stays visible');
     const withExpression = saved();
-    change(field().querySelector('[data-color="hex"]'), '#987654');
+    field().querySelector('[data-hsl-picker-open]').click();
+    change(document.querySelector('[data-hsl-hex]'), '#987654');
+    document.querySelector('[data-hsl-close]').click();
     await tick();
     assert.equal(q().value.hex, '#987654');
     assert.equal(q().expression, 'value');
@@ -112,7 +114,10 @@ test('actual Color editor exposes typed completion, base/expression/result, canc
     document.querySelector('[data-confirm]').click();
     await tick();
     assert.match(field().querySelector('output').textContent, /#123456.*0.25/);
-    assert.equal(field().querySelector('[data-color="hex"]').value, '#abcdef');
+    assert.equal(
+      field().querySelector('[data-hsl-picker-open]').getAttribute('style'),
+      'background:#abcdef',
+    );
     const linked = saved();
     change(field().querySelector('[data-color="alpha"]'), '2');
     await tick();
@@ -130,7 +135,10 @@ test('actual Color editor exposes typed completion, base/expression/result, canc
     win.nect.load(JSON.stringify(missing));
     await tick();
     assert.match(field().querySelector('output').textContent, /Cannot evaluate/);
-    assert.equal(field().querySelector('[data-color="hex"]').value, '#abcdef');
+    assert.equal(
+      field().querySelector('[data-hsl-picker-open]').getAttribute('style'),
+      'background:#abcdef',
+    );
   }
   await win.happyDOM.abort();
 });

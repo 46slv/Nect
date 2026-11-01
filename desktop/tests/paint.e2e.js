@@ -103,7 +103,10 @@ try {
     await field(ids.s, 'color').locator('[data-color-base][data-color="alpha"]').isDisabled(),
     false,
   );
-  assert.equal(await field(ids.s, 'color').locator('[data-color="hex"]').inputValue(), '#0000ff');
+  assert.equal(
+    await field(ids.s, 'color').locator('[data-hsl-picker-open]').getAttribute('style'),
+    'background:#0000ff',
+  );
   assert.equal(await field(ids.s, 'color').locator('[data-color="alpha"]').inputValue(), '0.75');
   assert.match(
     await field(ids.s, 'color').locator('output.parameter-result').textContent(),

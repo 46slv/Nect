@@ -3,6 +3,7 @@ import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 // Load geometry before a synthetic browser global exists: geometry remains headless.
 import '../src/core.js';
 test('synthetic Color controls: source display, fallback restoration, alpha validation and locks', async () => {
@@ -91,16 +92,92 @@ test('synthetic Color controls: source display, fallback restoration, alpha vali
   const outputId = win.nect.document.layers[0].nodes.find((n) => n.type === 'Fill').id;
   const field = (id, key) =>
     document.querySelector(`.graph .field[data-node="${id}"][data-key="${key}"]`);
-  await change(field(colorId, 'value').querySelector('[data-color="hex"]'), '#ff0000');
-  assert.ok(field(colorId, 'value').querySelector('[data-color="hsl-h"]'));
-  await change(field(colorId, 'value').querySelector('[data-color="hsl-h"]'), '120');
-  assert.equal(
-    win.nect.document.layers[0].nodes.find((n) => n.id === colorId).params.value.value.hex,
-    '#00ff00',
-  );
-  await change(field(colorId, 'value').querySelector('[data-color="hex"]'), '#ff8000');
+  // Color node fields stay compact; HSL belongs to the swatch popup.
+  assert.equal(field(colorId, 'value').querySelector('[data-color="hsl-h"]'), null);
+  field(colorId, 'value').querySelector('[data-hsl-picker-open]').click();
+  assert.ok(document.querySelector('[data-hsl-plane]'));
+  assert.equal(document.querySelectorAll('[data-hsl-number]').length, 3);
+  await change(document.querySelector('[data-hsl-hex]'), '#ff0000');
+  await change(document.querySelector('[data-hsl-number="h"]'), '30');
+  document.querySelector('[data-hsl-close]').click();
+  const beforeAlpha = JSON.stringify(win.nect.document);
   await change(field(colorId, 'value').querySelector('[data-color="alpha"]'), '0.5');
-  await change(field(outputId, 'color').querySelector('[data-color="hex"]'), '#2040ff');
+  const beforeCancel = JSON.stringify(win.nect.document);
+  const revisionBeforeCancel = win.nect.commandState.expectedRevision;
+  field(colorId, 'value').querySelector('[data-hsl-picker-open]').click();
+  document.activeElement.blur();
+  assert.equal(document.activeElement, document.body);
+  const plane = document.querySelector('[data-hsl-plane]');
+  plane.getBoundingClientRect = () => ({ left: 0, top: 0, width: 180, height: 132 });
+  plane.dispatchEvent(
+    new win.PointerEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+      pointerId: 9,
+      isPrimary: true,
+      clientX: 90,
+      clientY: 66,
+    }),
+  );
+  document.body.dispatchEvent(
+    new win.KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  document.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 9 }));
+  await tick();
+  assert.equal(document.querySelector('.hsl-color-popover'), null);
+  assert.equal(JSON.stringify(win.nect.document), beforeCancel);
+  assert.equal(win.nect.commandState.expectedRevision, revisionBeforeCancel);
+  document.querySelector('[data-action="undo"]').click();
+  await tick();
+  assert.equal(JSON.stringify(win.nect.document), beforeAlpha, 'Escape added no Undo entry');
+  document.querySelector('[data-action="redo"]').click();
+  await tick();
+  assert.equal(JSON.stringify(win.nect.document), beforeCancel);
+
+  document.querySelector(`.node[data-id="${colorId}"] .node-head strong`).click();
+  openDOMPanel(document, 'inspector');
+  const inspectorSwatch = () =>
+    document.querySelector(
+      `.inspector-body .field[data-node="${colorId}"][data-key="value"] [data-hsl-picker-open]`,
+    );
+  const origin = inspectorSwatch();
+  origin.click();
+  await change(document.querySelector('[data-hsl-hex]'), '#00ff00');
+  assert.equal(origin.isConnected, false, 'commit rerender replaced both field copies');
+  document.querySelector('[data-hsl-close]').click();
+  assert.equal(document.activeElement, inspectorSwatch(), 'close returns to Inspector, not Graph');
+  document.querySelector('[data-action="undo"]').click();
+  await tick();
+  assert.equal(JSON.stringify(win.nect.document), beforeCancel, 'popup commit was one Undo');
+
+  field(colorId, 'value').querySelector('[data-hsl-picker-open]').click();
+  const layerId = win.nect.document.layers[0].id;
+  win.nect.dispatch({
+    ...win.nect.commandState,
+    type: 'set-parameter',
+    payload: { layerId, nodeId: colorId, key: 'value', value: { hex: '#ff8000', alpha: 0.6 } },
+  });
+  const newerDocument = JSON.stringify(win.nect.document);
+  const newerRevision = win.nect.commandState.expectedRevision;
+  await change(document.querySelector('[data-hsl-hex]'), '#123456');
+  assert.equal(document.querySelector('.hsl-color-popover'), null, 'stale popup closes');
+  assert.equal(
+    JSON.stringify(win.nect.document),
+    newerDocument,
+    'stale popup preserves newer edit',
+  );
+  assert.equal(win.nect.commandState.expectedRevision, newerRevision);
+  document.querySelector('[data-action="undo"]').click();
+  await tick();
+  assert.equal(JSON.stringify(win.nect.document), beforeCancel, 'stale popup added no Undo entry');
+
+  field(outputId, 'color').querySelector('[data-hsl-picker-open]').click();
+  await change(document.querySelector('[data-hsl-hex]'), '#2040ff');
+  document.querySelector('[data-hsl-close]').click();
   await change(field(outputId, 'color').querySelector('[data-color="alpha"]'), '0.25');
   assert.deepEqual(win.nect.evaluate().path.fill, { hex: '#2040ff', alpha: 0.25 });
   document
@@ -114,10 +191,12 @@ test('synthetic Color controls: source display, fallback restoration, alpha vali
   const baseGroup = field(outputId, 'color').querySelector('.base-component[role="group"]');
   assert.ok(baseGroup, 'connected Color base is an accessible group');
   assert.equal(baseGroup.querySelector('label label'), null, 'HSL labels are not nested');
-  assert.equal(baseGroup.querySelectorAll('[data-color-base]').length >= 5, true);
+  assert.equal(baseGroup.querySelectorAll('[data-color-base]').length === 2, true);
   assert.equal(
-    field(outputId, 'color').querySelector('[data-color-base][data-color="hex"]').value,
-    '#2040ff',
+    field(outputId, 'color')
+      .querySelector('[data-color-base][data-hsl-picker-open]')
+      .getAttribute('style'),
+    'background:#2040ff',
   );
   assert.equal(
     field(outputId, 'color').querySelector('[data-color-base][data-color="alpha"]').disabled,
@@ -151,7 +230,7 @@ test('synthetic Color controls: source display, fallback restoration, alpha vali
   await change(field(colorId, 'value').querySelector('[data-color="alpha"]'), '2');
   assert.equal(JSON.stringify(win.nect.document), saved);
   field(colorId, 'value').querySelector('[data-lock]').click();
-  assert.equal(field(colorId, 'value').querySelector('[data-color="hex"]').disabled, true);
+  assert.equal(field(colorId, 'value').querySelector('[data-hsl-picker-open]').disabled, true);
   assert.equal(field(colorId, 'value').querySelector('[data-color="alpha"]').disabled, true);
   win.close();
 });

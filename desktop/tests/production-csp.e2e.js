@@ -82,10 +82,14 @@ try {
   await page.locator('#add-node').selectOption('Color');
   const colorId = await page.evaluate(() => window.nect.document.layers[0].nodes.at(-1).id);
   await page.getByRole('button', { name: 'Focus Inspector', exact: true }).click();
-  await page.locator('.inspector-body [data-color="hex"]').fill('#ff8000');
+  await page.locator('.inspector-body [data-hsl-picker-open]').click();
+  assert.equal(await page.locator('.hsl-color-popover [data-hsl-number]').count(), 3);
+  await page.locator('[data-hsl-hex]').fill('#ff8000');
+  await page.locator('[data-hsl-hex]').press('Tab');
   await page.waitForFunction(
     () => window.nect.document.layers[0].nodes.at(-1).params.value.value.hex === '#ff8000',
   );
+  await page.locator('[data-hsl-close]').click();
   await page.locator('.inspector-body [data-color="alpha"]').fill('0.5');
   await page.locator('.inspector-body [data-color="alpha"]').press('Tab');
   const outputId = await page.evaluate(

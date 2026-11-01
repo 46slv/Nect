@@ -178,8 +178,8 @@ try {
   );
   await field(ids.g, 'endColor').locator('.socket.input').click({ button: 'right' });
   assert.equal(
-    await field(ids.g, 'endColor').locator('[data-color="hex"]').inputValue(),
-    '#0000ff',
+    await field(ids.g, 'endColor').locator('[data-hsl-picker-open]').getAttribute('style'),
+    'background:#0000ff',
   );
   await field(ids.g, 'start').locator('[data-lock]').click();
   assert.equal(await field(ids.g, 'start').locator('[data-value]').first().isDisabled(), true);
@@ -314,8 +314,11 @@ try {
     () => window.nect.document.layers[0].nodes.find((n) => n.type === 'Linear Gradient Fill').id,
   );
   await inspect(importedGradient);
-  await field(importedGradient, 'endColor').locator('[data-color="hex"]').fill('#fedcba');
-  await field(importedGradient, 'endColor').locator('[data-color="hex"]').press('Tab');
+  await field(importedGradient, 'endColor').locator('[data-hsl-picker-open]').click();
+  await page.locator('[data-hsl-hex]').fill('#fedcba');
+  await page.locator('[data-hsl-hex]').press('Tab');
+  if (await page.locator('.hsl-color-popover').count())
+    await page.locator('[data-hsl-close]').click();
   await page.waitForFunction(
     () =>
       document
