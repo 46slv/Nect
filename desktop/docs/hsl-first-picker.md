@@ -1,14 +1,20 @@
-# HSL-first standard color picker
+# HSL-first Color swatch picker
 
-Decision: user request, 2026-10-31. All standard editable Color parameters and saved Shared Color literals show H/S/L first: hue 0–360°, saturation 0–100%, lightness 0–100%. Alpha remains a separate 0–1 input. An existing native color swatch remains available as an alternative, not the primary numeric editing surface.
+Decision clarified by the user on 2026-11-01: the standard **popup opened by clicking a Color node's colored swatch** must prioritize HSL. This replaces the prior always-visible H/S/L controls inside Color parameters; it does not request a Shared Colors redesign. Existing Shared Colors inline controls are preserved.
 
-The document model remains validated sRGB `#RRGGBB` plus alpha; editing HSL converts back to the existing hex value through a UI-only adapter. This avoids migration, changing Color expression semantics, altering SVG interchange, or confusing HSL with the OKLCH/Auto Chroma harmony system. HSL is an input representation, not a new palette-generation algorithm.
+## Interaction
 
-Requirements:
+- Click the colored swatch of a local editable Color parameter (including Fill, Stroke, Color, gradient stops and Text/Keyer Color where supported). Open a compact anchored Nect-owned HSL picker, not the WebView/OS-native `input[type=color]` dialog.
+- Primary controls in that popup are a 2D Saturation/Lightness surface at fixed Hue, a Hue slider, and explicit H 0–360°, S 0–100%, L 0–100% numeric inputs. HEX is an available secondary precision/interchange input.
+- Current color is shown by the swatch/preview. Opacity remains a separate Color Alpha input and is not modified by a hue/saturation/lightness edit.
+- A finished numeric/slider edit or plane pointer gesture authors one typed Session edit and one Undo step; an unfinished drag or Escape never authors the pending value. Invalid values and stale revisions must not mutate the document.
+- Connected/expressed parameters retain their existing editable Base semantics. Locked/Global Color-bound parameters remain disabled. Color slot identity, artwork references and palette recipes are unchanged.
+- The popup lives outside the rerendered Graph/Inspector DOM; it should not leak tool shortcuts, steal graph drags or detach while editing.
 
-- Visible H, S and L controls on local and bound Base Color parameters as well as saved shared literals. Bound controls preserve the current disable/base rules.
-- Changing one coordinate preserves the other converted coordinates to practical 8-bit sRGB precision, retains existing alpha, and uses the same typed Session command/Undo path.
-- Invalid or incomplete values never dispatch authored color. Existing HEX/native swatch remains available for precise entry. Keep stable Shared Color IDs and revision envelopes.
-- Browser/DOM tests establish dispatch and conversion; native Windows/WebView2 physical acceptance is separate.
+## Boundaries
 
-No changes to harmony wheel roles, gamut constraints, automatic chroma, persistence schema or RGB-based rendering math are intended.
+This change modifies the **picker UI**, not the stored Color model: the sRGB six-digit HEX plus Alpha contract remains. Neither the Color Harmony wheel nor the OKLCH/Auto Chroma palette engine is replaced by HSL. Shared Color inline editing stays as previously implemented.
+
+The popup is implemented in `src/hsl-color-popover.js`; the existing `src/hsl-color-picker.js` conversion and inline Shared Colors helpers remain unchanged.
+
+Origin: [Draft PR #133](https://github.com/46slv/Nect/pull/133), extracted onto main with Escape-cancellation and same-surface focus regressions. Exact CI and Windows/WebView2 acceptance must be checked independently; a passing synthetic DOM test is not native GUI acceptance.

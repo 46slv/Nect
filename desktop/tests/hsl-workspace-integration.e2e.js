@@ -5,7 +5,7 @@ import { activateCommand } from './command-menu-actions.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 
 // Browser evidence for the actual drawer surfaces and existing Session owner.
-// The native OS color dialog itself is outside headless Chrome acceptance.
+// Physical Windows/WebView2 and OS IME acceptance remain separate.
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
   headless: true,
@@ -16,7 +16,7 @@ page.setDefaultTimeout(30000);
 const errors = [];
 page.on('pageerror', (error) => errors.push(error.message));
 const documentText = () => page.evaluate(() => JSON.stringify(window.nect.document));
-const channel = (name) => page.locator(`.inspector-body [data-color="hsl-${name}"]`);
+const channel = (name) => page.locator(`.hsl-color-popover [data-hsl-number="${name}"]`);
 const selectColor = async (id) => {
   await page.locator(`.graph .node[data-id="${id}"] .node-head strong`).click();
   await ensureWorkspacePanel(page, 'inspector');
@@ -60,10 +60,15 @@ try {
   });
   await selectColor(id);
   const field = page.locator(`.inspector-body .field[data-node="${id}"][data-key="color"]`);
-  for (const name of ['h', 's', 'l']) assert.equal(await channel(name).isVisible(), true);
-  assert.equal(await field.locator('[data-color="hex"]').getAttribute('type'), 'color');
-  assert.equal(await field.locator('[data-color="hex"]').inputValue(), '#ff0000');
+  assert.equal(await field.locator('[data-color^="hsl-"]').count(), 0);
+  assert.equal(await field.locator('input[type="color"]').count(), 0);
+  assert.equal(
+    await field.locator('[data-hsl-picker-open]').getAttribute('style'),
+    'background:#ff0000',
+  );
   assert.equal(await field.locator('[data-color="alpha"]').inputValue(), '0.5');
+  await field.locator('[data-hsl-picker-open]').click();
+  for (const name of ['h', 's', 'l']) assert.equal(await channel(name).isVisible(), true);
   const original = await documentText();
   await channel('h').fill('');
   assert.equal(await documentText(), original, 'incomplete HSL stays unauthored');
@@ -80,51 +85,46 @@ try {
       '#00ff00',
     id,
   );
-  // The existing command owner defers a full render to the next task so a
-  // numeric Tab transition keeps its focus and draft selection intact.
-  const colorSelector = '.inspector-body [data-color="hex"]';
-  await page.waitForFunction((s) => document.querySelector(s)?.value === '#00ff00', colorSelector);
   const edited = await documentText();
-  assert.equal(await field.locator('[data-color="hex"]').inputValue(), '#00ff00');
+  assert.equal(
+    await field.locator('[data-hsl-picker-open]').getAttribute('style'),
+    'background:#00ff00',
+  );
   assert.equal(await field.locator('[data-color="alpha"]').inputValue(), '0.5');
+  await page.locator('[data-hsl-close]').click();
+  assert.equal(
+    await field.locator('[data-hsl-picker-open]').evaluate((el) => document.activeElement === el),
+    true,
+  );
   await activateCommand(page, 'undo');
   assert.equal(await documentText(), original, 'one Undo restores the color edit');
   await activateCommand(page, 'redo');
   assert.equal(await documentText(), edited, 'Redo restores the color edit');
 
-  // Connected parameters retain their separately editable Base in a labelled
-  // group, with keyboard order H → S → L rather than nested labels.
+  // Graph swatches open the same popup; connected fields keep their Base group.
   await page.locator('#add-node').selectOption('Color');
   const sourceId = await page.evaluate(() => window.nect.document.layers[0].nodes.at(-1).id);
   const graphField = page.locator(`.graph .field[data-node="${sourceId}"][data-key="value"]`);
-  for (const name of ['h', 's', 'l'])
-    await canHit(graphField.locator(`[data-color="hsl-${name}"]`), `graph ${name}`, 40);
+  await canHit(graphField.locator('[data-hsl-picker-open]'), 'graph swatch', 32);
+  await graphField.locator('[data-hsl-picker-open]').click();
+  for (const name of ['h', 's', 'l']) await canHit(channel(name), `popup ${name}`, 40);
   await page.screenshot({ path: 'test-results/workflow-hsl-graph-1600.png' });
+  await page.locator('[data-hsl-close]').click();
   await selectColor(id);
   await field.locator('[data-connect-menu]').click();
   await page.locator('dialog select').selectOption(sourceId);
   await page.locator('dialog [data-confirm]').click();
   const base = field.locator('.base-component[role="group"]');
   assert.match(await base.getAttribute('aria-label'), /base/i);
-  for (const name of ['h', 's', 'l']) {
-    assert.equal(
-      await base.locator(`[data-color="hsl-${name}"]`).getAttribute('data-color-base'),
-      '',
-    );
-  }
-  const baseH = base.locator('[data-color="hsl-h"]');
-  await baseH.focus();
+  assert.equal(await base.locator('[data-hsl-picker-open]').getAttribute('data-color-base'), '');
+  await base.locator('[data-hsl-picker-open]').click();
+  await channel('h').focus();
   await page.keyboard.press('Tab');
-  assert.equal(
-    await base.locator('[data-color="hsl-s"]').evaluate((el) => document.activeElement === el),
-    true,
-  );
+  assert.equal(await channel('s').evaluate((el) => document.activeElement === el), true);
   await page.keyboard.press('Tab');
-  assert.equal(
-    await base.locator('[data-color="hsl-l"]').evaluate((el) => document.activeElement === el),
-    true,
-  );
+  assert.equal(await channel('l').evaluate((el) => document.activeElement === el), true);
   await page.screenshot({ path: 'test-results/workflow-hsl-inspector-driven-1600.png' });
+  await page.locator('[data-hsl-close]').click();
 
   await page.getByRole('button', { name: 'Toggle Shared Colors panel', exact: true }).click();
   await page.getByRole('button', { name: 'Add shared color', exact: true }).click();
@@ -192,14 +192,14 @@ try {
       {
         ok: true,
         viewportWidths: [1600, 900],
-        limits: ['Headless Chrome; native color dialog and OS IME are not tested.'],
+        limits: ['Headless Chrome; physical Windows/WebView2 and OS IME are not tested.'],
       },
       null,
       2,
     ),
   );
   console.log(
-    'HSL workspace: inspector and shared live/Undo, invalid input, narrow hit testing PASS',
+    'HSL workspace: swatch popup, inspector focus/Undo, Shared Colors live HSL and narrow hit testing PASS',
   );
 } finally {
   await browser.close();

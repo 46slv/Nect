@@ -200,8 +200,10 @@ test('Linear Gradient Fill controls, typed sources, fallback, invalid endpoint r
   assert.equal(endColorBase().disabled, false);
   assert.equal(endColorBase().value, '1');
   assert.equal(
-    field('endColor').querySelector('[data-color-base][data-color="hex"]').value,
-    '#6554c0',
+    field('endColor')
+      .querySelector('[data-color-base][data-hsl-picker-open]')
+      .getAttribute('style'),
+    'background:#6554c0',
   );
   assert.match(endColorResult().textContent, /Connected result #00ff00\s+alpha 0\.25/);
   assert.equal(win.nect.evaluate().path.fill.endColor.alpha, 0.25);

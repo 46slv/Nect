@@ -210,7 +210,7 @@ try {
   await binding().selectOption(slotId);
   assert.equal((await parameter()).colorSlotId, slotId);
   assert.deepEqual((await parameter()).value, { hex: '#112233', alpha: 0.6 });
-  assert.equal(await field().locator('[data-color="hex"]').isDisabled(), true);
+  assert.equal(await field().locator('[data-hsl-picker-open]').isDisabled(), true);
   assert.equal(await field().locator('[data-color="alpha"]').isDisabled(), true);
   const boundDocument = await documentSnapshot();
   assert.deepEqual(
@@ -274,7 +274,7 @@ try {
   await binding().selectOption('');
   assert.equal((await parameter()).colorSlotId, undefined);
   assert.deepEqual((await parameter()).value, { hex: '#2468ab', alpha: 0.25 });
-  assert.equal(await field().locator('[data-color="hex"]').isDisabled(), false);
+  assert.equal(await field().locator('[data-hsl-picker-open]').isDisabled(), false);
   await assertCoverage(slotId, otherSlotId, 0, 'unlink: equal display color stays Other');
   const afterUnbind = await saved();
   await page.locator('[data-action="undo"]').click();

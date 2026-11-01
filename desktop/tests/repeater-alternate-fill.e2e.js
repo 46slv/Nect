@@ -156,14 +156,12 @@ try {
     await $('[data-action="undo"]').click();
     await settle();
     assert.equal((await state()).doc, on.doc);
-    // Synthetic color-control change, not the OS color picker. Uses the same
-    // native-renderer event handler/Session command as the existing Color field.
-    await field(targetColor)
-      .locator('[data-color="hex"]')
-      .evaluate((el) => {
-        el.value = '#0055aa';
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      });
+    // The swatch popup authors through the existing typed Session command.
+    await field(targetColor).locator('[data-hsl-picker-open]').click();
+    await page.locator('[data-hsl-hex]').fill('#0055aa');
+    await page.locator('[data-hsl-hex]').press('Tab');
+    if (await page.locator('.hsl-color-popover').count())
+      await page.locator('[data-hsl-close]').click();
     await settle();
     assert.ok((await state()).svg.includes(`${strokeMode ? 'stroke' : 'fill'}="#0055aa"`));
     await $('[data-action="undo"]').click();
