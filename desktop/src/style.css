@@ -2940,6 +2940,98 @@ input[data-scrub-step].scrubbing {
   min-width: 0;
 }
 
+.key-color-recipe-launcher {
+  align-self: flex-start;
+  flex: 0 0 auto;
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+.key-color-recipe-dialog {
+  box-sizing: border-box;
+  width: min(760px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text, #252525);
+  background: #fff;
+  font-size: 12px;
+}
+.key-color-recipe-dialog::backdrop {
+  background: #17253666;
+}
+.key-color-recipe-dialog header,
+.key-color-recipe-dialog footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.key-color-recipe-dialog h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 16px;
+}
+.key-color-recipe-dialog footer {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.key-color-recipe-body {
+  max-height: 64dvh;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 4px;
+}
+.key-color-recipe-dialog fieldset {
+  margin: 8px 0;
+  border: 1px solid var(--line);
+}
+.key-color-recipe-dialog label {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 12px 4px 0;
+}
+.key-color-recipe-dialog input {
+  width: 130px;
+  max-width: 100%;
+}
+.key-color-recipe-dialog input[aria-invalid='true'] {
+  outline: 2px solid #b03030;
+}
+.key-color-recipe-dialog pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.key-color-comparison {
+  overflow-x: auto;
+}
+.key-color-comparison table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.key-color-comparison :is(th, td) {
+  padding: 6px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.key-color-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1px solid #7c858d;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+[data-key-color-status][data-error='true'] {
+  color: #a02828;
+}
+.key-color-undo-note {
+  margin-bottom: 0;
+  color: var(--muted, #52616f);
+}
+
 .shared-color-row [data-color-coverage-id] {
   grid-column: 2;
   font-size: 10px;

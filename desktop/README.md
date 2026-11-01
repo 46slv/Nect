@@ -12,6 +12,11 @@ Horizontal **Wrap width · auto height** composes Latin words and a bounded Japa
 
 Color parameters update the wheel and artwork while typing or dragging, with one Undo per completed edit. Wheel swatches and saved-area badges stay visible while parameters scroll; Layers can collapse. [Interaction and verification boundaries](docs/live-color-panel.md).
 
+**Shared colors → Key color · Experimental** edits only an already-retained
+experimental recipe, with explicit before/after Preview and one-Undo Apply.
+Absent recipes stay explanatory; no preset, dark coefficients or product defaults
+are chosen. [Opt-in editor, safeguards and verification limits](docs/key-color-recipe-editor.md).
+
 ## Run the editor
 
 Node 22+ is recommended.
