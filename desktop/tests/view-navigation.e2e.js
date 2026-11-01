@@ -275,13 +275,16 @@ try {
         .querySelector('.graph-panel > .canvas-toolbar')
         .getBoundingClientRect();
       return {
-        left: left.right,
-        right: right.left,
+        graphTop: left.top,
+        artboardBottom: right.bottom,
         overflow: document.documentElement.scrollWidth > innerWidth,
       };
     });
     assert.equal(ends.overflow, false);
-    assert.ok(ends.left <= ends.right + 1, 'boundary ends do not overlap');
+    assert.ok(
+      ends.artboardBottom <= ends.graphTop + 1,
+      'Artboard controls stay above graph controls',
+    );
     assert.equal(await page.locator('#add-node').isVisible(), true);
     assert.equal(
       await page.getByRole('button', { name: 'Toggle artboard view controls' }).isVisible(),
