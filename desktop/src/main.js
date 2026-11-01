@@ -19,7 +19,7 @@ import { colorCoveragePasses } from './color-coverage-passes.js';
 import { sampleColorCoverage } from './color-coverage-sampling.js';
 import { rasterizeCoverageAlpha } from './color-coverage-raster.js';
 import { createSharedColorsPanel } from './shared-colors-panel.js';
-import { renderHslFields, updateHexHsl } from './hsl-color-picker.js';
+import { createHslColorPicker } from './hsl-color-picker.js';
 import { mountAssetLibrary, getAssetLibraryPanel, closeAssetLibrary } from './asset-library.js';
 import { createWorkspacePanels } from './workspace-panels.js';
 import { installLayerReorder } from './layer-reorder.js';
@@ -827,6 +827,80 @@ const sharedColors = createSharedColorsPanel({
   render: () => render(),
   notify: (message, error) => notify(message, error),
 });
+const hslPicker = createHslColorPicker({
+  document,
+  onCommit: ({ target, hex }) => {
+    if (
+      session !== target.session ||
+      session.state.sessionId !== target.sessionId ||
+      session.state.expectedRevision !== target.revision ||
+      current().id !== target.layerId ||
+      deletionBusy() ||
+      variableAction
+    )
+      throw Error('Color edit cancelled: document or edit state changed');
+    const node = current().nodes.find((n) => n.id === target.nodeId),
+      q = node && parameter(node, target.key);
+    if (
+      !q ||
+      q.type !== 'Color' ||
+      node.locked ||
+      current().locked ||
+      q.locked ||
+      q.colorSlotId !== undefined
+    )
+      throw Error('Color is no longer editable');
+    const before = q.value || { hex: current().fill, alpha: 1 };
+    if (before.hex.toLowerCase() === hex.toLowerCase()) return true;
+    const result = commandChange(
+      target.base ? 'set-parameter-base' : 'set-parameter',
+      { nodeId: target.nodeId, key: target.key, value: { ...before, hex } },
+      undefined,
+      true,
+    );
+    if (!result) return false;
+    target.revision = session.state.expectedRevision;
+    return true;
+  },
+  onError: (error) => notify(error.message || String(error), true),
+});
+app.addEventListener(
+  'pointerdown',
+  (event) => {
+    if (event.target.closest?.('[data-hsl-picker-open]')) event.stopImmediatePropagation();
+  },
+  true,
+);
+app.addEventListener(
+  'click',
+  (event) => {
+    const swatch = event.target.closest?.('[data-hsl-picker-open]');
+    if (!swatch) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (swatch.disabled) return;
+    const field = swatch.closest('.field'),
+      node = current().nodes.find((n) => n.id === field?.dataset.node),
+      q = node && parameter(node, field.dataset.key);
+    if (!q || q.type !== 'Color' || q.locked || node.locked || current().locked || q.colorSlotId !== undefined) return;
+    const label = node.name + ' ' + field.dataset.key;
+    hslPicker.open({
+      anchor: swatch,
+      label,
+      color: q.value || { hex: current().fill, alpha: 1 },
+      context: {
+        layerId: current().id,
+        nodeId: node.id,
+        key: field.dataset.key,
+        base: !!(q.expression || q.source),
+        revision: session.state.expectedRevision,
+        sessionId: session.state.sessionId,
+        session,
+      },
+    });
+  },
+  true,
+);
 const coverageFontIds = new WeakMap();
 let nextCoverageFontId = 0;
 const coverageView = createColorCoverageView({
@@ -1668,6 +1742,7 @@ function settleNumericControl(input, result) {
   else input.defaultValue = input.value;
 }
 function resetTransient() {
+  hslPicker.close();
   sharedColors.cancelEdit();
   keyerInputPicker?.close();
   pointAlignmentActions.clear();
@@ -2545,12 +2620,7 @@ function field(n, key, q, inspector = false) {
       color = (driven ? q.value : displayed) || { hex: current().fill, alpha: 1 },
       disabled = current().locked || q.locked || q.colorSlotId !== undefined,
       base = driven ? ' data-color-base' : '';
-    const hslFields = renderHslFields(color.hex, {
-      name: `${n.name} ${name}${driven ? ' base' : ''}`,
-      disabled,
-      base: driven,
-    });
-    const inputs = `${hslFields}<input type="color" data-color="hex"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} color" value="${esc(color.hex)}" ${disabled ? 'disabled' : ''}>${n.type === 'Keyer' && key === 'keyColor' ? '' : `<input type="number" ${driven ? '' : 'data-scrub-step="0.01"'} data-color="alpha"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} alpha" title="Alpha" min="0" max="1" step="0.01" value="${color.alpha}" ${disabled ? 'disabled' : ''}>`}`;
+    const inputs = `<button type="button" class="node-color-swatch" data-hsl-picker-open${base} aria-haspopup="dialog" aria-label="Edit ${esc(n.name + ' ' + name + (driven ? ' base' : ''))} color (HSL)" style="background:${esc(color.hex)}" ${disabled ? 'disabled' : ''}></button>${n.type === 'Keyer' && key === 'keyColor' ? '' : `<input type="number" ${driven ? '' : 'data-scrub-step="0.01"'} data-color="alpha"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} alpha" title="Alpha" min="0" max="1" step="0.01" value="${color.alpha}" ${disabled ? 'disabled' : ''}>`}`;
     if (driven) {
       let result;
       try {
@@ -9890,9 +9960,7 @@ app.addEventListener('change', async (e) => {
           if (d.color === 'alpha') {
             if (!el.value.trim()) throw Error('Alpha must be from 0 to 1');
             value.alpha = Number(el.value);
-          } else if (d.color.startsWith('hsl-'))
-            value.hex = updateHexHsl(value.hex, d.color.slice(4), el.value);
-          else value.hex = el.value;
+          } else value.hex = el.value;
         } else {
           if (el.matches('[data-mask-luminance]') && !['alpha', 'luminance'].includes(el.value))
             throw Error('Choose Alpha or Luminance');
