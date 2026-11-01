@@ -32,3 +32,28 @@ No schema, core editing, native font, storage, shaping, or fallback-chain change
 Cluster-level editing and broader OpenType selection remain separate work.
 The bounded local evidence settles this status fix; review gate not-required,
 external submissions 0. No universal font-support claim is made.
+
+## Normal Font picker discovery status
+
+The normal **Font** picker also reports native face discovery independently of
+installed-file rows and font preparation: **Checking native fonts…**, **Native
+font discovery failed**, **No native font faces found**, or the returned native
+face count. **Refresh fonts** uses the existing metadata-only refresh path and
+is disabled while that request is pending. Search, row selection and preparation
+messages do not replace this discovery status. It is shown on the desktop only.
+
+A failed/empty native catalog does not disable installed-file rows or their
+existing normal Apply route. No names are mapped between the separate catalogs;
+face IDs, route eligibility, defaults and save behavior are unchanged. Opening,
+searching and refreshing the picker read no font bytes. Applying an installed
+row retains the existing explicit import/validation behavior and one-edit guard.
+
+`tests/os-font-catalog.test.js` covers the distinct discovery results.
+`tests/unified-font-picker-dom.test.js` covers rejected discovery, installed Apply
+and duplicate-Apply suppression, successful empty results, pending Refresh and
+recovery without reopening or document/history edits. The existing unified
+picker Chrome scenario additionally checks the discovery line, retained
+selection and Apply eligibility across failure/empty/pending/recovery, with
+screenshots and `workflow-unified-font-picker.json`. Native catalog and geometry
+responses in these UI tests are synthetic; they do not prove real Windows font
+availability, aliases, installed/native catalog equivalence, or font fidelity.

@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readOsFontCatalog, osFontAvailability } from '../src/os-font-catalog.js';
+import {
+  readOsFontCatalog,
+  osFontAvailability,
+  osFontDiscoveryStatus,
+} from '../src/os-font-catalog.js';
 const face = {
   family: 'Named face',
   name: 'Regular',
@@ -70,4 +74,28 @@ test('saved face matches all native metadata and checking never changes the refe
     assert.match(osFontAvailability(modern, { faces: [altered] }), /unavailable/, key);
   }
   assert.equal(JSON.stringify(modern), before);
+});
+
+test('normal picker native discovery distinguishes pending, failure, empty and face count', async () => {
+  assert.equal(osFontDiscoveryStatus({ desktop: false }), '');
+  assert.equal(osFontDiscoveryStatus(), 'Native fonts not checked');
+  assert.equal(
+    osFontDiscoveryStatus({ pending: true, facesError: true }),
+    'Checking native fonts…',
+  );
+  const failed = await readOsFontCatalog({
+    listFamilies: async () => [],
+    listFaces: async () => {
+      throw Error('Native discovery failed');
+    },
+  });
+  assert.equal(osFontDiscoveryStatus(failed), 'Native font discovery failed');
+  const empty = await readOsFontCatalog({ listFaces: async () => [] });
+  assert.equal(osFontDiscoveryStatus(empty), 'No native font faces found');
+  const recovered = await readOsFontCatalog({ listFaces: async () => [face] });
+  assert.equal(osFontDiscoveryStatus(recovered), '1 native font face');
+  assert.equal(
+    osFontDiscoveryStatus({ faces: [face, { ...face, name: 'Bold' }] }),
+    '2 native font faces',
+  );
 });

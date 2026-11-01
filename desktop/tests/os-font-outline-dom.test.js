@@ -254,7 +254,7 @@ test('unified Font keeps native Text editable and explicit outlines reject cance
   };
   picker = await open();
   picker.querySelector('.picker-apply').click();
-  await until(() => /Missing glyphs/.test(picker.querySelector('output').textContent));
+  await until(() => /Missing glyphs/.test(picker.querySelector('.picker-status').textContent));
   assert.equal(saved(), before);
   picker.querySelector('.picker-cancel').click();
   n = setup();
@@ -266,7 +266,7 @@ test('unified Font keeps native Text editable and explicit outlines reject cance
   picker = await open();
   picker.querySelector('.picker-apply').click();
   await until(() =>
-    /did not match the selected face/.test(picker.querySelector('output').textContent),
+    /did not match the selected face/.test(picker.querySelector('.picker-status').textContent),
   );
   assert.equal(saved(), before);
   picker.querySelector('.picker-cancel').click();
@@ -320,11 +320,14 @@ test('unified Font keeps native Text editable and explicit outlines reject cance
   await search(picker, 'DejaVu Sans');
   picker.querySelector('.picker-apply').click();
   await until(() =>
-    /OS font retained:.*Missing glyphs/s.test(picker.querySelector('output').textContent),
+    /OS font retained:.*Missing glyphs/s.test(picker.querySelector('.picker-status').textContent),
   );
   assert.equal(live().osFont.family, 'DIN Alternate');
   assert.equal(serialize(win.nect.document), good);
-  assert.match(picker.querySelector('output').textContent, /OS font retained:.*Missing glyphs/s);
+  assert.match(
+    picker.querySelector('.picker-status').textContent,
+    /OS font retained:.*Missing glyphs/s,
+  );
   picker.querySelector('.picker-cancel').click();
   // Restore a geometry-only saved document even when preparation cannot run.
   win.nect.load(good);

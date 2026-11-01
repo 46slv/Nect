@@ -57,7 +57,15 @@ export const listSystemFonts = async () => [['system-byte-only', 'Byte-only disc
 export const readSystemFont = async () => { window.unifiedByteReads = (window.unifiedByteReads || 0) + 1;
   throw Error('Browsing and native selection must not read installed bytes'); };
 export const listOsOutlineFonts = async () => [];
-export const listDesktopFontFaces = async () => [${JSON.stringify(face)}];
+export const listDesktopFontFaces = async () => {
+  window.unifiedCatalogCalls = (window.unifiedCatalogCalls || 0) + 1;
+  if (window.unifiedCatalogMode === 'failed') throw Error('Synthetic native discovery rejected');
+  if (window.unifiedCatalogMode === 'empty') return [];
+  if (window.unifiedCatalogMode === 'pending') return new Promise(resolve => {
+    window.unifiedCatalogFinish = () => resolve([${JSON.stringify(face)}]);
+  });
+  return [${JSON.stringify(face)}];
+};
 export const listDesktopFontAxes = async () => [];
 function prepared(request) {
   const modern = request.axes !== undefined || request.writingMode !== undefined;
@@ -172,6 +180,83 @@ try {
   assert.equal(await page.evaluate(() => window.unifiedByteReads || 0), 0);
   await picker().locator('.picker-cancel').click();
   assert.deepEqual(await state(), before);
+
+  // Discovery has its own status; a failed native query must not look like a
+  // successful empty query or disable unrelated installed-file candidates.
+  await open();
+  const discovery = () => picker().locator('.picker-font-discovery-status'),
+    refreshFonts = () => picker().getByRole('button', { name: 'Refresh fonts', exact: true });
+  assert.equal(await discovery().textContent(), '1 native font face');
+  await page.evaluate(() => {
+    window.unifiedCatalogMode = 'failed';
+  });
+  await refreshFonts().click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector('.picker-font-discovery-status')?.textContent ===
+      'Native font discovery failed',
+  );
+  await picker().locator('input[type="search"]').fill('合成ディスカバリー');
+  await picker().locator('.picker-option').click();
+  const installedId = await picker()
+    .locator('.picker-option[aria-selected="true"]')
+    .getAttribute('data-id');
+  assert.equal(await picker().locator('.picker-option').getAttribute('aria-disabled'), 'false');
+  assert.equal(await picker().locator('.picker-apply').isDisabled(), false);
+  assert.equal(await discovery().textContent(), 'Native font discovery failed');
+  await page.screenshot({ path: 'test-results/workflow-unified-font-discovery-failed.png' });
+  assert.deepEqual(await state(), before);
+
+  await page.evaluate(() => {
+    window.unifiedCatalogMode = 'empty';
+  });
+  await refreshFonts().click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector('.picker-font-discovery-status')?.textContent ===
+      'No native font faces found',
+  );
+  assert.equal(
+    await picker().locator('.picker-option[aria-selected="true"]').getAttribute('data-id'),
+    installedId,
+  );
+  assert.equal(await picker().locator('.picker-apply').isDisabled(), false);
+  await page.screenshot({ path: 'test-results/workflow-unified-font-discovery-empty.png' });
+  assert.deepEqual(await state(), before);
+
+  const catalogCalls = await page.evaluate(() => window.unifiedCatalogCalls);
+  await page.evaluate(() => {
+    window.unifiedCatalogMode = 'pending';
+  });
+  await refreshFonts().click();
+  await page.waitForFunction(() => !!window.unifiedCatalogFinish);
+  assert.equal(await discovery().textContent(), 'Checking native fonts…');
+  assert.equal(await refreshFonts().isDisabled(), true);
+  assert.equal(await picker().locator('.picker-apply').isDisabled(), false);
+  // Even programmatic repeated clicks use the same existing pending guard.
+  await refreshFonts().evaluate((button) => {
+    button.click();
+    button.click();
+  });
+  assert.equal(await page.evaluate(() => window.unifiedCatalogCalls), catalogCalls + 1);
+  await page.screenshot({ path: 'test-results/workflow-unified-font-discovery-checking.png' });
+  await page.evaluate(() => {
+    window.unifiedCatalogMode = 'available';
+    window.unifiedCatalogFinish();
+  });
+  await page.waitForFunction(
+    () =>
+      document.querySelector('.picker-font-discovery-status')?.textContent === '1 native font face',
+  );
+  assert.equal(await refreshFonts().isDisabled(), false);
+  assert.equal(
+    await picker().locator('.picker-option[aria-selected="true"]').getAttribute('data-id'),
+    installedId,
+  );
+  assert.equal(await picker().locator('.picker-apply').isDisabled(), false);
+  assert.equal(await page.evaluate(() => window.unifiedByteReads || 0), 0);
+  assert.deepEqual(await state(), before);
+  await picker().locator('.picker-cancel').click();
 
   await open();
   await choose(face.family);
@@ -362,6 +447,9 @@ try {
         narrowTypography,
         installedByteReads: 0,
         oneNormalFontEntry: true,
+        nativeDiscoveryFailureEmptyPendingCountDistinct: true,
+        nativeDiscoveryRefreshRecovery: true,
+        nativeDiscoveryDoesNotGateInstalledApply: true,
         familyDisclosuresKeyboardAria: true,
         oneUndoRedoAtomic: true,
         legacyLigaturesOffPreserved: true,
