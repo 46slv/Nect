@@ -214,7 +214,7 @@ try {
       has: page.locator('summary', { hasText: /^Project$/ }),
     });
     assert.equal(await projectMenu.getAttribute('open'), null);
-    await projectMenu.locator('summary').press('Enter');
+    await projectMenu.locator(':scope > summary').press('Enter');
     assert.equal(await projectMenu.evaluate((menu) => menu.open), true);
     assert.equal(await projectSnapshot(), project);
     assert.deepEqual(await page.evaluate(() => window.nect.commandState), command);

@@ -1,4 +1,4 @@
-export function ensureCommandMenus(app, document) {
+export function ensureCommandMenus(app, document, uiSound = null) {
   const header = app.querySelector('header');
   if (!header || header.querySelector('.command-menu')) return;
   const makeMenu = (label, actions, exclusive = true) => {
@@ -39,6 +39,33 @@ export function ensureCommandMenus(app, document) {
     'add-composition',
     'asset-library',
   ]);
+  if (uiSound) {
+    const sound = makeMenu('Sound', [], false);
+    sound.dataset.uiSoundSettings = '';
+    const items = sound.querySelector('.command-menu-items');
+    items.classList.add('output-settings-items');
+    const enabled = document.createElement('input');
+    enabled.id = 'ui-sound-enabled';
+    enabled.type = 'checkbox';
+    enabled.checked = uiSound.enabled;
+    enabled.addEventListener('change', () => uiSound.setEnabled(enabled.checked));
+    const enabledLabel = document.createElement('label');
+    enabledLabel.className = 'header-setting';
+    enabledLabel.append('UI sounds', enabled);
+    const volume = document.createElement('input');
+    volume.id = 'ui-sound-volume';
+    volume.type = 'range';
+    volume.min = '0';
+    volume.max = '1';
+    volume.step = '0.01';
+    volume.value = String(uiSound.volume);
+    volume.addEventListener('input', () => uiSound.setVolume(volume.valueAsNumber));
+    const volumeLabel = document.createElement('label');
+    volumeLabel.className = 'header-setting';
+    volumeLabel.append('Volume', volume);
+    items.append(enabledLabel, volumeLabel);
+    project.querySelector('.command-menu-items').append(sound);
+  }
   const importMenu = makeMenu('Import', ['import-svg', 'import-image', 'add-svg-part']);
   const composition = document.createElement('button');
   composition.type = 'button';

@@ -153,6 +153,43 @@ test('Pen finish shortcuts leave native menu activation intact', async (rawT) =>
     }
   }
 
+  await t.test('Sound settings preserve the current Pen draft and history', async () => {
+    const previousStorage = globalThis.localStorage;
+    globalThis.localStorage = win.localStorage;
+    try {
+      for (const released of [1, 2]) {
+        await start(released);
+        projectSummary().closest('.command-menu').open = true;
+        const sound = $('[data-ui-sound-settings]');
+        sound.open = true;
+        const enabled = sound.querySelector('#ui-sound-enabled');
+        const volume = sound.querySelector('#ui-sound-volume');
+        const before = state(),
+          documentBefore = saved(),
+          projectBefore = win.nect.projectSnapshot();
+
+        enabled.click();
+        assert.deepEqual(state(), before, 'changing sound must not finish or discard the draft');
+        assert.equal(saved(), documentBefore);
+        assert.deepEqual(win.nect.projectSnapshot(), projectBefore);
+
+        volume.value = '0.45';
+        volume.dispatchEvent(new win.Event('input', { bubbles: true }));
+        volume.dispatchEvent(new win.Event('change', { bubbles: true }));
+        assert.deepEqual(state(), before, 'changing volume must not finish or discard the draft');
+        assert.equal(saved(), documentBefore);
+        assert.deepEqual(win.nect.projectSnapshot(), projectBefore);
+        assert.deepEqual(JSON.parse(win.localStorage.getItem('nect.ui-sound.v1')), {
+          enabled: enabled.checked,
+          volume: 0.45,
+        });
+      }
+    } finally {
+      if (previousStorage === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = previousStorage;
+    }
+  });
+
   await t.test(
     'all command summaries and their descendants retain Enter and Space defaults',
     async () => {

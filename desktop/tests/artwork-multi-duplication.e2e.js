@@ -45,7 +45,7 @@ try {
   const projectMenu = await revealCommandMenu(page, 'Project');
   assert.equal(await page.getByRole('button', { name: 'New document', exact: true }).count(), 1);
   assert.equal(await page.getByRole('button', { name: 'Open JSON', exact: true }).count(), 1);
-  await projectMenu.locator('summary').click();
+  await projectMenu.locator(':scope > summary').click();
   for (const [width, height] of [
     [1600, 1000],
     [1280, 800],

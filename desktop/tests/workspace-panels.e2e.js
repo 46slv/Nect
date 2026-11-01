@@ -740,7 +740,8 @@ try {
         getComputedStyle(document.querySelector('.canvas-wrap')).backgroundColor,
       );
       const popup = channels(
-        getComputedStyle(document.querySelector('.output-settings-items')).backgroundColor,
+        getComputedStyle(document.querySelector('[data-output-settings] .output-settings-items'))
+          .backgroundColor,
       );
       return {
         workspace: lum(workspace),
@@ -772,7 +773,9 @@ try {
         .evaluate((el) => el.open && el.closest('.command-menu').open),
       true,
     );
-    const outputBox = await page.locator('.output-settings-items').boundingBox();
+    const outputBox = await page
+      .locator('[data-output-settings] .output-settings-items')
+      .boundingBox();
     assert.ok(outputBox.x >= 0 && outputBox.x + outputBox.width <= width);
     if (width === 900 || width === 1366 || width === 1600)
       await page.screenshot({
