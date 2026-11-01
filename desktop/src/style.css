@@ -267,6 +267,8 @@ header {
   box-shadow: inset 3px 0 currentColor;
 }
 .middle {
+  --workspace-splitter-height: 7px;
+  --boundary-toolbar-height: 34px;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -331,7 +333,7 @@ header {
   cursor: move;
 }
 .splitter {
-  height: 7px;
+  height: var(--workspace-splitter-height);
   background: #dfe4e8;
   cursor: ns-resize;
   flex: none;
@@ -4210,8 +4212,8 @@ input[data-color-scrub-step] {
   }
 }
 
-/* Boundary controls overlay the graph; opening them does not resize either
-   viewport or move its camera. Shapes join the boundary rather than float. */
+/* Boundary controls overlay their respective viewports; opening them does not
+   resize either viewport or move its camera. */
 .graph-panel {
   position: relative;
 }
@@ -4220,7 +4222,7 @@ input[data-color-scrub-step] {
   position: absolute;
   top: 0;
   z-index: 25;
-  height: 34px;
+  height: var(--boundary-toolbar-height);
   min-width: 0;
   max-width: calc(100% - 140px);
   display: flex;
@@ -4248,6 +4250,7 @@ input[data-color-scrub-step] {
   border-radius: 0;
 }
 .graph-panel > .canvas-toolbar {
+  top: calc(-1 * (var(--workspace-splitter-height) + var(--boundary-toolbar-height)));
   right: 0;
   left: auto;
   max-width: calc(100% - 220px);
@@ -4271,7 +4274,7 @@ input[data-color-scrub-step] {
 .canvas-toolbar > .boundary-shoulder {
   right: auto;
   left: 0;
-  transform: scaleX(-1);
+  transform: scale(-1, -1);
 }
 .boundary-shoulder-face {
   fill: var(--surface-pane-solid);

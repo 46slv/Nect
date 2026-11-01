@@ -161,25 +161,17 @@ export function ensureBoundaryControls(app, document) {
   graphToggle.addEventListener('click', (event) => {
     event.stopPropagation();
     const opening = !scope.graphOpen;
-    if (
-      (!opening && graphExtras.contains(document.activeElement)) ||
-      (opening && canvasExtras.contains(document.activeElement))
-    )
+    if (!opening && graphExtras.contains(document.activeElement))
       graphToggle.focus({ preventScroll: true });
     scope.graphOpen = opening;
-    if (opening) scope.viewOpen = false;
     scope.sync();
   });
   viewToggle.addEventListener('click', (event) => {
     event.stopPropagation();
     const opening = !scope.viewOpen;
-    if (
-      (!opening && canvasExtras.contains(document.activeElement)) ||
-      (opening && graphExtras.contains(document.activeElement))
-    )
+    if (!opening && canvasExtras.contains(document.activeElement))
       viewToggle.focus({ preventScroll: true });
     scope.viewOpen = opening;
-    if (opening) scope.graphOpen = false;
     scope.sync();
   });
   scope.reposition = () => {
