@@ -1,3 +1,4 @@
+import { KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION } from './key-color-recipe-document.js';
 import {
   COLOR_SLOTS_SCHEMA_VERSION,
   COLOR_DESIGN_SCHEMA_VERSION,
@@ -4716,7 +4717,8 @@ export function validate(doc) {
       doc.schemaVersion !== COLOR_SLOTS_SCHEMA_VERSION &&
       doc.schemaVersion !== COLOR_DESIGN_SCHEMA_VERSION &&
       doc.schemaVersion !== HARMONY_DESIGN_SCHEMA_VERSION &&
-      doc.schemaVersion !== CHROMA_OVERRIDE_SCHEMA_VERSION)
+      doc.schemaVersion !== CHROMA_OVERRIDE_SCHEMA_VERSION &&
+      doc.schemaVersion !== KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   const colorSlots = validateColorSlots(doc);
@@ -5445,6 +5447,9 @@ export function validate(doc) {
   return doc;
 }
 export function serialize(doc) {
+  // This optional historical receipt must never lose non-JSON data in a direct
+  // codec call, even when the caller did not construct a Session first.
+  if (doc && Object.hasOwn(doc, 'keyColorRecipe')) validateColorSlots(doc);
   const text = JSON.stringify(doc, null, 2);
   if (text.length > MAX_PROJECT_BYTES || utf8ByteLength(text) > MAX_PROJECT_BYTES)
     throw Error('Project exceeds 50 MB');
@@ -7546,12 +7551,22 @@ export class CommandSession {
       // these assets, presets, and newer-schema nodes.
       candidate.name = before.name;
       candidate.schemaVersion = Math.max(before.schemaVersion, candidate.schemaVersion);
-      for (const key of ['imageAssets', 'fontAssets', 'nodePresets', 'colorSlots']) {
+      for (const key of [
+        'imageAssets',
+        'fontAssets',
+        'nodePresets',
+        'colorSlots',
+        'colorDesign',
+        'keyColorRecipe',
+      ]) {
         if (Object.hasOwn(before, key))
-          candidate[key] = ['nodePresets', 'colorSlots'].includes(key)
+          candidate[key] = ['nodePresets', 'colorSlots', 'colorDesign', 'keyColorRecipe'].includes(
+            key,
+          )
             ? clone(before[key])
             : { ...before[key] };
       }
+      validate(candidate);
       serialize(candidate);
       return {
         candidate,

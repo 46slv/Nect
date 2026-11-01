@@ -295,6 +295,9 @@ export function applyActiveCompositionDocument(project, compositionId, editedDoc
   delete projectFields.compositionSchemaVersion;
   delete projectFields.compositions;
   Object.assign(projectFields, editedProjectFields);
+  // This optional project-global packet can be explicitly cleared through the
+  // active Document projection. Do not resurrect it from the base globals.
+  if (!Object.hasOwn(editedProjectFields, 'keyColorRecipe')) delete projectFields.keyColorRecipe;
   const compositions = base.compositions.map((composition, index) => {
     if (index !== targetIndex) return composition;
     const updated = { ...composition, width, height, layers };
