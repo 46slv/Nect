@@ -982,16 +982,7 @@ input[type='color'] {
   min-width: 0;
   width: 100%;
   accent-color: #536779;
-  background: linear-gradient(
-    to right,
-    #f00,
-    #ff0,
-    #0f0,
-    #0ff,
-    #00f,
-    #f0f,
-    #f00
-  );
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
 }
 .hsl-picker-hue input[type='range'] {
   -webkit-appearance: none;
