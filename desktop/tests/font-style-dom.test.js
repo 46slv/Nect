@@ -73,7 +73,7 @@ test('static family/style picker uses actual faces with atomic whole/range histo
   let calls = [];
   globalThis.readRichFont = (id) => {
     calls.push(id);
-    throw Error('Normal font selection must not read installed font bytes');
+    throw Error('Browsing must not read installed font bytes');
   };
   let source = await fs.readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   source = source
@@ -158,11 +158,8 @@ test('static family/style picker uses actual faces with atomic whole/range histo
   assert.match(row('system-legacy', 'installed').textContent, /Unknown family/);
   assert.match(row('system-bold', 'installed').textContent, /face system-bold/);
   assert.equal(row('system-disabled', 'installed').getAttribute('aria-disabled'), 'true');
-  assert.equal(row('system-bold', 'installed').getAttribute('aria-disabled'), 'true');
-  assert.match(
-    row('system-bold', 'installed').textContent,
-    /Font file import is required; use Advanced/,
-  );
+  assert.equal(row('system-bold', 'installed').getAttribute('aria-disabled'), 'false');
+  assert.match(row('system-bold', 'installed').textContent, /Included in saved document/);
   row(boldAsset.id).querySelector('.picker-star').click();
   assert.equal(
     row(obliqueAsset.id).querySelector('.picker-star').getAttribute('aria-pressed'),
@@ -270,7 +267,7 @@ test('static family/style picker uses actual faces with atomic whole/range histo
   await open();
   change('[aria-label="Font family"]', '__unknown__');
   assert.ok(row('system-legacy', 'installed'));
-  assert.equal(row('system-legacy', 'installed').getAttribute('aria-disabled'), 'true');
+  assert.equal(row('system-legacy', 'installed').getAttribute('aria-disabled'), 'false');
   assert.equal(row('system-bold', 'installed'), null);
   cancel();
   win.nect.load(baseline);
