@@ -5,6 +5,11 @@ import {
   resolveHarmonyPalette,
 } from './harmony-wheel.js';
 import { MAX_CHROMA } from './auto-chroma.js';
+import {
+  keyColorRecipeDocumentCommands,
+  validateRetainedKeyColorRecipe,
+  applyRetainedKeyColorRecipeCommand,
+} from './key-color-recipe-document.js';
 // Authored shared colors. Identity is independent of the resolved Color value.
 export const COLOR_SLOTS_SCHEMA_VERSION = 54;
 export const COLOR_DESIGN_SCHEMA_VERSION = 55;
@@ -26,6 +31,7 @@ export const colorSlotCommands = new Set([
   'set-color-slots',
   'bind-color-slot',
   'unbind-color-slot',
+  ...keyColorRecipeDocumentCommands,
 ]);
 const idPattern = /^[A-Za-z0-9_-]{1,128}$/;
 function color(value) {
@@ -137,6 +143,7 @@ export function validateColorSlots(doc) {
   if (doc.colorSlots === undefined) {
     const slots = new Map();
     validateColorDesign(doc, slots);
+    validateRetainedKeyColorRecipe(doc, slots);
     return slots;
   }
   if (
@@ -154,6 +161,7 @@ export function validateColorSlots(doc) {
     slots.set(slot.id, slot);
   }
   validateColorDesign(doc, slots);
+  validateRetainedKeyColorRecipe(doc, slots);
   return slots;
 }
 export function validateColorSlotBinding(q, slots) {
@@ -175,6 +183,8 @@ export function resolveColorSlot(doc, id) {
 }
 export function applyColorSlotCommand(doc, type, payload, makeId) {
   const slots = validateColorSlots(doc);
+  if (keyColorRecipeDocumentCommands.has(type))
+    return applyRetainedKeyColorRecipeCommand(doc, type, payload, slots);
   if (type === 'create-harmony-palette' || type === 'add-harmony-color') {
     const creating = type === 'create-harmony-palette';
     if (
