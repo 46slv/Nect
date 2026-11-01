@@ -158,5 +158,5 @@ test('plane gesture changes saturation/lightness once at pointer release', (t) =
     }),
   );
   assert.equal(commits.length, 1);
-  assert.equal(commits[0], '#9f6060');
+  assert.equal(commits[0], '#bf4040');
 });
