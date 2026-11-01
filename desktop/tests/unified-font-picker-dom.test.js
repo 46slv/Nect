@@ -113,7 +113,7 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
   );
   source = resolveMainRelativeImports(source);
   source +=
-    '\nwindow.unifiedFontDebug = () => ({ past: history.past.length, bundled: !!bundledFont });';
+    '\nwindow.unifiedFontDebug = () => ({ past: history.past.length, bundled: !!bundledFont, pending: osFontCatalogPending, refresh: () => refreshOsFontCatalog() });';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 
   const q = (selector) => document.querySelector(selector);
@@ -193,6 +193,179 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
         cancelable: true,
       }),
     );
+
+  await t.test(
+    'an open Font picker updates after catalog completion without committing',
+    async () => {
+      const f = setup(),
+        before = snapshot(),
+        commandBefore = structuredClone(win.nect.commandState),
+        lateFace = { ...exactFace, family: 'Delayed native fixture' },
+        wait = deferred();
+      globalThis.unifiedNativeFaces = wait.promise;
+      const refresh = win.unifiedFontDebug().refresh();
+      await until(() => win.unifiedFontDebug().pending, 'pending catalog');
+      let picker = await open();
+      await search(picker, lateFace.family);
+      const input = picker.querySelector('input[type="search"]');
+      input.focus();
+      input.setSelectionRange(2, 5);
+      assert.equal(picker.querySelectorAll('.picker-option').length, 0);
+      wait.resolve([exactFace, lateFace]);
+      await refresh;
+      await tick();
+      let rows = [...picker.querySelectorAll('.picker-option')];
+      assert.equal(rows.length, 1, 'new native face appears without reopening');
+      assert.equal(rows[0].getAttribute('aria-disabled'), 'false');
+      assert.equal(rows[0].getAttribute('aria-selected'), 'false', 'refresh does not select a row');
+      assert.equal(picker.querySelector('.picker-apply').disabled, true);
+      assert.notEqual(picker.querySelector('.picker-status').textContent, 'No matches');
+      assert.equal(input.value, lateFace.family);
+      assert.equal(document.activeElement, input);
+      assert.equal(input.selectionStart, 2);
+      assert.equal(input.selectionEnd, 5);
+      assert.equal(snapshot(), before);
+      assert.equal(past(), 0);
+      assert.deepEqual(win.nect.commandState, commandBefore);
+      assert.equal(f.live().osFont, undefined);
+      cancel(picker);
+
+      const selectedWait = deferred();
+      globalThis.unifiedNativeFaces = selectedWait.promise;
+      const selectedRefresh = win.unifiedFontDebug().refresh();
+      await until(() => win.unifiedFontDebug().pending, 'second pending catalog');
+      picker = await open();
+      await choose(picker, exactFace.family);
+      const selectedRow = picker.querySelector('.picker-option[aria-selected="true"]'),
+        selected = selectedRow.dataset.id,
+        selectedFamily = selectedRow.closest('.picker-family');
+      const focusedFamily = selectedFamily.dataset.fontFamily;
+      selectedFamily.focus();
+      selectedWait.resolve([exactFace, lateFace, { ...exactFace, name: 'Bold', weight: 700 }]);
+      await selectedRefresh;
+      await tick();
+      assert.equal(
+        picker.querySelector('.picker-option[aria-selected="true"]').dataset.id,
+        selected,
+      );
+      assert.equal(document.activeElement.dataset.fontFamily, focusedFamily);
+      assert.equal(snapshot(), before);
+      assert.equal(past(), 0);
+      cancel(picker);
+
+      const filterWait = deferred(),
+        filteredFace = { ...exactFace, family: 'Discovery fixture' };
+      globalThis.unifiedNativeFaces = filterWait.promise;
+      const filterRefresh = win.unifiedFontDebug().refresh();
+      await until(() => win.unifiedFontDebug().pending, 'catalog with active filters');
+      picker = await open();
+      const familyFilter = picker.querySelector('[aria-label="Font family"]'),
+        weightFilter = picker.querySelector('[aria-label="Available weight"]');
+      familyFilter.value = `family:${filteredFace.family}`;
+      familyFilter.dispatchEvent(new win.Event('change', { bubbles: true }));
+      weightFilter.value = '400';
+      weightFilter.dispatchEvent(new win.Event('change', { bubbles: true }));
+      weightFilter.focus();
+      filterWait.resolve([exactFace, lateFace, filteredFace]);
+      await filterRefresh;
+      await tick();
+      assert.equal(familyFilter.value, `family:${filteredFace.family}`);
+      assert.equal(weightFilter.value, '400');
+      assert.equal(document.activeElement, weightFilter);
+      assert.equal(
+        picker.querySelectorAll('.picker-option[aria-disabled="false"]').length,
+        1,
+        'a newly discovered source is expanded for the active family filter',
+      );
+      assert.equal(snapshot(), before);
+      assert.equal(past(), 0);
+      cancel(picker);
+
+      const imeWait = deferred(),
+        imeFace = { ...exactFace, family: 'Composing native fixture' };
+      globalThis.unifiedNativeFaces = imeWait.promise;
+      const imeRefresh = win.unifiedFontDebug().refresh();
+      await until(() => win.unifiedFontDebug().pending, 'catalog during composition');
+      picker = await open();
+      await search(picker, imeFace.family);
+      const imeInput = picker.querySelector('input[type="search"]');
+      imeInput.focus();
+      imeInput.dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
+      imeWait.resolve([exactFace, lateFace, imeFace]);
+      await imeRefresh;
+      assert.equal(
+        picker.querySelectorAll('.picker-option').length,
+        0,
+        'do not rebuild during IME',
+      );
+      imeInput.dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true }));
+      await tick();
+      assert.equal(picker.querySelectorAll('.picker-option').length, 1);
+      assert.equal(document.activeElement, imeInput);
+      assert.equal(snapshot(), before);
+      cancel(picker);
+
+      for (const composing of [false, true]) {
+        const removingWait = deferred(),
+          shapingWait = deferred();
+        let pendingShape;
+        globalThis.unifiedNativeFaces = removingWait.promise;
+        const removingRefresh = win.unifiedFontDebug().refresh();
+        shape = (request) => {
+          pendingShape = request;
+          return shapingWait.promise;
+        };
+        await until(() => win.unifiedFontDebug().pending, 'catalog before native preparation');
+        picker = await open();
+        await choose(picker, exactFace.family);
+        apply(picker);
+        await until(() => pendingShape, 'native preparation before catalog removal');
+        const removingInput = picker.querySelector('input[type="search"]');
+        if (composing) {
+          removingInput.focus();
+          removingInput.dispatchEvent(
+            new win.CompositionEvent('compositionstart', { bubbles: true }),
+          );
+        }
+        removingWait.resolve([lateFace]);
+        await removingRefresh;
+        await tick();
+        assert.equal(picker.querySelector('.picker-apply').disabled, true);
+        shapingWait.resolve(preparedOutline(pendingShape));
+        await tick();
+        assert.equal(snapshot(), before, 'removed choice cannot commit a late native result');
+        assert.equal(past(), 0);
+        if (composing)
+          removingInput.dispatchEvent(
+            new win.CompositionEvent('compositionend', { bubbles: true }),
+          );
+        cancel(picker);
+        globalThis.unifiedNativeFaces = [exactFace, lateFace];
+        await win.unifiedFontDebug().refresh();
+      }
+      shape = async (request) => preparedOutline(request);
+      calls.length = 0;
+
+      const canceledWait = deferred();
+      globalThis.unifiedNativeFaces = canceledWait.promise;
+      const canceledRefresh = win.unifiedFontDebug().refresh();
+      await until(() => win.unifiedFontDebug().pending, 'catalog before cancel');
+      picker = await open();
+      cancel(picker);
+      canceledWait.resolve([exactFace, lateFace]);
+      await canceledRefresh;
+      await tick();
+      assert.equal(
+        q('dialog[aria-label="Font"]'),
+        null,
+        'late completion does not reopen a canceled picker',
+      );
+      assert.equal(snapshot(), before);
+      assert.equal(past(), 0);
+      globalThis.unifiedNativeFaces = [exactFace];
+      await win.unifiedFontDebug().refresh();
+    },
+  );
 
   let f = setup(),
     before = snapshot();
