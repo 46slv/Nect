@@ -22,11 +22,12 @@ const fileBytes = async (relative) => {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 };
 const deferred = () => {
-  let resolve;
-  const promise = new Promise((done) => {
+  let resolve, reject;
+  const promise = new Promise((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 };
 function preparedOutline(request) {
   const modern = request.axes !== undefined || request.writingMode !== undefined;
@@ -83,15 +84,18 @@ test('one real app Font picker preserves editable Text, native intent and atomic
   t.after(() => win.happyDOM.abort());
 
   const calls = [];
-  let byteReads = 0;
+  let byteReads = 0,
+    installedBytes;
   let shape = async (request) => preparedOutline(request);
   globalThis.unifiedNativeFaces = [exactFace];
+  globalThis.unifiedCatalogCalls = 0;
   globalThis.unifiedShape = (request) => {
     calls.push(structuredClone(request));
     return shape(request);
   };
   globalThis.unifiedReadBytes = () => {
     byteReads++;
+    if (installedBytes) return installedBytes;
     throw Error('Normal Font selection must not copy installed font bytes');
   };
   let source = await fs.readFile(new URL('../src/main.js', import.meta.url), 'utf8');
@@ -107,7 +111,10 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
     { family: 'Discovery fixture', subfamily: 'Regular', weightClass: 400,
       localizedNames: ['合成ディスカバリー', 'ＭＳ 合成'] }]],
   readSystemFont = () => globalThis.unifiedReadBytes(),
-  listOsOutlineFonts = async () => [], listDesktopFontFaces = async () => globalThis.unifiedNativeFaces,
+  listOsOutlineFonts = async () => [], listDesktopFontFaces = async () => {
+    globalThis.unifiedCatalogCalls++;
+    return globalThis.unifiedNativeFaces;
+  },
   listDesktopFontAxes = async () => [], shapeDesktopText = (request) => globalThis.unifiedShape(request),
   outlineOsText = async () => { throw Error('Legacy name-based native fallback must not run'); };`,
   );
@@ -193,6 +200,111 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
         cancelable: true,
       }),
     );
+
+  await t.test(
+    'native discovery status is independent of installed rows and Refresh recovers in the open picker',
+    async () => {
+      const f = setup(),
+        before = snapshot(),
+        initialCalls = globalThis.unifiedCatalogCalls;
+      let picker = await open();
+      const status = () => picker.querySelector('.picker-font-discovery-status').textContent,
+        refresh = () => picker.querySelector('.picker-refresh-fonts');
+      assert.equal(status(), '1 native font face');
+      const failed = deferred();
+      globalThis.unifiedNativeFaces = failed.promise;
+      refresh().click();
+      await until(() => status() === 'Checking native fonts…', 'checking native catalog');
+      assert.equal(refresh().disabled, true);
+      refresh().click();
+      assert.equal(
+        globalThis.unifiedCatalogCalls,
+        initialCalls + 1,
+        'pending Refresh is not duplicated',
+      );
+      failed.reject(Error('Synthetic native discovery rejected'));
+      await until(() => status() === 'Native font discovery failed', 'failed native catalog');
+      assert.equal(refresh().disabled, false);
+      await choose(picker, '合成ディスカバリー');
+      const installedId = picker.querySelector('.picker-option[aria-selected="true"]').dataset.id;
+      assert.equal(picker.querySelector('.picker-option').getAttribute('aria-disabled'), 'false');
+      assert.equal(picker.querySelector('.picker-apply').disabled, false);
+      assert.equal(
+        status(),
+        'Native font discovery failed',
+        'search/selection does not overwrite discovery',
+      );
+      assert.equal(byteReads, 0);
+      assert.equal(snapshot(), before);
+      assert.equal(f.live().font, 'default');
+
+      globalThis.unifiedNativeFaces = [];
+      refresh().click();
+      await until(
+        () => status() === 'No native font faces found',
+        'successful empty native catalog',
+      );
+      assert.equal(
+        picker.querySelector('.picker-option[aria-selected="true"]').dataset.id,
+        installedId,
+      );
+      assert.equal(picker.querySelector('.picker-apply').disabled, false);
+      assert.equal(byteReads, 0);
+      assert.equal(snapshot(), before);
+      assert.equal(past(), 0);
+
+      const recovery = deferred();
+      globalThis.unifiedNativeFaces = recovery.promise;
+      refresh().click();
+      await until(() => status() === 'Checking native fonts…', 'native refresh recovery');
+      assert.equal(
+        picker.querySelector('.picker-apply').disabled,
+        false,
+        'native checking does not gate installed Apply',
+      );
+      recovery.resolve([exactFace]);
+      await until(() => status() === '1 native font face', 'recovered native catalog');
+      assert.equal(
+        picker.querySelector('.picker-option[aria-selected="true"]').dataset.id,
+        installedId,
+      );
+      assert.equal(picker.querySelector('.picker-apply').disabled, false);
+      assert.equal(snapshot(), before);
+      assert.equal(byteReads, 0);
+      cancel(picker);
+
+      // Real normal Apply keeps the installed-byte route usable even if native
+      // discovery rejects, and repeated Apply still commits/imports only once.
+      picker = await open();
+      const rejected = deferred();
+      globalThis.unifiedNativeFaces = rejected.promise;
+      refresh().click();
+      rejected.reject(Error('Native discovery still rejected'));
+      await until(
+        () => status() === 'Native font discovery failed',
+        'failed catalog before installed Apply',
+      );
+      await choose(picker, '合成ディスカバリー');
+      installedBytes = await fileBytes('../public/fonts/DejaVuSans.ttf');
+      const shapeCalls = calls.length;
+      apply(picker);
+      apply(picker);
+      await until(
+        () => !q('dialog[aria-label="Font"]'),
+        'installed Apply after native discovery failure',
+      );
+      assert.equal(byteReads, 1);
+      assert.equal(calls.length, shapeCalls, 'installed Apply does not guess a native face');
+      assert.equal(past(), 1);
+      assert.equal(f.live().osFont, undefined);
+      assert.notEqual(f.live().font, 'default');
+      installedBytes = undefined;
+      byteReads = 0;
+      globalThis.unifiedNativeFaces = [exactFace];
+      await win.unifiedFontDebug().refresh();
+      setup();
+    },
+  );
 
   await t.test(
     'an open Font picker updates after catalog completion without committing',

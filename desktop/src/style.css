@@ -1969,6 +1969,20 @@ input[data-scrub-step].scrubbing {
   min-width: 28px;
   padding: 2px 6px;
 }
+.picker-font-discovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px 9px;
+  font-size: 12px;
+}
+.picker-font-discovery output {
+  min-width: 0;
+}
+.picker-font-discovery button {
+  flex-shrink: 0;
+}
 .picker-list {
   height: min(340px, 45vh);
   overflow: auto;

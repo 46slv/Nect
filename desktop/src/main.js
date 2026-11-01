@@ -97,6 +97,8 @@ function openSearchPanel({
   isFavorite,
   toggleFavorite,
   fontFilters = false,
+  fontDiscovery,
+  onRefreshFonts,
   categories,
   families,
   filterItems,
@@ -136,6 +138,12 @@ function openSearchPanel({
   let familyFilter = '',
     weightFilter = '';
   let familySelect, weightSelect, technicalDetails, technicalIdentity;
+  let discoveryStatus, refreshFonts;
+  function updateFontDiscovery(discovery) {
+    if (closed || !discoveryStatus) return;
+    discoveryStatus.textContent = discovery.message;
+    refreshFonts.disabled = discovery.pending;
+  }
   let syncFontFilters = () => {};
   if (fontFilters) {
     const filters = document.createElement('div');
@@ -218,6 +226,23 @@ function openSearchPanel({
     note.textContent =
       'Choose a real face/style below. Unknown metadata stays unknown; no synthetic bold or italic.';
     filters.after(note);
+    if (fontDiscovery && onRefreshFonts) {
+      const discovery = document.createElement('div');
+      discovery.className = 'picker-font-discovery';
+      discoveryStatus = document.createElement('output');
+      discoveryStatus.className = 'picker-font-discovery-status';
+      discoveryStatus.setAttribute('role', 'status');
+      refreshFonts = document.createElement('button');
+      refreshFonts.type = 'button';
+      refreshFonts.className = 'picker-refresh-fonts';
+      refreshFonts.textContent = 'Refresh fonts';
+      refreshFonts.onclick = () => {
+        if (!closed && !refreshFonts.disabled) onRefreshFonts();
+      };
+      discovery.append(discoveryStatus, refreshFonts);
+      note.after(discovery);
+      updateFontDiscovery(fontDiscovery);
+    }
     technicalDetails = document.createElement('details');
     technicalDetails.className = 'font-technical-details';
     technicalDetails.hidden = true;
@@ -617,6 +642,7 @@ function openSearchPanel({
       apply.disabled = !ready || !active();
     },
     updateFontItems,
+    updateFontDiscovery,
     close(cancel = false) {
       if (closed) return;
       closed = true;
@@ -796,7 +822,7 @@ import {
   acknowledgeRecovery,
 } from './storage.js';
 import { RecoveryAutosave } from './recovery-autosave.js';
-import { readOsFontCatalog, osFontAvailability } from './os-font-catalog.js';
+import { readOsFontCatalog, osFontAvailability, osFontDiscoveryStatus } from './os-font-catalog.js';
 import {
   parseFont,
   resolveFonts,
@@ -6106,6 +6132,10 @@ function openFontPicker(control, query = '') {
       source,
       { characterIds },
     );
+  const nativeDiscovery = () => ({
+    message: osFontDiscoveryStatus({ ...osFontCatalog, desktop, pending: osFontCatalogPending }),
+    pending: osFontCatalogPending,
+  });
   const items = collectItems();
   const favorites = migrateFontFavorites(fontFavorites(), items);
   let picker;
@@ -6178,6 +6208,8 @@ function openFontPicker(control, query = '') {
   picker = editorPicker = openSearchPanel({
     title: 'Font',
     fontFilters: true,
+    fontDiscovery: desktop ? nativeDiscovery() : undefined,
+    onRefreshFonts: () => void refreshOsFontCatalog(),
     families: fontFamilyGroups(items),
     action: 'Apply font',
     items,
@@ -6211,6 +6243,7 @@ function openFontPicker(control, query = '') {
       owner.state.expectedRevision !== envelope.expectedRevision
     )
       return;
+    picker.updateFontDiscovery(nativeDiscovery());
     const nextItems = collectItems(),
       migrated = migrateFontFavorites(favorites, nextItems);
     favorites.clear();
@@ -8612,6 +8645,7 @@ async function readCurrentOsFontCatalog() {
   const request = ++osFontCatalogRequest;
   osFontCatalogPending = true;
   render();
+  editorPicker?.updateFontCatalog?.();
   const catalog = await readOsFontCatalog({
     listFamilies: typeof listOsOutlineFonts === 'function' ? listOsOutlineFonts : undefined,
     listFaces: typeof listDesktopFontFaces === 'function' ? listDesktopFontFaces : undefined,

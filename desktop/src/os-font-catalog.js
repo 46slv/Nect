@@ -13,6 +13,21 @@ export async function readOsFontCatalog({ listFamilies, listFaces }) {
     facesError: results[1].status === 'rejected',
   };
 }
+// The normal picker reports native discovery separately from file candidates.
+// A successful empty catalog is not a failed or still-pending discovery.
+export function osFontDiscoveryStatus({
+  desktop = true,
+  pending = false,
+  faces = null,
+  facesError = false,
+} = {}) {
+  if (!desktop) return '';
+  if (pending) return 'Checking native fonts…';
+  if (facesError) return 'Native font discovery failed';
+  if (faces === null) return 'Native fonts not checked';
+  if (!faces.length) return 'No native font faces found';
+  return `${faces.length} native font ${faces.length === 1 ? 'face' : 'faces'}`;
+}
 export function osFontAvailability(
   ref,
   {
