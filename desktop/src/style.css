@@ -890,40 +890,161 @@ input[type='color'] {
   width: 32px;
   height: 25px;
 }
-/* Color editors expose HSL by default; native sRGB swatches remain available. */
-.hsl-color-fields {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 5px;
-  width: 100%;
-  min-width: 0;
-  flex: 1 1 100%;
+
+/* HSL is opened from the Color node swatch; graph and Inspector stay compact. */
+.node-color-swatch {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid #7c8791;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 2px #fff;
+  cursor: pointer;
 }
-.hsl-color-channel,
-.field .hsl-color-channel {
+.node-color-swatch:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.node-color-swatch:focus-visible {
+  outline: 2px solid #366eae;
+  outline-offset: 2px;
+}
+.hsl-color-popover {
+  position: fixed;
+  z-index: 10020;
+  width: 268px;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid #abb7c0;
+  border-radius: 5px;
+  background: #f9fafb;
+  box-shadow: 0 12px 26px #20293235;
+  color: #24313c;
+  font-size: 12px;
+}
+.hsl-picker-header {
   display: flex;
   align-items: center;
-  gap: 2px;
-  min-width: 0;
-  width: auto;
-  font-size: 10px;
+  justify-content: space-between;
+  margin-bottom: 8px;
 }
-.hsl-color-channel input,
-.field .hsl-color-channel input {
+.hsl-picker-header strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.hsl-picker-header button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  width: 23px;
+  height: 23px;
+  padding: 0;
+  cursor: pointer;
+}
+.hsl-picker-plane-wrap {
+  position: relative;
+  height: 167px;
+}
+.hsl-picker-plane-wrap canvas {
   width: 100%;
-  min-width: 0;
+  height: 100%;
+  display: block;
+  border: 1px solid #aab6c1;
+  box-sizing: border-box;
+  cursor: crosshair;
+  touch-action: none;
+}
+.hsl-picker-plane-wrap [data-hsl-marker] {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 1px #1f293366;
+  pointer-events: none;
+}
+.hsl-picker-hue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 9px 0;
+}
+.hsl-picker-hue span {
+  flex: 0 0 26px;
+  color: #53616c;
+  font-size: 11px;
+}
+.hsl-picker-hue input[type='range'] {
   flex: 1;
+  min-width: 0;
+  width: 100%;
+  accent-color: #536779;
+  background: linear-gradient(
+    to right,
+    #f00,
+    #ff0,
+    #0f0,
+    #0ff,
+    #00f,
+    #f0f,
+    #f00
+  );
+}
+.hsl-picker-numbers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+.hsl-picker-numbers label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.hsl-picker-numbers input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  padding: 4px 2px;
   font-variant-numeric: tabular-nums;
 }
-.hsl-color-channel span {
-  font-size: 9px;
-  color: var(--muted, #52616f);
+.hsl-picker-numbers label > span {
+  font-size: 10px;
+  color: #667480;
 }
-.base-inputs:has(.hsl-color-fields) {
-  flex-wrap: wrap;
+.hsl-picker-footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border-top: 1px solid #dce3e8;
+  margin-top: 9px;
+  padding-top: 9px;
 }
-.shared-color-row .hsl-color-fields {
-  grid-column: 1 / -1;
+.hsl-picker-footer [data-hsl-preview] {
+  flex: 0 0 32px;
+  height: 24px;
+  border: 1px solid #a8b3bb;
+}
+.hsl-picker-footer label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+}
+.hsl-picker-footer input {
+  min-width: 0;
+  width: 100%;
+  padding: 4px;
+  font-family: ui-monospace, monospace;
+}
+.hsl-color-popover input:focus-visible,
+.hsl-color-popover button:focus-visible {
+  outline: 2px solid #366eae;
+  outline-offset: 1px;
 }
 .empty {
   padding: 15px;
