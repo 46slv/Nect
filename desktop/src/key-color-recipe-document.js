@@ -1,7 +1,7 @@
 import { KEY_COLOR_RECIPE_VERSION, restoreKeyColorRecipe } from './key-color-recipe.js';
 
-// Native retention only. This does not enable generation, live palette ownership,
-// a new UI, or any coefficient/alpha/Neutral/Text policy.
+// Native receipts remain historical, never live palette ownership. An explicit
+// one-shot application may materialize values without enabling a UI or defaults.
 export const KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION = 58;
 export const keyColorRecipeDocumentCommands = new Set([
   'retain-key-color-recipe-snapshot',
@@ -78,6 +78,29 @@ function snapshotWithExistingSlots(value, slots) {
   for (const row of snapshot.resolved)
     if (!slots.has(row.id)) throw Error('Missing retained key-color slot reference');
   return snapshot;
+}
+export function prepareKeyColorRecipeApplication(doc, payload, slots) {
+  fields(payload, ['snapshot']);
+  const snapshot = snapshotWithExistingSlots(payload.snapshot, slots),
+    active = snapshot.resolved.filter((row) => row.active),
+    locked = new Set(doc.colorDesign?.lockedSlotIds || []),
+    keyId = snapshot.intent.keyColor.id;
+  // Legacy generator locks are not silently taken over, even if a target's
+  // current literal already matches the receipt. Dormant rows are not targets.
+  if (active.some((row) => locked.has(row.id)))
+    throw Error('KEY_COLOR_TARGET_LOCKED: unlock active shared Color targets before Apply');
+  // Retention still accepts old experimental alpha intent. New application is
+  // narrower: C1 preserves its exact literal alpha; active derived colors are
+  // opaque. Reject incompatible receipts instead of rewriting their samples.
+  if (
+    active.some((row) => row.id !== keyId && row.value.alpha !== 1) ||
+    snapshot.intent.preset.slots.some((plan) => plan.alpha !== undefined && plan.alpha !== 1)
+  )
+    throw Error('KEY_COLOR_DERIVED_ALPHA: active derived colors must be opaque for Apply');
+  return {
+    snapshot,
+    updates: active.map((row) => ({ slotId: row.id, value: { ...row.value } })),
+  };
 }
 export function validateRetainedKeyColorRecipe(doc, slots) {
   if (

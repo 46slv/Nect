@@ -9,6 +9,7 @@ import {
   keyColorRecipeDocumentCommands,
   validateRetainedKeyColorRecipe,
   applyRetainedKeyColorRecipeCommand,
+  prepareKeyColorRecipeApplication,
 } from './key-color-recipe-document.js';
 // Authored shared colors. Identity is independent of the resolved Color value.
 export const COLOR_SLOTS_SCHEMA_VERSION = 54;
@@ -29,6 +30,7 @@ export const colorSlotCommands = new Set([
   'rename-color-slot',
   'set-color-slot',
   'set-color-slots',
+  'apply-key-color-recipe-snapshot',
   'bind-color-slot',
   'unbind-color-slot',
   ...keyColorRecipeDocumentCommands,
@@ -181,8 +183,40 @@ export function resolveColorSlot(doc, id) {
   color(slot.value);
   return { ...slot.value };
 }
+function prepareColorSlotUpdates(slots, updates) {
+  if (!Array.isArray(updates) || updates.length > 256)
+    throw Error('Expected a bounded shared Color update list');
+  const seen = new Set();
+  return Array.from(updates, (update) => {
+    if (
+      !update ||
+      typeof update.slotId !== 'string' ||
+      seen.has(update.slotId) ||
+      !slots.has(update.slotId)
+    )
+      throw Error('Missing or duplicate shared Color update target');
+    seen.add(update.slotId);
+    color(update.value);
+    return { slot: slots.get(update.slotId), value: { ...update.value } };
+  });
+}
 export function applyColorSlotCommand(doc, type, payload, makeId) {
   const slots = validateColorSlots(doc);
+  if (type === 'apply-key-color-recipe-snapshot') {
+    const prepared = prepareKeyColorRecipeApplication(doc, payload, slots),
+      updates = prepareColorSlotUpdates(slots, prepared.updates),
+      result = applyRetainedKeyColorRecipeCommand(
+        doc,
+        Object.hasOwn(doc, 'keyColorRecipe')
+          ? 'replace-key-color-recipe-snapshot'
+          : 'retain-key-color-recipe-snapshot',
+        { snapshot: prepared.snapshot },
+        slots,
+      );
+    for (const { slot, value } of updates)
+      if (slot.value.hex !== value.hex || slot.value.alpha !== value.alpha) slot.value = value;
+    return { ...result, slotIds: updates.map(({ slot }) => slot.id) };
+  }
   if (keyColorRecipeDocumentCommands.has(type))
     return applyRetainedKeyColorRecipeCommand(doc, type, payload, slots);
   if (type === 'create-harmony-palette' || type === 'add-harmony-color') {
@@ -266,21 +300,7 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
     return { slotId: added[0].id, slotIds: added.map((slot) => slot.id) };
   }
   if (type === 'set-color-slots') {
-    if (!Array.isArray(payload.updates) || payload.updates.length > 256)
-      throw Error('Expected a bounded shared Color update list');
-    const seen = new Set();
-    const updates = Array.from(payload.updates, (update) => {
-      if (
-        !update ||
-        typeof update.slotId !== 'string' ||
-        seen.has(update.slotId) ||
-        !slots.has(update.slotId)
-      )
-        throw Error('Missing or duplicate shared Color update target');
-      seen.add(update.slotId);
-      color(update.value);
-      return { slot: slots.get(update.slotId), value: { ...update.value } };
-    });
+    const updates = prepareColorSlotUpdates(slots, payload.updates);
     let design;
     if (payload.design !== undefined) {
       design = structuredClone(payload.design);
@@ -299,7 +319,7 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
       doc.colorDesign = design;
       doc.schemaVersion = Math.max(doc.schemaVersion, designSchemaVersion(design));
     }
-    return { slotIds: [...seen] };
+    return { slotIds: updates.map(({ slot }) => slot.id) };
   }
   if (type === 'create-color-slot') {
     const id = makeId();
