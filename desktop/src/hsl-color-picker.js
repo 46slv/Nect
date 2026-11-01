@@ -12,22 +12,14 @@ export function hexToHsl(hex) {
     if (high === r) hue = ((g - b) / delta) % 6;
     else if (high === g) hue = (b - r) / delta + 2;
     else hue = (r - g) / delta + 4;
-    hue = ((hue * 60) % 360 + 360) % 360;
+    hue = (((hue * 60) % 360) + 360) % 360;
   }
   const saturation = delta === 0 ? 0 : delta / (1 - Math.abs(2 * lightness - 1));
   return { h: hue, s: saturation * 100, l: lightness * 100 };
 }
 
 export function hslToHex(h, s, l) {
-  if (
-    ![h, s, l].every(Number.isFinite) ||
-    h < 0 ||
-    h > 360 ||
-    s < 0 ||
-    s > 100 ||
-    l < 0 ||
-    l > 100
-  )
+  if (![h, s, l].every(Number.isFinite) || h < 0 || h > 360 || s < 0 || s > 100 || l < 0 || l > 100)
     throw Error('HSL must be H 0–360, S 0–100, L 0–100');
   const hue = h % 360,
     saturation = s / 100,
@@ -38,10 +30,7 @@ export function hslToHex(h, s, l) {
     return Math.round(255 * (lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
   };
   return (
-    '#' +
-    [channel(0), channel(8), channel(4)]
-      .map((n) => n.toString(16).padStart(2, '0'))
-      .join('')
+    '#' + [channel(0), channel(8), channel(4)].map((n) => n.toString(16).padStart(2, '0')).join('')
   );
 }
 
@@ -77,7 +66,8 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
       for (let x = 0; x < width; x++) {
         const color = hslToHex(hsl.h, (x / (width - 1)) * 100, (1 - y / (height - 1)) * 100);
         const i = (y * width + x) * 4;
-        for (let c = 0; c < 3; c++) image.data[i + c] = parseInt(color.slice(1 + c * 2, 3 + c * 2), 16);
+        for (let c = 0; c < 3; c++)
+          image.data[i + c] = parseInt(color.slice(1 + c * 2, 3 + c * 2), 16);
         image.data[i + 3] = 255;
       }
     }
@@ -140,16 +130,14 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     trigger = null;
     paintedHue = null;
     if (restoreFocus) {
-      const replacement =
-        oldTrigger?.isConnected
-          ? oldTrigger
-          : [...document.querySelectorAll('[data-hsl-picker-open]')].find((item) => {
-              const field = item.closest('.field');
-              return (
-                field?.dataset.node === oldTarget?.nodeId &&
-                field?.dataset.key === oldTarget?.key
-              );
-            });
+      const replacement = oldTrigger?.isConnected
+        ? oldTrigger
+        : [...document.querySelectorAll('[data-hsl-picker-open]')].find((item) => {
+            const field = item.closest('.field');
+            return (
+              field?.dataset.node === oldTarget?.nodeId && field?.dataset.key === oldTarget?.key
+            );
+          });
       replacement?.focus({ preventScroll: true });
     }
   }
@@ -241,14 +229,18 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
   }
 
   // Local interaction never reaches graph shortcuts or numeric-expression handlers.
-  document.addEventListener('keydown', (event) => {
-    if (!popover || !popover.contains(event.target)) return;
-    event.stopImmediatePropagation();
-    if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) {
-      event.preventDefault();
-      close(true);
-    }
-  }, true);
+  document.addEventListener(
+    'keydown',
+    (event) => {
+      if (!popover || !popover.contains(event.target)) return;
+      event.stopImmediatePropagation();
+      if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) {
+        event.preventDefault();
+        close(true);
+      }
+    },
+    true,
+  );
   document.addEventListener('click', (event) => {
     if (!popover || popover.contains(event.target) || trigger?.contains(event.target)) return;
     close();
@@ -256,44 +248,81 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
   document.addEventListener('resize', () => close(), true);
   document.defaultView?.addEventListener('resize', () => close());
 
-  document.addEventListener('input', (event) => {
-    if (popover?.contains(event.target)) handleEdit(event.target, false);
-  }, true);
-  document.addEventListener('change', (event) => {
-    if (popover?.contains(event.target)) handleEdit(event.target, true);
-  }, true);
-  document.addEventListener('click', (event) => {
-    if (event.target.closest?.('[data-hsl-close]') && popover?.contains(event.target)) close(true);
-  }, true);
-  document.addEventListener('pointerdown', (event) => {
-    if (!popover || event.target !== popover.querySelector('[data-hsl-plane]') || event.button !== 0 || event.isPrimary === false) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    pointer = { id: event.pointerId, baseline: committedHex };
-    try {
-      event.target.setPointerCapture?.(event.pointerId);
-    } catch {}
-    fromPlane(event);
-  }, true);
-  document.addEventListener('pointermove', (event) => {
-    if (!pointer || event.pointerId !== pointer.id || !popover) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    fromPlane(event);
-  }, true);
-  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-    document.addEventListener(type, (event) => {
-      if (!pointer || event.pointerId !== pointer.id) return;
+  document.addEventListener(
+    'input',
+    (event) => {
+      if (popover?.contains(event.target)) handleEdit(event.target, false);
+    },
+    true,
+  );
+  document.addEventListener(
+    'change',
+    (event) => {
+      if (popover?.contains(event.target)) handleEdit(event.target, true);
+    },
+    true,
+  );
+  document.addEventListener(
+    'click',
+    (event) => {
+      if (event.target.closest?.('[data-hsl-close]') && popover?.contains(event.target))
+        close(true);
+    },
+    true,
+  );
+  document.addEventListener(
+    'pointerdown',
+    (event) => {
+      if (
+        !popover ||
+        event.target !== popover.querySelector('[data-hsl-plane]') ||
+        event.button !== 0 ||
+        event.isPrimary === false
+      )
+        return;
+      event.preventDefault();
       event.stopImmediatePropagation();
-      pointer = null;
-      if (type === 'pointerup') commit();
-      else {
-        hex = committedHex;
-        hsl = hexToHsl(hex);
-        paint();
-      }
-    }, true);
+      pointer = { id: event.pointerId, baseline: committedHex };
+      try {
+        event.target.setPointerCapture?.(event.pointerId);
+      } catch {}
+      fromPlane(event);
+    },
+    true,
+  );
+  document.addEventListener(
+    'pointermove',
+    (event) => {
+      if (!pointer || event.pointerId !== pointer.id || !popover) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      fromPlane(event);
+    },
+    true,
+  );
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+    document.addEventListener(
+      type,
+      (event) => {
+        if (!pointer || event.pointerId !== pointer.id) return;
+        event.stopImmediatePropagation();
+        pointer = null;
+        if (type === 'pointerup') commit();
+        else {
+          hex = committedHex;
+          hsl = hexToHsl(hex);
+          paint();
+        }
+      },
+      true,
+    );
   }
   document.defaultView?.addEventListener('blur', () => close());
-  return { open, close, get element() { return popover; } };
+  return {
+    open,
+    close,
+    get element() {
+      return popover;
+    },
+  };
 }
