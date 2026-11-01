@@ -11,20 +11,13 @@ const normalized = (value) =>
     .normalize('NFKC')
     .toLowerCase();
 const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
-const sourceOrder = { embedded: 0, installed: 1, windows: 2, 'file-native': 3 };
+const sourceOrder = { embedded: 0, installed: 2, windows: 1, 'file-native': 3 };
 export const FONT_FILE_IMPORT_REQUIRED =
   'Font file import is required; use Advanced for a file you may embed';
 
-// File readability and font flags do not establish provider permission. Normal
-// selection never copies installed font bytes; explicit import is separate.
+// Availability is technical preflight, not proof of a license. Installed bytes
+// are read only on Apply; the shared import command validates the final face.
 export function fontPickerCapability(node, choice, options = {}) {
-  if (choice?.source === 'installed')
-    choice = {
-      ...choice,
-      disabledReason: [choice.disabledReason, FONT_FILE_IMPORT_REQUIRED]
-        .filter(Boolean)
-        .join(' · '),
-    };
   return fontChoiceCapability(node, choice, options);
 }
 
@@ -94,9 +87,11 @@ export function fontPickerItems(catalogs, node, options = {}) {
       metadata.weightClass == null ? 'weight unknown' : `weight ${metadata.weightClass}`,
       choice.source === 'embedded'
         ? 'In document'
-        : choice.source === 'file-native'
-          ? 'Open font file (not embedded)'
-          : 'On this computer',
+        : choice.source === 'installed'
+          ? 'Included in saved document'
+          : choice.source === 'file-native'
+            ? 'Open font file (not embedded)'
+            : 'On this computer',
       capability.reason,
     ].filter(Boolean);
     return {

@@ -60,7 +60,6 @@ function fixture(source = text(), adapters = {}) {
     nodeId: 'node',
     source,
     isCurrent: () => current,
-    readInstalled: async () => new ArrayBuffer(1),
     prepareWindows: async (_source, exactFace, { settings }) => ({
       face: exactFace,
       ligatures: settings.ligatures,
@@ -284,26 +283,24 @@ test('character Inherit stays in its fixed range and no-choice Apply is harmless
   assert.equal(f.commands[1].payload.update.font, '');
 });
 
-test('byte-readable installed choices require explicit Advanced import even on variable Text', async () => {
-  let reads = 0,
-    preparations = 0;
+test('installed Apply delegates the exact ID once, including a variable Text replacement', async () => {
+  let imports = 0;
   const f = fixture(text({ variation: { fontId: 'old-variable', axes: {} } }), {
-    readInstalled: async () => {
-      reads++;
-      return new ArrayBuffer(1);
-    },
-    prepareVariable: async () => {
-      preparations++;
-      return { commit() {}, cancel() {} };
+    importInstalled: async (choice, { isCurrent, signal }) => {
+      imports++;
+      assert.equal(choice.id, 'exact-installed-token');
+      assert.equal(isCurrent(), true);
+      assert.equal(signal.aborted, false);
+      return { changed: true };
     },
   });
   const row = choice('installed', 'exact-installed-token');
   await f.controller.select(row);
+  assert.equal(imports, 0);
+  assert.equal(await f.controller.apply(row), true);
   assert.equal(await f.controller.apply(row), false);
-  assert.equal(reads, 0);
-  assert.equal(preparations, 0);
-  assert.equal(f.commands.length, 0);
-  assert.match(f.statuses.at(-1)[0], /Font file import is required; use Advanced/);
+  assert.equal(imports, 1);
+  assert.equal(f.commands.length, 0, 'opaque system ID is never sent as an embedded asset ID');
 });
 
 test('missing or invalid variable preparation never falls back to a raw command', async () => {
@@ -318,28 +315,28 @@ test('missing or invalid variable preparation never falls back to a raw command'
   }
 });
 
-test('installed discovery never reads bytes or falls back to a colliding document asset ID', async () => {
+test('failed installed loading never falls back to a colliding document asset ID', async () => {
   for (const source of [
     text(),
     text({ osFont: { face, outline: { ligatures: false } } }),
     text({ variation: { fontId: 'old-variable', axes: {} } }),
-  ])
-    for (const bytes of [undefined, null, new ArrayBuffer(0), new Uint8Array(4)]) {
-      let reads = 0;
-      const f = fixture(source, {
-        readInstalled: async () => {
-          reads++;
-          return bytes;
-        },
-      });
-      const row = choice('installed', 'colliding-document-asset-id');
-      await f.controller.select(row);
-      assert.equal(await f.controller.apply(row), false);
-      assert.equal(f.commands.length, 0);
-      assert.equal(f.history(), 0);
-      assert.equal(reads, 0);
-      assert.match(f.statuses.at(-1)[0], /Font file import is required/);
-    }
+  ]) {
+    let reads = 0;
+    const f = fixture(source, {
+      importInstalled: async () => {
+        reads++;
+        throw Error('Installed face unavailable');
+      },
+    });
+    const row = choice('installed', 'colliding-document-asset-id');
+    await f.controller.select(row);
+    assert.equal(reads, 0);
+    assert.equal(await f.controller.apply(row), false);
+    assert.equal(reads, 1);
+    assert.equal(f.commands.length, 0);
+    assert.equal(f.history(), 0);
+    assert.match(f.statuses.at(-1)[0], /Installed face unavailable/);
+  }
 });
 
 test('late native preparation cannot clear or commit a newer static preview', async () => {

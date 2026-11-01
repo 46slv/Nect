@@ -274,8 +274,8 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
       assert.equal(document.activeElement, weightFilter);
       assert.equal(
         picker.querySelectorAll('.picker-option[aria-disabled="false"]').length,
-        1,
-        'a newly discovered source is expanded for the active family filter',
+        2,
+        'installed and newly discovered native sources remain available under the active filter',
       );
       assert.equal(snapshot(), before);
       assert.equal(past(), 0);
@@ -410,13 +410,11 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
 
   let rows = await search(picker, '合成ディスカバリー');
   assert.equal(rows.length, 1, 'actual supplied localized alias remains searchable');
-  assert.equal(rows[0].getAttribute('aria-disabled'), 'true');
-  assert.match(
-    rows[0].textContent,
-    /Font file import is required; use Advanced for a file you may embed/,
-  );
+  assert.equal(rows[0].getAttribute('aria-disabled'), 'false');
+  assert.match(rows[0].textContent, /Included in saved document/);
   rows[0].click();
-  assert.equal(picker.querySelector('.picker-apply').disabled, true);
+  await tick();
+  assert.equal(picker.querySelector('.picker-apply').disabled, false);
   assert.equal(byteReads, 0);
   assert.equal(snapshot(), before);
   cancel(picker);

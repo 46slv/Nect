@@ -9,7 +9,7 @@ const buffer = async (path) => {
   const b = await fs.readFile(new URL(path, import.meta.url));
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
 };
-test('installed discovery never copies bytes; explicit file import remains atomic, reusable and stale-safe', async () => {
+test('installed faces load only on Apply and preserve exact targets, cancellation and portable imports', async () => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement', 'DOMPoint', 'requestAnimationFrame'])
@@ -20,8 +20,10 @@ test('installed discovery never copies bytes; explicit file import remains atomi
     arrayBuffer: () => buffer('../public/fonts/DejaVuSans.ttf'),
   });
   let calls = 0;
+  const readIds = [];
   globalThis.readInstalledTestFont = async (id) => {
     calls++;
+    readIds.push(id);
     return buffer(
       id === 'system-2'
         ? '../public/fonts/DejaVuSans.ttf'
@@ -58,6 +60,7 @@ test('installed discovery never copies bytes; explicit file import remains atomi
       `from '${new URL(`../src/${name}.js`, import.meta.url)}'`,
     );
   source = resolveMainRelativeImports(source);
+  source += '\nwindow.installedFontHistory = () => history.past.length;';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const until = async (predicate) => {
     const deadline = Date.now() + 5000;
@@ -97,8 +100,8 @@ test('installed discovery never copies bytes; explicit file import remains atomi
   assert.equal(document.querySelectorAll('.inspector-body [data-change-font]').length, 1);
   assert.equal(document.querySelectorAll('[data-system-font]').length, 0);
   for (const id of ['system-0', 'system-1', 'system-2']) {
-    assert.equal(row(id).getAttribute('aria-disabled'), 'true');
-    assert.match(row(id).textContent, /Font file import is required; use Advanced/);
+    assert.equal(row(id).getAttribute('aria-disabled'), String(id === 'system-1'));
+    assert.match(row(id).textContent, /Included in saved document/);
     row(id).click();
   }
   assert.match(row('system-1').textContent, /Variable fonts unsupported/);
@@ -187,5 +190,92 @@ test('installed discovery never copies bytes; explicit file import remains atomi
   await until(() => /Font rejected/.test(q('.message').textContent));
   assert.equal(snapshot(), changed);
   assert.equal(calls, 0);
+  // Ordinary Apply reads only the exact selected native ID, then uses the same
+  // atomic import as an explicit file. Browsing and duplicate Apply do not copy.
+  win.nect.load(before);
+  openDOMPanel(document, 'inspector');
+  const openInstalled = async () => {
+    q('.inspector-body [data-change-font]').click();
+    const input = q('dialog[open] input[type="search"]');
+    input.value = 'Japanese fixture';
+    input.dispatchEvent(new win.Event('input', { bubbles: true }));
+    row('system-0').click();
+    await until(() => !q('.picker-apply').disabled);
+  };
+  await openInstalled();
+  assert.equal(calls, 0);
+  assert.match(q('.picker-status').textContent, /licensed for editable embedding/);
+  const historyBefore = win.installedFontHistory(),
+    baselineSvg = win.nect.export();
+  q('.picker-apply').click();
+  q('.picker-apply').click();
+  await until(() => !q('dialog[open]'));
+  assert.deepEqual(readIds, ['system-0']);
+  assert.equal(win.installedFontHistory(), historyBefore + 1);
+  assert.equal(win.nect.evaluate().error, null);
+  assert.equal(Object.keys(win.nect.document.fontAssets).length, 1);
+  assert.ok(
+    !win.nect.document.layers[0].nodes.find((n) => n.id === text.id).font.startsWith('system-'),
+  );
+  const imported = snapshot(),
+    importedSvg = win.nect.export();
+  assert.notEqual(importedSvg, baselineSvg);
+  q('[data-action="undo"]').click();
+  assert.equal(snapshot(), before);
+  q('[data-action="redo"]').click();
+  assert.equal(snapshot(), imported);
+  win.nect.load(imported);
+  assert.equal(win.nect.export(), importedSvg);
+
+  // Each interruption directly exercises an async target guard; no whole-font matrix.
+  for (const interruption of ['cancel', 'edit', 'node', 'document']) {
+    win.nect.load(before);
+    openDOMPanel(document, 'inspector');
+    let resolveRead;
+    globalThis.readInstalledTestFont = () =>
+      new Promise((resolve) => {
+        resolveRead = resolve;
+      });
+    await openInstalled();
+    q('.picker-apply').click();
+    await until(() => !!resolveRead);
+    if (interruption === 'cancel') q('.picker-cancel').click();
+    if (interruption === 'edit') {
+      const input = q('.inspector-body [data-text]');
+      input.value = 'Changed while reading';
+      input.dispatchEvent(new win.Event('change', { bubbles: true }));
+    }
+    if (interruption === 'node') {
+      q(`.node[data-id="${out.id}"] .node-head`).dispatchEvent(
+        new win.PointerEvent('pointerdown', { bubbles: true, button: 0, shiftKey: true }),
+      );
+      assert.equal(q(`.node[data-id="${out.id}"]`).classList.contains('selected'), true);
+    }
+    if (interruption === 'document') win.nect.load(before);
+    const preserved = snapshot(),
+      entries = win.installedFontHistory();
+    resolveRead(bytes);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(snapshot(), preserved, interruption);
+    assert.equal(win.installedFontHistory(), entries, interruption);
+    q('.picker-cancel')?.click();
+  }
+  for (const failure of [new Error('Installed font changed'), new ArrayBuffer(12)]) {
+    win.nect.load(before);
+    openDOMPanel(document, 'inspector');
+    globalThis.readInstalledTestFont = async () => {
+      if (failure instanceof Error) throw failure;
+      return failure;
+    };
+    await openInstalled();
+    const preserved = snapshot(),
+      entries = win.installedFontHistory();
+    q('.picker-apply').click();
+    await until(() => !/Loading font/.test(q('.picker-status').textContent));
+    assert.match(q('.picker-status').textContent, /Installed font changed|Invalid|font/i);
+    assert.equal(snapshot(), preserved);
+    assert.equal(win.installedFontHistory(), entries);
+    q('.picker-cancel').click();
+  }
   win.happyDOM.abort();
 });

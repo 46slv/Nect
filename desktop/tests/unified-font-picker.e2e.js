@@ -55,7 +55,7 @@ export const readRecovery = async () => '', acknowledgeRecovery = async () => {}
 export const listSystemFonts = async () => [['system-byte-only', 'Byte-only discovery fixture', null,
   {family:'Discovery fixture',subfamily:'Regular',weightClass:400,localizedNames:['合成ディスカバリー','ＭＳ 合成']}]];
 export const readSystemFont = async () => { window.unifiedByteReads = (window.unifiedByteReads || 0) + 1;
-  throw Error('Normal selection must not read installed bytes'); };
+  throw Error('Browsing and native selection must not read installed bytes'); };
 export const listOsOutlineFonts = async () => [];
 export const listDesktopFontFaces = async () => [${JSON.stringify(face)}];
 export const listDesktopFontAxes = async () => [];
@@ -164,14 +164,12 @@ try {
   assert.deepEqual(await state(), before);
   await open();
   await picker().locator('input[type="search"]').fill('合成ディスカバリー');
-  const disabled = picker().locator('.picker-option');
-  assert.equal(await disabled.count(), 1);
-  assert.equal(await disabled.getAttribute('aria-disabled'), 'true');
-  assert.match(
-    await disabled.innerText(),
-    /Font file import is required; use Advanced for a file you may embed/,
-  );
-  assert.equal(await picker().locator('.picker-apply').isDisabled(), true);
+  const installed = picker().locator('.picker-option');
+  assert.equal(await installed.count(), 1);
+  assert.equal(await installed.getAttribute('aria-disabled'), 'false');
+  assert.match(await installed.innerText(), /Included in saved document/);
+  assert.equal(await picker().locator('.picker-apply').isDisabled(), false);
+  assert.equal(await page.evaluate(() => window.unifiedByteReads || 0), 0);
   await picker().locator('.picker-cancel').click();
   assert.deepEqual(await state(), before);
 

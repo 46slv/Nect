@@ -14,6 +14,7 @@ export function createFontChoiceController({
   source,
   characterIds,
   isCurrent,
+  importInstalled,
   prepareWindows,
   preparePrivate,
   prepareVariable,
@@ -64,6 +65,11 @@ export function createFontChoiceController({
       try {
         assertFresh();
         const route = capability.route;
+        if (choice.source === 'installed') {
+          ready = { key: row.key, choice, route };
+          onStatus('Included in saved document · use a font licensed for editable embedding', true);
+          return;
+        }
         if (route === 'set-variable-font' || route === 'set-os-font-text') {
           ready = { key: row.key, choice, route };
           onStatus('Ready · prepared on Apply', true);
@@ -112,7 +118,14 @@ export function createFontChoiceController({
       assertFresh();
       const { choice, route } = ready;
       let result;
-      if (ready.gesture) {
+      if (choice.source === 'installed') {
+        onStatus('Loading font; Escape cancels…', false);
+        result = await importInstalled(choice, {
+          signal: abort.signal,
+          isCurrent: () => request === serial && fresh(),
+        });
+        if (!result || closed || request !== serial) return false;
+      } else if (ready.gesture) {
         result = owner.dispatch({ ...envelope, type: 'commit-gesture', payload: gesture });
         gesture = null;
       } else {

@@ -27,9 +27,11 @@ export const listSystemFonts = async () => [
   ['system-0', 'Japanese fixture', null, {localizedNames:['日本語テスト', 'ＭＳ テスト']}], ['system-1', 'DejaVu Sans', null],
   ['system-2', 'Variable font', 'Variable fonts unsupported']
 ];
-export async function readSystemFont() {
+export async function readSystemFont(id) {
   window.installedFontReads = (window.installedFontReads || 0) + 1;
-  throw Error('Normal picker must not read installed font bytes');
+  window.installedFontReadId = id;
+  if (id !== 'system-0') throw Error('Wrong installed face');
+  return (await fetch('/tests/fixtures/fonts/NectJPFixture-Regular.otf')).arrayBuffer();
 }`,
   }),
 );
@@ -69,9 +71,9 @@ try {
   );
   const result = page.locator('.search-panel .picker-option');
   assert.match(await result.innerText(), /Japanese fixture/);
-  assert.equal(await result.getAttribute('aria-disabled'), 'true');
-  assert.match(await result.innerText(), /Font file import is required; use Advanced/);
-  // A real pointer on an aria-disabled result must not activate or mutate it.
+  assert.equal(await result.getAttribute('aria-disabled'), 'false');
+  assert.match(await result.innerText(), /Included in saved document/);
+  // A real pointer selects the row without reading or mutating the document.
   const disabledBounds = await result.boundingBox();
   assert.ok(disabledBounds);
   await page.mouse.click(
@@ -85,7 +87,7 @@ try {
   );
   assert.equal(
     await page.locator('.search-panel .picker-option').getAttribute('aria-disabled'),
-    'true',
+    'false',
   );
   await page.locator('.search-panel .picker-cancel').click();
   assert.equal((await state()).document, beforeSearch);
@@ -99,12 +101,13 @@ try {
     await page.locator('.inspector-body [data-load-font]').click();
     await (await chooser).setFiles(file);
   };
-  await importFont(
-    fileURLToPath(new URL('./fixtures/fonts/NectJPFixture-Regular.otf', import.meta.url)),
-  );
-  await page.waitForFunction(() =>
-    document.querySelector('.message').textContent.includes('Loaded Nect'),
-  );
+  await picker().click();
+  await page.locator('.search-panel input[type="search"]').fill('Japanese fixture');
+  await page.locator('.search-panel .picker-option').click();
+  assert.equal(await page.evaluate(() => window.installedFontReads || 0), 0);
+  await page.locator('.search-panel .picker-apply').click();
+  await page.waitForFunction(() => !document.querySelector('dialog[aria-label="Font"]'));
+  assert.equal(await page.evaluate(() => window.installedFontReadId), 'system-0');
   const first = await state();
   assert.match(await page.locator('.inspector-body .text-font-choice').innerText(), /Nect/);
   await importFont(fileURLToPath(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url)));
@@ -138,12 +141,12 @@ try {
   );
   assert.equal((await state()).document, second.document);
   assert.equal(await picker().isDisabled(), false);
-  assert.equal(await page.evaluate(() => window.installedFontReads || 0), 0);
+  assert.equal(await page.evaluate(() => window.installedFontReads || 0), 1);
   await fs.mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/font-single-picker.png' });
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: one font picker keeps byte-only discovery disabled without reads; explicit licensed imports change canvas/SVG with Undo, redo, JSON reload and failure preservation.',
+    'PASS: installed discovery loads the exact face only on ordinary Apply; imports change canvas/SVG with Undo, redo, JSON reload and failure preservation.',
   );
 } finally {
   await browser.close();

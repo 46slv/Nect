@@ -779,6 +779,7 @@ import {
   chooseUnsaved,
   registerClose,
   listSystemFonts,
+  readSystemFont,
   listOsOutlineFonts,
   outlineOsText,
   listDesktopFontFaces,
@@ -1154,7 +1155,10 @@ async function preparedChange(
   text = 'Updated',
   envelope = session.state,
   preview = false,
+  isCurrent = () => true,
+  signal,
 ) {
+  if (signal?.aborted) return null;
   cancelVariableAction();
   variableBridge ||= createVariableDocumentPreparer();
   const action = {
@@ -1164,6 +1168,11 @@ async function preparedChange(
     controller: new AbortController(),
   };
   variableAction = action;
+  const cancelFromParent = () => {
+    if (variableAction === action) cancelVariableAction();
+    else action.controller.abort();
+  };
+  signal?.addEventListener('abort', cancelFromParent, { once: true });
   notify('Preparing variable text… Escape cancels');
   try {
     const token = await action.owner.prepareCommand(
@@ -1172,6 +1181,10 @@ async function preparedChange(
       { signal: action.controller.signal },
     );
     if (variableAction !== action || session !== action.owner) return null;
+    if (!isCurrent()) {
+      cancelVariableAction();
+      return null;
+    }
     if (preview) {
       const prepared = action.owner.preparedSnapshot(token);
       fontPreview = prepared.document;
@@ -1195,6 +1208,8 @@ async function preparedChange(
       render();
     }
     return null;
+  } finally {
+    signal?.removeEventListener('abort', cancelFromParent);
   }
 }
 async function prepareOpenDocument(next, options = {}) {
@@ -6063,11 +6078,15 @@ function openFontPicker(control, query = '') {
   const owner = session,
     envelope = owner.state,
     layerId = current().id;
-  const selectedAtOpen = selected;
+  const selectedAtOpen = selected,
+    documentAtOpen = readDocument(),
+    generation = documents.generation;
   const characterIds = context ? [...characterEdit.selected] : undefined;
   const characterKey = characterIds && JSON.stringify([...characterIds].sort());
   const isCurrent = () =>
     session === owner &&
+    documents.generation === generation &&
+    readDocument() === documentAtOpen &&
     current().id === layerId &&
     selected === selectedAtOpen &&
     !current().locked &&
@@ -6098,6 +6117,28 @@ function openFontPicker(control, query = '') {
     source,
     characterIds,
     isCurrent,
+    async importInstalled(choice, { signal, isCurrent: fresh }) {
+      const request = {
+        id: ++fontRequestId,
+        layer: layerId,
+        node: nodeId,
+        before: readDocument(),
+        commandState: envelope,
+        ...(characterIds === undefined ? {} : { characters: characterIds }),
+        isCurrent: () => !signal.aborted && fresh(),
+        signal,
+      };
+      fontRequest = request;
+      try {
+        const bytes = await readSystemFont(choice.id);
+        if (!request.isCurrent()) throw Error('Document or selection changed; reopen Font');
+        const result = await commitFont(bytes, choice.label, request);
+        if (!result) throw Error('Font was not applied; reopen Font');
+        return result;
+      } finally {
+        if (fontRequest?.id === request.id) fontRequest = null;
+      }
+    },
     prepareWindows: (node, face, options) => prepareDesktopText(node, face, options.settings, true),
     preparePrivate: (node, choice, options) => preparePrivateText(node, choice, options.settings),
     async prepareVariable(command, { signal }) {
@@ -8509,6 +8550,8 @@ app.addEventListener('click', async (e) => {
 });
 async function commitFont(bytes, name, request) {
   if (fontRequest?.id !== request.id) return;
+  if (request.isCurrent && !request.isCurrent())
+    throw Error('Document or selection changed; reopen Font');
   if (readDocument() !== request.before || activeLayer !== request.layer)
     throw Error('Document changed while reading; load the font again');
   if (
@@ -8540,6 +8583,9 @@ async function commitFont(bytes, name, request) {
       },
       'Static font imported',
       request.commandState,
+      false,
+      request.isCurrent,
+      request.signal,
     );
     if (!result) return;
   } else {
@@ -8551,6 +8597,7 @@ async function commitFont(bytes, name, request) {
   }
   notify(`Loaded ${result.fontName || name} · saved JSON will include this font`);
   render();
+  return result;
 }
 async function refreshOsFontCatalog() {
   if (
@@ -14380,6 +14427,7 @@ if (desktop)
   listSystemFonts()
     .then((items) => {
       systemFonts = items;
+      editorPicker?.updateFontCatalog?.();
       systemFontStatus = items.length
         ? ''
         : 'No installed file candidates found. Use Advanced to import a file you may embed.';
