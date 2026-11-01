@@ -136,6 +136,7 @@ function openSearchPanel({
   let familyFilter = '',
     weightFilter = '';
   let familySelect, weightSelect, technicalDetails, technicalIdentity;
+  let syncFontFilters = () => {};
   if (fontFilters) {
     const filters = document.createElement('div');
     filters.className = 'picker-search picker-font-filters';
@@ -156,13 +157,20 @@ function openSearchPanel({
     }
     familySelect = select('Font family');
     weightSelect = select('Available weight');
-    option(familySelect, '', 'All families');
-    for (const family of [
-      ...new Set(items.map((item) => item.metadata?.family).filter(Boolean)),
-    ].sort())
-      option(familySelect, `family:${family}`, family);
-    option(familySelect, '__unknown__', 'Unknown family / legacy faces');
-    function weights() {
+    function familyOptions() {
+      familySelect.replaceChildren();
+      option(familySelect, '', 'All families');
+      for (const family of [
+        ...new Set(items.map((item) => item.metadata?.family).filter(Boolean)),
+      ].sort())
+        option(familySelect, `family:${family}`, family);
+      option(familySelect, '__unknown__', 'Unknown family / legacy faces');
+      if (familyFilter && ![...familySelect.options].some((entry) => entry.value === familyFilter))
+        option(familySelect, familyFilter, familyFilter.slice('family:'.length));
+      familySelect.value = familyFilter;
+    }
+    function weights(preserve = false) {
+      const previous = preserve ? weightFilter : '';
       weightSelect.replaceChildren();
       option(weightSelect, '', 'All available weights');
       const faces = items.filter(
@@ -178,7 +186,10 @@ function openSearchPanel({
         option(weightSelect, String(weight), String(weight));
       if (faces.some((item) => item.metadata?.weightClass == null))
         option(weightSelect, '__unknown__', 'Unknown weight');
-      weightFilter = '';
+      if (previous && ![...weightSelect.options].some((entry) => entry.value === previous))
+        option(weightSelect, previous, previous === '__unknown__' ? 'Unknown weight' : previous);
+      weightFilter = previous;
+      weightSelect.value = previous;
     }
     familySelect.onchange = () => {
       familyFilter = familySelect.value;
@@ -195,7 +206,12 @@ function openSearchPanel({
       weightFilter = weightSelect.value;
       refresh();
     };
+    familyOptions();
     weights();
+    syncFontFilters = () => {
+      familyOptions();
+      weights(true);
+    };
     dialog.querySelector('.picker-search').after(filters);
     const note = document.createElement('p');
     note.className = 'font-note';
@@ -223,6 +239,7 @@ function openSearchPanel({
     families?.[0];
   const expandedFamilies = new Set(initialFamily ? [initialFamily.id] : []);
   let previousFontQuery = '';
+  let pendingFontUpdate = null;
   let optionElements = [];
   const scrollSpace = document.createElement('div');
   scrollSpace.setAttribute('aria-hidden', 'true');
@@ -304,7 +321,7 @@ function openSearchPanel({
       onSelect?.(active());
     }
   }
-  function refresh() {
+  function refresh({ preserveSelection = false, scroll = !categories } = {}) {
     const words = input.value.trim().normalize('NFKC').toLowerCase().split(/\s+/).filter(Boolean);
     if (closed) return;
     rows = filterItems
@@ -367,7 +384,7 @@ function openSearchPanel({
     const scrollTop = list.scrollTop;
     if (!grouped) scrollSpace.style.height = '0px';
     if (!rows.some((item) => item.id === activeId && !item.disabled))
-      activeId = rows.find((item) => !item.disabled)?.id;
+      activeId = preserveSelection ? undefined : rows.find((item) => !item.disabled)?.id;
     list.replaceChildren();
     optionElements = [];
     const groups = new Map();
@@ -532,10 +549,54 @@ function openSearchPanel({
         list.scrollTop;
       scrollSpace.style.height = `${Math.max(parseFloat(scrollSpace.style.height) || 0, scrollTop + list.clientHeight - contentEnd)}px`;
     }
-    highlight();
+    highlight(scroll);
     if (categories) list.scrollTop = scrollTop;
     if (!candidates.length)
       status.textContent = categories ? '該当するノードはありません' : 'No matches';
+  }
+  function updateFontItems(nextItems, nextFamilies) {
+    if (closed || !fontFilters || !families) return;
+    if (composing) {
+      pendingFontUpdate = { items: nextItems, families: nextFamilies };
+      return;
+    }
+    const focused = document.activeElement,
+      focusedFamily = focused?.closest?.('.picker-family')?.dataset.fontFamily,
+      focusedRow = focused?.closest?.('.picker-option')?.dataset.id,
+      focusedStar = focused?.classList?.contains('picker-star'),
+      focusedInList = list.contains(focused),
+      previousActive = activeId,
+      wasApplyDisabled = apply.disabled,
+      previousScroll = list.scrollTop,
+      oldFamilies = new Set(families.map((family) => family.id));
+    items = nextItems;
+    families = nextFamilies;
+    familyByItem.clear();
+    for (const family of families) for (const id of family.itemIds) familyByItem.set(id, family.id);
+    for (const family of families)
+      if (
+        !oldFamilies.has(family.id) &&
+        (input.value.trim() ||
+          familyFilter === `family:${family.label}` ||
+          (familyFilter === '__unknown__' && !family.known))
+      )
+        expandedFamilies.add(family.id);
+    syncFontFilters();
+    if (status.textContent === 'No matches') status.textContent = '';
+    refresh({ preserveSelection: true, scroll: false });
+    list.scrollTop = previousScroll;
+    if (activeId === previousActive) apply.disabled = wasApplyDisabled || !active();
+    if (focusedInList && !focused.isConnected) {
+      const row = optionElements.find((element) => element.dataset.id === focusedRow),
+        family = [...list.querySelectorAll('.picker-family')].find(
+          (element) => element.dataset.fontFamily === focusedFamily,
+        );
+      (focusedStar ? row?.querySelector('.picker-star') : family || input)?.focus({
+        preventScroll: true,
+      });
+      if (!document.activeElement || !dialog.contains(document.activeElement))
+        input.focus({ preventScroll: true });
+    }
   }
   const panel = {
     get closed() {
@@ -549,9 +610,11 @@ function openSearchPanel({
       status.textContent = text;
       apply.disabled = !ready || !active();
     },
+    updateFontItems,
     close(cancel = false) {
       if (closed) return;
       closed = true;
+      pendingFontUpdate = null;
       if (cancel) onCancel?.();
       dialog.close();
       dialog.remove();
@@ -580,7 +643,11 @@ function openSearchPanel({
   });
   dialog.addEventListener('compositionend', () => {
     composing = false;
-    refresh();
+    if (pendingFontUpdate) {
+      const update = pendingFontUpdate;
+      pendingFontUpdate = null;
+      updateFontItems(update.items, update.families);
+    } else refresh();
   });
   input.oninput = () => {
     if (!composing) refresh();
@@ -5915,18 +5982,28 @@ function openFontPicker(control, query = '') {
   const selectedAtOpen = selected;
   const characterIds = context ? [...characterEdit.selected] : undefined;
   const characterKey = characterIds && JSON.stringify([...characterIds].sort());
-  const items = fontPickerItems(
-    fontPickerCatalogs({
-      assets: history.doc.fontAssets,
-      fonts,
-      bundledFont,
-      installed: systemFonts,
-      windows: osFontCatalog.faces || [],
-      fileNative: privateFontFiles,
-    }),
-    source,
-    { characterIds },
-  );
+  const isCurrent = () =>
+    session === owner &&
+    current().id === layerId &&
+    selected === selectedAtOpen &&
+    !current().locked &&
+    (characterIds === undefined ||
+      (characterEdit?.node === nodeId &&
+        JSON.stringify([...(characterEdit?.selected || [])].sort()) === characterKey));
+  const collectItems = () =>
+    fontPickerItems(
+      fontPickerCatalogs({
+        assets: history.doc.fontAssets,
+        fonts,
+        bundledFont,
+        installed: systemFonts,
+        windows: osFontCatalog.faces || [],
+        fileNative: privateFontFiles,
+      }),
+      source,
+      { characterIds },
+    );
+  const items = collectItems();
   const favorites = migrateFontFavorites(fontFavorites(), items);
   let picker;
   const controller = createFontChoiceController({
@@ -5936,14 +6013,7 @@ function openFontPicker(control, query = '') {
     nodeId,
     source,
     characterIds,
-    isCurrent: () =>
-      session === owner &&
-      current().id === layerId &&
-      selected === selectedAtOpen &&
-      !current().locked &&
-      (characterIds === undefined ||
-        (characterEdit?.node === nodeId &&
-          JSON.stringify([...(characterEdit?.selected || [])].sort()) === characterKey)),
+    isCurrent,
     prepareWindows: (node, face, options) => prepareDesktopText(node, face, options.settings, true),
     preparePrivate: (node, choice, options) => preparePrivateText(node, choice, options.settings),
     async prepareVariable(command, { signal }) {
@@ -6007,6 +6077,21 @@ function openFontPicker(control, query = '') {
       if (editorPicker === picker) editorPicker = null;
     },
   });
+  picker.updateFontCatalog = () => {
+    if (
+      editorPicker !== picker ||
+      picker.closed ||
+      !isCurrent() ||
+      owner.state.sessionId !== envelope.sessionId ||
+      owner.state.expectedRevision !== envelope.expectedRevision
+    )
+      return;
+    const nextItems = collectItems(),
+      migrated = migrateFontFavorites(favorites, nextItems);
+    favorites.clear();
+    for (const favorite of migrated) favorites.add(favorite);
+    picker.updateFontItems(nextItems, fontFamilyGroups(nextItems));
+  };
 }
 
 // Retain the standard controls for accessibility; route normal pointer/keyboard
@@ -8404,6 +8489,7 @@ async function readCurrentOsFontCatalog() {
     osFontCatalog = catalog;
     osFontCatalogPending = false;
     render();
+    editorPicker?.updateFontCatalog?.();
   }
   return catalog;
 }
