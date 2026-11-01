@@ -1,5 +1,7 @@
 # Unified Font UI integration checkpoint
 
+This is a historical PR #127 integration checkpoint. For the later Windows private-file route and its current limits, see [Private font files](private-font-files.md).
+
 This development draft wires the unified picker into the normal and Graph
 Inspectors on frozen color PR #127, retaining accepted PR #126 core admission.
 The source is not yet fully application-tested; native fonts are not promised
@@ -121,7 +123,9 @@ exact final integration head. No local Chromium/socket retry or package install
 is authorized in this checkpoint. Do not publish these unwired modules as a
 completed UI or merge/release them.
 
-## Bounded follow-on: app-private file fonts (not implemented)
+## Historical follow-on proposal: app-private file fonts
+
+The Windows private-file route has since been implemented as described in [Private font files](private-font-files.md). It identifies an actual collection member by container SHA-256 and face index, saves geometry without embedding the font, and requires explicit same-file reattachment for editing after restart. Browser portable direct embedding still rejects TTC/OTC. The following paragraphs preserve the original proposal, not a current implementation-status claim.
 
 The normal OS catalog does not load uninstalled font files. The supplied BBB/A1
 samples are not real-font acceptance fixtures and are not uploaded to public
@@ -145,4 +149,4 @@ This requires a separately reviewed backend/schema scope and an authorized
 local native environment for private supplied-font acceptance. Existing native
 path/security validation stays strict; JavaScript cannot submit arbitrary native
 paths. Licensed fixtures and synthetic native adapters are the only CI inputs.
-Current UI integration does not close this loading/acceptance gap.
+At this checkpoint, the UI integration had not closed this loading/acceptance gap. Supplied-font and packaged Windows acceptance remain separate from the implemented route.
