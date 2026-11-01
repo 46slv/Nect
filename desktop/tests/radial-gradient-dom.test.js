@@ -249,8 +249,10 @@ test('Radial Gradient Fill controls, typed sources, fallback, invalid radius rol
   assert.equal(endColorBase().disabled, false);
   assert.equal(endColorBase().value, '1');
   assert.equal(
-    field('endColor').querySelector('[data-color-base][data-color="hex"]').value,
-    '#d94862',
+    field('endColor')
+      .querySelector('[data-color-base][data-hsl-picker-open]')
+      .getAttribute('style'),
+    'background:#d94862',
   );
   assert.match(endColorResult().textContent, /Connected result #00ff00\s+alpha 0\.25/);
   assert.equal(win.nect.evaluate().path.fill.endColor.alpha, 0.25);
