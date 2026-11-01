@@ -30,13 +30,18 @@ The portable static-font import / project asset route accepts `.ttf` TrueType ou
 
 The separate Windows [private-file route](private-font-files.md) opens TTF/OTF/TTC/OTC files without installation or embedding. A collection choice retains the container SHA-256 and actual face index; saved geometry preserves appearance, while editing after restart requires explicit reattachment of the same file and member.
 
+Portable embedded-font limits:
+
 - One font: at most 20,000,000 bytes
 - A project: at most 8 imported fonts, 32,000,000 combined raw font bytes
-- Project JSON: at most 50,000,000 UTF-8 bytes across browser, CLI and native open/save
-- Text: at most 10,000 UTF-16 code units per node; 500,000 generated path commands
 - Duplicate file bytes reuse the same asset, regardless of filename
 - Parsed font cache: at most 8 entries / 32 MB raw bytes
 - Undo: immutable font asset records are shared, not copied per edit; the usual 100-step bound also drops oldest history above 96 MB of distinct raw font assets
+
+Shared project and Text limits:
+
+- Project JSON: at most 50,000,000 UTF-8 bytes across browser, CLI and native open/save
+- Text: at most 10,000 UTF-16 code units per node; 500,000 generated path commands
 
 Cancellation, corrupt or unsupported files, missing required glyphs, lock state, a newer import, and document changes during an asynchronous read leave the active project untouched. Font import is one undoable transaction. New/open/undo/redo re-resolve fonts from that document's own assets. Invalid asset data and dangling font IDs reject a candidate JSON before replacement. Text with missing glyphs remains editable and may be saved; SVG export refuses an erroneous visible composition.
 

@@ -1,6 +1,6 @@
 # Unified Font UI integration checkpoint
 
-This is a historical PR #127 integration checkpoint. For the later Windows private-file route and its current limits, see [Private font files](private-font-files.md).
+This is a historical PR #128 font-picker integration checkpoint, built on color PR #127. For the later Windows private-file route and its current limits, see [Private font files](private-font-files.md).
 
 This development draft wires the unified picker into the normal and Graph
 Inspectors on frozen color PR #127, retaining accepted PR #126 core admission.
