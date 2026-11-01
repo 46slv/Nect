@@ -16,17 +16,17 @@ const field = (id, key, scope = '.inspector-body') =>
   page.locator(`${scope} .field[data-node="${id}"][data-key="${key}"]`);
 async function setColor(id, key, hex, alpha) {
   await inspect(id);
-  await field(id, key)
-    .locator('[data-color="hex"]')
-    .evaluate((el, hex) => {
-      el.value = hex;
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    }, hex);
+  await field(id, key).locator('[data-hsl-picker-open]').click();
+  const picker = page.locator('.hsl-color-popover');
+  assert.equal(await picker.locator('[data-hsl-number]').count(), 3);
+  await picker.locator('[data-hsl-hex]').fill(hex);
+  await picker.locator('[data-hsl-hex]').press('Tab');
   await page.waitForFunction(
     ({ id, key, hex }) =>
       window.nect.document.layers[0].nodes.find((n) => n.id === id).params[key].value.hex === hex,
     { id, key, hex },
   );
+  await picker.locator('[data-hsl-close]').click();
   const input = field(id, key).locator('[data-color="alpha"]');
   await input.fill(String(alpha));
   await input.press('Tab');
@@ -98,10 +98,13 @@ try {
     false,
   );
   assert.equal(
-    await field(out, 'color').locator('[data-color-base][data-color="hex"]').isDisabled(),
+    await field(out, 'color').locator('[data-color-base][data-hsl-picker-open]').isDisabled(),
     false,
   );
-  assert.equal(await field(out, 'color').locator('[data-color="hex"]').inputValue(), '#2040ff');
+  assert.match(
+    await field(out, 'color').locator('[data-hsl-picker-open]').getAttribute('style'),
+    /#2040ff/,
+  );
   assert.equal(await field(out, 'color').locator('[data-color="alpha"]').inputValue(), '0.25');
   assert.match(
     await field(out, 'color').locator('output.parameter-result').textContent(),
