@@ -194,6 +194,10 @@ try {
   );
 
   await load(fixture);
+  const advanced = page.locator('[data-color-advanced]');
+  if (!(await advanced.evaluate((el) => el.open))) await advanced.locator('summary').click();
+  assert.equal(await advanced.evaluate((el) => el.open), true);
+  assert.equal(await page.locator('[data-wheel-chroma-mode]').isVisible(), true);
   await page.locator('[data-wheel-chroma-mode]').selectOption('override');
   const legacyBefore = await snapshot(),
     legacyState = await command();
