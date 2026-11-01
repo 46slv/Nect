@@ -558,6 +558,12 @@ function openSearchPanel({
     if (closed || !fontFilters || !families) return;
     if (composing) {
       pendingFontUpdate = { items: nextItems, families: nextFamilies };
+      // Keep the input intact during IME, but invalidate a removed choice now
+      // so its in-flight preparation cannot commit before composition ends.
+      if (activeId && !nextItems.some((item) => item.id === activeId && !item.disabled)) {
+        activeId = undefined;
+        highlight(false);
+      }
       return;
     }
     const focused = document.activeElement,

@@ -305,29 +305,44 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
       assert.equal(snapshot(), before);
       cancel(picker);
 
-      const removingWait = deferred(),
-        shapingWait = deferred();
-      let pendingShape;
-      globalThis.unifiedNativeFaces = removingWait.promise;
-      const removingRefresh = win.unifiedFontDebug().refresh();
-      shape = (request) => {
-        pendingShape = request;
-        return shapingWait.promise;
-      };
-      await until(() => win.unifiedFontDebug().pending, 'catalog before native preparation');
-      picker = await open();
-      await choose(picker, exactFace.family);
-      apply(picker);
-      await until(() => pendingShape, 'native preparation before catalog removal');
-      removingWait.resolve([lateFace]);
-      await removingRefresh;
-      await tick();
-      assert.equal(picker.querySelector('.picker-apply').disabled, true);
-      shapingWait.resolve(preparedOutline(pendingShape));
-      await tick();
-      assert.equal(snapshot(), before, 'removed choice cannot commit a late native result');
-      assert.equal(past(), 0);
-      cancel(picker);
+      for (const composing of [false, true]) {
+        const removingWait = deferred(),
+          shapingWait = deferred();
+        let pendingShape;
+        globalThis.unifiedNativeFaces = removingWait.promise;
+        const removingRefresh = win.unifiedFontDebug().refresh();
+        shape = (request) => {
+          pendingShape = request;
+          return shapingWait.promise;
+        };
+        await until(() => win.unifiedFontDebug().pending, 'catalog before native preparation');
+        picker = await open();
+        await choose(picker, exactFace.family);
+        apply(picker);
+        await until(() => pendingShape, 'native preparation before catalog removal');
+        const removingInput = picker.querySelector('input[type="search"]');
+        if (composing) {
+          removingInput.focus();
+          removingInput.dispatchEvent(
+            new win.CompositionEvent('compositionstart', { bubbles: true }),
+          );
+        }
+        removingWait.resolve([lateFace]);
+        await removingRefresh;
+        await tick();
+        assert.equal(picker.querySelector('.picker-apply').disabled, true);
+        shapingWait.resolve(preparedOutline(pendingShape));
+        await tick();
+        assert.equal(snapshot(), before, 'removed choice cannot commit a late native result');
+        assert.equal(past(), 0);
+        if (composing)
+          removingInput.dispatchEvent(
+            new win.CompositionEvent('compositionend', { bubbles: true }),
+          );
+        cancel(picker);
+        globalThis.unifiedNativeFaces = [exactFace, lateFace];
+        await win.unifiedFontDebug().refresh();
+      }
       shape = async (request) => preparedOutline(request);
       calls.length = 0;
 
