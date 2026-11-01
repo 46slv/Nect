@@ -5,7 +5,7 @@
 These steps describe the portable, embedded-font route. For Windows file-native fonts, including TTC/OTC collections, see [Private font files](private-font-files.md).
 
 1. Add/select a Text node. The node and Inspector both have a multiline Text field.
-2. Choose **Load TTF / OTF…**, then select a static outline font containing the required characters. The bundled DejaVu Sans does not contain Japanese. Fonts are shared across all Text nodes in that project through the Font dropdown.
+2. In **Advanced font import**, choose **Import TTF / OTF…**, then select a static outline font containing the required characters. The bundled DejaVu Sans does not contain Japanese. Fonts are shared across all Text nodes in that project through the Font dropdown.
 3. Set Writing to **Vertical ↓ / columns ←** for Japanese vertical layout, or Horizontal for the existing baseline layout. Enter creates a new line/column. Horizontal [Wrap width · auto height](text-wrap.md) optionally adds derived lines. Vertical wrapping and clipping are unsupported.
 4. `size` is in artwork pixels. `letterSpacing` adds pixels after each glyph; `lineSpacing` is a multiplier of size. They are ordinary Scalar parameters, so expression, connection, lock and undo work as on other fields.
 5. Save JSON retains editable text and full font bytes. Reopening can display **and edit new characters** without selecting the font again. SVG export contains paths only. The same project exports through `node cli/export.js project.json artwork.svg` without installed system fonts.
