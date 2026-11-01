@@ -5447,6 +5447,9 @@ export function validate(doc) {
   return doc;
 }
 export function serialize(doc) {
+  // This optional historical receipt must never lose non-JSON data in a direct
+  // codec call, even when the caller did not construct a Session first.
+  if (doc && Object.hasOwn(doc, 'keyColorRecipe')) validateColorSlots(doc);
   const text = JSON.stringify(doc, null, 2);
   if (text.length > MAX_PROJECT_BYTES || utf8ByteLength(text) > MAX_PROJECT_BYTES)
     throw Error('Project exceeds 50 MB');

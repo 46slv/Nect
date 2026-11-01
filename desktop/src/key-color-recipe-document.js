@@ -8,13 +8,54 @@ export const keyColorRecipeDocumentCommands = new Set([
   'replace-key-color-recipe-snapshot',
   'clear-key-color-recipe-snapshot',
 ]);
+// Native receipts must be lossless JSON data before cloning or prototype
+// normalization can omit unsupported values. This is intentionally stricter than
+// the pure model: it also rejects array properties JSON.stringify would drop.
+function assertJsonSnapshot(value, path = '$.committedSnapshot', ancestors = new Set()) {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw Error(`Invalid retained JSON number at ${path}`);
+    return;
+  }
+  if (!value || typeof value !== 'object') throw Error(`Invalid retained JSON value at ${path}`);
+  if (ancestors.has(value)) throw Error(`Cyclic retained JSON value at ${path}`);
+  const array = Array.isArray(value);
+  if (!array && ![Object.prototype, null].includes(Object.getPrototypeOf(value)))
+    throw Error(`Invalid retained JSON object at ${path}`);
+  if (Object.getOwnPropertySymbols(value).length)
+    throw Error(`Symbol keys in retained JSON at ${path}`);
+  for (const key of Object.getOwnPropertyNames(value)) {
+    if (array && key === 'length') continue;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor.enumerable || !Object.hasOwn(descriptor, 'value'))
+      throw Error(`Unsupported retained JSON property at ${path}.${key}`);
+  }
+  ancestors.add(value);
+  if (array) {
+    for (let i = 0; i < value.length; i++) {
+      if (!Object.hasOwn(value, i)) throw Error(`Sparse retained JSON array at ${path}[${i}]`);
+      assertJsonSnapshot(value[i], `${path}[${i}]`, ancestors);
+    }
+    if (Object.keys(value).length !== value.length)
+      throw Error(`Extra retained JSON array property at ${path}`);
+  } else {
+    for (const [key, child] of Object.entries(value))
+      assertJsonSnapshot(child, `${path}.${key}`, ancestors);
+  }
+  ancestors.delete(value);
+}
 function fields(value, keys) {
   if (
     !value ||
     typeof value !== 'object' ||
     Array.isArray(value) ||
     ![Object.prototype, null].includes(Object.getPrototypeOf(value)) ||
-    Object.keys(value).length !== keys.length ||
+    Object.getOwnPropertySymbols(value).length !== 0 ||
+    Object.getOwnPropertyNames(value).length !== keys.length ||
+    keys.some((key) => {
+      const d = Object.getOwnPropertyDescriptor(value, key);
+      return d && (!d.enumerable || !Object.hasOwn(d, 'value'));
+    }) ||
     keys.some((key) => !Object.hasOwn(value, key))
   )
     throw Error('Invalid retained key-color recipe fields');
@@ -30,6 +71,7 @@ function orderedJson(value) {
   return value;
 }
 function snapshotWithExistingSlots(value, slots) {
+  assertJsonSnapshot(value);
   const snapshot = restoreKeyColorRecipe(value);
   // The receipt holds references, not registry ownership or current-value/name
   // equality. Inactive/dormant IDs are deliberately included in this check.

@@ -43,6 +43,13 @@ Use the existing Session envelope (`sessionId`, exact `expectedRevision`, `type`
 | `replace-key-color-recipe-snapshot` | `{ snapshot }` | Packet must exist; explicit replacement, not implicit retain. |
 | `clear-key-color-recipe-snapshot`   | `{}`           | Removes only the metadata; absent packet is a no-op.          |
 
+Snapshots must be lossless JSON trees **before** clone/normalization: unsupported
+values (including explicit `undefined` on an optional field), nonfinite numbers,
+functions/bigints/symbols, cycles/nonplain objects, sparse arrays, dropped array
+properties and accessors/nonenumerable properties reject rather than silently
+disappearing. The same check protects both Session kinds, native validation and
+serialization; it does not change the more permissive pure-prototype input API.
+
 Payload shapes are closed. Retain never silently replaces, and replace never
 silently creates. Equality replacement and absent clear preserve revision,
 History and pending Redo, including equivalent old-prototype normalization or

@@ -562,3 +562,150 @@ test('retained packet owns detached historical bytes, not mutable command payloa
   assert.deepEqual(captured(f.session), before);
   reopen(f.session);
 });
+
+for (const kind of ['document', 'composition']) {
+  test(`${kind}: native retain/replace reject non-JSON snapshot data before any lossy clone or commit`, () => {
+    const mutations = [
+      [
+        'optional undefined',
+        (s) => {
+          s.intent.preset.slots[0].alpha = undefined;
+        },
+      ],
+      [
+        'array undefined',
+        (s) => {
+          s.resolved[0].linear[0] = undefined;
+        },
+      ],
+      [
+        'sparse array',
+        (s) => {
+          delete s.resolved[0].linear[0];
+        },
+      ],
+      [
+        'named array property',
+        (s) => {
+          s.intent.slots.extra = 'would disappear';
+        },
+      ],
+      [
+        'NaN',
+        (s) => {
+          s.resolved[0].C = NaN;
+        },
+      ],
+      [
+        'Infinity',
+        (s) => {
+          s.resolved[0].cmax = Infinity;
+        },
+      ],
+      [
+        'function',
+        (s) => {
+          s.intent.preset.slots[0].alpha = () => 1;
+        },
+      ],
+      [
+        'bigint',
+        (s) => {
+          s.intent.preset.slots[0].alpha = 1n;
+        },
+      ],
+      [
+        'symbol value',
+        (s) => {
+          s.intent.preset.slots[0].alpha = Symbol('not JSON');
+        },
+      ],
+      [
+        'symbol key',
+        (s) => {
+          s.intent.slots[Symbol('not JSON')] = 1;
+        },
+      ],
+      [
+        'Date',
+        (s) => {
+          s.intent.preset.slots[0].alpha = new Date(0);
+        },
+      ],
+      [
+        'Map',
+        (s) => {
+          s.intent.preset.slots[0].alpha = new Map();
+        },
+      ],
+      [
+        'cycle',
+        (s) => {
+          s.intent.preset.slots[0].alpha = s;
+        },
+      ],
+      [
+        'nonenumerable',
+        (s) => {
+          Object.defineProperty(s.intent, 'dropped', { value: true, enumerable: false });
+        },
+      ],
+      [
+        'accessor',
+        (s) => {
+          Object.defineProperty(s.intent.preset.slots[0], 'alpha', {
+            enumerable: true,
+            get() {
+              throw Error('getter must not run');
+            },
+          });
+        },
+      ],
+    ];
+    for (const operation of [retain, replace]) {
+      const f = fixture(kind);
+      if (operation === replace) f.send(retain, { snapshot: receipt() });
+      f.send('rename-color-slot', { slotId: 'dormant', name: 'Temporary' });
+      f.send('undo');
+      const before = captured(f.session);
+      for (const [name, mutate] of mutations) {
+        const snapshot = receipt();
+        mutate(snapshot);
+        // These two specifically remain legal pure-prototype input; rejection
+        // is an intentional native JSON boundary, not a solver policy change.
+        if (name === 'optional undefined' || name === 'named array property')
+          assert.doesNotThrow(() => restoreKeyColorRecipe(snapshot));
+        assert.throws(() => f.send(operation, { snapshot }), /JSON/, name);
+        assert.deepEqual(captured(f.session), before, name);
+      }
+      f.send('redo');
+      assert.equal(
+        f.session.snapshot().colorSlots.find((s) => s.id === 'dormant').name,
+        'Temporary',
+      );
+    }
+  });
+}
+
+test('native Document/Composition validation and serializers share the retained JSON losslessness guard', () => {
+  for (const kind of ['document', 'composition']) {
+    const doc = legacyDocument();
+    doc.schemaVersion = 58;
+    doc.keyColorRecipe = packet();
+    const bad = kind === 'document' ? doc : migrateLegacyDocumentToCompositionProject(doc),
+      check = kind === 'document' ? validate : validateCompositionProject,
+      encode = kind === 'document' ? serialize : serializeCompositionProject;
+    bad.keyColorRecipe.committedSnapshot.intent.preset.slots[0].alpha = undefined;
+    assert.doesNotThrow(() => restoreKeyColorRecipe(bad.keyColorRecipe.committedSnapshot));
+    assert.throws(() => check(bad), /JSON/);
+    assert.throws(() => encode(bad), /JSON/);
+    bad.keyColorRecipe.committedSnapshot.intent.preset.slots[0].alpha = 0;
+    assert.doesNotThrow(() => check(bad));
+    const decoded =
+      kind === 'document' ? deserialize(encode(bad)) : deserializeCompositionProject(encode(bad));
+    assert.ok(
+      Object.hasOwn(decoded.keyColorRecipe.committedSnapshot.intent.preset.slots[0], 'alpha'),
+    );
+    assert.equal(decoded.keyColorRecipe.committedSnapshot.intent.preset.slots[0].alpha, 0);
+  }
+});
