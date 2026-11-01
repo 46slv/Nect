@@ -153,7 +153,7 @@ test('character picker keeps Inherit as an explicit non-name-based choice', () =
   }
 });
 
-test('unproven byte-only discovery stays visible but cannot import automatically or substitute by name', () => {
+test('installed faces are available for explicit Apply without substituting native identities', () => {
   const rows = fontPickerItems(
     {
       installed: [
@@ -165,11 +165,8 @@ test('unproven byte-only discovery stays visible but cannot import automatically
   );
   const installed = rows.find((row) => row.choice.source === 'installed');
   const native = rows.find((row) => row.choice.source === 'windows');
-  assert.equal(installed.disabled, true);
-  assert.match(
-    installed.detail,
-    /Font file import is required; use Advanced for a file you may embed/,
-  );
+  assert.equal(installed.disabled, false);
+  assert.match(installed.detail, /Included in saved document/);
   assert.doesNotMatch(installed.detail, /forbidden|illegal|Adobe|Morisawa/);
   assert.equal(native.disabled, false);
   assert.notEqual(installed.id, native.id);
