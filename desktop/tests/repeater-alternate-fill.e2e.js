@@ -160,7 +160,8 @@ try {
     await field(targetColor).locator('[data-hsl-picker-open]').click();
     await page.locator('[data-hsl-hex]').fill('#0055aa');
     await page.locator('[data-hsl-hex]').press('Tab');
-    await page.locator('[data-hsl-close]').click();
+    if (await page.locator('.hsl-color-popover').count())
+      await page.locator('[data-hsl-close]').click();
     await settle();
     assert.ok((await state()).svg.includes(`${strokeMode ? 'stroke' : 'fill'}="#0055aa"`));
     await $('[data-action="undo"]').click();
