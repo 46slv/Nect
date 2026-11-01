@@ -91,16 +91,17 @@ test('synthetic Color controls: source display, fallback restoration, alpha vali
   const outputId = win.nect.document.layers[0].nodes.find((n) => n.type === 'Fill').id;
   const field = (id, key) =>
     document.querySelector(`.graph .field[data-node="${id}"][data-key="${key}"]`);
-  await change(field(colorId, 'value').querySelector('[data-color="hex"]'), '#ff0000');
-  assert.ok(field(colorId, 'value').querySelector('[data-color="hsl-h"]'));
-  await change(field(colorId, 'value').querySelector('[data-color="hsl-h"]'), '120');
-  assert.equal(
-    win.nect.document.layers[0].nodes.find((n) => n.id === colorId).params.value.value.hex,
-    '#00ff00',
-  );
-  await change(field(colorId, 'value').querySelector('[data-color="hex"]'), '#ff8000');
+  // The swatch now opens a Nect-owned HSL picker instead of the platform RGB picker.
+  field(colorId, 'value').querySelector('[data-hsl-picker-open]').click();
+  assert.ok(document.querySelector('[data-hsl-plane]'));
+  assert.equal(document.querySelectorAll('[data-hsl-number]').length, 3);
+  await change(document.querySelector('[data-hsl-hex]'), '#ff0000');
+  await change(document.querySelector('[data-hsl-number="h"]'), '30');
+  document.querySelector('[data-hsl-close]').click();
   await change(field(colorId, 'value').querySelector('[data-color="alpha"]'), '0.5');
-  await change(field(outputId, 'color').querySelector('[data-color="hex"]'), '#2040ff');
+  field(outputId, 'color').querySelector('[data-hsl-picker-open]').click();
+  await change(document.querySelector('[data-hsl-hex]'), '#2040ff');
+  document.querySelector('[data-hsl-close]').click();
   await change(field(outputId, 'color').querySelector('[data-color="alpha"]'), '0.25');
   assert.deepEqual(win.nect.evaluate().path.fill, { hex: '#2040ff', alpha: 0.25 });
   document
@@ -112,8 +113,10 @@ test('synthetic Color controls: source display, fallback restoration, alpha vali
   const connectedResult = () => field(outputId, 'color').querySelector('.parameter-result');
   assert.match(connectedResult().textContent, /Connected result #ff8000\s+alpha 0\.5/);
   assert.equal(
-    field(outputId, 'color').querySelector('[data-color-base][data-color="hex"]').value,
-    '#2040ff',
+    field(outputId, 'color')
+      .querySelector('[data-hsl-picker-open][data-color-base]')
+      .getAttribute('style'),
+    'background:#2040ff',
   );
   assert.equal(
     field(outputId, 'color').querySelector('[data-color-base][data-color="alpha"]').disabled,
@@ -147,7 +150,7 @@ test('synthetic Color controls: source display, fallback restoration, alpha vali
   await change(field(colorId, 'value').querySelector('[data-color="alpha"]'), '2');
   assert.equal(JSON.stringify(win.nect.document), saved);
   field(colorId, 'value').querySelector('[data-lock]').click();
-  assert.equal(field(colorId, 'value').querySelector('[data-color="hex"]').disabled, true);
+  assert.equal(field(colorId, 'value').querySelector('[data-hsl-picker-open]').disabled, true);
   assert.equal(field(colorId, 'value').querySelector('[data-color="alpha"]').disabled, true);
   win.close();
 });
