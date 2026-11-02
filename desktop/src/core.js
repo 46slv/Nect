@@ -7274,6 +7274,8 @@ export class CommandSession {
             nextRaw: next.text,
           }).record;
         Object.assign(source, next);
+        if (Object.hasOwn(settings, 'textWrap') && settings.textWrap === null)
+          delete source.textWrap;
         candidate.schemaVersion = Math.max(
           candidate.schemaVersion,
           source.osFont.source ? PRIVATE_FONT_SCHEMA_VERSION : 0,

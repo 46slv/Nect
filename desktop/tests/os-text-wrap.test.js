@@ -11,6 +11,12 @@ import {
   exportSVG,
 } from '../src/core.js';
 import { desktopTextIntent } from '../src/desktop-font-text.js';
+import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
+import {
+  migrateLegacyDocumentToCompositionProject,
+  serializeCompositionProject,
+  deserializeCompositionProject,
+} from '../src/composition-project-model.js';
 const face = {
   family: 'Test face',
   name: 'Regular',
@@ -80,6 +86,58 @@ test('prepared wrap is atomic, editable schema32 and remains portable without a 
   assert.equal(serialize(f.session.snapshot()), saved);
   f.send('undo');
   assert.equal(serialize(f.session.snapshot()), before);
+});
+test('native Wrap Off removes optional JSON state and preserves exact Composition Undo/Redo', () => {
+  const f = fixture();
+  f.send('set-os-font-text', { outline: raw(f.n), settings: { textWrap: { width: 160 } } });
+  const owner = createCompositionSessionOwner(
+      migrateLegacyDocumentToCompositionProject(f.session.snapshot()),
+    ),
+    wrapped = serializeCompositionProject(owner.projectSnapshot()),
+    wrappedSvg = exportSVG(owner.snapshot()),
+    revision = owner.projectRevision;
+  const off = {
+    ...raw(f.live()),
+    engine: 'directwrite-v2',
+    advanceWidth: 200,
+    lineCount: 1,
+    points: [
+      [0, 0],
+      [200, 0],
+      [200, 20],
+      [0, 20],
+    ],
+  };
+  delete off.wrapWidth;
+  delete off.wrapOverflow;
+  owner.dispatch({
+    ...owner.state,
+    type: 'set-os-font-text',
+    payload: { layerId: f.l.id, nodeId: f.n.id, outline: off, settings: { textWrap: null } },
+  });
+  const live = owner.snapshot().layers[0].nodes.find((n) => n.id === f.n.id),
+    saved = serializeCompositionProject(owner.projectSnapshot()),
+    offSvg = exportSVG(owner.snapshot());
+  assert.equal(Object.hasOwn(live, 'textWrap'), false);
+  assert.deepEqual(live.osFont.outline, off);
+  assert.equal(live.text, f.n.text);
+  assert.equal(live.type, 'Text');
+  assert.notEqual(offSvg, wrappedSvg);
+  assert.equal(owner.projectRevision, revision + 1);
+  assert.equal(owner.historyView.past.length, 1);
+  const reopened = createCompositionSessionOwner(deserializeCompositionProject(saved, deserialize));
+  assert.equal(serializeCompositionProject(reopened.projectSnapshot()), saved);
+  assert.equal(exportSVG(reopened.snapshot()), offSvg);
+  owner.dispatch({ ...owner.state, type: 'undo', payload: {} });
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), wrapped);
+  assert.equal(exportSVG(owner.snapshot()), wrappedSvg);
+  owner.dispatch({ ...owner.state, type: 'redo', payload: {} });
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), saved);
+  assert.equal(exportSVG(owner.snapshot()), offSvg);
+  assert.equal(owner.projectRevision, revision + 3);
+  const invalid = owner.projectSnapshot();
+  invalid.compositions[0].layers[0].nodes[0].textWrap = undefined;
+  assert.throws(() => serializeCompositionProject(invalid), /Invalid JSON value/);
 });
 test('unprepared width, vertical wrap, stale/locked settings and mismatched metadata preserve last snapshot', () => {
   const f = fixture();

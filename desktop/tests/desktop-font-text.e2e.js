@@ -606,10 +606,26 @@ try {
       await page.locator('[data-action="undo"]').click();
       await waitOutline(narrow);
     }
+    const wrappedProject = await page.evaluate(() => window.nect.projectSnapshot()),
+      wrappedSvg = await page.evaluate(() => window.nect.export()),
+      requestsBeforeOff = await page.evaluate(() => window.fontRequests.length);
     await page.locator('.inspector-body [data-os-wrap]').selectOption('off');
     await waitOutline(off);
+    assert.equal(Object.hasOwn(await live(), 'textWrap'), false);
+    const offProject = await page.evaluate(() => window.nect.projectSnapshot()),
+      offSvg = await page.evaluate(() => window.nect.export());
+    assert.equal(await page.evaluate(() => window.fontRequests.length), requestsBeforeOff + 1);
     await page.locator('[data-action="undo"]').click();
     await waitOutline(narrow);
+    assert.deepEqual(await page.evaluate(() => window.nect.projectSnapshot()), wrappedProject);
+    assert.equal(await page.evaluate(() => window.nect.export()), wrappedSvg);
+    await page.locator('[data-action="redo"]').click();
+    await waitOutline(off);
+    assert.deepEqual(await page.evaluate(() => window.nect.projectSnapshot()), offProject);
+    assert.equal(await page.evaluate(() => window.nect.export()), offSvg);
+    await page.locator('[data-action="undo"]').click();
+    await waitOutline(narrow);
+    assert.equal(await page.evaluate(() => window.fontRequests.length), requestsBeforeOff + 1);
     await page.waitForFunction(
       () =>
         document.querySelector(
@@ -775,6 +791,7 @@ try {
     osVariableAxes: !!axisRows.length,
     japaneseVertical: !!verticalRows.length,
     osHorizontalWrap: !!wrapRows.length,
+    nativeWrapOffUndoRedo: !!wrapRows.length,
     japaneseBasicWrap: !!jpRows.length,
     staticVerticalWrap: !!jpRows.length,
     pageErrors: errors,
