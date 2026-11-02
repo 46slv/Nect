@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { validateDesktopFace } from '../src/desktop-font-text.js';
 import {
   fontPickerItems,
   migrateFontFavorites,
@@ -26,6 +27,59 @@ const text = (patch = {}) => ({
   ...patch,
 });
 const meta = (family, weightClass, subfamily = 'Regular') => ({ family, weightClass, subfamily });
+
+test('native discovery aliases are detached metadata, preserving strict identity, order and favorites', () => {
+  const aliases = [
+    'メイリオ',
+    'ＭＳ ゴシック',
+    'メイリオ',
+    '',
+    'bad\u007f',
+    '\ud800',
+    'x'.repeat(256),
+    '𠮷',
+  ];
+  const input = { ...face, localizedNames: aliases };
+  const bold = { ...face, name: 'Bold', weight: 700 };
+  const adapted = fontPickerCatalogs({ windows: [{ ...bold, localizedNames: ['太字'] }, input] });
+  const nativeRows = (catalogs) =>
+    fontPickerItems(catalogs, text()).filter((row) => row.choice.source === 'windows');
+  const plain = nativeRows(fontPickerCatalogs({ windows: [bold, face] }));
+  const rows = nativeRows(adapted);
+  assert.deepEqual(adapted.windows[1].face, face);
+  validateDesktopFace(adapted.windows[1].face);
+  assert.deepEqual(rows[0].metadata.localizedNames, ['メイリオ', 'ＭＳ ゴシック', '𠮷']);
+  assert.equal(rows[0].key, plain[0].key);
+  assert.deepEqual(
+    rows.map((row) => row.key),
+    plain.map((row) => row.key),
+  );
+  assert.equal(rows[0].label, plain[0].label);
+  assert.equal(rows[0].disabled, false);
+  assert.deepEqual(
+    fontFamilyGroups(rows).map((g) => g.id),
+    fontFamilyGroups(plain).map((g) => g.id),
+  );
+  assert.deepEqual(migrateFontFavorites([plain[0].key], rows), new Set([plain[0].key]));
+  aliases.push('later');
+  assert.equal(rows[0].metadata.localizedNames.includes('later'), false);
+  for (const localizedNames of [null, 'メイリオ', [null, 1, '\udfff']]) {
+    const item = fontPickerCatalogs({ windows: [{ ...face, localizedNames }] }).windows[0];
+    validateDesktopFace(item.face);
+    assert.deepEqual(item.face, face);
+  }
+  const unknown = fontPickerCatalogs({ windows: [{ ...input, surprise: true }] }).windows[0];
+  assert.equal(unknown.face.surprise, true);
+  assert.throws(() => validateDesktopFace(unknown.face), /Invalid Windows font face/);
+  assert.equal(fontPickerItems({ windows: [unknown] }, text())[0].disabled, true);
+  assert.throws(() => validateDesktopFace(input), /Invalid Windows font face/);
+  assert.equal(
+    fontPickerCatalogs({
+      windows: [{ ...face, localizedNames: Array.from({ length: 100 }, (_, i) => `Alias ${i}`) }],
+    }).windows[0].metadata.localizedNames.length,
+    64,
+  );
+});
 
 test('one list preserves all exact identities and sorts family/real style deterministically', () => {
   const catalogs = {

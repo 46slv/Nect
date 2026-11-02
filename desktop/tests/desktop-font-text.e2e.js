@@ -1,4 +1,5 @@
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 // Production Edge/CSP UI + explicit IPC fixture from separately tested Windows
 // DirectWrite. This does not claim native WebView2/IME acceptance.
 import assert from 'node:assert/strict';
@@ -131,7 +132,9 @@ try {
     );
     await page.locator('.inspector-body [data-change-font]').click();
     const picker = page.getByRole('dialog', { name: 'Font', exact: true });
-    await picker.getByRole('combobox').fill(`${face.family} ${face.name}`);
+    await picker
+      .getByRole('combobox', { name: 'Font search', exact: true })
+      .fill(`${face.family} ${face.name}`);
     assert.equal(await nativeOption(picker, face).count(), 1, 'one exact native face identity');
     return picker;
   };
@@ -150,6 +153,8 @@ try {
           window.fontCalls.push(command);
           if (command === 'list_system_fonts' || command === 'list_os_outline_fonts') return [];
           if (command === 'list_desktop_font_faces') {
+            if (args?.includeLocalizedNames !== true)
+              throw Error('Localized discovery opt-in missing');
             const faces = [
               ...variants,
               ...(din ? [din] : []),
@@ -159,7 +164,12 @@ try {
               ...jpRows,
             ].map((row) => row.face);
             return window.fontAvailable
-              ? [...new Map(faces.map((face) => [JSON.stringify(face), face])).values()]
+              ? [...new Map(faces.map((face) => [JSON.stringify(face), face])).values()].map(
+                  (face) => ({
+                    ...face,
+                    localizedNames: face.family === 'Meiryo' ? ['メイリオ', 'レギュラー'] : [],
+                  }),
+                )
               : [];
           }
           if (command === 'list_desktop_font_axes')
@@ -312,13 +322,14 @@ try {
   await setting('kerning', false, 5);
   await setting('ligatures', false, 6);
   await setting('alignment', 'center', 7);
-  const saved = await page.evaluate(() => JSON.stringify(window.nect.document)),
+  const savedDocument = await page.evaluate(() => JSON.stringify(window.nect.document)),
+    saved = await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot())),
     svg = await page.evaluate(() => window.nect.export());
-  await page.locator('[data-action="save"]').click();
+  await activateBoundaryCommand(page, 'save');
   await page.waitForFunction(() => window.fontSaves.some((s) => s.kind === 'json'));
-  await page.locator('[data-action="export"]').click();
+  await activateBoundaryCommand(page, 'export');
   await page.waitForFunction(() => window.fontSaves.some((s) => s.kind === 'svg'));
-  await page.locator('[data-action="export-png"]').click();
+  await activateBoundaryCommand(page, 'export-png');
   await page.waitForFunction(() => window.fontSaves.some((s) => s.kind === 'png'));
   const saves = await page.evaluate(() => window.fontSaves);
   assert.deepEqual(JSON.parse(saves.find((s) => s.kind === 'json').contents), JSON.parse(saved));
@@ -341,7 +352,7 @@ try {
   await page.waitForFunction(() =>
     document.querySelector('.message').textContent.includes('Font unavailable'),
   );
-  assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), saved);
+  assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), savedDocument);
   await page.locator('.inspector-body [data-cancel-os-text]').click();
   await bakeCurrentAppearance();
   await page.waitForFunction(
@@ -427,12 +438,12 @@ try {
       { id: text.id, raw },
     );
   const cachedRoundtrip = async (name) => {
-    const saved = await page.evaluate(() => JSON.stringify(window.nect.document)),
+    const saved = await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot())),
       svg = await page.evaluate(() => window.nect.export());
     const jsonCount = await page.evaluate(
       () => window.fontSaves.filter((s) => s.kind === 'json').length,
     );
-    await page.locator('[data-action="save"]').click();
+    await activateBoundaryCommand(page, 'save');
     await page.waitForFunction(
       (count) => window.fontSaves.filter((s) => s.kind === 'json').length > count,
       jsonCount,
@@ -461,7 +472,7 @@ try {
     const count = await page.evaluate(
       () => window.fontSaves.filter((s) => s.kind === 'png').length,
     );
-    await page.locator('[data-action="export-png"]').click();
+    await activateBoundaryCommand(page, 'export-png');
     await page.waitForFunction(
       (count) => window.fontSaves.filter((s) => s.kind === 'png').length > count,
       count,

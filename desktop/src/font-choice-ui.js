@@ -63,7 +63,7 @@ export function fontPickerCatalogs({
         };
       }),
     ),
-    windows: windows.map((face) => ({
+    windows: windows.map(({ localizedNames, ...face }) => ({
       id: windowsFontChoiceId(face),
       label: `${face.family} · ${face.name}`,
       face,
@@ -72,6 +72,23 @@ export function fontPickerCatalogs({
         subfamily: face.name,
         weightClass: face.weight,
         italic: face.style !== 0,
+        ...(Array.isArray(localizedNames)
+          ? {
+              localizedNames: [
+                ...new Set(
+                  localizedNames
+                    .slice(0, 64)
+                    .filter(
+                      (name) =>
+                        typeof name === 'string' &&
+                        name.trim() &&
+                        name.length <= 255 &&
+                        !/[\u0000-\u001f\u007f-\u009f]|[\uD800-\uDFFF]/u.test(name),
+                    ),
+                ),
+              ],
+            }
+          : {}),
       },
     })),
   };
