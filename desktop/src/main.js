@@ -32,6 +32,7 @@ import { textWrapResizeContext, resizedTextWrapWidth } from './text-wrap-resize.
 import {
   ARTBOARD_UNITS,
   displayLengthToDocumentUnits,
+  documentUnitsToDisplayLength,
   formatDocumentLength,
 } from './artboard-units.js';
 import { SVG_EXPORT_PRECISIONS } from './svg-number-format.js';
@@ -2285,9 +2286,139 @@ function numericControlTarget(input) {
     ? { commandTarget: { kind: 'numeric-command', command, payload, initial: Number(input.value) } }
     : null;
 }
-// P1 adapters: one ordinary scalar surface and the existing staged Point Δ owner.
-// Other numeric surfaces retain their existing route until their own migration.
+// Surface adapters retain their existing Session or staged-draft commit authority.
+// Unmigrated numeric surfaces keep their previous route.
 function numericBehaviorBinding(input) {
+  return numericCommandBinding(input) || pointOrScalarNumericBinding(input);
+}
+function numericCommandBinding(input) {
+  const data = input.dataset,
+    dimension = data.dimension,
+    guideId = data.guidePosition,
+    setting = data.guideSetting;
+  if (!dimension && !guideId && !['gridSize', 'gridAngle'].includes(setting)) return null;
+  const target = numericControlTarget(input).commandTarget,
+    owner = session,
+    compositionId = owner.activeCompositionId,
+    layerId = current().id,
+    epoch = sourceEpoch,
+    unit = dimension ? data.dimensionUnit || 'px' : null,
+    guideAxis = guideId
+      ? guideSettings(history.doc).guides.find((g) => g.id === guideId)?.axis
+      : null;
+  let envelope = null,
+    gesture = null,
+    originalInput,
+    originalCanonical,
+    originalDisplay;
+  const canonical = () =>
+    dimension
+      ? history.doc[dimension]
+      : guideId
+        ? guideSettings(history.doc).guides.find((g) => g.id === guideId)?.position
+        : guideSettings(history.doc)[setting];
+  const sameTarget = () => {
+    if (
+      input.dataset.dimension !== dimension ||
+      input.dataset.guidePosition !== guideId ||
+      input.dataset.guideSetting !== setting
+    )
+      return false;
+    if (
+      owner !== session ||
+      owner.activeCompositionId !== compositionId ||
+      current().id !== layerId ||
+      sourceEpoch !== epoch ||
+      !input.isConnected ||
+      input.disabled ||
+      input.readOnly ||
+      current().locked ||
+      composing ||
+      penDraft ||
+      nameEdit ||
+      variableAction ||
+      owner.hasTextComposition ||
+      document.querySelector('dialog[open]') ||
+      (owner.hasGesture && !gesture)
+    )
+      return false;
+    if (dimension && (artboardUnit !== unit || input.dataset.dimensionUnit !== unit)) return false;
+    if (guideId) {
+      const settings = guideSettings(history.doc),
+        guide = settings.guides.find((g) => g.id === guideId);
+      if (!guide || guide.axis !== guideAxis || settings.locked || guide.locked) return false;
+    }
+    return Number.isFinite(canonical());
+  };
+  const sameRevision = () =>
+    !envelope ||
+    (owner.state.sessionId === envelope.sessionId &&
+      owner.state.expectedRevision === envelope.expectedRevision);
+  return {
+    mode: 'live',
+    valid: () => sameTarget() && sameRevision(),
+    read() {
+      originalInput = input.value;
+      if (!originalInput.trim() || !Number.isFinite(Number(originalInput)))
+        throw Error('Expected a finite number');
+      if (input.value !== input.defaultValue) {
+        const expected = dimension
+          ? displayLengthToDocumentUnits(input.value, unit)
+          : Number(input.value);
+        input.dispatchEvent(new window.Event('change', { bubbles: true }));
+        if (canonical() !== expected) throw Error('Number change cancelled');
+      }
+      envelope = owner.state;
+      originalCanonical = canonical();
+      originalDisplay = dimension
+        ? documentUnitsToDisplayLength(originalCanonical, unit)
+        : originalCanonical;
+      return [originalDisplay];
+    },
+    step: () => Number(input.dataset.scrubStep),
+    bounds: () => [Number(input.min || -Number.MAX_VALUE), Number(input.max || Number.MAX_VALUE)],
+    begin() {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'begin-gesture',
+        payload: {
+          target: { ...target, initial: originalCanonical },
+        },
+      });
+    },
+    preview([value]) {
+      // Preserve the exact canonical snapshot; display formatting never supplies the baseline.
+      const next = dimension
+        ? originalCanonical + displayLengthToDocumentUnits(value - originalDisplay, unit)
+        : value;
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'update-gesture',
+        payload: { ...gesture, update: { value: next } },
+      });
+      drag.preview = owner.previewSnapshot(gesture.gestureId).document;
+      input.value = String(value);
+      if (dimension) fitCanvas();
+      updateCanvas();
+    },
+    commit() {
+      settleNumericControl(
+        input,
+        owner.dispatch({ ...owner.state, type: 'commit-gesture', payload: gesture }),
+      );
+    },
+    cancel() {
+      if (gesture)
+        owner.dispatch({
+          ...owner.state,
+          type: 'cancel-gesture',
+          payload: { gestureId: gesture.gestureId },
+        });
+      if (sameTarget() && sameRevision()) input.value = originalInput;
+    },
+  };
+}
+function pointOrScalarNumericBinding(input) {
   const field = input.closest('.field[data-node]'),
     pointDelta = input.dataset.pointDeltaAxis !== undefined,
     nodeId = pointDelta ? input.dataset.node : field?.dataset.node,
@@ -4646,9 +4777,9 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   if (sharedColors.previewDocument || fontPreview || textPreview) updateCanvas(true);
   coverageView.refresh();
 }
-function editGuides(type, payload) {
+function editGuides(type, payload, deferRender = false) {
   snapMatches = [];
-  return commandChange(type, payload, 'Editing aids updated');
+  return commandChange(type, payload, 'Editing aids updated', deferRender);
 }
 function layerShown(l) {
   return layerIsVisible(history.doc, l) && (!l.guide || guideSettings(history.doc).visible);
@@ -10226,23 +10357,32 @@ app.addEventListener('change', async (e) => {
     return;
   }
   if (d.guideSetting || d.guidePosition) {
+    const deferRender = !!drag?.behavior && drag.capture === el;
     if (d.guideSetting)
-      editGuides('set-guide-setting', {
-        key: d.guideSetting,
-        value: ['gridSize', 'gridAngle'].includes(d.guideSetting)
-          ? el.value.trim()
-            ? Number(el.value)
-            : NaN
-          : d.guideSetting === 'gridAnchor'
-            ? el.value
-            : el.checked,
-      });
+      editGuides(
+        'set-guide-setting',
+        {
+          key: d.guideSetting,
+          value: ['gridSize', 'gridAngle'].includes(d.guideSetting)
+            ? el.value.trim()
+              ? Number(el.value)
+              : NaN
+            : d.guideSetting === 'gridAnchor'
+              ? el.value
+              : el.checked,
+        },
+        deferRender,
+      );
     else
-      editGuides('set-guide', {
-        guideId: d.guidePosition,
-        key: 'position',
-        value: el.value.trim() ? Number(el.value) : NaN,
-      });
+      editGuides(
+        'set-guide',
+        {
+          guideId: d.guidePosition,
+          key: 'position',
+          value: el.value.trim() ? Number(el.value) : NaN,
+        },
+        deferRender,
+      );
     return;
   }
   if (el.id === 'add-node') {
@@ -10555,8 +10695,10 @@ app.addEventListener('change', async (e) => {
         );
       } else if (d.layerName !== undefined)
         commandChange('rename', { name: el.value }, undefined, true);
-      else if (d.dimension)
-        commandChange(
+      else if (d.dimension) {
+        // An untouched formatted display is not a new canonical dimension edit.
+        if (el.value === el.defaultValue) return;
+        const result = commandChange(
           'set-document-settings',
           {
             key: d.dimension,
@@ -10565,7 +10707,8 @@ app.addEventListener('change', async (e) => {
           undefined,
           true,
         );
-      else {
+        settleNumericControl(el, result);
+      } else {
         const nodeId =
             d.vectorPositionHandle ||
             d.strokeCap ||
@@ -11449,6 +11592,10 @@ window.addEventListener('blur', () => {
 app.addEventListener('lostpointercapture', (e) => {
   if (drag?.pointerId === e.pointerId || wiring?.pointerId === e.pointerId) cancelInteraction();
 });
+app.addEventListener('dragstart', (event) => {
+  // A claimed numeric gesture must not turn selected digits into a native text drop.
+  if (drag?.behavior && event.target.closest?.('input') === drag.capture) event.preventDefault();
+});
 
 app.addEventListener('pointerdown', (e) => {
   if (drag) return;
@@ -11541,6 +11688,7 @@ app.addEventListener('pointerdown', (e) => {
   if (numeric && e.button === 0 && !numeric.disabled && !numeric.readOnly) {
     const binding = numericBehaviorBinding(numeric),
       hitRect = numeric.getBoundingClientRect();
+    if (binding && !binding.valid()) return;
     if (binding?.valid() && (!hitRect.width || e.clientX < hitRect.right - 18)) {
       drag = {
         type: 'numeric',
