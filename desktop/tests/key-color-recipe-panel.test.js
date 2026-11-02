@@ -83,6 +83,42 @@ function setup(t, kind = 'document', doc = retainedRecipeFixture()) {
 }
 
 for (const kind of ['document', 'project']) {
+  test(`${kind}: saturated dark HEX supports H/L edits after opening and direct HEX input`, (t) => {
+    for (const source of ['retained', 'direct']) {
+      const doc = retainedRecipeFixture(),
+        saved = doc.keyColorRecipe.committedSnapshot;
+      if (source === 'retained')
+        doc.keyColorRecipe.committedSnapshot = editKeyColorRecipe(saved, {
+          type: 'key-color',
+          expectedRevision: saved.revision,
+          value: { hex: '#000011', alpha: 0 },
+        });
+      const s = setup(t, kind, doc),
+        before = s.captured();
+      for (const [channel, value, hex] of [
+        ['h', 120, '#001100'],
+        ['l', 50, '#0000ff'],
+      ]) {
+        s.open();
+        if (source === 'direct') s.input('hex', '#000011');
+        assert.equal(s.query('[data-key-color-input="hex"]').value, '#000011');
+        assert.equal(s.query('[data-key-color-input="hsl-s"]').value, '100');
+        s.input(`hsl-${channel}`, value);
+        assert.equal(s.query('[data-key-color-input="hex"]').value, hex, `${source} ${channel}`);
+        s.click('[data-key-color-preview]');
+        assert.equal(
+          s.query('[data-key-color-compare="key"] [data-key-color-after] code').textContent,
+          hex,
+        );
+        assert.equal(s.query('[data-key-color-input="alpha"]').value, '0');
+        assert.deepEqual(s.captured(), before);
+        s.click('[data-key-color-cancel]');
+        assert.deepEqual(s.captured(), before);
+      }
+      assert.deepEqual(s.calls, []);
+    }
+  });
+
   test(`${kind}: HSL edits stay in the C1 draft until one atomic Apply`, (t) => {
     const s = setup(t, kind),
       before = s.captured();

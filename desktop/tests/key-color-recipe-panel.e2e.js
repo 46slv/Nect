@@ -324,6 +324,44 @@ try {
     'nonopaque active derived retained sample is displayed read-only and rejected, never normalized',
   );
 
+  const dark = retainedRecipeFixture(),
+    darkSaved = dark.keyColorRecipe.committedSnapshot;
+  dark.keyColorRecipe.committedSnapshot = editKeyColorRecipe(darkSaved, {
+    type: 'key-color',
+    expectedRevision: darkSaved.revision,
+    value: { hex: '#000011', alpha: 0 },
+  });
+  await load(dark);
+  const darkBefore = await snapshot(),
+    darkState = await command();
+  for (const [channel, value, hex] of [
+    ['h', '120', '#001100'],
+    ['l', '50', '#0000ff'],
+  ]) {
+    await open();
+    assert.equal(await field('hex').inputValue(), '#000011');
+    assert.equal(await field('hsl-s').inputValue(), '100');
+    await field(`hsl-${channel}`).fill(value);
+    assert.equal(await field('hex').inputValue(), hex);
+    await preview();
+    assert.equal(
+      await page
+        .locator('[data-key-color-compare="key"] [data-key-color-after] code')
+        .textContent(),
+      hex,
+    );
+    await unchanged(darkBefore, darkState);
+    await field('hex').fill('#000011');
+    await field(`hsl-${channel}`).fill(value);
+    assert.equal(await field('hex').inputValue(), hex);
+    assert.equal(await field('alpha').inputValue(), '0');
+    await cancel();
+    await unchanged(darkBefore, darkState);
+  }
+  results.push(
+    'fully saturated #000011 supports H/L edits from retained and direct HEX without range errors or document mutation',
+  );
+
   const gray = retainedRecipeFixture(),
     graySaved = gray.keyColorRecipe.committedSnapshot;
   gray.keyColorRecipe.committedSnapshot = editKeyColorRecipe(graySaved, {

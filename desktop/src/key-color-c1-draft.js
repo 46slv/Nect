@@ -1,10 +1,17 @@
 import { hexToHsl, hslToHex } from './hsl-color-picker.js';
 
+function hslFromHex(hex) {
+  const next = hexToHsl(hex);
+  // Valid HEX has S in [0, 100], but the ratio can round a few ulps above 100.
+  // Normalize analysis here; user inputs and the shared converter stay strict.
+  return { ...next, s: Math.max(0, Math.min(100, next.s)) };
+}
+
 // Local input only. The recipe panel owns Preview/Apply and the Session envelope.
 export function createKeyColorC1Draft(host, value) {
   const document = host.ownerDocument;
   const field = (kind) => host.querySelector(`[data-key-color-input="${kind}"]`);
-  let hsl = hexToHsl(value.hex),
+  let hsl = hslFromHex(value.hex),
     paintedHue = null,
     pointer = null;
   const composing = new Set();
@@ -64,7 +71,7 @@ export function createKeyColorC1Draft(host, value) {
     if (composing.size) return;
     const kind = input.dataset?.keyColorInput;
     if (kind === 'hex' && /^#[0-9a-f]{6}$/i.test(input.value)) {
-      const next = hexToHsl(input.value);
+      const next = hslFromHex(input.value);
       // HSL hue is display/draft state, not the recipe's OKLCH hueHint.
       hsl = { ...next, h: next.s === 0 ? hsl.h : next.h };
       paint();
