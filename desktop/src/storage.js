@@ -161,7 +161,9 @@ export async function outlineOsText(intent) {
   return invoke('outline_os_text', intent).catch(nativeError);
 }
 export async function listDesktopFontFaces() {
-  return desktop ? invoke('list_desktop_font_faces').catch(nativeError) : [];
+  return desktop
+    ? invoke('list_desktop_font_faces', { includeLocalizedNames: true }).catch(nativeError)
+    : [];
 }
 export async function listDesktopFontAxes(face) {
   return desktop ? invoke('list_desktop_font_axes', { face }).catch(nativeError) : [];

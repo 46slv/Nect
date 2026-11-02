@@ -10,6 +10,15 @@ pub struct DesktopFace {
     pub format: u32,
     pub color: bool,
 }
+// Discovery-only DTO. The strict descriptor used for axes, shaping and documents stays unchanged.
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopCatalogFace {
+    #[serde(flatten)]
+    pub face: DesktopFace,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub localized_names: Option<Vec<String>>,
+}
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DesktopTextRequest {
@@ -175,7 +184,19 @@ mod native {
             data: *mut c_void,
         ) -> i32;
         fn nect_list_desktop_font_faces(
-            callback: extern "C" fn(*const u16, *const u16, i32, i32, i32, i32, i32, *mut c_void),
+            include_localized_names: i32,
+            callback: extern "C" fn(
+                *const u16,
+                *const u16,
+                i32,
+                i32,
+                i32,
+                i32,
+                i32,
+                *const *const u16,
+                u32,
+                *mut c_void,
+            ),
             data: *mut c_void,
         ) -> i32;
         fn nect_shape_desktop_text(
@@ -311,6 +332,49 @@ mod native {
             format: format as u32,
             color: color != 0,
         });
+    }
+    extern "C" fn catalog_face(
+        family: *const u16,
+        name: *const u16,
+        weight: i32,
+        style: i32,
+        stretch: i32,
+        format: i32,
+        color: i32,
+        aliases: *const *const u16,
+        count: u32,
+        data: *mut c_void,
+    ) {
+        let mut parsed: Vec<DesktopFace> = Vec::new();
+        face(
+            family,
+            name,
+            weight,
+            style,
+            stretch,
+            format,
+            color,
+            &mut parsed as *mut _ as *mut c_void,
+        );
+        if let Some(face) = parsed.pop() {
+            let mut names = Vec::new();
+            if !aliases.is_null() && count <= 64 {
+                for pointer in unsafe { std::slice::from_raw_parts(aliases, count as usize) } {
+                    if let Some(value) = unsafe { string(*pointer) } {
+                        if !value.trim().is_empty()
+                            && !value.chars().any(char::is_control)
+                            && !names.contains(&value)
+                        {
+                            names.push(value);
+                        }
+                    }
+                }
+            }
+            unsafe { &mut *(data as *mut Vec<DesktopCatalogFace>) }.push(DesktopCatalogFace {
+                face,
+                localized_names: Some(names),
+            });
+        }
     }
     extern "C" fn private_face(
         face_index: u32,
@@ -540,18 +604,30 @@ mod native {
         result.sort_by(|a: &DesktopAxis, b: &DesktopAxis| a.tag.cmp(&b.tag));
         Ok(result)
     }
-    pub fn list() -> Result<Vec<DesktopFace>, String> {
-        let mut items = Vec::new();
-        let status =
-            unsafe { nect_list_desktop_font_faces(face, &mut items as *mut _ as *mut c_void) };
+    pub fn list(include_localized_names: bool) -> Result<Vec<DesktopCatalogFace>, String> {
+        let mut items: Vec<DesktopCatalogFace> = Vec::new();
+        let status = unsafe {
+            nect_list_desktop_font_faces(
+                include_localized_names as i32,
+                catalog_face,
+                &mut items as *mut _ as *mut c_void,
+            )
+        };
         if status != 0 {
             return Err(format!("Windows font discovery failed ({status})"));
         }
-        items.sort_by(|a: &DesktopFace, b: &DesktopFace| {
+        if !include_localized_names {
+            for item in &mut items {
+                item.localized_names = None;
+            }
+        }
+        items.sort_by(|a, b| {
+            let (a, b) = (&a.face, &b.face);
             (&a.family, &a.name, a.weight, a.style, a.stretch)
                 .cmp(&(&b.family, &b.name, b.weight, b.style, b.stretch))
         });
         items.dedup_by(|a, b| {
+            let (a, b) = (&a.face, &b.face);
             a.family == b.family
                 && a.name == b.name
                 && a.weight == b.weight
@@ -559,6 +635,52 @@ mod native {
                 && a.stretch == b.stretch
         });
         Ok(items)
+    }
+    #[cfg(test)]
+    mod alias_tests {
+        use super::*;
+        #[test]
+        fn malformed_aliases_do_not_remove_a_valid_face() {
+            let family: Vec<u16> = "Family\0".encode_utf16().collect();
+            let name: Vec<u16> = "Regular\0".encode_utf16().collect();
+            let values: Vec<Vec<u16>> = vec![
+                "メイリオ\0".encode_utf16().collect(),
+                "メイリオ\0".encode_utf16().collect(),
+                vec![0xd800, 0],
+                vec![0xdc00, 0],
+                vec![0],
+                " \0".encode_utf16().collect(),
+                "bad\u{7f}\0".encode_utf16().collect(),
+                vec![65; 256],
+                "𠮷\0".encode_utf16().collect(),
+            ];
+            let pointers: Vec<*const u16> = values.iter().map(|v| v.as_ptr()).collect();
+            for count in [pointers.len() as u32, 65] {
+                let mut result: Vec<DesktopCatalogFace> = Vec::new();
+                catalog_face(
+                    family.as_ptr(),
+                    name.as_ptr(),
+                    400,
+                    0,
+                    5,
+                    1,
+                    0,
+                    pointers.as_ptr(),
+                    count,
+                    &mut result as *mut _ as *mut c_void,
+                );
+                assert_eq!(result.len(), 1);
+                assert_eq!(result[0].face.family, "Family");
+                assert_eq!(
+                    result[0].localized_names.as_ref().unwrap(),
+                    &if count == 65 {
+                        vec![]
+                    } else {
+                        vec!["メイリオ".to_string(), "𠮷".to_string()]
+                    }
+                );
+            }
+        }
     }
     pub fn shape(request: DesktopTextRequest) -> Result<DesktopOutline, String> {
         shape_source(request, None)
@@ -838,13 +960,18 @@ pub fn prepare_private(
         Err("Private font shaping requires Windows DirectWrite".into())
     }
 }
+#[cfg(test)]
 pub fn installed() -> Result<Vec<DesktopFace>, String> {
+    Ok(catalog(false)?.into_iter().map(|item| item.face).collect())
+}
+pub fn catalog(include_localized_names: bool) -> Result<Vec<DesktopCatalogFace>, String> {
     #[cfg(windows)]
     {
-        native::list()
+        native::list(include_localized_names)
     }
     #[cfg(not(windows))]
     {
+        let _ = include_localized_names;
         Ok(vec![])
     }
 }
@@ -877,8 +1004,10 @@ pub async fn list_desktop_font_axes(face: DesktopFace) -> Result<Vec<DesktopAxis
         .map_err(|e| e.to_string())?
 }
 #[tauri::command]
-pub async fn list_desktop_font_faces() -> Result<Vec<DesktopFace>, String> {
-    tauri::async_runtime::spawn_blocking(installed)
+pub async fn list_desktop_font_faces(
+    include_localized_names: Option<bool>,
+) -> Result<Vec<DesktopCatalogFace>, String> {
+    tauri::async_runtime::spawn_blocking(move || catalog(include_localized_names.unwrap_or(false)))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -891,6 +1020,54 @@ pub async fn shape_desktop_text(request: DesktopTextRequest) -> Result<DesktopOu
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
+    #[test]
+    fn actual_localized_catalog_preserves_default_descriptor_order_and_routes() {
+        let plain = installed().unwrap();
+        let default = tauri::async_runtime::block_on(list_desktop_font_faces(None)).unwrap();
+        assert_eq!(
+            serde_json::to_value(&plain).unwrap(),
+            serde_json::to_value(&default).unwrap()
+        );
+        let localized = catalog(true).unwrap();
+        assert_eq!(
+            plain,
+            localized
+                .iter()
+                .map(|row| row.face.clone())
+                .collect::<Vec<_>>()
+        );
+        let meiryo = required_meiryo(&plain);
+        let row = localized.iter().find(|row| &row.face == meiryo).unwrap();
+        let names = row.localized_names.as_ref().unwrap();
+        assert!(
+            names.iter().any(|name| name == "メイリオ"),
+            "Meiryo's actual Japanese family alias missing"
+        );
+        for row in &localized {
+            let names = row.localized_names.as_ref().unwrap();
+            assert!(names.len() <= 64);
+            for (i, name) in names.iter().enumerate() {
+                assert!(!name.trim().is_empty() && name.encode_utf16().count() <= 255);
+                assert!(!name.chars().any(char::is_control));
+                assert!(!names[..i].contains(name));
+            }
+        }
+        assert_eq!(
+            serde_json::to_value(axes(meiryo.clone()).unwrap()).unwrap(),
+            serde_json::to_value(axes(row.face.clone()).unwrap()).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(prepare(request(meiryo.clone(), "日本語 ABC")).unwrap()).unwrap(),
+            serde_json::to_value(prepare(request(row.face.clone(), "日本語 ABC")).unwrap())
+                .unwrap()
+        );
+        // Only standard Windows metadata examples, never the user's full catalog or font bytes.
+        println!(
+            "localized_catalog: {} unchanged faces; Meiryo aliases={}",
+            plain.len(),
+            serde_json::to_string(names).unwrap()
+        );
+    }
     fn required_meiryo(faces: &[DesktopFace]) -> &DesktopFace {
         faces
             .iter()

@@ -63,17 +63,39 @@ export function fontPickerCatalogs({
         };
       }),
     ),
-    windows: windows.map((face) => ({
-      id: windowsFontChoiceId(face),
-      label: `${face.family} · ${face.name}`,
-      face,
-      metadata: {
-        family: face.family,
-        subfamily: face.name,
-        weightClass: face.weight,
-        italic: face.style !== 0,
-      },
-    })),
+    windows: windows.map((row) => {
+      const { localizedNames, ...face } = row;
+      // Keep malformed descriptor prototypes visible to the strict face validator.
+      Object.setPrototypeOf(face, Object.getPrototypeOf(row));
+      return {
+        id: windowsFontChoiceId(face),
+        label: `${face.family} · ${face.name}`,
+        face,
+        metadata: {
+          family: face.family,
+          subfamily: face.name,
+          weightClass: face.weight,
+          italic: face.style !== 0,
+          ...(Array.isArray(localizedNames)
+            ? {
+                localizedNames: [
+                  ...new Set(
+                    localizedNames
+                      .slice(0, 64)
+                      .filter(
+                        (name) =>
+                          typeof name === 'string' &&
+                          name.trim() &&
+                          name.length <= 255 &&
+                          !/[\u0000-\u001f\u007f-\u009f]|[\uD800-\uDFFF]/u.test(name),
+                      ),
+                  ),
+                ],
+              }
+            : {}),
+        },
+      };
+    }),
   };
 }
 

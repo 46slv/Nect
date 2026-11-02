@@ -16,6 +16,7 @@ const face = {
   format: 1,
   color: false,
 };
+const catalogFace = { ...face, localizedNames: ['合成ネイティブ', 'ＭＳ 書体'] };
 const fontBytes = await fs.readFile(
   new URL('./fixtures/fonts/NectJPFixture-Regular.otf', import.meta.url),
 );
@@ -62,11 +63,14 @@ export const listDesktopFontFaces = async () => {
   if (window.unifiedCatalogMode === 'failed') throw Error('Synthetic native discovery rejected');
   if (window.unifiedCatalogMode === 'empty') return [];
   if (window.unifiedCatalogMode === 'pending') return new Promise(resolve => {
-    window.unifiedCatalogFinish = () => resolve([${JSON.stringify(face)}]);
+    window.unifiedCatalogFinish = () => resolve([${JSON.stringify(catalogFace)}]);
   });
-  return [${JSON.stringify(face)}];
+  return [${JSON.stringify(catalogFace)}];
 };
-export const listDesktopFontAxes = async () => [];
+export const listDesktopFontAxes = async (face) => {
+  (window.unifiedAxesFaces ||= []).push(structuredClone(face));
+  return [];
+};
 function prepared(request) {
   const modern = request.axes !== undefined || request.writingMode !== undefined;
   return {...request,engine:modern?'directwrite-v2':'directwrite-v1',
@@ -112,8 +116,8 @@ const open = async () => {
   await page.locator('.inspector-body [data-change-font]').click();
   await picker().waitFor();
 };
-const choose = async (label) => {
-  await picker().locator('input[type="search"]').fill(label);
+const choose = async (label, query = label) => {
+  await picker().locator('input[type="search"]').fill(query);
   await picker()
     .getByRole('treeitem', { name: label })
     .and(picker().locator('.picker-option[aria-disabled="false"]'))
@@ -170,6 +174,25 @@ try {
   assert.deepEqual(await state(), before);
   await picker().locator('.picker-cancel').click();
   assert.deepEqual(await state(), before);
+  // Search uses aliases only; identity/route/history still use the canonical descriptor.
+  await open();
+  let aliasId;
+  for (const query of ['合成ネイティブ', 'ms 書体', 'ＭＳ 書体', '書体 合成ネイティブ']) {
+    await picker().locator('input[type="search"]').fill(query);
+    const row = picker().locator('.picker-option');
+    assert.equal(await row.count(), 1);
+    assert.equal(await row.getAttribute('aria-disabled'), 'false');
+    assert.match(await row.innerText(), /^Regular\n/);
+    assert.equal(await family().count(), 1);
+    const id = await row.getAttribute('data-id');
+    if (aliasId) assert.equal(id, aliasId);
+    aliasId = id;
+  }
+  await picker().locator('input[type="search"]').fill('存在しない別名');
+  assert.equal(await picker().locator('.picker-option').count(), 0);
+  assert.equal(await page.evaluate(() => window.unifiedByteReads || 0), 0);
+  assert.deepEqual(await state(), before);
+  await picker().locator('.picker-cancel').click();
   await open();
   await picker().locator('input[type="search"]').fill('合成ディスカバリー');
   const installed = picker().locator('.picker-option');
@@ -259,10 +282,13 @@ try {
   await picker().locator('.picker-cancel').click();
 
   await open();
-  await choose(face.family);
+  await choose(face.family, '合成ネイティブ');
   await apply();
   assert.equal((await live(f.text.id)).type, 'Text');
   assert.deepEqual((await live(f.text.id)).osFont.face, face);
+  assert.deepEqual(await page.evaluate(() => window.unifiedAxesFaces), [face]);
+  assert.deepEqual(await page.evaluate(() => window.unifiedRequests.at(-1).face), face);
+  assert.equal((await state()).document.includes('localizedNames'), false);
   assert.equal((await live(f.text.id)).osFont.outline.ligatures, false);
   const native = await state();
   assert.equal(native.revision, before.revision + 1);
@@ -456,6 +482,13 @@ try {
         verticalJapaneseIntentPreserved: true,
         canceledAndStaleResponsesIgnored: true,
         explicitOpenTypePreserved: true,
+        nativeLocalizedAliases: {
+          japanese: true,
+          nfkc: true,
+          multiword: true,
+          absentAliasMisses: true,
+          detachedFromSavedFace: true,
+        },
         pageErrors: errors,
       },
       null,

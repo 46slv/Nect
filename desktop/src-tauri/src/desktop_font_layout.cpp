@@ -6,6 +6,7 @@
 #include <d2d1.h>
 #include <wrl/client.h>
 #include <vector>
+#include <cwctype>
 #include <string>
 #include <cmath>
 #include <algorithm>
@@ -22,6 +23,29 @@ std::wstring localized(IDWriteLocalizedStrings* names) {
     std::vector<wchar_t> value(length+1);
     if (FAILED(names->GetString(index,value.data(),length+1))) return {};
     return value.data();
+}
+// Discovery metadata only. Keep canonical name selection and face resolution separate.
+void localizedAliases(IDWriteLocalizedStrings* names,std::vector<std::wstring>& result) {
+    if (!names) return;
+    for (UINT32 i=0;i<std::min<UINT32>(names->GetCount(),32) && result.size()<64;++i) {
+        UINT32 length=0;
+        if (FAILED(names->GetStringLength(i,&length)) || !length || length>255) continue;
+        std::vector<wchar_t> buffer(length+1);
+        if (FAILED(names->GetString(i,buffer.data(),length+1))) continue;
+        bool valid=true,nonspace=false;
+        for (UINT32 j=0;j<length;++j) {
+            const auto unit=static_cast<UINT16>(buffer[j]);
+            if (unit<32 || (unit>=127 && unit<=159)) { valid=false; break; }
+            nonspace=nonspace || !std::iswspace(buffer[j]);
+            if (unit>=0xd800 && unit<=0xdbff) {
+                if (j+1>=length || buffer[j+1]<0xdc00 || buffer[j+1]>0xdfff) { valid=false; break; }
+                ++j;
+            } else if (unit>=0xdc00 && unit<=0xdfff) { valid=false; break; }
+        }
+        if (!valid || !nonspace) continue;
+        std::wstring value(buffer.data(),length);
+        if (std::find(result.begin(),result.end(),value)==result.end()) result.push_back(std::move(value));
+    }
 }
 HRESULT system(ComPtr<IDWriteFactory3>& factory,ComPtr<IDWriteFontCollection>& fonts) {
     // Shared factory creation dropped GDI-only families in this process on the
@@ -215,29 +239,39 @@ public:
     HRESULT STDMETHODCALLTYPE DrawInlineObject(void*,FLOAT,FLOAT,DWRITE_GLYPH_ORIENTATION_ANGLE,IDWriteInlineObject*,BOOL,BOOL,IUnknown*)override{return refuse(E_NOTIMPL);}
 };
 }
-using DesktopFaceCallback=void(*)(const wchar_t*,const wchar_t*,int,int,int,int,int,void*);
+using DesktopFaceCallback=void(*)(const wchar_t*,const wchar_t*,int,int,int,int,int,const wchar_t* const*,UINT32,void*);
+static void discoveredFace(DesktopFaceCallback callback,void* data,bool includeLocalizedNames,
+    const std::wstring& family,const std::wstring& name,int weight,int style,int stretch,int format,int color,
+    IDWriteLocalizedStrings* families,IDWriteLocalizedStrings* names) {
+    std::vector<std::wstring> aliases;
+    if(includeLocalizedNames){localizedAliases(families,aliases);localizedAliases(names,aliases);}
+    std::vector<const wchar_t*> pointers;for(const auto& alias:aliases)pointers.push_back(alias.c_str());
+    callback(family.c_str(),name.c_str(),weight,style,stretch,format,color,pointers.data(),static_cast<UINT32>(pointers.size()),data);
+}
 extern "C" int nect_list_desktop_font_axes(const wchar_t* family,const wchar_t* name,int weight,int style,int stretch,DesktopAxisCallback callback,void* data){
     ComPtr<IDWriteFactory3> factory;ComPtr<IDWriteFontCollection> fonts;HRESULT hr=system(factory,fonts);if(FAILED(hr))return hr;
     ComPtr<IDWriteFontFace3> face;hr=resolveFace(factory.Get(),fonts.Get(),family,name,weight,style,stretch,face);if(FAILED(hr))return hr;
     std::vector<AxisInfo> axes;hr=readAxes(face.Get(),axes);if(FAILED(hr))return hr;emitAxes(axes,callback,data);return S_OK;
 }
-extern "C" int nect_list_desktop_font_faces(DesktopFaceCallback callback,void* data){
+extern "C" int nect_list_desktop_font_faces(int includeLocalizedNames,DesktopFaceCallback callback,void* data){
     ComPtr<IDWriteFactory3> factory;ComPtr<IDWriteFontCollection> fonts;HRESULT hr=system(factory,fonts);if(FAILED(hr))return hr;
     UINT32 total=0;std::vector<std::wstring> normalFamilies;
     for(UINT32 i=0;i<fonts->GetFontFamilyCount()&&total<8192;++i){
         ComPtr<IDWriteFontFamily> family;if(FAILED(fonts->GetFontFamily(i,&family)))continue;
-        auto name=familyName(family.Get());if(name.empty())continue;
+        ComPtr<IDWriteLocalizedStrings> families;family->GetFamilyNames(&families);
+        auto name=localized(families.Get());if(name.empty())continue;
         normalFamilies.push_back(name);
         for(UINT32 j=0;j<family->GetFontCount()&&total<8192;++j){
             ComPtr<IDWriteFont> font;ComPtr<IDWriteFontFace> face;ComPtr<IDWriteFontFace2> face2;
             if(FAILED(family->GetFont(j,&font))||font->GetSimulations()!=DWRITE_FONT_SIMULATIONS_NONE||FAILED(font->CreateFontFace(&face)))continue;
-            auto label=faceName(font.Get());if(label.empty())continue;
+            ComPtr<IDWriteLocalizedStrings> names;font->GetFaceNames(&names);
+            auto label=localized(names.Get());if(label.empty())continue;
             bool color=SUCCEEDED(face.As(&face2))&&face2->IsColorFont();
-            callback(name.c_str(),label.c_str(),font->GetWeight(),font->GetStyle(),font->GetStretch(),face->GetType(),color?1:0,data);++total;
+            discoveredFace(callback,data,includeLocalizedNames!=0,name,label,font->GetWeight(),font->GetStyle(),font->GetStretch(),face->GetType(),color?1:0,families.Get(),names.Get());++total;
         }
     }
-    struct ExtraFonts {IDWriteFactory3* factory;const std::vector<std::wstring>& normal;DesktopFaceCallback callback;void* data;UINT32& count;};
-    ExtraFonts extra={factory.Get(),normalFamilies,callback,data,total};
+    struct ExtraFonts {IDWriteFactory3* factory;const std::vector<std::wstring>& normal;DesktopFaceCallback callback;void* data;UINT32& count;bool aliases;};
+    ExtraFonts extra={factory.Get(),normalFamilies,callback,data,total,includeLocalizedNames!=0};
     int gdiStatus=nect_list_os_fonts([](const wchar_t* name,int styles,void* pointer){
         auto& c=*static_cast<ExtraFonts*>(pointer);
         if(std::find(c.normal.begin(),c.normal.end(),name)!=c.normal.end())return;
@@ -249,7 +283,7 @@ extern "C" int nect_list_desktop_font_faces(DesktopFaceCallback callback,void* d
             ComPtr<IDWriteLocalizedStrings> families,names;face->GetFamilyNames(&families);face->GetFaceNames(&names);
             auto family=localized(families.Get()),label=localized(names.Get());
             if(family!=name||label.empty())continue;
-            c.callback(family.c_str(),label.c_str(),face->GetWeight(),face->GetStyle(),face->GetStretch(),face->GetType(),face->IsColorFont()?1:0,c.data);++c.count;
+            discoveredFace(c.callback,c.data,c.aliases,family,label,face->GetWeight(),face->GetStyle(),face->GetStretch(),face->GetType(),face->IsColorFont()?1:0,families.Get(),names.Get());++c.count;
         }
     },&extra);
     if(gdiStatus)return E_FAIL;
