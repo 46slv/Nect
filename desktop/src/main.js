@@ -11220,13 +11220,7 @@ app.addEventListener('lostpointercapture', (e) => {
 app.addEventListener('pointerdown', (e) => {
   if (drag) return;
   const bodyNode = e.target.closest('.node-body')?.closest('.node');
-  if (
-    bodyNode &&
-    e.button === 0 &&
-    !navigationBusy() &&
-    !penDraft &&
-    !nameEdit?.composing
-  ) {
+  if (bodyNode && e.button === 0 && !navigationBusy() && !penDraft && !nameEdit?.composing) {
     artworkTarget = null;
     artworkSelection = new Set();
     selectedGuide = null;

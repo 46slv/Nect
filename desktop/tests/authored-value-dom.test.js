@@ -51,7 +51,8 @@ test('authored base controls edit, scrub, cancel, show effective result and dist
   win.nect.load(JSON.stringify(d));
   await tick();
   const q = () => win.nect.document.layers[0].nodes.find((n) => n.id === b.id).params.value;
-  const field = () => document.querySelector(`.field[data-node="${b.id}"][data-key="value"]`);
+  const field = () =>
+    document.querySelector(`.graph .field[data-node="${b.id}"][data-key="value"]`);
   const base = (axis = 0) => field().querySelector(`[data-base][data-axis="${axis}"]`);
   const result = () => field().querySelector('output').textContent;
   const saved = () => JSON.stringify(win.nect.document);
