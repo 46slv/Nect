@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -101,9 +102,11 @@ test('static family/style picker uses actual faces with atomic whole/range histo
     out = node('Output');
   const boldAsset = makeFontAsset(bold, 'bold.ttf'),
     obliqueAsset = makeFontAsset(oblique, 'oblique.ttf');
-  boldAsset.asset.name = 'Same face name';
-  obliqueAsset.asset.name = 'Same face name';
-  doc.fontAssets = { [boldAsset.id]: boldAsset.asset, [obliqueAsset.id]: obliqueAsset.asset };
+  // Prepared assets are immutable; give the document detached same-name fixtures.
+  doc.fontAssets = {
+    [boldAsset.id]: { ...boldAsset.asset, name: 'Same face name' },
+    [obliqueAsset.id]: { ...obliqueAsset.asset, name: 'Same face name' },
+  };
   t.text = 'ABA';
   t.characterPositions = createCharacterPositions(t.text);
   doc.schemaVersion = 3;
@@ -112,6 +115,7 @@ test('static family/style picker uses actual faces with atomic whole/range histo
   doc.layers[0].nodes = [t, out];
   doc.layers[0].output = out.id;
   win.nect.load(serialize(doc));
+  openDOMPanel(document, 'inspector');
   await until(() => win.nect.evaluate().error === null);
   const get = () => win.nect.document.layers[0].nodes[0],
     saved = () => JSON.stringify(win.nect.document);
@@ -139,6 +143,10 @@ test('static family/style picker uses actual faces with atomic whole/range histo
     [...document.querySelectorAll('.picker-option')].find(
       (entry) => entry.dataset.id === JSON.stringify([source, id]),
     ) || null;
+  const assertFace = (entry, label, weight) => {
+    assert.equal(entry.querySelector('span').textContent, label);
+    assert.equal(entry.querySelector('small').textContent.split(' · ')[0], `weight ${weight}`);
+  };
   const ready = () => until(() => q('.picker-apply') && !q('.picker-apply').disabled);
   const cancel = () => q('.picker-cancel').click();
   const apply = async () => {
@@ -152,11 +160,16 @@ test('static family/style picker uses actual faces with atomic whole/range histo
   assert.equal(calls.length, 0);
   await open();
   assert.equal(calls.length, 0, 'catalog grouping does not read installed bytes');
-  assert.match(row('system-bold', 'installed').textContent, /Bold · weight 700/);
-  assert.match(row('system-oblique', 'installed').textContent, /Oblique · weight 400/);
-  assert.match(row('system-unknown', 'installed').textContent, /Unknown style · weight unknown/);
-  assert.match(row('system-legacy', 'installed').textContent, /Unknown family/);
-  assert.match(row('system-bold', 'installed').textContent, /face system-bold/);
+  assertFace(row('system-bold', 'installed'), 'Bold', 700);
+  assertFace(row('system-oblique', 'installed'), 'Oblique', 400);
+  assertFace(row('system-unknown', 'installed'), 'Bold name is not metadata', 'unknown');
+  assert.equal(
+    row('system-legacy', 'installed').closest('.picker-family').getAttribute('aria-label'),
+    'Legacy face · family unknown',
+  );
+  row('system-bold', 'installed').click();
+  assert.equal(q('.font-technical-details').hidden, false);
+  assert.equal(q('.font-technical-details code').textContent, 'installed · system-bold');
   assert.equal(row('system-disabled', 'installed').getAttribute('aria-disabled'), 'true');
   assert.equal(row('system-bold', 'installed').getAttribute('aria-disabled'), 'false');
   assert.match(row('system-bold', 'installed').textContent, /Included in saved document/);
@@ -196,7 +209,7 @@ test('static family/style picker uses actual faces with atomic whole/range histo
   assert.equal(win.nect.export(), wholeSVG);
   // Embedded faces expose the same parsed family/style metadata in browser mode too.
   await open();
-  assert.match(row(wholeId).textContent, /Bold · weight 700/);
+  assertFace(row(wholeId), 'Bold', 700);
   cancel();
   const textarea = q('.inspector-body [data-text]');
   textarea.setSelectionRange(1, 2);
