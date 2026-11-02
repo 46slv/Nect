@@ -4099,6 +4099,128 @@ function updatePngExportPreview() {
   const button = app.querySelector('[data-action="export-png"]');
   if (button) button.disabled = !preview.size;
 }
+function canvasSelectionHintMarkup(n, l, move) {
+  return `<span>${tool === 'pen' ? 'Pen' : artworkTarget ? `Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)} · ${esc(move.supported ? 'Move artwork' : move.reason)}` : n ? `Node · ${esc(nodeDisplayName(n))}${n.type === 'Transform' ? ' · Selected Transform output' : ''}${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select artwork'}</span>`;
+}
+
+function mountSelectionViewers(doc, l, n, results) {
+  for (const element of app.querySelectorAll('.viewer-tabs, .node-viewers')) element.remove();
+  mountViewers(app, viewerState, {
+    doc,
+    fonts,
+    layer: l,
+    node: n,
+    canAssign: selection.size === 1,
+    busy: !!(penDraft || drag || wiring || composing || canvasTextEdit),
+    evaluations: new Map(results.map(([layer, result]) => [layer.id, result])),
+    onModeChange: () => {
+      workspacePanels.refresh();
+      syncBoundaryViewerMode(app);
+    },
+  });
+}
+
+function inspectorMarkup(n, l, result, results, move, duplication) {
+  return `${n ? `<h3 class="inspector-node-title">${esc(nodeDisplayName(n))}</h3><p class="inspector-node-type">Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>` : ''}${sourceNavigationPanel()}${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
+    n
+      ? `${bypassControl(n)}${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${polarControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${['Curve', 'Multi Path'].includes(n.type) ? ownedPointFields(n) : ''}${editorParameters(
+          n,
+        )
+          .filter(
+            ([k, q]) =>
+              (isTransform(n) ||
+                Object.hasOwn(n.params, k) ||
+                (n.type === 'Mask' && ['feather', 'luminance'].includes(k)) ||
+                (n.type === 'Boolean' && k === booleanPendingInputKey)) &&
+              !['Path', 'PaintedPath', 'Image'].includes(q.type),
+          )
+          .map(([k, q]) => field(n, k, q, true))
+          .join('')}`
+      : artworkTarget
+        ? `<h3>Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)}</h3><button data-duplicate-artwork="${esc(l.id)}" ${!duplication.supported || deletionBusy() ? 'disabled' : ''} title="${esc(duplication.supported ? 'Create independent copies immediately above each source at the same coordinates (one Undo)' : duplication.reason)}">Duplicate in place</button><p class="artwork-duplicate-status">${esc(duplication.supported ? '' : duplication.reason)}</p>${artworkSelection.size > 1 ? `<p class="artwork-active">Active layer ${esc(l.name)}</p>` : ''}<p class="artwork-move-status">${esc(move.supported ? 'Drag artwork to move' : move.reason)}</p>`
+        : hasEmptyOutput(l)
+          ? '<h3>Empty composition</h3>'
+          : '<p>Select artwork or a graph node.</p>'
+  }<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div>${results
+    .filter(([, r]) => r.error || r.warnings.length)
+    .map(
+      ([x, r]) => `<p class="warning">${esc(x.name)}: ${esc(r.error || r.warnings.join(' '))}</p>`,
+    )
+    .join('')}${penDraft ? '</div>' : ''}`;
+}
+
+function prepareEditingRegion(region) {
+  const notes = [...region.querySelectorAll('.font-note')].filter(
+    (note) => !note.hasAttribute('role') && !note.textContent.startsWith('At a wrap break'),
+  );
+  if (!notes.length) return;
+  const help = document.createElement('details');
+  help.className = 'control-help';
+  const summary = document.createElement('summary');
+  summary.textContent = 'Help';
+  help.append(summary, ...notes);
+  region.append(help);
+}
+
+function prepareFontSearchControls(root) {
+  for (const control of root.querySelectorAll(
+    '#add-node, [data-change-font], [data-font], [data-character-style="font"]',
+  )) {
+    control.setAttribute('aria-haspopup', 'dialog');
+    control.title =
+      control.id === 'add-node' ? 'Search nodes (Ctrl+Space)' : 'Search and preview fonts';
+  }
+}
+
+function refreshNodeControlInspector(afterFocus = false) {
+  const inspector = app.querySelector('.inspector-body'),
+    n = selectedNode();
+  if (!inspector || !n || inspector.dataset.inspectorNode === n.id) return;
+  const active = document.activeElement;
+  if (inspector.contains(active)) {
+    // Let the original control's native blur/change run before replacing its view.
+    if (!afterFocus) {
+      setTimeout(() => refreshNodeControlInspector(true), 0);
+      return;
+    }
+    if (composing) {
+      active.addEventListener(
+        'compositionend',
+        () => setTimeout(() => refreshNodeControlInspector(true), 0),
+        { once: true },
+      );
+      return;
+    }
+    active.blur();
+    if (!inspector.isConnected) return;
+  }
+  const l = current(),
+    results = canvasLayers().map((layer) => [
+      layer,
+      evaluate(layer, fonts, history.doc.imageAssets),
+    ]),
+    result = results.find(([layer]) => layer.id === l.id)[1];
+  if (
+    characterEdit &&
+    (characterEdit.node !== n.id || characterEdit.layer !== l.id || l.locked || !layerShown(l))
+  )
+    characterEdit = null;
+  inspector.innerHTML = inspectorMarkup(n, l, result, results, null, null);
+  inspector.dataset.inspectorNode = n.id;
+  mountSelectionViewers(history.doc, l, n, results);
+  const hint = app.querySelector('.hint > span:last-child');
+  if (hint) hint.outerHTML = canvasSelectionHintMarkup(n, l, null);
+  updateCanvas();
+  retainTextFontDisclosures(inspector);
+  prepareNumericInputs(inspector);
+  prepareEditingRegion(inspector);
+  prepareFontSearchControls(inspector);
+  compactTextInspector();
+  for (const dial of inspector.querySelectorAll('[data-repeater-angle]'))
+    repeaterAngleScopes.set(dial, { owner: session, envelope: session.state, layerId: l.id });
+  workspacePanels.refresh();
+}
+
 function render(resetView = false, artworkResolution = null, graphScrollOverride = null) {
   keyColorRecipePanel.reconcile();
   keyerInputPicker?.validate();
@@ -4236,7 +4358,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     .map(([x, r]) => layerShape(x, r.path))
     .join(
       '',
-    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint"><span id="canvas-navigation-hint" class="visually-hidden">Space drag: pan · Ctrl/Cmd wheel: zoom</span><span>${tool === 'pen' ? 'Pen' : artworkTarget ? `Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)} · ${esc(move.supported ? 'Move artwork' : move.reason)}` : n ? `Node · ${esc(nodeDisplayName(n))}${n.type === 'Transform' ? ' · Selected Transform output' : ''}${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select artwork'}</span></div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head graph-toolbar" role="toolbar" aria-label="Node graph view"><strong>Node graph</strong><span class="muted graph-layer-name" title="${esc(l.name)}">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node" ${penDraft ? 'disabled' : ''}><option value="">+ Add node</option>${Object.keys(
+    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint"><span id="canvas-navigation-hint" class="visually-hidden">Space drag: pan · Ctrl/Cmd wheel: zoom</span>${canvasSelectionHintMarkup(n, l, move)}</div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head graph-toolbar" role="toolbar" aria-label="Node graph view"><strong>Node graph</strong><span class="muted graph-layer-name" title="${esc(l.name)}">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node" ${penDraft ? 'disabled' : ''}><option value="">+ Add node</option>${Object.keys(
     definitions,
   )
     .filter((x) => !['Output', 'Image Output', 'Image'].includes(x))
@@ -4253,52 +4375,13 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     )
     .join(
       '',
-    )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}<section class="artboard-settings" aria-label="Composition artboard settings"><h3>Artboard</h3><p>Target · ${esc(session.projectSnapshot().compositions.find((composition) => composition.id === session.activeCompositionId)?.name || 'Active composition')}</p><div class="field"><label for="artboard-unit">Artboard units</label><select id="artboard-unit" data-artboard-unit aria-label="Artboard units">${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === artboardUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select></div><div class="field"><label>Artboard W (${artboardUnit})</label><input type="number" step="any" data-dimension="width" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.width, artboardUnit)}" aria-label="Artboard width (${artboardUnit})"></div><div class="field"><label>Artboard H (${artboardUnit})</label><input type="number" step="any" data-dimension="height" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.height, artboardUnit)}" aria-label="Artboard height (${artboardUnit})"></div></section></section>${alignmentPanel(move)}${sharedColors.html()}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${n ? `<h3 class="inspector-node-title">${esc(nodeDisplayName(n))}</h3><p class="inspector-node-type">Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>` : ''}${sourceNavigationPanel()}${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
-    n
-      ? `${bypassControl(n)}${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${polarControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${['Curve', 'Multi Path'].includes(n.type) ? ownedPointFields(n) : ''}${editorParameters(
-          n,
-        )
-          .filter(
-            ([k, q]) =>
-              (isTransform(n) ||
-                Object.hasOwn(n.params, k) ||
-                (n.type === 'Mask' && ['feather', 'luminance'].includes(k)) ||
-                (n.type === 'Boolean' && k === booleanPendingInputKey)) &&
-              !['Path', 'PaintedPath', 'Image'].includes(q.type),
-          )
-          .map(([k, q]) => field(n, k, q, true))
-          .join('')}`
-      : artworkTarget
-        ? `<h3>Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)}</h3><button data-duplicate-artwork="${esc(l.id)}" ${!duplication.supported || deletionBusy() ? 'disabled' : ''} title="${esc(duplication.supported ? 'Create independent copies immediately above each source at the same coordinates (one Undo)' : duplication.reason)}">Duplicate in place</button><p class="artwork-duplicate-status">${esc(duplication.supported ? '' : duplication.reason)}</p>${artworkSelection.size > 1 ? `<p class="artwork-active">Active layer ${esc(l.name)}</p>` : ''}<p class="artwork-move-status">${esc(move.supported ? 'Drag artwork to move' : move.reason)}</p>`
-        : hasEmptyOutput(l)
-          ? '<h3>Empty composition</h3>'
-          : '<p>Select artwork or a graph node.</p>'
-  }<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div>${results
-    .filter(([, r]) => r.error || r.warnings.length)
-    .map(
-      ([x, r]) => `<p class="warning">${esc(x.name)}: ${esc(r.error || r.warnings.join(' '))}</p>`,
-    )
-    .join(
-      '',
-    )}${penDraft ? '</div>' : ''}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden><input id="svg-part-file" type="file" accept=".svg,image/svg+xml" hidden>`;
+    )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}<section class="artboard-settings" aria-label="Composition artboard settings"><h3>Artboard</h3><p>Target · ${esc(session.projectSnapshot().compositions.find((composition) => composition.id === session.activeCompositionId)?.name || 'Active composition')}</p><div class="field"><label for="artboard-unit">Artboard units</label><select id="artboard-unit" data-artboard-unit aria-label="Artboard units">${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === artboardUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select></div><div class="field"><label>Artboard W (${artboardUnit})</label><input type="number" step="any" data-dimension="width" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.width, artboardUnit)}" aria-label="Artboard width (${artboardUnit})"></div><div class="field"><label>Artboard H (${artboardUnit})</label><input type="number" step="any" data-dimension="height" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.height, artboardUnit)}" aria-label="Artboard height (${artboardUnit})"></div></section></section>${alignmentPanel(move)}${sharedColors.html()}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body" data-inspector-node="${esc(n?.id || '')}">${inspectorMarkup(n, l, result, results, move, duplication)}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden><input id="svg-part-file" type="file" accept=".svg,image/svg+xml" hidden>`;
   retainTextFontDisclosures(app);
   renderCompositionTablist();
   // A deferred view/font refresh must not detach an active browser chooser.
   // Document replacement clears svgPartPick and retains its existing stale guard.
   if (svgPartInput) app.querySelector('#svg-part-file')?.replaceWith(svgPartInput);
-  mountViewers(app, viewerState, {
-    doc,
-    fonts,
-    layer: l,
-    node: n,
-    canAssign: selection.size === 1,
-    busy: !!(penDraft || drag || wiring || composing || canvasTextEdit),
-    evaluations: new Map(results.map(([layer, result]) => [layer.id, result])),
-    onModeChange: () => {
-      workspacePanels.refresh();
-      syncBoundaryViewerMode(app);
-    },
-  });
+  mountSelectionViewers(doc, l, n, results);
   const pngExportButton = app.querySelector('[data-action="export-png"]');
   if (pngExportButton) {
     pngExportButton.insertAdjacentHTML('afterend', exportPresetPanelMarkup());
@@ -4314,25 +4397,9 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   for (const row of app.querySelectorAll('.layer[data-layer]')) row.tabIndex = 0;
   // Keep controls and actionable states visible; put reference prose in
   // one optional help disclosure per editing region.
-  for (const region of app.querySelectorAll('.node-body, .inspector-body')) {
-    const notes = [...region.querySelectorAll('.font-note')].filter(
-      (note) => !note.hasAttribute('role') && !note.textContent.startsWith('At a wrap break'),
-    );
-    if (!notes.length) continue;
-    const help = document.createElement('details');
-    help.className = 'control-help';
-    const summary = document.createElement('summary');
-    summary.textContent = 'Help';
-    help.append(summary, ...notes);
-    region.append(help);
-  }
-  for (const control of app.querySelectorAll(
-    '#add-node, [data-change-font], [data-font], [data-character-style="font"]',
-  )) {
-    control.setAttribute('aria-haspopup', 'dialog');
-    control.title =
-      control.id === 'add-node' ? 'Search nodes (Ctrl+Space)' : 'Search and preview fonts';
-  }
+  for (const region of app.querySelectorAll('.node-body, .inspector-body'))
+    prepareEditingRegion(region);
+  prepareFontSearchControls(app);
   const duplicateButton = document.querySelector('[data-duplicate-artwork]');
   if (duplicateButton) {
     duplicateButton.dataset.duplicateSelection = JSON.stringify([...artworkSelection]);
@@ -11219,6 +11286,47 @@ app.addEventListener('lostpointercapture', (e) => {
 
 app.addEventListener('pointerdown', (e) => {
   if (drag) return;
+  const viewport = e.target.closest('.graph-scroll'),
+    control = editingControl(e.target),
+    graphPan =
+      viewport &&
+      !control &&
+      !navigationBusy() &&
+      (e.button === 1 || (e.button === 0 && (space || (e.shiftKey && (e.ctrlKey || e.metaKey)))));
+  const bodyNode = e.target.closest('.node-body')?.closest('.node');
+  if (
+    bodyNode &&
+    e.button === 0 &&
+    !graphPan &&
+    !navigationBusy() &&
+    !penDraft &&
+    !nameEdit?.composing
+  ) {
+    artworkTarget = null;
+    artworkSelection = new Set();
+    selectedGuide = null;
+    const id = bodyNode.dataset.id,
+      nodeControl = e.target.closest(
+        'button,input,textarea,select,label,summary,a,[contenteditable]:not([contenteditable="false"])',
+      );
+    if (e.shiftKey && !nodeControl) {
+      if (selection.has(id)) selection.delete(id);
+      else selection.add(id);
+      selected = selection.has(id) ? id : [...selection][0] || null;
+    } else {
+      if (!selection.has(id)) selection = new Set([id]);
+      selected = id;
+    }
+    document
+      .querySelectorAll('.node')
+      .forEach((node) => node.classList.toggle('selected', selection.has(node.dataset.id)));
+    if (!nodeControl) {
+      render();
+      e.preventDefault();
+      return;
+    }
+    refreshNodeControlInspector();
+  }
   const angleDial = e.target.closest('[data-repeater-angle]');
   if (angleDial) {
     e.preventDefault();
@@ -11262,8 +11370,6 @@ app.addEventListener('pointerdown', (e) => {
     return;
   }
   if (penDraft && e.target.closest('[inert]')) return;
-  const viewport = e.target.closest('.graph-scroll');
-  const control = editingControl(e.target);
   if (control && e.target.closest('.canvas-text-editor')) return;
   const numeric = e.target.closest('input[type="number"][data-scrub-step]');
   if (numeric && e.button === 0 && !numeric.disabled && !numeric.readOnly) {
@@ -11302,12 +11408,7 @@ app.addEventListener('pointerdown', (e) => {
     }
   }
 
-  if (
-    viewport &&
-    !control &&
-    !navigationBusy() &&
-    (e.button === 1 || (e.button === 0 && (space || (e.shiftKey && (e.ctrlKey || e.metaKey)))))
-  ) {
+  if (graphPan) {
     drag = {
       type: 'graph-pan',
       start: [e.clientX, e.clientY],
