@@ -1,5 +1,39 @@
 # Character and typography numeric dragging
 
+## REQ-42 P1 common behavior
+
+The first consolidation slice connects the ordinary Circle **Radius** scalar and
+owned-point **ΔX / ΔY** to `numeric-control-behavior.js`. The behavior handles the
+4px activation threshold, the existing `scrubNumericValues` calculation,
+target/revision revalidation, cancellation and no-op completion. It owns no model
+or history. Other numeric surfaces retain their existing implementations pending
+their own migration.
+
+- Radius keeps the existing Session parameter gesture. Its preview is detached;
+  a changed gesture commits one Undo. Pending typed input remains a separate edit.
+- Point Δ edits its existing draft and peer controls only. Pointer release does
+  not Apply. The existing Move points button or Enter applies both axes in one
+  Session command and one Undo. Enter during an active scrub cannot Apply early.
+- Click and native typing/arrow keys remain available. Escape during a scrub,
+  pointer cancellation, capture loss and window blur restore the exact prior
+  staged strings. No-op and return-to-origin preserve Redo and authored state.
+- Selection, source epoch, Composition, layer, Session revision, lock, connection,
+  expression, disabled/read-only state and connected control identity are checked
+  before preview and completion. A stale edit cannot retarget current selection.
+
+| P1 binding          | Existing authority                                                                            | Operation metadata retained                                                                                         |
+| ------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Circle Radius       | Existing Scalar parameter and Session validation; `numericLimits` remains the UI bounds owner | Existing 1 displayed unit per screen pixel, finite sentinel bounds, native number keyboard behavior; no new min/max |
+| Owned-point ΔX / ΔY | Existing `pointDeltaDraft`, selected-point guards and `translate-points` validation           | 1 document unit per screen pixel, finite delta, no new geometric bounds; Apply retains the captured revision        |
+
+Display strings are not committed merely to normalize formatting. No UI metadata
+is added to `definitions`, Parameters or serialized documents. P2 Document/Guide
+unit conversion and Text mixed selection, and P3 remaining/async surfaces are not
+part of this slice. Chrome acceptance and Windows WebView2/physical IME acceptance
+remain separate evidence.
+
+## Existing character and typography coverage
+
 The floating character palette's **ΔX**, **ΔY**, **Rotate °** and **Scale ×** inputs now use the same gesture lifecycle as graph/Inspector numeric inputs. Their Inspector copies are supported too. The original defect had two parts: the character inputs lacked the scrub opt-in, and the generic pointer handler assumed every opted-in input was a graph parameter inside a `.field[data-node]` wrapper. The floating palette has no such wrapper. Explicit Text/character target resolution now connects the real number inputs to model previews and the existing document transaction.
 
 ## Interaction contract
@@ -35,4 +69,4 @@ The input must remain connected to the DOM, editable and enabled, and the same d
 - `tests/character-numeric-scrub.e2e.js`: actual Chrome mouse hits on the input elements, both palettes, mixed typography, click/type/native arrows, interrupted gestures, pinned palette, zoom/modifiers and JSON/SVG persistence. Included in `npm run test:e2e`, with `test-results/workflow-character-numeric-scrub.png` as browser evidence when executed.
 - Existing numeric-scrub, character-transform, rich-text, text-wrap and Shift-axis suites guard previous semantics.
 
-Synthetic DOM results do not prove browser rendering. The known local Chrome sandbox restriction remains; actual Chrome evidence must come from the exact-commit Windows CI run. Native WebView2 acceptance remains separate.
+Synthetic DOM results do not prove browser rendering. Record actual Chrome evidence for the exact candidate and distinguish local/CI execution and any route restrictions. Native WebView2 acceptance remains separate.

@@ -73,6 +73,7 @@ import { textToolGroup } from './text-tool.js';
 import { handlePolar, commitHandlePolar } from './handle-polar.js';
 import { selectedPointBounds, selectedPointArtboardBounds } from './selected-point-bounds.js';
 import './style.css';
+import { createNumericControlBehavior } from './numeric-control-behavior.js';
 import { artworkMarqueeIds } from './canvas-artwork-marquee.js';
 import { anchorMarqueeIds } from './direct-anchor-marquee.js';
 import { anchorAlignments, pointAlignmentContext } from './point-alignment.js';
@@ -1933,7 +1934,8 @@ function resetTransient() {
   svgPartRequest++;
   layoutDraft = null;
   layoutPreview = false;
-  if (drag?.gesture)
+  if (drag?.behavior) drag.behavior.cancel();
+  else if (drag?.gesture)
     session.dispatch({
       ...session.state,
       type: 'cancel-gesture',
@@ -2282,6 +2284,166 @@ function numericControlTarget(input) {
   return command
     ? { commandTarget: { kind: 'numeric-command', command, payload, initial: Number(input.value) } }
     : null;
+}
+// P1 adapters: one ordinary scalar surface and the existing staged Point Δ owner.
+// Other numeric surfaces retain their existing route until their own migration.
+function numericBehaviorBinding(input) {
+  const field = input.closest('.field[data-node]'),
+    pointDelta = input.dataset.pointDeltaAxis !== undefined,
+    nodeId = pointDelta ? input.dataset.node : field?.dataset.node,
+    n = current().nodes.find((node) => node.id === nodeId),
+    axis = Number(input.dataset.pointDeltaAxis),
+    key = field?.dataset.key;
+  if (
+    pointDelta
+      ? !['Curve', 'Multi Path'].includes(n?.type) || ![0, 1].includes(axis)
+      : n?.type !== 'Circle' || key !== 'radius' || !input.matches('[data-value]')
+  )
+    return null;
+  const owner = session,
+    compositionId = session.activeCompositionId,
+    layerId = current().id,
+    epoch = sourceEpoch,
+    selectedIds = [...selection],
+    pointIds = pointDelta ? selectedPointIds(n) : null;
+  if (pointDelta && !pointIds.length) return null;
+  let envelope = null,
+    gesture = null,
+    originalInput,
+    priorDraft,
+    priorValues,
+    stagedRecord;
+  const sameTarget = () => {
+    const live = current().nodes.find((node) => node.id === nodeId);
+    if (
+      owner !== session ||
+      compositionId !== session.activeCompositionId ||
+      layerId !== current().id ||
+      epoch !== sourceEpoch ||
+      selected !== nodeId ||
+      composing ||
+      penDraft ||
+      nameEdit ||
+      document.querySelector('dialog[open]') ||
+      variableAction ||
+      owner.hasTextComposition ||
+      (owner.hasGesture && !gesture) ||
+      selectedIds.length !== selection.size ||
+      !selectedIds.every((id) => selection.has(id)) ||
+      !selection.has(nodeId) ||
+      !input.isConnected ||
+      !input.matches('input[type="number"]') ||
+      input.disabled ||
+      input.readOnly ||
+      current().locked ||
+      !live ||
+      live.locked ||
+      live.bypassed
+    )
+      return false;
+    if (pointDelta) {
+      const ids = selectedPointIds(live),
+        points = new Map(live.points.map((p) => [p.id, p]));
+      return (
+        ids.length === pointIds.length &&
+        ids.every((id) => pointIds.includes(id)) &&
+        ids.every((id) => {
+          const q = points.get(id)?.position;
+          return q && !q.locked && !q.source && !q.expression;
+        })
+      );
+    }
+    const q = live.params[key];
+    return q?.type === 'Scalar' && !q.locked && !q.source && !q.expression;
+  };
+  const sameRevision = (state = envelope) =>
+    !state ||
+    (state.sessionId === owner.state.sessionId &&
+      state.expectedRevision === owner.state.expectedRevision);
+  return {
+    mode: pointDelta ? 'staged' : 'live',
+    valid: () =>
+      sameTarget() &&
+      sameRevision() &&
+      (!pointDelta ||
+        !pointDeltaDraft ||
+        (pointDeltaMatches(nodeId, pointIds) && sameRevision(pointDeltaDraft.envelope))),
+    read() {
+      originalInput = input.value;
+      if (!input.value.trim() || !Number.isFinite(Number(input.value)))
+        throw Error('Expected a finite number');
+      if (!pointDelta && input.value !== input.defaultValue) {
+        const expected = Number(input.value);
+        input.dispatchEvent(new window.Event('change', { bubbles: true }));
+        if (current().nodes.find((node) => node.id === nodeId)?.params[key].value !== expected)
+          throw Error('Number change cancelled');
+      }
+      envelope = owner.state;
+      if (pointDelta) {
+        priorDraft = pointDeltaDraft ? structuredClone(pointDeltaDraft) : null;
+        priorValues = priorDraft ? [...priorDraft.values] : ['0', '0'];
+        priorValues[axis] = originalInput;
+        stagedRecord = pointDeltaDraft;
+        return [Number(input.value)];
+      }
+      return [current().nodes.find((node) => node.id === nodeId).params[key].value];
+    },
+    step: () => Number(input.dataset.scrubStep),
+    bounds: () =>
+      pointDelta
+        ? [-Number.MAX_VALUE, Number.MAX_VALUE]
+        : numericLimits(
+            current().nodes.find((node) => node.id === nodeId),
+            key,
+          ),
+    begin() {
+      if (!pointDelta) {
+        gesture = owner.dispatch({
+          ...owner.state,
+          type: 'begin-gesture',
+          payload: { target: { kind: 'parameter', layerId, nodeId, key } },
+        });
+      }
+    },
+    preview([value]) {
+      if (pointDelta) {
+        input.value = String(value);
+        stagePointDelta(input);
+        stagedRecord = pointDeltaDraft;
+      } else {
+        gesture = owner.dispatch({
+          ...owner.state,
+          type: 'update-gesture',
+          payload: { ...gesture, update: { value } },
+        });
+        drag.preview = owner.previewSnapshot(gesture.gestureId).document;
+        input.value = String(value);
+        updateCanvas();
+      }
+    },
+    commit() {
+      if (!pointDelta) owner.dispatch({ ...owner.state, type: 'commit-gesture', payload: gesture });
+    },
+    cancel() {
+      if (pointDelta) {
+        if (pointDeltaDraft !== stagedRecord) return;
+        if (sameTarget() && sameRevision()) {
+          pointDeltaDraft = priorDraft;
+          for (const peer of document.querySelectorAll('[data-point-delta-axis]'))
+            if (peer.dataset.node === nodeId)
+              peer.value = priorValues[Number(peer.dataset.pointDeltaAxis)];
+        } else cancelPointDelta();
+      } else {
+        if (gesture)
+          owner.dispatch({
+            ...owner.state,
+            type: 'cancel-gesture',
+            payload: { gestureId: gesture.gestureId },
+          });
+        if (sameTarget() && sameRevision()) input.value = originalInput;
+      }
+    },
+  };
 }
 function setLocalNumeric(input, value) {
   const d = input.dataset;
@@ -11067,12 +11229,16 @@ function cancelInteraction(renderView = true) {
       type: 'cancel-gesture',
       payload: { gestureId: old.gesture.gestureId },
     });
+  if (old?.behavior) {
+    old.behavior.cancel();
+    old.capture.classList.remove('scrubbing');
+  }
   if (old?.localNumeric && old.started) {
     old.capture.value = old.originalInput;
     setLocalNumeric(old.capture, Number(old.originalInput || 0));
   }
   // Do not let focus restoration retain the cancelled scrub preview as a typed draft.
-  if (old?.type === 'numeric' && old.started)
+  if (old?.type === 'numeric' && old.started && !old.behavior)
     old.capture.value = old.originalInput ?? String(old.original);
   pointerActive = false;
   snapMatches = [];
@@ -11373,6 +11539,20 @@ app.addEventListener('pointerdown', (e) => {
   if (control && e.target.closest('.canvas-text-editor')) return;
   const numeric = e.target.closest('input[type="number"][data-scrub-step]');
   if (numeric && e.button === 0 && !numeric.disabled && !numeric.readOnly) {
+    const binding = numericBehaviorBinding(numeric),
+      hitRect = numeric.getBoundingClientRect();
+    if (binding?.valid() && (!hitRect.width || e.clientX < hitRect.right - 18)) {
+      drag = {
+        type: 'numeric',
+        behavior: createNumericControlBehavior(binding),
+        behaviorMode: binding.mode,
+        capture: numeric,
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        started: false,
+      };
+      return;
+    }
     const field = numeric.closest('.field[data-node]'),
       n = field && current().nodes.find((n) => n.id === field.dataset.node),
       q = n && parameter(n, field.dataset.key),
@@ -12729,6 +12909,25 @@ function movePointer(e) {
   if (drag.type === 'numeric') {
     const d = drag,
       dx = e.clientX - d.startX;
+    if (d.behavior) {
+      try {
+        if (d.behavior.move(dx).cancelled) {
+          cancelInteraction();
+          return;
+        }
+      } catch (error) {
+        notify(error.message, true);
+      }
+      if (d.behavior.active) {
+        e.preventDefault();
+        if (!d.started) {
+          d.started = true;
+          d.capture.setPointerCapture?.(e.pointerId);
+          d.capture.classList.add('scrubbing');
+        }
+      }
+      return;
+    }
     if (!d.started && Math.abs(dx) < 4) return;
     if (
       current().id !== d.layerId ||
@@ -13039,7 +13238,7 @@ document.addEventListener('pointerup', (e) => {
     cancelInteraction();
     return;
   }
-  if (drag?.type === 'numeric' && drag.started) {
+  if (drag?.type === 'numeric' && drag.started && !drag.behavior) {
     const n = current().nodes.find((n) => n.id === drag.nodeId),
       q = !drag.textKind && n && parameter(n, drag.key);
     if (
@@ -13112,6 +13311,16 @@ document.addEventListener('pointerup', (e) => {
     if (graphFrame !== null) window.cancelAnimationFrame(graphFrame);
     graphFrame = null;
     if (d.capture?.hasPointerCapture?.(d.pointerId)) d.capture.releasePointerCapture(d.pointerId);
+    if (d.behavior) {
+      try {
+        d.behavior.finish();
+      } catch (error) {
+        notify(error.message, true);
+      }
+      d.capture.classList.remove('scrubbing');
+      if (d.started && d.behaviorMode === 'live') render();
+      return;
+    }
     if (d.type === 'canvas-marquee') {
       finishCanvasMarquee(d, e);
       return;
@@ -13969,6 +14178,15 @@ for (const type of ['keydown', 'keyup'])
     if (drag.started) moveGraphNodes();
   });
 document.addEventListener('keydown', (e) => {
+  if (drag?.behavior && e.key === 'Escape' && !e.isComposing && e.keyCode !== 229) {
+    e.preventDefault();
+    cancelInteraction();
+    return;
+  }
+  if (drag?.behavior && drag.started) {
+    e.preventDefault();
+    return;
+  }
   if (drag?.type === 'guide' && e.key === 'Escape' && editingControl(e.target)) {
     e.preventDefault();
     cancelInteraction();
