@@ -108,6 +108,22 @@ test('multi-selection user feedback through real DOM handlers', async (t) => {
     clickNode(b.id, true);
     assert.deepEqual(state().selection, [a.id]);
   });
+  await t.test('node parameter body selects its node without using the header', () => {
+    reset();
+    fire(card(fill.id).querySelector('.field[data-key="color"]'), 'pointerdown');
+    assert.deepEqual(state().selection, [fill.id]);
+    assert.equal(card(fill.id).classList.contains('selected'), true);
+  });
+  await t.test('node parameter controls activate their node and keep the control operable', () => {
+    reset();
+    const lock = card(fill.id).querySelector('.field[data-key="color"] [data-lock]');
+    assert.ok(lock);
+    fire(lock, 'pointerdown');
+    assert.deepEqual(state().selection, [fill.id]);
+    const before = nodes().find((n) => n.id === fill.id).params.color.locked;
+    lock.click();
+    assert.equal(nodes().find((n) => n.id === fill.id).params.color.locked, !before);
+  });
   await t.test('existing graph marquee selects intersecting cards', () => {
     reset();
     const viewport = $('.graph-scroll');
