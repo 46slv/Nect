@@ -83,6 +83,80 @@ function setup(t, kind = 'document', doc = retainedRecipeFixture()) {
 }
 
 for (const kind of ['document', 'project']) {
+  test(`${kind}: HSL edits stay in the C1 draft until one atomic Apply`, (t) => {
+    const s = setup(t, kind),
+      before = s.captured();
+    s.open();
+    assert.equal(s.document.activeElement, s.query('[data-key-color-input="hsl-h"]'));
+    assert.equal(s.query('[data-key-color-input="hex"]').value, '#aBcD09');
+    for (const [channel, value] of [
+      ['h', 240],
+      ['s', 100],
+      ['l', 50],
+    ])
+      s.input(`hsl-${channel}`, value);
+    s.fire(s.query('[data-key-color-input="hsl-l"]'), 'change');
+    assert.equal(s.query('[data-key-color-input="hex"]').value, '#0000ff');
+    assert.equal(s.query('[data-key-color-input="alpha"]').value, '0');
+    assert.deepEqual(s.captured(), before);
+    s.click('[data-key-color-preview]');
+    assert.equal(
+      s.query('[data-key-color-compare="key"] [data-key-color-after] code').textContent,
+      '#0000ff',
+    );
+    assert.deepEqual(s.captured(), before);
+    s.click('[data-key-color-apply]');
+    const after = s.captured();
+    assert.deepEqual(after.doc.colorSlots.find((slot) => slot.id === 'key').value, {
+      hex: '#0000ff',
+      alpha: 0,
+    });
+    assert.equal(after.past.length, before.past.length + 1);
+    assert.deepEqual(after.doc.colorDesign, before.doc.colorDesign);
+    assert.deepEqual(after.doc.colorSlots.slice(2), before.doc.colorSlots.slice(2));
+    assert.deepEqual(
+      s.calls.map((call) => call.type),
+      ['apply-key-color-recipe-snapshot'],
+    );
+    s.send('undo');
+    assert.deepEqual(s.snapshot(), before.doc);
+    s.send('redo');
+    assert.deepEqual(s.snapshot(), after.doc);
+  });
+
+  test(`${kind}: gray hue is local, keeps exact C1 case/alpha, and Cancel preserves Redo`, (t) => {
+    const doc = retainedRecipeFixture(),
+      saved = doc.keyColorRecipe.committedSnapshot;
+    doc.keyColorRecipe.committedSnapshot = editKeyColorRecipe(saved, {
+      type: 'key-color',
+      expectedRevision: saved.revision,
+      value: { hex: '#aAaAaA', alpha: 0 },
+    });
+    const s = setup(t, kind, doc);
+    s.send('set-color-slot', { slotId: 'other', value: { hex: '#010203', alpha: 0 } });
+    s.send('undo');
+    const before = s.captured();
+    s.open();
+    assert.equal(s.query('[data-key-color-input="hex"]').value, '#aAaAaA');
+    s.input('hsl-h', 240);
+    assert.equal(s.query('[data-key-color-input="hex"]').value, '#aAaAaA');
+    s.click('[data-key-color-preview]');
+    assert.deepEqual(s.captured(), before);
+    assert.equal(
+      s.query('[data-key-color-compare="key"] [data-key-color-after] code').textContent,
+      '#aAaAaA',
+    );
+    s.input('hsl-s', 100);
+    assert.equal(s.query('[data-key-color-input="hex"]').value, '#5555ff');
+    assert.equal(s.query('[data-key-color-apply]').disabled, true);
+    s.input('hex', '#808080');
+    assert.equal(s.query('[data-key-color-input="hsl-h"]').value, '240');
+    assert.equal(s.query('[data-key-color-input="alpha"]').value, '0');
+    s.click('[data-key-color-cancel]');
+    assert.deepEqual(s.captured(), before);
+    assert.deepEqual(s.calls, []);
+  });
+
   test(`${kind}: equal Apply preserves Session revision, History and pending Redo`, (t) => {
     const doc = retainedRecipeFixture();
     for (const row of doc.keyColorRecipe.committedSnapshot.resolved.filter((row) => row.active))
@@ -207,6 +281,10 @@ test('invalid input anywhere revokes an old preview, and unobserved edits cannot
     ['alpha', ''],
     ['alpha', -0.1],
     ['alpha', 1.1],
+    ['hsl-h', ''],
+    ['hsl-h', 361],
+    ['hsl-s', -1],
+    ['hsl-l', 101],
     ['deltaL', ''],
     ['deltaRatioCmax', 'Infinity'],
     ['deltaRatioCmax', '1e309'],
@@ -229,6 +307,13 @@ test('invalid input anywhere revokes an old preview, and unobserved edits cannot
   assert.deepEqual(s.calls, []);
   assert.equal(s.query('[data-key-color-apply]').disabled, true);
   assert.match(s.query('[data-key-color-status]').textContent, /Preview the current inputs/);
+  s.input('hex', '#aBcD09');
+  s.click('[data-key-color-preview]');
+  s.query('[data-key-color-input="hsl-h"]').value = '120'; // No input event.
+  s.click('[data-key-color-apply]');
+  assert.deepEqual(s.calls, []);
+  assert.deepEqual(s.captured(), before);
+  assert.equal(s.query('[data-key-color-apply]').disabled, true);
 });
 
 test('Cancel, Escape and native dialog cancel preserve authored state and pending Redo', (t) => {
@@ -257,6 +342,8 @@ test('IME blocks Preview/Apply; Escape during composition does not discard the e
   s.open();
   const input = s.query('[data-key-color-input]');
   s.fire(input, 'compositionstart');
+  s.input('hsl-h', 240);
+  assert.equal(s.query('[data-key-color-input="hex"]').value, '#aBcD09');
   s.fire(input, 'keydown', { key: 'Escape', isComposing: true });
   s.fire(s.query('dialog'), 'cancel');
   assert.ok(s.query('dialog'));

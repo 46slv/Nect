@@ -3014,6 +3014,57 @@ input[data-scrub-step].scrubbing {
 .key-color-recipe-dialog input[aria-invalid='true'] {
   outline: 2px solid #b03030;
 }
+.key-color-c1-picker {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+.key-color-c1-plane {
+  position: relative;
+  line-height: 0;
+  touch-action: none;
+}
+.key-color-c1-plane canvas {
+  width: 100%;
+  border: 1px solid var(--line);
+  cursor: crosshair;
+}
+.key-color-c1-plane [data-key-color-marker] {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 2px solid;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.key-color-c1-fields > label {
+  display: flex;
+}
+.key-color-c1-fields [data-key-color-hue] {
+  flex: 1;
+  min-width: 0;
+}
+.key-color-c1-fields input[type='number'] {
+  width: 72px;
+}
+.key-color-c1-literal {
+  margin-top: 8px;
+}
+.key-color-c1-literal .key-color-swatch {
+  width: 24px;
+  height: 24px;
+}
+@media (max-width: 560px) {
+  .key-color-c1-picker {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .key-color-c1-plane {
+    width: 180px;
+  }
+}
 .key-color-recipe-dialog pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

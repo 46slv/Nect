@@ -8,8 +8,13 @@ or convert the legacy wheel. Dark TonePlan coefficients remain unresolved.
 
 ## Edit, Preview, Apply
 
-- C1 uses a **text HEX field**. Its exact six-digit literal spelling/case and
-  alpha (including zero) survive; there is no color-input or HSL round trip.
+- C1 uses a **draft-only HSL picker**: saturation/lightness plane, hue slider and
+  H/S/L fields, with a text HEX field and separate alpha. Opening, displaying HSL
+  or cancelling never regenerates the exact six-digit HEX literal/case or alpha
+  (including zero). Only an HSL edit that changes RGB replaces the draft HEX;
+  valid direct HEX input keeps its spelling. Gray hue changes stay local until
+  saturation/lightness produces another color, and do not set the recipe's
+  separate OKLCH hue hint. Preview/Apply remain the only route to authored state.
 - Each active derived slot exposes finite stored **ΔL** and **Δr** intent. These
   are offsets, not clamped slider positions; the pure model owns effective
   clamps and gamut behavior. Dormant slot intent/results stay read-only and
@@ -84,14 +89,12 @@ native JSON file-input Open, legacy gesture isolation, stale edits, lock/alpha
 refusal and narrow layout. It blocks font requests and uses only its generated
 synthetic fixture, not user documents.
 
-**Local browser acceptance has not run.** Default-sandbox Chromium aborted before
-creating a page (`socket() failed: Operation not permitted`); one formally
-requested escalated run failed before startup with
-`bwrap: Can't create file at /home/agent/.codex/sessions: Read-only file system`.
-No restriction/flag/executor workaround was attempted. The test is registered
-for normal PR CI; DOM success is not visual/browser evidence. Windows Tauri
-dialogs, WebView2/native exit/restart, human comfort, final presets/dark
-coefficients and ColorF32/Field rendering remain separate acceptance limits.
+The C1 HSL addition passed this browser acceptance in Windows Chrome, including
+plane/keyboard/numeric edits, gray hue, cancellation, one-Undo Apply, browser
+save/reopen and narrow layout. The earlier Linux sandbox startup refusal was not
+retested by this change. Windows Tauri dialogs, WebView2/native exit/restart,
+human comfort, final presets/dark coefficients and ColorF32/Field rendering remain
+separate acceptance limits.
 
 See [retention and Apply contract](key-color-recipe-retention.md) and
 [pure model contract](../../docs/key-color-recipe-contract.md).
