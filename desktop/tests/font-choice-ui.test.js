@@ -73,6 +73,13 @@ test('native discovery aliases are detached metadata, preserving strict identity
   assert.throws(() => validateDesktopFace(unknown.face), /Invalid Windows font face/);
   assert.equal(fontPickerItems({ windows: [unknown] }, text())[0].disabled, true);
   assert.throws(() => validateDesktopFace(input), /Invalid Windows font face/);
+  for (const prototype of [null, { native: true }, Array.prototype]) {
+    const malformed = Object.assign(Object.create(prototype), input);
+    const item = fontPickerCatalogs({ windows: [malformed] }).windows[0];
+    assert.equal(Object.getPrototypeOf(item.face), prototype);
+    assert.throws(() => validateDesktopFace(item.face), /Invalid Windows font face/);
+    assert.equal(fontPickerItems({ windows: [item] }, text())[0].disabled, true);
+  }
   assert.equal(
     fontPickerCatalogs({
       windows: [{ ...face, localizedNames: Array.from({ length: 100 }, (_, i) => `Alias ${i}`) }],
