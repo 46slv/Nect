@@ -11219,6 +11219,38 @@ app.addEventListener('lostpointercapture', (e) => {
 
 app.addEventListener('pointerdown', (e) => {
   if (drag) return;
+  const bodyNode = e.target.closest('.node-body')?.closest('.node');
+  if (
+    bodyNode &&
+    e.button === 0 &&
+    !navigationBusy() &&
+    !penDraft &&
+    !nameEdit?.composing
+  ) {
+    artworkTarget = null;
+    artworkSelection = new Set();
+    selectedGuide = null;
+    const id = bodyNode.dataset.id,
+      nodeControl = e.target.closest(
+        'button,input,textarea,select,summary,a,[contenteditable]:not([contenteditable="false"])',
+      );
+    if (e.shiftKey && !nodeControl) {
+      if (selection.has(id)) selection.delete(id);
+      else selection.add(id);
+      selected = selection.has(id) ? id : [...selection][0] || null;
+    } else {
+      if (!selection.has(id)) selection = new Set([id]);
+      selected = id;
+    }
+    document
+      .querySelectorAll('.node')
+      .forEach((node) => node.classList.toggle('selected', selection.has(node.dataset.id)));
+    if (!nodeControl) {
+      render();
+      e.preventDefault();
+      return;
+    }
+  }
   const angleDial = e.target.closest('[data-repeater-angle]');
   if (angleDial) {
     e.preventDefault();
