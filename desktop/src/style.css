@@ -3771,6 +3771,7 @@ input[data-color-scrub-step] {
   background-color: #edf1f4;
   background-image: radial-gradient(#bdcbd5 0.7px, transparent 0.7px);
   background-size: 16px 16px;
+  background-attachment: local;
 }
 .graph {
   background-image: none;
