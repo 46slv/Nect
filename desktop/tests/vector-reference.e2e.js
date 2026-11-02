@@ -84,6 +84,7 @@ try {
   await undo();
   // Deletion retains the missing ID; save/reload cannot substitute an unrelated source or stale cache.
   await page.locator('.graph [data-delete="reference-title"]').click();
+  await select('reference-position');
   assert.match(
     await page.locator('.inspector-body [data-reference-status]').innerText(),
     /missing/,

@@ -49,7 +49,7 @@ test('multi-selection user feedback through real DOM handlers', async (t) => {
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
   source +=
-    '\nwindow.feedbackState = () => ({ past: history.past.length, selection: [...selection] }); window.feedbackZoom = () => { graphZoom = 1; };';
+    '\nwindow.feedbackState = () => ({ past: history.past.length, selection: [...selection], wiring: !!wiring }); window.feedbackZoom = () => { graphZoom = 1; };';
   source +=
     '\nconst deadline = Date.now() + 5000; while (!bundledFont) { if (Date.now() > deadline) throw Error("Font timeout"); await new Promise(r => setTimeout(r, 10)); }';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
@@ -107,6 +107,103 @@ test('multi-selection user feedback through real DOM handlers', async (t) => {
     assert.deepEqual(new Set(state().selection), new Set([a.id, b.id]));
     clickNode(b.id, true);
     assert.deepEqual(state().selection, [a.id]);
+  });
+  await t.test('node parameter body selects its node without using the header', () => {
+    reset();
+    fire(card(fill.id).querySelector('.field[data-key="color"]'), 'pointerdown');
+    assert.deepEqual(state().selection, [fill.id]);
+    assert.equal(card(fill.id).classList.contains('selected'), true);
+  });
+  await t.test('node parameter controls activate their node and keep the control operable', () => {
+    reset();
+    const lock = card(fill.id).querySelector('.field[data-key="color"] [data-lock]');
+    assert.ok(lock);
+    fire(lock, 'pointerdown');
+    assert.deepEqual(state().selection, [fill.id]);
+    assert.equal($('.inspector-body h3').textContent, fill.name);
+    assert.equal(lock.isConnected, true);
+    const before = nodes().find((n) => n.id === fill.id).params.color.locked;
+    lock.click();
+    assert.equal(nodes().find((n) => n.id === fill.id).params.color.locked, !before);
+  });
+  for (const surface of ['.node-body', '.field']) {
+    for (const chord of ['Space', 'Ctrl+Shift', 'Meta+Shift']) {
+      await t.test(`${chord} on ${surface} pans without changing node selection`, () => {
+        reset();
+        clickNode(b.id, true);
+        const before = snapshot(),
+          past = state().past,
+          viewport = $('.graph-scroll');
+        viewport.scrollLeft = viewport.scrollTop = 100;
+        const modifiers = {
+          ctrlKey: chord === 'Ctrl+Shift',
+          metaKey: chord === 'Meta+Shift',
+          shiftKey: chord !== 'Space',
+        };
+        if (chord === 'Space') key(' ', viewport, { code: 'Space' });
+        try {
+          fire(card(b.id).querySelector(surface), 'pointerdown', 300, 200, modifiers);
+          fire(document, 'pointermove', 220, 160, modifiers);
+          fire(document, 'pointerup', 220, 160, modifiers);
+          assert.deepEqual(state().selection, [a.id]);
+          assert.deepEqual([viewport.scrollLeft, viewport.scrollTop], [180, 140]);
+          assert.equal(snapshot(), before);
+          assert.equal(state().past, past);
+        } finally {
+          if (chord === 'Space')
+            $('.graph-scroll').dispatchEvent(
+              new win.KeyboardEvent('keyup', { key: ' ', code: 'Space', bubbles: true }),
+            );
+        }
+      });
+    }
+  }
+  for (const kind of ['label', 'input']) {
+    await t.test(`stationary ${kind} selection synchronizes only the Inspector`, () => {
+      reset();
+      clickNode(b.id, true);
+      const field = card(b.id).querySelector('.field[data-key="size"]'),
+        input = field.querySelector('input[type="number"]'),
+        target = kind === 'label' ? field.querySelector('label') : input,
+        before = snapshot();
+      if (kind === 'input') {
+        input.focus();
+        input.value = '37';
+      }
+      fire(target, 'pointerdown', 100, 20);
+      try {
+        assert.deepEqual(state().selection, [b.id]);
+        assert.equal($('.inspector-body h3').textContent, b.name);
+        assert.equal(
+          card(b.id).querySelector('.field[data-key="size"] input[type="number"]') === input,
+          true,
+        );
+        if (kind === 'input') {
+          assert.equal(document.activeElement === input, true);
+          assert.equal(input.value, '37');
+        }
+      } finally {
+        fire(document, 'pointerup', 100, 20);
+      }
+      assert.equal(snapshot(), before);
+    });
+  }
+  await t.test('input socket selection preserves wire start and Escape cancellation', () => {
+    reset();
+    const before = snapshot(),
+      socket = card(fill.id).querySelector('.field[data-key="path"] .input');
+    assert.ok(socket);
+    fire(socket, 'pointerdown', 100, 20);
+    try {
+      assert.deepEqual(state().selection, [fill.id]);
+      assert.equal($('.inspector-body h3').textContent, fill.name);
+      assert.equal(socket.isConnected, true);
+      assert.equal(state().wiring, true);
+    } finally {
+      key('Escape');
+    }
+    assert.equal(state().wiring, false);
+    assert.equal(snapshot(), before);
   });
   await t.test('existing graph marquee selects intersecting cards', () => {
     reset();

@@ -5,6 +5,16 @@ const esc = (value) =>
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
   );
 
+// All 24-bit HEX inputs: at most 50 ULP at 100. See docs/hsl-derived-output.md.
+const MAX_HEX_DERIVED_S = 100 + 50 * 2 ** -46;
+
+// Internal derived-output boundary, never a validator for user-entered HSL.
+export function canonicalizeHexSaturation(s) {
+  if (!Number.isFinite(s) || s < 0 || s > MAX_HEX_DERIVED_S)
+    throw Error('Internal HEX saturation exceeded its characterized domain');
+  return s > 100 ? 100 : s;
+}
+
 export function hexToHsl(hex) {
   if (typeof hex !== 'string' || !/^#[0-9a-f]{6}$/i.test(hex))
     throw Error('Expected a six-digit sRGB color');
@@ -21,7 +31,7 @@ export function hexToHsl(hex) {
     h = (((h * 60) % 360) + 360) % 360;
   }
   const s = delta === 0 ? 0 : delta / (1 - Math.abs(2 * l - 1));
-  return { h, s: s * 100, l: l * 100 };
+  return { h, s: canonicalizeHexSaturation(s * 100), l: l * 100 };
 }
 
 export function hslToHex(h, s, l) {

@@ -3,6 +3,9 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { chromium } from 'playwright-core';
 import { activateCommand } from './command-menu-actions.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { node, connect, serialize } from '../src/core.js';
+import { retainedRecipeFixture } from './helpers/key-color-recipe-fixture.js';
+import { preloadVariableFontDependency } from './helpers/browser-fixture-setup.js';
 
 // Browser evidence for the actual drawer surfaces and existing Session owner.
 // Physical Windows/WebView2 and OS IME acceptance remain separate.
@@ -15,6 +18,7 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 page.setDefaultTimeout(30000);
 const errors = [];
 page.on('pageerror', (error) => errors.push(error.message));
+await page.route(/\.(?:ttf|otf|ttc|otc|woff2?)(?:\?|$)/i, (route) => route.abort());
 const documentText = () => page.evaluate(() => JSON.stringify(window.nect.document));
 const channel = (name) => page.locator(`.hsl-color-popover [data-hsl-number="${name}"]`);
 const selectColor = async (id) => {
@@ -37,7 +41,9 @@ const canHit = async (locator, name, minWidth = 1) => {
 };
 try {
   await mkdir('test-results', { recursive: true });
-  await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  const baseURL = process.env.BASE_URL || 'http://127.0.0.1:5173';
+  await preloadVariableFontDependency(page, baseURL);
+  await page.goto(baseURL);
   await page.waitForFunction(() => window.nect);
   await page.evaluate(() => document.fonts.ready);
   const id = await page.evaluate(async () => {
@@ -196,6 +202,104 @@ try {
     );
     await page.screenshot({ path: `test-results/workflow-hsl-workspace-${width}.png` });
   }
+  await page.setViewportSize({ width: 1440, height: 960 });
+  const boundaryEvidence = [];
+  const project = () => page.evaluate(() => window.nect.projectSnapshot());
+  const state = () => page.evaluate(() => window.nect.commandState);
+  async function loadBoundary(hex) {
+    const d = retainedRecipeFixture(),
+      layer = d.layers[0],
+      shape = node('Rectangle', 40, 40),
+      fill = node('Fill', 360, 40),
+      out = node('Output', 680, 40);
+    fill.params.color.value = { hex, alpha: 0 };
+    layer.nodes = [shape, fill, out];
+    layer.output = out.id;
+    connect(layer, shape.id, fill.id, 'path');
+    connect(layer, fill.id, out.id, 'path');
+    await page.evaluate((text) => window.nect.load(text), serialize(d));
+    await selectColor(fill.id);
+    const swatch = page.locator(
+      `.inspector-body .field[data-node="${fill.id}"][data-key="color"] [data-hsl-picker-open]`,
+    );
+    return { fillId: fill.id, swatch };
+  }
+  for (const [source, edit, raw, expected, directHex] of [
+    ['#000011', 'h', '120', '#001100', false],
+    ['#000011', 'l', '50', '#0000ff', false],
+    ['#fbfbff', 'h', '120', '#fbfffb', false],
+    ['#fbfbff', 'l', '50', '#0000ff', false],
+    ['#aBcD09', 'h', '120', '#001100', true],
+  ]) {
+    const { fillId, swatch } = await loadBoundary(source);
+    const original = await project(),
+      originalState = await state();
+    await swatch.click();
+    await page.locator('[data-hsl-close]').click();
+    assert.deepEqual(
+      await project(),
+      original,
+      'opening/closing keeps literal spelling and alpha0',
+    );
+    assert.deepEqual(await state(), originalState);
+    await swatch.click();
+    if (directHex) {
+      await page.locator('[data-hsl-hex]').fill('#000011');
+      await channel('h').click();
+    }
+    const before = await project(),
+      beforeState = await state();
+    await channel('s').fill('100.00000000000003');
+    await channel('s').press('Tab');
+    assert.deepEqual(await project(), before, 'user S above 100 stays rejected');
+    assert.deepEqual(await state(), beforeState);
+    await channel(edit).fill(raw);
+    assert.deepEqual(await project(), before, 'popup input remains unauthored before change');
+    await channel(edit).press('Tab');
+    const after = await project(),
+      wanted = structuredClone(before);
+    wanted.compositions[0].layers[0].nodes.find((n) => n.id === fillId).params.color.value.hex =
+      expected;
+    assert.deepEqual(
+      after,
+      wanted,
+      'only the intended literal changes; alpha0, recipe, legacy and references survive',
+    );
+    assert.equal((await state()).expectedRevision, beforeState.expectedRevision + 1);
+    if (boundaryEvidence.length === 0)
+      await page
+        .locator('.hsl-color-popover')
+        .screenshot({ path: 'test-results/workflow-hsl-hex-boundary-popup.png' });
+    await page.locator('[data-hsl-close]').click();
+    await activateCommand(page, 'undo');
+    assert.deepEqual(await project(), before);
+    await activateCommand(page, 'redo');
+    assert.deepEqual(await project(), after);
+    boundaryEvidence.push({ source, edit, raw, expected, directHex, oneUndoRedo: true });
+  }
+  const { fillId: grayId, swatch: graySwatch } = await loadBoundary('#aAaAaA');
+  const gray = await project(),
+    grayState = await state();
+  await graySwatch.click();
+  await channel('h').fill('120');
+  await channel('h').press('Tab');
+  assert.deepEqual(await project(), gray, 'gray hue intent must not rewrite its source literal');
+  assert.deepEqual(await state(), grayState);
+  await channel('s').fill('100');
+  await channel('s').press('Tab');
+  const green = structuredClone(gray);
+  green.compositions[0].layers[0].nodes.find((n) => n.id === grayId).params.color.value.hex =
+    '#55ff55';
+  assert.deepEqual(
+    await project(),
+    green,
+    'adding saturation uses the selected gray hue and preserves alpha0',
+  );
+  await page.locator('[data-hsl-close]').click();
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await project(), gray);
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await project(), green);
   assert.deepEqual(errors, []);
   await writeFile(
     'test-results/workflow-hsl-workspace.json',
@@ -203,6 +307,8 @@ try {
       {
         ok: true,
         viewportWidths: [1600, 900],
+        boundaryEvidence,
+        grayHueIntent: true,
         limits: ['Headless Chrome; physical Windows/WebView2 and OS IME are not tested.'],
       },
       null,

@@ -5,6 +5,8 @@ import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { blankDocument, blankLayer, node, connect, serialize } from '../src/core.js';
 import { activateCommand } from './command-menu-actions.js';
+import { retainedRecipeFixture } from './helpers/key-color-recipe-fixture.js';
+import { preloadVariableFontDependency } from './helpers/browser-fixture-setup.js';
 
 // Shared literals and live saturation edits; native dialogs are not covered.
 const output = resolve('test-results/shared-colors-panel');
@@ -42,6 +44,7 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
 page.setDefaultTimeout(30000);
 const errors = [];
 page.on('pageerror', (error) => errors.push(error.message));
+await page.route(/\.(?:ttf|otf|ttc|otc|woff2?)(?:\?|$)/i, (route) => route.abort());
 const snapshot = () => page.evaluate(() => window.nect.projectSnapshot());
 const saved = async () => JSON.stringify(await snapshot());
 const openAdvanced = async () => {
@@ -160,7 +163,9 @@ const assertAssetRetained = async () => {
   assert.equal(await panel.locator('[data-asset-search]').inputValue(), 'retained-search');
 };
 try {
-  await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  const baseURL = process.env.BASE_URL || 'http://127.0.0.1:5173';
+  await preloadVariableFontDependency(page, baseURL);
+  await page.goto(baseURL);
   await page.waitForFunction(() => window.nect);
   await page.evaluate((text) => window.nect.load(text), fixtureText);
   const initial = await documentSnapshot();
@@ -477,6 +482,78 @@ try {
   await page.locator('[data-chroma-profile]').scrollIntoViewIfNeeded();
   await page.screenshot({ path: resolve(output, 'chroma-restored-settings.png'), fullPage: true });
   await assertAssetRetained();
+  // Real manual HSL input must not feed HEX-analysis rounding outside the range
+  // back to the strict converter. Historical C1/legacy state is not regenerated.
+  const hslBoundary = [];
+  for (const [channel, source, input, expected] of [
+    ['h', '#000011', '120', '#001100'],
+    ['l', '#000011', '50', '#0000ff'],
+    ['s', '#04040d', '100', '#000011'],
+  ]) {
+    const dark = retainedRecipeFixture();
+    dark.colorSlots.find((slot) => slot.id === 'key').value = { hex: source, alpha: 0 };
+    await page.evaluate((text) => window.nect.load(text), serialize(dark));
+    await openAdvanced();
+    const before = await snapshot(),
+      state = await page.evaluate(() => window.nect.commandState);
+    const control = () => row('key').locator(`[data-shared-color-edit="hsl-${channel}"]`);
+    await control().fill(input);
+    await page.waitForFunction(
+      (hex) =>
+        window.nect.colorPreviewSnapshot()?.colorSlots.find((slot) => slot.id === 'key').value
+          .hex === hex,
+      expected,
+    );
+    assert.deepEqual(await snapshot(), before, 'HSL preview is detached');
+    assert.deepEqual(await page.evaluate(() => window.nect.commandState), state);
+    await control().press('Tab');
+    await page.waitForFunction(
+      () => !window.nect.gestureState && !window.nect.colorPreviewSnapshot(),
+    );
+    const after = await snapshot(),
+      wanted = structuredClone(before);
+    wanted.colorSlots.find((slot) => slot.id === 'key').value.hex = expected;
+    assert.deepEqual(
+      after,
+      wanted,
+      'only the edited live literal changes, with alpha0, IDs, C1 receipt, dormant references and legacy state preserved',
+    );
+    assert.equal(
+      (await page.evaluate(() => window.nect.commandState)).expectedRevision,
+      state.expectedRevision + 1,
+    );
+    if (channel === 'h')
+      await row('key').screenshot({ path: resolve(output, 'hsl-hex-boundary.png') });
+    await activateCommand(page, 'undo');
+    assert.deepEqual(await snapshot(), before);
+    const undone = await page.evaluate(() => window.nect.commandState);
+    for (const [badChannel, raw] of [
+      ['s', '100.00000000000003'],
+      ['h', '361'],
+      ['l', '101'],
+      ['s', ''],
+    ]) {
+      await change(row('key').locator(`[data-shared-color-edit="hsl-${badChannel}"]`), raw);
+      assert.deepEqual(
+        await snapshot(),
+        before,
+        'invalid user input must not be clamped or committed',
+      );
+      assert.deepEqual(await page.evaluate(() => window.nect.commandState), undone);
+      assert.match(await page.locator('.status .message').textContent(), /HSL|value/);
+    }
+    await activateCommand(page, 'redo');
+    assert.deepEqual(await snapshot(), after, 'invalid edits preserve the pending Redo');
+    hslBoundary.push({
+      channel,
+      source,
+      input,
+      expected,
+      oneUndoRedo: true,
+      invalidInputPreservesRedo: true,
+      historicalC1: after.keyColorRecipe.committedSnapshot.intent.keyColor.value,
+    });
+  }
   assert.deepEqual(errors, []);
   await writeFile(
     resolve(output, 'result.json'),
@@ -499,6 +576,7 @@ try {
         rendererAlphaOracle: { halfAlphaShare, quarterAlphaShare },
         coverageDoesNotAuthorState: true,
         viewportWidths: [1440, 1000, 900],
+        hslBoundary,
         nativeDialogs: 'NOT_RUN',
         errors,
       },
