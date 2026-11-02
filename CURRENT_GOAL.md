@@ -14,7 +14,44 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-11-01 explicit key-color initialization infrastructure
+## ACTIVE CHECKPOINT — 2026-11-02 REQ-42 numeric behavior P1
+
+Goal: Connect ordinary Circle Radius and owned-point Δ staged inputs to a minimal
+shared input behavior, using the existing numeric-scrub calculation and each
+existing Session/draft owner. Source contract: [REQ-42 implementation packet](https://app.notion.com/p/40cfd279a6f3811e8438c585e952c71d).
+
+Base: main `c5409d04dcc5b570de7a4d6bd9a96dc7e15cf99a`, tree
+`798f21352825af23a427f1646c66333ccf6ecee3`; the only advance from packet base
+`fc6c13b` is accepted PR #161's graph-background CSS line. Sole implementation
+writer uses `codex/req42-p1-numeric-behavior-20261102` in an isolated worktree.
+
+Done for this checkpoint: typing/scrub/keyboard/focus and cancellation are checked
+in real DOM and Chrome; changed live gesture one Undo; staged edit document/history
+neutral until Apply, then one Undo; no-op/cancel/stale target preserve authored
+values and Redo. Focused regressions include PR #162 selection/Inspector/pan.
+Record diff, build/format, tests, exact PR/CI and explicit remaining surfaces.
+
+Local candidate evidence: 79 focused unit/DOM checks PASS, zero failure/skip;
+format/build PASS. Actual Chrome verifies live/staged typing, native arrows,
+connected focus, pending typing as a separate Undo, cancellation/no-op/Redo,
+selection/revision refusal, plus existing numeric and PR #162 graph interaction
+acceptance. Exact baseline-source replay is 2 PASS / 6 FAIL (five targeted
+subtests and their parent), confirming the staged gap and stale live selection.
+Publication/CI receipt is pending; no native WebView2/physical IME claim.
+
+Preserve numeric domain validation, source/expression behavior, definitions and
+saved schema. P2 Document/Guide/Text mixed, P3 full inventory/async, native API
+capability repair, zoom policy and other color work are out of scope. Native
+WebView2/physical IME remains a separate LOCAL_WAIT and is not a Chrome claim.
+
+Authority: Current explicit P1 implementation delegation and user's Nect
+development permission cover edit/test/commit/non-force branch push and Draft PR.
+Return the P1 candidate for parent review; no Ready/merge/release/approval review
+in this checkpoint. PR #161 integration is independently authorized and separate.
+
+## Prior checkpoint — 2026-11-01 explicit key-color initialization infrastructure
+
+Historical infrastructure checkpoint, superseded as the active task by P1 above.
 
 Goal: Add developer/test-fixture-only atomic initialization from fully explicit supported versioned intent and exact fresh stable-ID/name allocation. Do not treat this as ordinary-user creation or approved product coefficients.
 
