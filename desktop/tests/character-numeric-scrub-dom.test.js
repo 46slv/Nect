@@ -81,6 +81,8 @@ test('actual character palette and typography inputs scrub atomically, preserve 
     win.nect.load(JSON.stringify(doc));
     for (let i = 0; i < 300 && win.nect.evaluate().error; i++) await tick();
     if (!doc.layers[0].locked) mode(ids);
+    // Yield a real event-loop turn after render, even when evaluation is already ready.
+    await tick();
   };
   const field = (attribute, panel = '.character-floating') =>
     document.querySelector(`${panel} [data-${attribute}]`);
