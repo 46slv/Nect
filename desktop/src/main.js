@@ -11232,7 +11232,7 @@ app.addEventListener('pointerdown', (e) => {
     selectedGuide = null;
     const id = bodyNode.dataset.id,
       nodeControl = e.target.closest(
-        'button,input,textarea,select,summary,a,[contenteditable]:not([contenteditable="false"])',
+        'button,input,textarea,select,label,summary,a,[contenteditable]:not([contenteditable="false"])',
       );
     if (e.shiftKey && !nodeControl) {
       if (selection.has(id)) selection.delete(id);
