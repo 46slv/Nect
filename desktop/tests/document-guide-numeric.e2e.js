@@ -33,6 +33,7 @@ try {
     f.doc.width = 123.45678901234567;
     f.doc.editor = {
       ...guideDefaults(),
+      gridVisible: true,
       guides: [{ id: 'p2-guide', axis: 'x', position: 100, locked: false }],
     };
     await page.evaluate((s) => window.nect.load(s), serialize(f.doc));
@@ -64,6 +65,15 @@ try {
       true,
     );
     assert.equal(await saved(), before);
+    assert.ok(
+      Math.abs(
+        (await page
+          .locator('.artboard')
+          .evaluate((el) => Number(el.getAttribute('viewBox').split(' ')[2]))) -
+          (original + displayLengthToDocumentUnits(20, unit)),
+      ) < 1e-10,
+      'Document preview changes the actual artboard viewBox',
+    );
     await page.mouse.up();
     assert.ok(
       Math.abs(
@@ -153,6 +163,11 @@ try {
       p = await start(input);
     await move(p, 24);
     assert.equal(await saved(), before);
+    if (selector.includes('gridAngle'))
+      assert.equal(
+        await page.locator('[data-grid-overlay]').getAttribute('data-grid-angle'),
+        '120',
+      );
     await page.screenshot({ path: `${output}/guide-preview.png` });
     await page.mouse.up();
     assert.equal(Number(await input.inputValue()), 120);

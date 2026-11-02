@@ -2397,6 +2397,7 @@ function numericCommandBinding(input) {
         payload: { ...gesture, update: { value: next } },
       });
       drag.preview = owner.previewSnapshot(gesture.gestureId).document;
+      drag.commandTarget = target;
       input.value = String(value);
       if (dimension) fitCanvas();
       updateCanvas();

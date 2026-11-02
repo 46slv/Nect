@@ -32,11 +32,14 @@ start values never come from rounded display strings. Settle committed controls
 so later blur cannot create an extra rounded dimension edit. Claimed numeric
 gestures suppress native selected-digit drag/drop while click/type remain native.
 
-Current phase: 41 focused unit/DOM checks PASS with zero failures/skips; format
+Current phase: 43 focused unit/DOM checks PASS with zero failures/skips; format
 and build PASS (existing bundle warning). Actual Chrome 156 passes P2a units,
 typing/native arrows, focus, pending typing, no-op/cancel/Redo and stale units;
 P1, graph navigation and Guide Chrome regressions PASS. No physical IME claim.
-P1 integration receipt and post-merge CI are tracked independently.
+P1 integration and post-merge CI passed at main `6710b55`. Initial P2a CI exposed
+missing Grid angle preview context; the existing DOM failure is repaired by
+passing the existing command target with the preview. Actual Chrome also asserts
+Grid angle overlay and Document viewBox. A fresh exact-head CI run is required.
 Next: publish the P2a-only Draft PR and record exact-head CI; return for parent review.
 
 Done for next: px/mm/cm and Guide units, typing/keyboard/focus, pending typing as
