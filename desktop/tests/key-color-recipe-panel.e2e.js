@@ -75,12 +75,42 @@ try {
   const before = await snapshot(),
     beforeState = await command();
   await open(true);
-  assert.equal(await field('hex').evaluate((el) => el === document.activeElement), true);
+  assert.equal(await field('hsl-h').evaluate((el) => el === document.activeElement), true);
   assert.equal(await field('hex').getAttribute('type'), 'text');
   assert.equal(await field('hex').inputValue(), '#aBcD09');
   assert.equal(await field('alpha').inputValue(), '0');
   assert.equal(await page.locator('[data-key-color-dormant] input').count(), 0);
   assert.equal(await page.locator('dialog details input,dialog details select').count(), 0);
+  await page.screenshot({ path: resolve(output, 'hsl-desktop.png'), fullPage: true });
+  const plane = page.locator('[data-key-color-c1] canvas');
+  await plane.click({ position: { x: 90, y: 66 } });
+  assert.ok(Math.abs(Number(await field('hsl-s').inputValue()) - 50) < 2);
+  assert.ok(Math.abs(Number(await field('hsl-l').inputValue()) - 50) < 2);
+  await unchanged(before, beforeState);
+  const hue = page.locator('[data-key-color-hue]');
+  await hue.press('Home');
+  await hue.press('ArrowRight');
+  assert.ok(Number(await field('hsl-h').inputValue()) > 0);
+  for (const [channel, value] of [
+    ['h', '240'],
+    ['s', '100'],
+    ['l', '50'],
+  ])
+    await field(`hsl-${channel}`).fill(value);
+  assert.equal(await field('hex').inputValue(), '#0000ff');
+  assert.equal(await field('alpha').inputValue(), '0');
+  await preview();
+  await unchanged(before, beforeState);
+  await field('hsl-s').fill('');
+  assert.equal(await page.locator('[data-key-color-apply]').isDisabled(), true);
+  assert.equal(await page.locator('[data-key-color-preview]').isDisabled(), true);
+  await cancel();
+  await unchanged(before, beforeState);
+  await open();
+  assert.equal(await field('hex').inputValue(), '#aBcD09');
+  results.push(
+    'C1 HSL plane, keyboard hue slider and numeric edits are draft-only; invalid HSL revokes Preview; Cancel preserves exact HEX/alpha0',
+  );
   await field('hex').fill('#DeAd09');
   await field('alpha').fill('0');
   await field('deltaL').fill('-0.125');
@@ -139,7 +169,12 @@ try {
   );
 
   await open();
-  await field('hex').fill('#DeAd09');
+  for (const [channel, value] of [
+    ['h', '240'],
+    ['s', '100'],
+    ['l', '50'],
+  ])
+    await field(`hsl-${channel}`).fill(value);
   await field('deltaL').fill('-0.125');
   await field('deltaRatioCmax').fill('3.375');
   await preview();
@@ -149,7 +184,7 @@ try {
     afterState = await command();
   assert.equal(afterState.expectedRevision, beforeState.expectedRevision + 1);
   assert.deepEqual(after.colorSlots.find((slot) => slot.id === 'key').value, {
-    hex: '#DeAd09',
+    hex: '#0000ff',
     alpha: 0,
   });
   assert.equal(after.keyColorRecipe.committedSnapshot.intent.slots[0].deltaL, -0.125);
@@ -195,7 +230,7 @@ try {
   await page.waitForFunction(() => !!window.nect.document.keyColorRecipe);
   assert.deepEqual(await snapshot(), after);
   await open();
-  assert.equal(await field('hex').inputValue(), '#DeAd09');
+  assert.equal(await field('hex').inputValue(), '#0000ff');
   assert.equal(await field('alpha').inputValue(), '0');
   await cancel();
   results.push(
@@ -289,9 +324,76 @@ try {
     'nonopaque active derived retained sample is displayed read-only and rejected, never normalized',
   );
 
+  const dark = retainedRecipeFixture(),
+    darkSaved = dark.keyColorRecipe.committedSnapshot;
+  dark.keyColorRecipe.committedSnapshot = editKeyColorRecipe(darkSaved, {
+    type: 'key-color',
+    expectedRevision: darkSaved.revision,
+    value: { hex: '#000011', alpha: 0 },
+  });
+  await load(dark);
+  const darkBefore = await snapshot(),
+    darkState = await command();
+  for (const [channel, value, hex] of [
+    ['h', '120', '#001100'],
+    ['l', '50', '#0000ff'],
+  ]) {
+    await open();
+    assert.equal(await field('hex').inputValue(), '#000011');
+    assert.equal(await field('hsl-s').inputValue(), '100');
+    await field(`hsl-${channel}`).fill(value);
+    assert.equal(await field('hex').inputValue(), hex);
+    await preview();
+    assert.equal(
+      await page
+        .locator('[data-key-color-compare="key"] [data-key-color-after] code')
+        .textContent(),
+      hex,
+    );
+    await unchanged(darkBefore, darkState);
+    await field('hex').fill('#000011');
+    await field(`hsl-${channel}`).fill(value);
+    assert.equal(await field('hex').inputValue(), hex);
+    assert.equal(await field('alpha').inputValue(), '0');
+    await cancel();
+    await unchanged(darkBefore, darkState);
+  }
+  results.push(
+    'fully saturated #000011 supports H/L edits from retained and direct HEX without range errors or document mutation',
+  );
+
+  const gray = retainedRecipeFixture(),
+    graySaved = gray.keyColorRecipe.committedSnapshot;
+  gray.keyColorRecipe.committedSnapshot = editKeyColorRecipe(graySaved, {
+    type: 'key-color',
+    expectedRevision: graySaved.revision,
+    value: { hex: '#aAaAaA', alpha: 0 },
+  });
+  await load(gray);
+  const grayBefore = await snapshot(),
+    grayState = await command();
+  await open();
+  await field('hsl-h').fill('240');
+  assert.equal(await field('hex').inputValue(), '#aAaAaA');
+  await preview();
+  assert.equal(
+    await page.locator('[data-key-color-compare="key"] [data-key-color-after] code').textContent(),
+    '#aAaAaA',
+  );
+  await field('hsl-s').fill('100');
+  assert.equal(await field('hex').inputValue(), '#5555ff');
+  assert.equal(await field('alpha').inputValue(), '0');
+  await unchanged(grayBefore, grayState);
+  await cancel();
+  await unchanged(grayBefore, grayState);
+  results.push(
+    'gray hue stays local without literal/case/alpha change; increasing saturation uses the selected hue; Cancel unchanged',
+  );
+
   await page.setViewportSize({ width: 420, height: 760 });
   await load(fixture);
   await open();
+  await page.screenshot({ path: resolve(output, 'hsl-narrow.png'), fullPage: true });
   await preview();
   const bounds = await page.locator('dialog').boundingBox();
   assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 420);

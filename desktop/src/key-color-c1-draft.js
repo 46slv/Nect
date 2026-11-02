@@ -1,0 +1,135 @@
+import { hexToHsl, hslToHex } from './hsl-color-picker.js';
+
+function hslFromHex(hex) {
+  const next = hexToHsl(hex);
+  // Valid HEX has S in [0, 100], but the ratio can round a few ulps above 100.
+  // Normalize analysis here; user inputs and the shared converter stay strict.
+  return { ...next, s: Math.max(0, Math.min(100, next.s)) };
+}
+
+// Local input only. The recipe panel owns Preview/Apply and the Session envelope.
+export function createKeyColorC1Draft(host, value) {
+  const document = host.ownerDocument;
+  const field = (kind) => host.querySelector(`[data-key-color-input="${kind}"]`);
+  let hsl = hslFromHex(value.hex),
+    paintedHue = null,
+    pointer = null;
+  const composing = new Set();
+  host.innerHTML = `<div class="key-color-c1-picker"><div class="key-color-c1-plane"><canvas width="180" height="132" aria-label="Saturation left to right; lightness bottom to top"></canvas><span data-key-color-marker aria-hidden="true"></span></div><div class="key-color-c1-fields"><label class="hsl-picker-hue">Hue<input type="range" data-key-color-hue min="0" max="360" step="any" aria-label="C1 hue slider"></label><div>${['h', 's', 'l'].map((channel) => `<label>${channel.toUpperCase()}<input type="number" data-key-color-input="hsl-${channel}" min="0" max="${channel === 'h' ? 360 : 100}" step="any" aria-label="C1 ${channel === 'h' ? 'hue degrees' : channel === 's' ? 'saturation percent' : 'lightness percent'}"><span>${channel === 'h' ? '°' : '%'}</span></label>`).join('')}</div></div></div><div class="key-color-c1-literal"><span data-key-color-chip class="key-color-swatch" aria-hidden="true"></span><label>HEX<input type="text" data-key-color-input="hex" spellcheck="false" autocomplete="off" aria-label="C1 HEX literal"></label><label>Alpha<input type="number" data-key-color-input="alpha" min="0" max="1" step="any" aria-label="C1 alpha"></label></div>`;
+  field('hex').value = value.hex;
+  field('alpha').value = String(value.alpha);
+  const canvas = host.querySelector('canvas'),
+    hue = host.querySelector('[data-key-color-hue]');
+
+  function paint(skip = null) {
+    for (const channel of ['h', 's', 'l']) {
+      const input = field(`hsl-${channel}`);
+      if (input !== skip) input.value = String(Number(hsl[channel].toFixed(2)));
+    }
+    hue.value = String(hsl.h);
+    const marker = host.querySelector('[data-key-color-marker]');
+    marker.style.left = `${hsl.s}%`;
+    marker.style.top = `${100 - hsl.l}%`;
+    marker.style.borderColor = hsl.l > 65 ? '#252525' : '#ffffff';
+    paintChip();
+    if (paintedHue === hsl.h) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const { width, height } = canvas,
+      pixels = ctx.createImageData(width, height);
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const hex = hslToHex(hsl.h, (x / (width - 1)) * 100, (1 - y / (height - 1)) * 100),
+          at = (y * width + x) * 4;
+        for (let c = 0; c < 3; c++)
+          pixels.data[at + c] = parseInt(hex.slice(1 + c * 2, 3 + c * 2), 16);
+        pixels.data[at + 3] = 255;
+      }
+    ctx.putImageData(pixels, 0, 0);
+    paintedHue = hsl.h;
+  }
+  function paintChip() {
+    const chip = host.querySelector('[data-key-color-chip]');
+    chip.style.background = /^#[0-9a-f]{6}$/i.test(field('hex').value) ? field('hex').value : '';
+    chip.style.opacity = field('alpha').value;
+  }
+  function validHsl() {
+    return ['h', 's', 'l'].every((channel) => {
+      const raw = field(`hsl-${channel}`).value,
+        n = Number(raw);
+      return !!raw.trim() && Number.isFinite(n) && n >= 0 && n <= (channel === 'h' ? 360 : 100);
+    });
+  }
+  function writeHsl(skip = null) {
+    if (!validHsl()) return;
+    const hex = hslToHex(hsl.h, hsl.s, hsl.l);
+    // A hue edit on gray, or an equal HSL input, must not rewrite the C1 literal.
+    if (hex !== field('hex').value.toLowerCase()) field('hex').value = hex;
+    paint(skip);
+  }
+  function edit(input) {
+    if (composing.size) return;
+    const kind = input.dataset?.keyColorInput;
+    if (kind === 'hex' && /^#[0-9a-f]{6}$/i.test(input.value)) {
+      const next = hslFromHex(input.value);
+      // HSL hue is display/draft state, not the recipe's OKLCH hueHint.
+      hsl = { ...next, h: next.s === 0 ? hsl.h : next.h };
+      paint();
+    } else if (kind?.startsWith('hsl-')) {
+      const channel = kind.slice(4),
+        n = Number(input.value);
+      if (
+        input.value.trim() &&
+        Number.isFinite(n) &&
+        n >= 0 &&
+        n <= (channel === 'h' ? 360 : 100)
+      ) {
+        hsl[channel] = n;
+        writeHsl(input);
+      }
+    } else if (input === hue) {
+      field('hsl-h').value = input.value;
+      hsl.h = Number(input.value);
+      writeHsl();
+    } else if (kind === 'alpha') paintChip();
+  }
+  host.addEventListener('input', (event) => edit(event.target));
+  host.addEventListener('change', (event) => edit(event.target));
+  host.addEventListener('compositionstart', (event) => composing.add(event.target));
+  host.addEventListener('compositionend', (event) => {
+    composing.delete(event.target);
+    edit(event.target);
+  });
+  function fromPlane(event) {
+    if (
+      composing.size ||
+      !field('hsl-h').value.trim() ||
+      !Number.isFinite(Number(field('hsl-h').value))
+    )
+      return;
+    const rect = canvas.getBoundingClientRect();
+    if (!(rect.width > 0 && rect.height > 0)) return;
+    hsl.s = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
+    hsl.l = Math.max(0, Math.min(100, (1 - (event.clientY - rect.top) / rect.height) * 100));
+    field('hsl-s').value = String(hsl.s);
+    field('hsl-l').value = String(hsl.l);
+    writeHsl();
+    canvas.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+  }
+  canvas.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    field('hsl-s').focus();
+    pointer = event.pointerId;
+    canvas.setPointerCapture(pointer);
+    fromPlane(event);
+  });
+  canvas.addEventListener('pointermove', (event) => {
+    if (pointer === event.pointerId) fromPlane(event);
+  });
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
+    canvas.addEventListener(type, () => {
+      pointer = null;
+    });
+  paint();
+}
