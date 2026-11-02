@@ -1,4 +1,5 @@
 import { activateBoundaryCommand } from './helpers/boundary-controls.js';
+import { verifyNodeBodySelection } from './helpers/node-body-selection.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -210,6 +211,11 @@ try {
   await activateBoundaryCommand(page, 'graph-reset');
   await fs.mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/graph-navigation.png' });
+  const bodySelection = await verifyNodeBodySelection(page);
+  await fs.writeFile(
+    'test-results/node-body-selection.json',
+    JSON.stringify(bodySelection, null, 2),
+  );
   assert.deepEqual(errors, []);
   console.log(
     'Graph navigation: edge autopan, zoom, capture, cancellation, origin, history, JSON and pan passed',
