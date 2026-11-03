@@ -2263,6 +2263,9 @@ function numericControlTarget(input) {
   } else if (['gridSize', 'gridAngle'].includes(d.guideSetting)) {
     command = 'set-guide-setting';
     payload.key = d.guideSetting;
+  } else if (d.gridOpacity !== undefined) {
+    command = 'set-guide-setting';
+    payload.key = 'gridOpacity';
   } else if (d.remap) {
     command = 'edit-remap';
     Object.assign(payload, {
@@ -2434,8 +2437,12 @@ function numericCommandBinding(input) {
   const data = input.dataset,
     dimension = data.dimension,
     guideId = data.guidePosition,
-    setting = data.guideSetting;
-  if (!dimension && !guideId && !['gridSize', 'gridAngle'].includes(setting)) return null;
+    setting = data.guideSetting,
+    opacity = data.gridOpacity !== undefined,
+    opacityAttribute = data.gridOpacity,
+    opacityUnits = opacity ? [input.dataset.scrubStep, input.min, input.max] : null;
+  if (!dimension && !guideId && !opacity && !['gridSize', 'gridAngle'].includes(setting))
+    return null;
   const target = numericControlTarget(input).commandTarget,
     owner = session,
     compositionId = owner.activeCompositionId,
@@ -2445,7 +2452,7 @@ function numericCommandBinding(input) {
     guideAxis = guideId
       ? guideSettings(history.doc).guides.find((g) => g.id === guideId)?.axis
       : null;
-  let envelope = null,
+  let envelope = opacity ? owner.state : null,
     gesture = null,
     originalInput,
     originalCanonical,
@@ -2455,12 +2462,18 @@ function numericCommandBinding(input) {
       ? history.doc[dimension]
       : guideId
         ? guideSettings(history.doc).guides.find((g) => g.id === guideId)?.position
-        : guideSettings(history.doc)[setting];
+        : guideSettings(history.doc)[opacity ? 'gridOpacity' : setting];
   const sameTarget = () => {
     if (
       input.dataset.dimension !== dimension ||
       input.dataset.guidePosition !== guideId ||
-      input.dataset.guideSetting !== setting
+      input.dataset.guideSetting !== setting ||
+      input.dataset.gridOpacity !== opacityAttribute ||
+      (opacity &&
+        (!input.matches('input[type="number"]') ||
+          input.dataset.scrubStep !== opacityUnits[0] ||
+          input.min !== opacityUnits[1] ||
+          input.max !== opacityUnits[2]))
     )
       return false;
     if (
@@ -2503,7 +2516,7 @@ function numericCommandBinding(input) {
       if (input.value !== input.defaultValue) {
         const expected = dimension
           ? displayLengthToDocumentUnits(input.value, unit)
-          : Number(input.value);
+          : Number(input.value) / (opacity ? 100 : 1);
         input.dispatchEvent(new window.Event('change', { bubbles: true }));
         if (canonical() !== expected) throw Error('Number change cancelled');
       }
@@ -2511,7 +2524,7 @@ function numericCommandBinding(input) {
       originalCanonical = canonical();
       originalDisplay = dimension
         ? documentUnitsToDisplayLength(originalCanonical, unit)
-        : originalCanonical;
+        : originalCanonical * (opacity ? 100 : 1);
       return [originalDisplay];
     },
     step: () => Number(input.dataset.scrubStep),
@@ -2529,7 +2542,11 @@ function numericCommandBinding(input) {
       // Preserve the exact canonical snapshot; display formatting never supplies the baseline.
       const next = dimension
         ? originalCanonical + displayLengthToDocumentUnits(value - originalDisplay, unit)
-        : value;
+        : opacity
+          ? value === originalDisplay
+            ? originalCanonical
+            : value / 100
+          : value;
       gesture = owner.dispatch({
         ...owner.state,
         type: 'update-gesture',
@@ -2537,11 +2554,13 @@ function numericCommandBinding(input) {
       });
       drag.preview = owner.previewSnapshot(gesture.gestureId).document;
       drag.commandTarget = target;
+      if (opacity) previewGridOpacity(next);
       input.value = String(value);
       if (dimension) fitCanvas();
       updateCanvas();
     },
     commit() {
+      if (opacity) gridOpacityDraft = null;
       settleNumericControl(
         input,
         owner.dispatch({ ...owner.state, type: 'commit-gesture', payload: gesture }),
@@ -2554,6 +2573,7 @@ function numericCommandBinding(input) {
           type: 'cancel-gesture',
           payload: { gestureId: gesture.gestureId },
         });
+      if (opacity) cancelGridOpacity();
       if (sameTarget() && sameRevision()) input.value = originalInput;
     },
   };
@@ -10481,8 +10501,13 @@ app.addEventListener('change', async (e) => {
   if (d.gridOpacity !== undefined) {
     const value = el.value.trim() ? Number(el.value) / 100 : NaN;
     gridOpacityDraft = null;
-    if (value !== guideSettings(history.doc).gridOpacity)
-      editGuides('set-guide-setting', { key: 'gridOpacity', value });
+    // An unchanged percent display must not round-trip the exact saved fraction.
+    if (el.value !== el.defaultValue && value !== guideSettings(history.doc).gridOpacity)
+      editGuides(
+        'set-guide-setting',
+        { key: 'gridOpacity', value },
+        !!drag?.behavior && drag.capture === el,
+      );
     return;
   }
   if (d.layoutField || d.layoutPreview !== undefined) {

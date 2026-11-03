@@ -14,46 +14,49 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-11-03 REQ-42 Text mixed numeric behavior P2b
+## ACTIVE CHECKPOINT — 2026-11-03 REQ-42 Grid opacity numeric binding P3a
 
-Goal: Connect selected-character offsets, rotation/scale and numeric typography to
-P1/P2a's common input behavior and the existing Session text-values owner. Retain
-mixed differences for scrubbing, absolute typing, sparse/inherited state and Undo.
+Goal: Connect the existing Grid opacity number field to the common input behavior
+and existing numeric-command Session owner, with 0–100 percent display and 0–1
+saved values. Preserve its range slider, typing, exact values and Undo/Redo.
 Source: [REQ-42 implementation packet](https://app.notion.com/p/40cfd279a6f3811e8438c585e952c71d).
 
-Base: main `d2119c5dc999991c123d512a3c2d6b5b2dbb44b1`, tree
-`9fd22e7528b130c4e609c9e2a03cd07e1c79b7c8`, the normal merge of P2a PR #167.
-P2b started from the exact P2a candidate and fast-forwarded to the identical
-merged tree. Sole writer: `codex/req42-p2b-text-mixed-20261103`.
+Base: main `ee3e37ceeb621161a0572b79564379c635e1922e`, tree
+`4af82244c97fae7b109b22f0a53ff1220403b3c2`, normal merge of P2b PR #168.
+This isolated branch started at unchanged P2b head `623c7c51` and fast-forwarded
+to the identical merge tree. Sole writer: `codex/req42-p3-grid-opacity-20261103`.
 
-Current phase: implementation and focused acceptance. Before the change, DOM and
-actual Chrome reproduce pending width/height percent typing cancelling the scrub:
-the legacy comparison mixes displayed percentages with saved multipliers. The
-binding now compares displayed units and converts only at the Session boundary.
-The common behavior, numeric calculation, Session/core and schema are unchanged.
+Current phase: implementation and focused acceptance. Actual Chrome reproduced
+25% staying 25% after a 24px horizontal drag instead of reaching 45%: the field
+had numeric affordance but no binding. The existing command binding now resolves
+Grid opacity, converts only at its UI/Session boundary and reuses the existing
+preview/cancel functions to synchronize number, range and overlay. No kernel,
+Session/schema changes or new pointer-handler branch.
 
-Proven: actual Chrome mouse/keyboard tests cover pending 125% then relative scrub,
-separate Undo steps, live detached preview, mixed differences, no-op/cancel/Redo,
-stale selection, focus, pinned palette, zoom and JSON/SVG persistence. Targeted
-DOM adds route/source/revision/unit guards; P1/P2a and graph navigation regressions
-are checked separately. Evidence is task-scoped in `req42-p2b-evidence` beside the
-isolated worktree; exact candidate and CI receipt are required before acceptance.
+Proven: actual Chrome passes scrub/live preview/one Undo, range slider, native
+click/type/arrows, pending typing as a separate Undo, cancellation and Redo.
+DOM checks exact unchanged fractions, canonical endpoints, stale control/revision
+and Composition ownership. P1/P2a/P2b focused regression and normal CI are required
+for the exact candidate. Task evidence: `req42-p3-grid-opacity-evidence` beside
+this worktree; original font/user document/application state is not a fixture.
 
-Next task: finish focused DOM/unit, format/build and source-bound evidence;
-commit/push this P2b-only branch, open a Draft PR against main and wait for its
-exact-head CI. Return to parent for independent review; do not integrate P2b.
+Next task: finish focused tests/Chrome, format/build, source-bound receipt;
+commit/push P3a-only changes and open a Draft PR against main. Record exact-head
+CI terminal results and return to parent review. #168 integration/post-merge CI
+is tracked separately in `req42-p2b-evidence`.
 
-Done for next: changed gesture one Undo, pending typing a separate Undo,
-no-op/return-origin/cancel preserve Redo and sparse authored state; selection,
-route, source, units, Composition and Session revision cannot retarget late input.
-Preserve nonselected text, inheritance and PR #162 selection/focus/pan behavior.
-Kerning, asynchronous fonts, wrap/leading and other remaining surfaces are P3.
-Native WebView2/physical OS IME remains LOCAL_WAIT, separate from actual Chrome.
+Done for next: 0–100% display/0–1 saved, peer range synchronization, native input,
+pending typing separate Undo and gesture one Undo; exact no-op/return-origin/
+cancel with Redo retained; stale revision/Composition/control never late-commit.
+Unchanged number displays do not round-trip authored fractions through percent.
+PPI, asynchronous font work, Color changes and other scalar migrations excluded.
 
-Authority: explicit P2b delegation permits implementation/test/commit/non-force
-push and Draft PR. No P2b Ready/merge, release, force/history rewrite, approval
-review or authentication/permission changes. P2a integration has separate exact-PR
-user approval. Parent retains Mission ownership. Handoff: CONTINUE_CURRENT_TASK.
+Authority: explicit P3a delegation permits implementation/test/commit/non-force
+push and Draft PR. No P3a Ready/merge/release/approval review, force/history rewrite
+or security changes. #168 integration has separate exact-PR user approval.
+Native WebView2/physical OS IME remains separate LOCAL_WAIT; do not repeat known
+missing capability or CIM access failure. Parent retains Mission ownership.
+Handoff: CONTINUE_CURRENT_TASK.
 
 ## Prior checkpoint — 2026-11-01 explicit key-color initialization infrastructure
 
