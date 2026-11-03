@@ -81,6 +81,305 @@ try {
   assert.equal(await field('alpha').inputValue(), '0');
   assert.equal(await page.locator('[data-key-color-dormant] input').count(), 0);
   assert.equal(await page.locator('dialog details input,dialog details select').count(), 0);
+  await field('hsl-h').fill('0');
+  const typedHex = await field('hex').inputValue(),
+    hBox = await field('hsl-h').boundingBox(),
+    hX = hBox.x + 12,
+    hY = hBox.y + hBox.height / 2;
+  await page.mouse.move(hX, hY);
+  await page.mouse.down();
+  await page.mouse.move(hX + 24, hY, { steps: 6 });
+  assert.equal(await field('hsl-h').inputValue(), '20', 'C1 hue drag changes the draft');
+  await unchanged(before, beforeState);
+  await field('hsl-h').dispatchEvent('pointercancel', { pointerId: 1, bubbles: true });
+  await page.mouse.up();
+  assert.equal(await field('hsl-h').inputValue(), '0');
+  assert.equal(await field('hex').inputValue(), typedHex, 'cancel restores the typed HEX');
+  await unchanged(before, beforeState);
+  await field('hsl-s').fill('50');
+  await field('hsl-l').fill('50');
+  for (const [channel, expected] of [
+    ['h', 20],
+    ['s', 70],
+    ['l', 70],
+  ]) {
+    const input = field(`hsl-${channel}`),
+      raw = await input.inputValue(),
+      literal = await field('hex').inputValue(),
+      box = await input.boundingBox(),
+      x = box.x + 12,
+      y = box.y + box.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 24, y, { steps: 6 });
+    assert.equal(Number(await input.inputValue()), expected, `${channel} drag previews`);
+    assert.equal(await field('alpha').inputValue(), '0');
+    await unchanged(before, beforeState);
+    await input.dispatchEvent('pointercancel', { pointerId: 1, bubbles: true });
+    await page.mouse.up();
+    assert.equal(await input.inputValue(), raw, `${channel} cancel restores the value`);
+    assert.equal(await field('hex').inputValue(), literal, `${channel} cancel restores HEX`);
+  }
+  const hueInput = field('hsl-h'),
+    hueBox = await hueInput.boundingBox(),
+    hueX = hueBox.x + 12,
+    hueY = hueBox.y + hueBox.height / 2;
+  const preciseSibling = '0.12345678901234566';
+  await field('hsl-s').fill(preciseSibling);
+  await preview();
+  assert.equal(await page.locator('[data-key-color-apply]').isEnabled(), true);
+  await page.mouse.move(hueX, hueY);
+  await page.mouse.down();
+  await page.mouse.move(hueX + 4, hueY);
+  await page.mouse.up();
+  assert.equal(
+    await field('hsl-s').inputValue(),
+    preciseSibling,
+    'threshold no-op preserves sibling',
+  );
+  assert.equal(
+    await page.locator('[data-key-color-apply]').isEnabled(),
+    true,
+    'no-op keeps Preview',
+  );
+  await page.mouse.move(hueX, hueY);
+  await page.mouse.down();
+  await page.mouse.move(hueX + 24, hueY, { steps: 6 });
+  assert.equal(
+    await field('hsl-s').inputValue(),
+    preciseSibling,
+    'changed hue keeps sibling precision',
+  );
+  await hueInput.dispatchEvent('pointercancel', { pointerId: 1, bubbles: true });
+  await page.mouse.up();
+  assert.equal(
+    await field('hsl-s').inputValue(),
+    preciseSibling,
+    'cancel restores sibling precision',
+  );
+  await preview();
+  const thresholdAlpha = field('alpha'),
+    thresholdBox = await thresholdAlpha.boundingBox(),
+    thresholdX = thresholdBox.x + 12,
+    thresholdY = thresholdBox.y + thresholdBox.height / 2;
+  await page.mouse.move(thresholdX, thresholdY);
+  await page.mouse.down();
+  await page.mouse.move(thresholdX + 4, thresholdY);
+  await page.mouse.up();
+  assert.equal(
+    await page.locator('[data-key-color-apply]').isEnabled(),
+    true,
+    'alpha no-op keeps Preview',
+  );
+  await field('hsl-s').fill('50');
+  const originHex = await field('hex').inputValue();
+  await page.mouse.move(hueX, hueY);
+  await page.mouse.down();
+  await page.mouse.move(hueX + 24, hueY, { steps: 6 });
+  await page.mouse.move(hueX, hueY, { steps: 6 });
+  await page.mouse.up();
+  assert.equal(await hueInput.inputValue(), '0');
+  assert.equal(await field('hex').inputValue(), originHex, 'origin restores the exact HEX draft');
+  await hueInput.fill('350');
+  await page.mouse.move(hueX, hueY);
+  await page.mouse.down();
+  await page.mouse.move(hueX + 24, hueY, { steps: 6 });
+  assert.equal(await hueInput.inputValue(), '360', 'hue reaches its exact upper bound');
+  await hueInput.dispatchEvent('pointercancel', { pointerId: 1, bubbles: true });
+  await page.mouse.up();
+  assert.equal(await hueInput.inputValue(), '350');
+  await hueInput.fill('0');
+  const saturation = field('hsl-s'),
+    sBox = await saturation.boundingBox(),
+    sX = sBox.x + 12,
+    sY = sBox.y + sBox.height / 2;
+  await saturation.fill('0.12345678901234566');
+  await page.mouse.move(sX, sY);
+  await page.mouse.down();
+  await page.mouse.move(sX - 5, sY, { steps: 5 });
+  assert.equal(await saturation.inputValue(), '0', 'saturation reaches its exact lower bound');
+  await saturation.dispatchEvent('pointercancel', { pointerId: 1, bubbles: true });
+  await page.mouse.up();
+  assert.equal(await saturation.inputValue(), '0.12345678901234566');
+  await saturation.fill('50');
+  await field('alpha').fill('0.25');
+  await page.mouse.move(hueX, hueY);
+  await page.mouse.down();
+  await page.mouse.move(hueX + 24, hueY, { steps: 6 });
+  assert.equal(await hueInput.inputValue(), '20', 'first HSL drag survives the alpha blur');
+  assert.equal(await field('alpha').inputValue(), '0.25');
+  await hueInput.dispatchEvent('pointercancel', { pointerId: 1, bubbles: true });
+  await page.mouse.up();
+  assert.equal(await field('alpha').inputValue(), '0.25');
+  await field('alpha').fill('0');
+  const beforeBlurHex = await field('hex').inputValue();
+  await page.mouse.move(hueX, hueY);
+  await page.mouse.down();
+  await page.mouse.move(hueX + 24, hueY, { steps: 6 });
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await page.mouse.up();
+  assert.equal(await hueInput.inputValue(), '0', 'window blur cancels HSL preview');
+  assert.equal(await field('hex').inputValue(), beforeBlurHex);
+  await page.mouse.move(hueX, hueY);
+  await page.mouse.down();
+  await page.mouse.move(hueX + 24, hueY, { steps: 6 });
+  await hueInput.fill('15');
+  await page.mouse.up();
+  assert.equal(await hueInput.inputValue(), '15', 'typing cancels the old HSL drag');
+  await hueInput.fill('0');
+  await page.mouse.move(hueX, hueY);
+  await page.mouse.down();
+  await page.mouse.move(hueX + 24, hueY, { steps: 6 });
+  await page.mouse.up();
+  assert.equal(await hueInput.inputValue(), '20');
+  await unchanged(before, beforeState);
+  await preview();
+  await page.locator('[data-key-color-apply]').click();
+  assert.equal((await command()).expectedRevision, beforeState.expectedRevision + 1);
+  await page.locator('[data-action="undo"]').click();
+  assert.deepEqual(await snapshot(), before, 'one Undo restores the C1 recipe');
+  await load(fixture);
+  before = await snapshot();
+  beforeState = await command();
+  await open();
+  const pendingHue = field('hsl-h'),
+    pendingRaw = await pendingHue.inputValue(),
+    pendingHex = await field('hex').inputValue();
+  await pendingHue.evaluate((el) => {
+    const send = (target, type, x, buttons) =>
+      target.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          pointerId: 43,
+          isPrimary: true,
+          button: 0,
+          buttons,
+          clientX: x,
+        }),
+      );
+    const x = el.getBoundingClientRect().left + 12;
+    send(el, 'pointerdown', x, 1);
+    send(document.body, 'pointermove', x, 1);
+    send(document.body, 'pointerup', x, 0);
+    send(el, 'pointermove', x + 80, 0);
+  });
+  assert.equal(await pendingHue.inputValue(), pendingRaw, 'outside release clears pending HSL');
+  assert.equal(await field('hex').inputValue(), pendingHex);
+  await unchanged(before, beforeState);
+  const staleHue = field('hsl-h'),
+    staleRaw = await staleHue.inputValue(),
+    staleHex = await field('hex').inputValue(),
+    staleBox = await staleHue.boundingBox(),
+    staleX = staleBox.x + 12,
+    staleY = staleBox.y + staleBox.height / 2;
+  await page.mouse.move(staleX, staleY);
+  await page.mouse.down();
+  await page.mouse.move(staleX + 24, staleY, { steps: 6 });
+  await page.evaluate(() =>
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: window.nect.document.width + 1 },
+    }),
+  );
+  await page.mouse.up();
+  assert.equal(await staleHue.inputValue(), staleRaw, 'stale revision restores HSL');
+  assert.equal(await field('hex').inputValue(), staleHex, 'stale revision restores literal');
+  assert.equal(await page.locator('[data-key-color-apply]').isDisabled(), true);
+  await cancel();
+  await load(fixture);
+  before = await snapshot();
+  beforeState = await command();
+  await open();
+  await field('hex').fill('#AaAaAa');
+  const grayHue = field('hsl-h'),
+    grayBox = await grayHue.boundingBox(),
+    grayX = grayBox.x + 12,
+    grayY = grayBox.y + grayBox.height / 2,
+    startHue = Number(await grayHue.inputValue());
+  await page.mouse.move(grayX, grayY);
+  await page.mouse.down();
+  await page.mouse.move(grayX + 24, grayY, { steps: 6 });
+  await page.mouse.up();
+  assert.ok(Math.abs(Number(await grayHue.inputValue()) - startHue - 20) < 0.02);
+  assert.equal(
+    await field('hex').inputValue(),
+    '#AaAaAa',
+    'gray hue retains the exact HEX literal',
+  );
+  assert.equal(await field('alpha').inputValue(), '0');
+  await unchanged(before, beforeState);
+  await grayHue.dispatchEvent('compositionstart');
+  const composingHue = await grayHue.inputValue();
+  await page.mouse.move(grayX, grayY);
+  await page.mouse.down();
+  await page.mouse.move(grayX + 24, grayY, { steps: 6 });
+  await page.mouse.up();
+  assert.equal(await grayHue.inputValue(), composingHue, 'composition blocks HSL scrub');
+  await grayHue.dispatchEvent('compositionend');
+  await field('deltaL').dispatchEvent('compositionstart');
+  await grayHue.evaluate((el) => {
+    const x = el.getBoundingClientRect().left + 12;
+    const send = (target, type, clientX, buttons) =>
+      target.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          pointerId: 44,
+          isPrimary: true,
+          button: 0,
+          buttons,
+          clientX,
+        }),
+      );
+    send(el, 'pointerdown', x, 1);
+    send(document, 'pointermove', x + 24, 1);
+    send(document, 'pointerup', x + 24, 0);
+  });
+  assert.equal(await grayHue.inputValue(), composingHue, 'sibling composition blocks HSL scrub');
+  await page.mouse.move(grayX, grayY);
+  await page.mouse.down();
+  await page.mouse.move(grayX + 24, grayY, { steps: 6 });
+  await page.mouse.up();
+  assert.equal(
+    await grayHue.inputValue(),
+    composingHue,
+    'sibling composition preserves native input',
+  );
+  await field('deltaL').dispatchEvent('compositionend');
+  const graySat = field('hsl-s'),
+    graySatBox = await graySat.boundingBox(),
+    graySatX = graySatBox.x + 12,
+    graySatY = graySatBox.y + graySatBox.height / 2;
+  await page.mouse.move(graySatX, graySatY);
+  await page.mouse.down();
+  await page.mouse.move(graySatX + 24, graySatY, { steps: 6 });
+  assert.notEqual((await field('hex').inputValue()).toLowerCase(), '#aaaaaa');
+  await graySat.dispatchEvent('pointercancel', { pointerId: 1, bubbles: true });
+  await page.mouse.up();
+  assert.equal(await field('hex').inputValue(), '#AaAaAa', 'cancel restores gray literal');
+  await unchanged(before, beforeState);
+  await field('hex').fill('#00ff00');
+  await page.mouse.move(grayX, grayY);
+  await page.mouse.down();
+  await page.mouse.move(grayX + 24, grayY, { steps: 6 });
+  assert.equal(await grayHue.inputValue(), '140', 'first hue drag follows the typed HEX');
+  await grayHue.dispatchEvent('pointercancel', { pointerId: 1, bubbles: true });
+  await page.mouse.up();
+  assert.equal(await field('hex').inputValue(), '#00ff00');
+  assert.equal(await grayHue.inputValue(), '120');
+  await field('hex').fill('bad');
+  const invalidHue = await grayHue.inputValue();
+  await page.mouse.move(grayX, grayY);
+  await page.mouse.down();
+  await page.mouse.move(grayX + 24, grayY, { steps: 6 });
+  await page.mouse.up();
+  assert.equal(await grayHue.inputValue(), invalidHue, 'invalid HEX cannot start a scrub');
+  assert.equal(await field('hex').inputValue(), 'bad');
+  results.push(
+    'C1 HSL scrub: H/S/L, exact literal and alpha, bounds, origin, cancel, typing, stale state, composition and one-Undo Apply',
+  );
+  await cancel();
+  await open();
   await preview();
   assert.equal(await page.locator('[data-key-color-apply]').isEnabled(), true);
   const c1Alpha = field('alpha');

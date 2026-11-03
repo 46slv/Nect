@@ -256,10 +256,11 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
         dialog.querySelector('[data-key-color-c1]'),
         base.intent.keyColor.value,
         {
+          blocked: () => composing.size > 0,
           valid: () => {
             try {
               current();
-              return owner.activeCompositionId === compositionId;
+              return owner.activeCompositionId === compositionId && !composing.size;
             } catch {
               return false;
             }
