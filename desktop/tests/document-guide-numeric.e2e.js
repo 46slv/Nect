@@ -53,6 +53,51 @@ try {
   };
   const move = (p, dx) => page.mouse.move(p.x + dx, p.y, { steps: 5 });
   await load();
+  await activateBoundaryCommand(page, 'layout-panel');
+  const columns = page.locator('[data-layout-field="columns"]'),
+    layoutBefore = await saved(),
+    layoutHistory = await state();
+  await columns.fill('2');
+  let layoutPointer = await start(columns);
+  await move(layoutPointer, 5);
+  assert.equal(await columns.inputValue(), '3');
+  await layoutPointer.handle.dispatchEvent('pointercancel', { pointerId: 1, bubbles: true });
+  await page.mouse.up();
+  assert.equal(await columns.inputValue(), '2', 'cancel keeps the typed draft');
+  assert.equal(await saved(), layoutBefore);
+  await page.locator('[data-layout-cancel]').click();
+  assert.equal(await columns.inputValue(), '3');
+  layoutPointer = await start(columns);
+  await move(layoutPointer, -5);
+  assert.equal(await columns.inputValue(), '2');
+  assert.equal(await saved(), layoutBefore, 'layout preview leaves the document untouched');
+  await layoutPointer.handle.dispatchEvent('pointercancel', { pointerId: 1, bubbles: true });
+  await page.mouse.up();
+  assert.equal(await columns.inputValue(), '3');
+  assert.equal(await saved(), layoutBefore);
+  assert.deepEqual(await state(), layoutHistory);
+  layoutPointer = await start(columns);
+  await move(layoutPointer, -5);
+  await page.mouse.up();
+  assert.equal(await saved(), layoutBefore, 'drag finishes in the layout draft');
+  await page.locator('[data-layout-apply]').click();
+  assert.equal(JSON.parse(await saved()).editor.layoutGrid.columns, 2);
+  await undo();
+  assert.equal(await saved(), layoutBefore);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  if (!(await columns.isVisible())) await activateBoundaryCommand(page, 'layout-panel');
+  layoutPointer = await start(columns);
+  await move(layoutPointer, -5);
+  await layoutPointer.handle.dispatchEvent('pointercancel', { pointerId: 1, bubbles: true });
+  await page.mouse.up();
+  assert.equal(await saved(), layoutBefore);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await page.locator('[data-action="redo"]').click();
+  assert.equal(JSON.parse(await saved()).editor.layoutGrid.columns, 2);
+  await undo();
+  assert.equal(await saved(), layoutBefore);
+  results.push({ case: 'Layout Grid draft', cancel: true, applyUndo: true, redo: true });
+  await load();
   await activateBoundaryCommand(page, 'grid-panel');
   const opacity = page.locator('input[type="number"][data-grid-opacity]'),
     range = page.locator('input[type="range"][data-grid-opacity]'),
