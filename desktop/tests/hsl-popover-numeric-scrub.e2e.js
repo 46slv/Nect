@@ -136,6 +136,10 @@ try {
   await page.mouse.up();
   assert.equal(await documentText(), original, 'pointer cancellation rolls back preview');
   assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await page.locator('[data-action="redo"]').click();
+  assert.deepEqual(await value(), { hex: '#ff5500', alpha: 0.5 }, 'no-ops retain the exact Redo');
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(await documentText(), original);
   await openPicker();
   await channel('h').fill('30');
   await channel('h').click();
@@ -143,6 +147,15 @@ try {
   await begin(3);
   await page.mouse.up();
   assert.equal(await documentText(), original, 'jitter leaves pending typing unauthored');
+  await begin(24);
+  assert.deepEqual(await value(), { hex: '#ff8000', alpha: 0.5 });
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  assert.deepEqual(await value(), { hex: '#ff8000', alpha: 0.5 }, 'cancel retains prior typing');
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(await documentText(), original);
+  await openPicker();
+  await channel('h').fill('30');
   await begin(24);
   assert.deepEqual(
     await value(),
@@ -168,6 +181,14 @@ try {
     await page.locator('[data-action="undo"]').click();
     assert.equal(await documentText(), original);
   }
+  await begin(24, 's');
+  await page.mouse.up();
+  assert.equal(await documentText(), original, 'saturation upper bound is a no-op');
+  await begin(-104, 's');
+  await page.mouse.up();
+  assert.deepEqual(await value(), { hex: '#808080', alpha: 0.5 }, 'saturation reaches zero');
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(await documentText(), original);
   await openPicker();
   await channel('h').dispatchEvent('compositionstart');
   await begin(24);
