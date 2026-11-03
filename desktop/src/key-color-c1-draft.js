@@ -183,13 +183,19 @@ export function createKeyColorC1Draft(
       !valid()
     )
       return;
-    let original, originalHsl, originalHex;
+    let original,
+      originalHsl,
+      originalHex,
+      originalChannels,
+      previewChanged = false;
     const restore = () => {
+      if (!previewChanged) return;
+      previewChanged = false;
       if (!channel) return setAlpha(original);
       hsl = { ...originalHsl };
       field('hex').value = originalHex;
-      input.value = original;
-      paint(input);
+      paint();
+      for (const [name, raw] of Object.entries(originalChannels)) field(`hsl-${name}`).value = raw;
       notifyDraft();
     };
     const behavior = createNumericControlBehavior({
@@ -199,6 +205,9 @@ export function createKeyColorC1Draft(
         original = input.value;
         originalHsl = { ...hsl };
         originalHex = field('hex').value;
+        originalChannels = Object.fromEntries(
+          ['h', 's', 'l'].map((name) => [name, field(`hsl-${name}`).value]),
+        );
         return [channel ? hsl[channel] : Number(original)];
       },
       step: () => (channel ? 1 : 0.01),
@@ -212,10 +221,13 @@ export function createKeyColorC1Draft(
       begin() {},
       preview: ([next]) => {
         if (next === (channel ? originalHsl[channel] : Number(original))) return restore();
+        previewChanged = true;
         if (!channel) return setAlpha(String(next));
         hsl = { ...originalHsl, [channel]: next };
         input.value = String(next);
         writeHsl(input);
+        for (const [name, raw] of Object.entries(originalChannels))
+          if (name !== channel) field(`hsl-${name}`).value = raw;
         notifyDraft();
       },
       commit() {},

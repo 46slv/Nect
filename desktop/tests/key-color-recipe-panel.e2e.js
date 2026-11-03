@@ -124,6 +124,54 @@ try {
     hueBox = await hueInput.boundingBox(),
     hueX = hueBox.x + 12,
     hueY = hueBox.y + hueBox.height / 2;
+  const preciseSibling = '0.12345678901234566';
+  await field('hsl-s').fill(preciseSibling);
+  await preview();
+  assert.equal(await page.locator('[data-key-color-apply]').isEnabled(), true);
+  await page.mouse.move(hueX, hueY);
+  await page.mouse.down();
+  await page.mouse.move(hueX + 4, hueY);
+  await page.mouse.up();
+  assert.equal(
+    await field('hsl-s').inputValue(),
+    preciseSibling,
+    'threshold no-op preserves sibling',
+  );
+  assert.equal(
+    await page.locator('[data-key-color-apply]').isEnabled(),
+    true,
+    'no-op keeps Preview',
+  );
+  await page.mouse.move(hueX, hueY);
+  await page.mouse.down();
+  await page.mouse.move(hueX + 24, hueY, { steps: 6 });
+  assert.equal(
+    await field('hsl-s').inputValue(),
+    preciseSibling,
+    'changed hue keeps sibling precision',
+  );
+  await hueInput.dispatchEvent('pointercancel', { pointerId: 1, bubbles: true });
+  await page.mouse.up();
+  assert.equal(
+    await field('hsl-s').inputValue(),
+    preciseSibling,
+    'cancel restores sibling precision',
+  );
+  await preview();
+  const thresholdAlpha = field('alpha'),
+    thresholdBox = await thresholdAlpha.boundingBox(),
+    thresholdX = thresholdBox.x + 12,
+    thresholdY = thresholdBox.y + thresholdBox.height / 2;
+  await page.mouse.move(thresholdX, thresholdY);
+  await page.mouse.down();
+  await page.mouse.move(thresholdX + 4, thresholdY);
+  await page.mouse.up();
+  assert.equal(
+    await page.locator('[data-key-color-apply]').isEnabled(),
+    true,
+    'alpha no-op keeps Preview',
+  );
+  await field('hsl-s').fill('50');
   const originHex = await field('hex').inputValue();
   await page.mouse.move(hueX, hueY);
   await page.mouse.down();
