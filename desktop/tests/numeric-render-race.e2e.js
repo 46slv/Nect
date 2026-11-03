@@ -139,9 +139,19 @@ try {
   );
   assert.equal(await field('height').inputValue(), '135');
   await fs.mkdir('test-results', { recursive: true });
-  await edit('height', '');
+  await field('height').fill('');
+  const rejectedHeight = await field('height').elementHandle();
+  assert.equal(
+    await rejectedHeight.evaluate((el) => el === document.activeElement && el.value === ''),
+    true,
+  );
+  await rejectedHeight.press('Tab');
   assert.equal(await field('height').inputValue(), '135');
   assert.equal(await snapshot(), committed);
+  // Let the rejected edit's existing render finish before holding the next one.
+  // Otherwise scheduleRender reuses that reservation, outside the next capture.
+  await page.waitForFunction((el) => !el.isConnected, rejectedHeight);
+  await rejectedHeight.dispose();
   // Tab into the adjacent numeric component is navigation, not an unfinished
   // draft. The prior edit must render, and native Tab select-all must survive.
   const position = (axis) =>
@@ -168,6 +178,55 @@ try {
   await page.locator('[data-action="undo"]').click();
   assert.equal(await snapshot(), committed);
   await tabTarget.dispose();
+  // Exercise both predecessor-delivery orders deterministically. A handle from
+  // before fill may already be detached; the actual filled draft stays protected.
+  for (const delivery of ['before-fill', 'after-fill']) {
+    await select();
+    await holdRender();
+    const priorHeight = await field('height').elementHandle();
+    await edit('height', 0);
+    assert.equal(await snapshot(), committed);
+    if (delivery === 'before-fill') {
+      assert.ok((await page.evaluate(() => window.deliverRender())) > 0);
+      assert.equal(await priorHeight.evaluate((el) => el.isConnected), false);
+    }
+    await field('height').fill('');
+    const filledHeight = await field('height').elementHandle();
+    assert.equal(
+      await filledHeight.evaluate((el) => el === document.activeElement && el.value === ''),
+      true,
+    );
+    if (delivery === 'after-fill') {
+      assert.ok((await page.evaluate(() => window.deliverRender())) > 0);
+      assert.equal(await filledHeight.evaluate((el) => el.isConnected && el.value === ''), true);
+    }
+    await filledHeight.press('Tab');
+    await page.waitForFunction((el) => !el.isConnected, filledHeight);
+    assert.equal(await snapshot(), committed);
+    await holdRender();
+    await position(0).fill('190');
+    await position(0).press('Tab');
+    const nextTarget = await position(1).elementHandle();
+    assert.equal(await nextTarget.evaluate((el) => el === document.activeElement), true);
+    assert.ok((await page.evaluate(() => window.deliverRender())) > 0);
+    assert.equal(await nextTarget.evaluate((el) => el.isConnected), false);
+    await page.keyboard.insertText('240');
+    assert.equal(await position(1).inputValue(), '240');
+    await position(1).press('Tab');
+    assert.deepEqual(
+      await page.evaluate(() => window.nect.document.layers[0].nodes[0].params.position.value),
+      [190, 240],
+    );
+    await page.locator('[data-action="undo"]').click();
+    await page.locator('[data-action="undo"]').click();
+    assert.equal(await snapshot(), committed);
+    await priorHeight.dispose();
+    await filledHeight.dispose();
+    await nextTarget.dispose();
+    console.log(
+      `Predecessor ${delivery}: exact filled control, render, Tab select-all and Undo PASS`,
+    );
+  }
   await page.screenshot({ path: 'test-results/numeric-render-race.png' });
   assert.deepEqual(errors, []);
   console.log(
