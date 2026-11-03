@@ -177,6 +177,71 @@ try {
   assert.equal(await saved(), revisedOpacity);
   assert.deepEqual(await state(), revisedOpacityState);
   results.push({ case: 'Grid opacity stale input/revision', lateCommit: false });
+  await load();
+  const preciseOpacity = 0.12345678901234566;
+  await page.evaluate((value) => {
+    const doc = structuredClone(window.nect.document);
+    doc.editor.gridOpacity = value;
+    window.nect.load(JSON.stringify(doc));
+  }, preciseOpacity);
+  const preciseBefore = await saved();
+  for (const [dx, endpoint] of [
+    [-30, 0],
+    [100, 1],
+  ]) {
+    await openGrid();
+    const h = await state(),
+      p = await start(opacity);
+    await move(p, dx);
+    if (endpoint === 0) await page.screenshot({ path: `${output}/grid-opacity-exact-zero.png` });
+    assert.equal(await opacity.inputValue(), String(endpoint * 100));
+    assert.equal(Number(await range.inputValue()), endpoint * 100);
+    assert.equal(
+      Number(await page.locator('[data-grid-overlay]').getAttribute('opacity')),
+      endpoint,
+    );
+    assert.equal(await saved(), preciseBefore);
+    await page.mouse.up();
+    assert.equal(JSON.parse(await saved()).editor.gridOpacity, endpoint);
+    assert.equal((await state()).expectedRevision, h.expectedRevision + 1);
+    await undo();
+    assert.equal(await saved(), preciseBefore);
+  }
+  const preciseRedo = await state();
+  for (const ending of ['origin', 'Escape', 'jitter']) {
+    await openGrid();
+    const p = await start(opacity);
+    await move(p, ending === 'jitter' ? 3 : -30);
+    if (ending === 'origin') await move(p, 0);
+    if (ending === 'Escape') await page.keyboard.press('Escape');
+    await page.mouse.up();
+    assert.equal(await saved(), preciseBefore);
+    assert.deepEqual(await state(), preciseRedo);
+  }
+  await page.evaluate(() => {
+    const doc = structuredClone(window.nect.document);
+    doc.editor.gridOpacity = 0.010000000000000002;
+    window.nect.load(JSON.stringify(doc));
+  });
+  const tinyBefore = await saved();
+  await openGrid();
+  const tiny = await start(opacity);
+  await move(tiny, -5);
+  assert.ok(
+    Number(await opacity.inputValue()) > 0,
+    'a request inside the bound keeps a small positive value',
+  );
+  await page.mouse.up();
+  assert.ok(JSON.parse(await saved()).editor.gridOpacity > 0);
+  await undo();
+  assert.equal(await saved(), tinyBefore);
+  results.push({
+    case: 'Grid exact endpoints',
+    highPrecisionBaseline: preciseOpacity,
+    exactEnds: true,
+    rawReturnAndCancel: true,
+    smallPositive: true,
+  });
   for (const unit of ['px', 'mm', 'cm']) {
     await load();
     await page.locator('[data-artboard-unit]').selectOption(unit);

@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createNumericControlBehavior } from '../src/numeric-control-behavior.js';
 
-function fixture() {
+function fixture(normalizeValues) {
   const calls = [],
     state = { valid: true, value: 10, fail: false };
   const behavior = createNumericControlBehavior({
+    normalizeValues,
     valid: () => state.valid,
     read: () => [state.value],
     step: () => 1,
@@ -59,6 +60,47 @@ test('a refused preview cannot replace the last accepted owner value', () => {
   f.behavior.move(14);
   f.state.fail = true;
   assert.throws(() => f.behavior.move(24), /domain refused/);
+  assert.equal(f.state.value, 20);
+  assert.equal(f.behavior.finish(), true);
+  assert.deepEqual(f.calls, ['begin', 'preview', 'commit']);
+});
+
+test('normalization receives the raw request and participates in no-op completion', () => {
+  const f = fixture((values, context) => {
+    assert.deepEqual(values, [20]);
+    assert.deepEqual(context, { baseline: [10], bounds: [-100, 100], requestedDelta: 10 });
+    context.baseline[0] = 999; // Request context cannot mutate the owned raw baseline.
+    return [10];
+  });
+  f.behavior.move(14);
+  assert.equal(f.behavior.finish(), false);
+  assert.deepEqual(f.calls, ['begin', 'cancel']);
+  assert.equal(f.state.value, 10);
+});
+
+test('normalized values drive change tracking and raw return-to-origin', () => {
+  const f = fixture((values, { baseline, requestedDelta }) =>
+    requestedDelta === 0 ? baseline : [20],
+  );
+  f.behavior.move(14);
+  f.behavior.move(24);
+  assert.deepEqual(
+    f.calls,
+    ['begin', 'preview'],
+    'equivalent normalized values do not preview again',
+  );
+  f.behavior.move(0);
+  assert.equal(f.behavior.finish(), false);
+  assert.deepEqual(f.calls, ['begin', 'preview', 'preview', 'cancel']);
+  assert.equal(f.state.value, 10);
+});
+
+test('invalid normalization retains the last accepted preview', () => {
+  let invalid;
+  const f = fixture((values) => invalid ?? values);
+  f.behavior.move(14);
+  for (invalid of [[NaN], new Array(1), [], [10, 20]])
+    assert.throws(() => f.behavior.move(24), /Invalid normalized numeric values/);
   assert.equal(f.state.value, 20);
   assert.equal(f.behavior.finish(), true);
   assert.deepEqual(f.calls, ['begin', 'preview', 'commit']);

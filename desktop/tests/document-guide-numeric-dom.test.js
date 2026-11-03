@@ -162,6 +162,8 @@ test('Document and Guide numeric behavior preserves canonical state and ownershi
       const endpointsBefore = saved();
       // Check adapter endpoints separately from the shared kernel's decimal-delta rounding.
       for (const [dx, expected] of [
+        [-29, 0],
+        [79, 1],
         [100004, 1],
         [-100004, 0],
       ]) {
@@ -250,6 +252,58 @@ test('Document and Guide numeric behavior preserves canonical state and ownershi
     sameSaved(revised);
     assert.deepEqual(state(), h);
   });
+  await t.test(
+    'Grid opacity exact endpoints preserve a high precision baseline and small positive values',
+    async () => {
+      const f = await load(true),
+        precise = 0.12345678901234566;
+      f.doc.editor.gridVisible = true;
+      f.doc.editor.gridOpacity = precise;
+      win.nect.load(serialize(f.doc));
+      const before = saved();
+      for (const [dx, endpoint] of [
+        [-30, 0],
+        [100, 1],
+      ]) {
+        const h = state();
+        begin(opacity(), dx);
+        sameSaved(before);
+        assert.equal(opacity().value, String(endpoint * 100));
+        assert.equal($('input[type="range"][data-grid-opacity]').value, String(endpoint * 100));
+        assert.equal(Number($('[data-grid-overlay]').getAttribute('opacity')), endpoint);
+        end(dx);
+        assert.equal(win.nect.document.editor.gridOpacity, endpoint);
+        assert.equal(state().past, h.past + 1);
+        undo();
+        sameSaved(before);
+      }
+      const redo = state();
+      for (const ending of ['origin', 'cancel', 'jitter']) {
+        const input = opacity();
+        begin(input, ending === 'jitter' ? 3 : -30);
+        if (ending === 'origin') fire(document, 'pointermove', 100);
+        if (ending === 'cancel') fire(document, 'pointercancel', 70);
+        end(ending === 'jitter' ? 3 : 0);
+        sameSaved(before);
+        assert.deepEqual(state(), redo);
+      }
+      begin(opacity(), 100);
+      fire(document, 'pointermove', 100);
+      end(0);
+      sameSaved(before);
+      assert.deepEqual(state(), redo);
+      // One negative display step is still inside the domain; no epsilon snapping.
+      f.doc.editor.gridOpacity = 0.010000000000000002;
+      win.nect.load(serialize(f.doc));
+      const tinyBefore = saved();
+      begin(opacity(), -5);
+      assert.ok(Number(opacity().value) > 0);
+      end(-5);
+      assert.ok(win.nect.document.editor.gridOpacity > 0);
+      undo();
+      sameSaved(tinyBefore);
+    },
+  );
   await t.test('px/mm/cm scrub preserves exact baseline and one Undo', async () => {
     for (const name of ['px', 'mm', 'cm']) {
       await load();

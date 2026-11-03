@@ -34,7 +34,24 @@ export function createNumericControlBehavior(binding) {
         values = [...originals];
         phase = 'active';
       }
-      const next = scrubNumericValues(originals, dx, binding.step(), ...binding.bounds());
+      const step = binding.step(),
+        bounds = binding.bounds();
+      let next = scrubNumericValues(originals, dx, step, ...bounds);
+      // Optional adapters normalize request intent before comparison, preview and completion.
+      // This is the existing screen-pixel request, before the kernel bounds/rounding policy.
+      if (binding.normalizeValues) {
+        next = binding.normalizeValues(next, {
+          baseline: [...originals],
+          bounds: [...bounds],
+          requestedDelta: Math.trunc(Math.sign(dx) * Math.max(0, Math.abs(dx) - 4)) * step,
+        });
+        if (
+          !Array.isArray(next) ||
+          next.length !== originals.length ||
+          !Array.from(next).every(Number.isFinite)
+        )
+          throw Error('Invalid normalized numeric values');
+      }
       if (!same(next, values)) {
         binding.preview(next);
         values = next;

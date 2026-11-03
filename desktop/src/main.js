@@ -2509,6 +2509,16 @@ function numericCommandBinding(input) {
   return {
     mode: 'live',
     valid: () => sameTarget() && sameRevision(),
+    ...(opacity
+      ? {
+          normalizeValues(values, { baseline: [baseline], bounds: [min, max], requestedDelta }) {
+            if (requestedDelta === 0) return [baseline];
+            if (requestedDelta <= min - baseline) return [min];
+            if (requestedDelta >= max - baseline) return [max];
+            return values;
+          },
+        }
+      : {}),
     read() {
       originalInput = input.value;
       if (!originalInput.trim() || !Number.isFinite(Number(originalInput)))

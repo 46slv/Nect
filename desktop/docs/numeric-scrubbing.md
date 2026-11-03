@@ -93,10 +93,22 @@ identity and units reject late input. The common pointer handlers, calculation,
 Session/core, schema and validation rules are unchanged. Other P3 surfaces and
 native WebView2/physical IME remain separate work.
 
-The shared kernel's bounded-delta rounding policy is retained. A high-precision
-fraction can leave a tiny positive remainder when scrubbing to the lower bound;
-this slice does not change that existing clipping behavior. Untouched displays,
-no-op/cancellation and return to origin retain the exact original saved fraction.
+The input behavior optionally accepts
+`normalizeValues(values, { baseline, bounds, requestedDelta })`. Its context
+contains copies of the raw display baseline/bounds and the screen-pixel delta
+before kernel bounding/rounding (the existing 4px dead zone and integer motion
+times the binding step). The hook must return a same-length finite array. The
+normalized values participate in equality, preview, value tracking and finish's
+no-op decision. A refused normalization retains the previous accepted preview.
+Bindings without the hook keep the existing calculation and completion path.
+
+Only Grid opacity opts in. A zero request returns the raw display baseline.
+Requests reaching or passing `min - baseline` / `max - baseline` normalize to the
+exact endpoint, so high-precision fractions reach exact 0%/100% and saved 0/1.
+Interior results keep the existing kernel calculation, including legitimate tiny
+positive values. This is request-based normalization, not an epsilon clamp.
+The shared kernel's rounding and mixed-delta policies are unchanged; untouched,
+cancelled and return-to-origin edits retain the exact original saved fraction.
 
 ## Existing character and typography coverage
 

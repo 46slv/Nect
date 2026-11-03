@@ -40,8 +40,15 @@ and Composition ownership. P1/P2a/P2b focused regression and normal CI are requi
 for the exact candidate. Task evidence: `req42-p3-grid-opacity-evidence` beside
 this worktree; original font/user document/application state is not a fixture.
 
+Endpoint repair: parent authorized an optional input-behavior normalization hook.
+Grid alone uses raw requested delta/baseline/bounds to produce exact endpoints;
+the normalized values drive same/preview/tracking/finish. Zero request retains
+the raw baseline and interior small positive values keep kernel results. Kernel,
+Session/history, other binding and mixed-selection policies remain unchanged.
+High-precision lower/upper, cancellation/origin and small-positive tests are added.
+
 Next task: finish focused tests/Chrome, format/build, source-bound receipt;
-commit/push P3a-only changes and open a Draft PR against main. Record exact-head
+commit/push the endpoint repair and update existing Draft PR #169. Record exact-head
 CI terminal results and return to parent review. #168 integration/post-merge CI
 is tracked separately in `req42-p2b-evidence`.
 
