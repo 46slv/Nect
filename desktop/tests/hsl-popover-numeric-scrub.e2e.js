@@ -191,6 +191,58 @@ try {
     await page.locator('[data-action="undo"]').click();
     assert.equal(await documentText(), original, 'second Undo reverses typing');
   }
+  await openPicker();
+  const hexInput = page.locator('.hsl-color-popover [data-hsl-hex]');
+  await hexInput.fill('#00ff00');
+  assert.equal(await documentText(), original, 'HEX typing remains a draft');
+  await begin(24);
+  const hexDocument = await documentText();
+  assert.deepEqual(await value(), { hex: '#00ff00', alpha: 0.5 });
+  assert.equal(await channel('h').inputValue(), '140', 'first drag follows the HEX draft');
+  await page.mouse.up();
+  const draggedDocument = await documentText();
+  assert.notEqual(draggedDocument, hexDocument);
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(await documentText(), hexDocument, 'first Undo reverses the drag');
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(await documentText(), original, 'second Undo reverses the HEX draft');
+  await page.locator('[data-action="redo"]').click();
+  assert.equal(await documentText(), hexDocument, 'first Redo restores the HEX edit');
+  await page.locator('[data-action="redo"]').click();
+  assert.equal(await documentText(), draggedDocument, 'second Redo restores the drag');
+  await page.locator('[data-action="undo"]').click();
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(await documentText(), original);
+  await openPicker();
+  await hexInput.fill('#00ff00');
+  await begin(24);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  assert.equal(await documentText(), hexDocument, 'cancel keeps the committed HEX edit');
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(await documentText(), original);
+  await openPicker();
+  await hexInput.fill('#00ff00');
+  await begin(3);
+  await page.mouse.up();
+  assert.equal(await documentText(), hexDocument, 'jitter only commits the HEX edit');
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(await documentText(), original);
+  await openPicker();
+  await hexInput.dispatchEvent('compositionstart');
+  await begin(24);
+  await page.mouse.up();
+  assert.equal(await documentText(), original, 'HEX composition prevents a scrub');
+  await hexInput.dispatchEvent('compositionend');
+  await openPicker();
+  await hexInput.fill('#abcd');
+  await begin(24);
+  assert.equal(await documentText(), original, 'invalid HEX is not authored');
+  assert.equal(await channel('h').inputValue(), '20', 'drag uses the restored valid color');
+  await page.mouse.up();
+  assert.deepEqual(await value(), { hex: '#ff5500', alpha: 0.5 });
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(await documentText(), original);
   for (const [name, dx, expected] of [
     ['s', -24, '80'],
     ['l', 24, '70'],

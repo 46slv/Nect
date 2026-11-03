@@ -14,7 +14,7 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     committedHex = null,
     pointer = null,
     scrub = null,
-    dirtyNumbers = new WeakSet(),
+    dirtyInputs = new WeakSet(),
     composing = new Set(),
     paintedHue = null,
     trigger = null,
@@ -134,7 +134,7 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     committedHex = color.hex;
     hex = color.hex;
     hsl = hexToHsl(hex);
-    dirtyNumbers = new WeakSet();
+    dirtyInputs = new WeakSet();
     const el = document.createElement('section');
     popover = el;
     el.className = 'hsl-color-popover';
@@ -268,7 +268,8 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
           previous.behavior.cancel();
           event.target.value = value;
         }
-        if (event.target.matches('[data-hsl-number]')) dirtyNumbers.add(event.target);
+        if (event.target.matches('[data-hsl-number], [data-hsl-hex]'))
+          dirtyInputs.add(event.target);
         handleEdit(event.target, false);
       }
     },
@@ -278,17 +279,17 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     'change',
     (event) => {
       if (popover?.contains(event.target)) {
-        // A different number input blurs after the next input's pointerdown.
+        // A different number or HEX input blurs after the next input's pointerdown.
         // Settle its draft without discarding that still-pending gesture.
         if (
           scrub &&
           !scrub.behavior.active &&
           event.target !== scrub.input &&
-          dirtyNumbers.has(event.target) &&
+          dirtyInputs.has(event.target) &&
           scrub.binding.valid()
         ) {
           const current = scrub;
-          dirtyNumbers.delete(event.target);
+          dirtyInputs.delete(event.target);
           handleEdit(event.target, true);
           if (scrub === current) current.syncRevision();
           return;
@@ -300,7 +301,8 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
           previous.behavior.cancel();
           event.target.value = value;
         }
-        if (event.target.matches('[data-hsl-number]')) dirtyNumbers.delete(event.target);
+        if (event.target.matches('[data-hsl-number], [data-hsl-hex]'))
+          dirtyInputs.delete(event.target);
         handleEdit(event.target, true);
       }
     },
@@ -350,8 +352,8 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
           read: () => {
             // A click leaves an uncommitted typing draft alone. Settle it only
             // after the pointer crosses the shared drag threshold.
-            if (dirtyNumbers.has(input)) {
-              dirtyNumbers.delete(input);
+            if (dirtyInputs.has(input)) {
+              dirtyInputs.delete(input);
               handleEdit(input, true);
               if (popover !== owner || target !== ownerTarget) throw Error('Color edit cancelled');
               revision = ownerTarget?.revision;
