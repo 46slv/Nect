@@ -7,6 +7,7 @@ import { blankDocument, blankLayer, node, connect, serialize } from '../src/core
 import { activateCommand } from './command-menu-actions.js';
 import { retainedRecipeFixture } from './helpers/key-color-recipe-fixture.js';
 import { preloadVariableFontDependency } from './helpers/browser-fixture-setup.js';
+import { updateHexHsl } from '../src/hsl-color-picker.js';
 
 // Shared literals and live saturation edits; native dialogs are not covered.
 const output = resolve('test-results/shared-colors-panel');
@@ -554,6 +555,80 @@ try {
       historicalC1: after.keyColorRecipe.committedSnapshot.intent.keyColor.value,
     });
   }
+  const scrubFixture = retainedRecipeFixture();
+  scrubFixture.colorSlots.find((slot) => slot.id === 'key').value = { hex: '#12aBcD', alpha: 0 };
+  await page.evaluate((text) => window.nect.load(text), serialize(scrubFixture));
+  await openAdvanced();
+  const scrubBefore = await snapshot(),
+    scrubState = await page.evaluate(() => window.nect.commandState);
+  const hueInput = () => row('key').locator('[data-shared-color-edit="hsl-h"]');
+  const initialHue = Number(await hueInput().inputValue());
+  const scrubHue = async (action) => {
+    const field = hueInput();
+    await field.evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'center' }));
+    const box = await field.boundingBox(),
+      x = box.x + box.width * 0.4,
+      y = box.y + box.height / 2;
+    assert.equal(
+      await field.evaluate((el, p) => document.elementFromPoint(p.x, p.y) === el, { x, y }),
+      true,
+    );
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 24, y, { steps: 5 });
+    if (action === 'cancel') await page.keyboard.press('Escape');
+    if (action === 'origin') await page.mouse.move(x, y, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForFunction(
+      () => !window.nect.gestureState && !window.nect.colorPreviewSnapshot(),
+    );
+  };
+  await scrubHue('commit');
+  const scrubAfter = await snapshot(),
+    scrubExpected = structuredClone(scrubBefore);
+  scrubExpected.colorSlots.find((slot) => slot.id === 'key').value.hex = updateHexHsl(
+    '#12aBcD',
+    'h',
+    String(initialHue + 20),
+  );
+  assert.deepEqual(
+    scrubAfter,
+    scrubExpected,
+    'scrub preserves alpha0, other values and recipe state',
+  );
+  assert.equal(
+    (await page.evaluate(() => window.nect.commandState)).expectedRevision,
+    scrubState.expectedRevision + 1,
+  );
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), scrubBefore);
+  const afterUndo = await page.evaluate(() => window.nect.commandState);
+  for (const action of ['cancel', 'origin']) {
+    await openAdvanced();
+    await scrubHue(action);
+    assert.deepEqual(await snapshot(), scrubBefore, `${action} preserves exact literal and recipe`);
+    assert.deepEqual(await page.evaluate(() => window.nect.commandState), afterUndo);
+    assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  }
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await snapshot(), scrubAfter);
+  const grayFixture = retainedRecipeFixture();
+  grayFixture.colorSlots.find((slot) => slot.id === 'key').value = { hex: '#AAAAAA', alpha: 0 };
+  await page.evaluate((text) => window.nect.load(text), serialize(grayFixture));
+  await openAdvanced();
+  await change(row('key').locator('[data-shared-color-edit="hex"]'), '#ff0000');
+  await activateCommand(page, 'undo');
+  const grayBefore = await snapshot(),
+    grayState = await page.evaluate(() => window.nect.commandState);
+  await openAdvanced();
+  await scrubHue('commit');
+  assert.deepEqual(
+    await snapshot(),
+    grayBefore,
+    'gray hue scrub preserves the authored HEX literal',
+  );
+  assert.deepEqual(await page.evaluate(() => window.nect.commandState), grayState);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
   assert.deepEqual(errors, []);
   await writeFile(
     resolve(output, 'result.json'),

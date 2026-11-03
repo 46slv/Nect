@@ -6,6 +6,7 @@ import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { node, connect, serialize } from '../src/core.js';
 import { retainedRecipeFixture } from './helpers/key-color-recipe-fixture.js';
 import { preloadVariableFontDependency } from './helpers/browser-fixture-setup.js';
+import { updateHexHsl } from '../src/hsl-color-picker.js';
 
 // Browser evidence for the actual drawer surfaces and existing Session owner.
 // Physical Windows/WebView2 and OS IME acceptance remain separate.
@@ -155,7 +156,102 @@ try {
     (id) => window.nect.document.colorSlots.find((slot) => slot.id === id).value.hex !== '#808080',
     slotId,
   );
-  const sharedBefore = await documentText();
+  let sharedBefore = await documentText();
+  const scrub = shared('h');
+  await scrub.scrollIntoViewIfNeeded();
+  const scrubBox = await scrub.boundingBox(),
+    scrubX = scrubBox.x + scrubBox.width * 0.4,
+    scrubY = scrubBox.y + scrubBox.height / 2;
+  assert.equal(
+    await scrub.evaluate((el, p) => document.elementFromPoint(p.x, p.y) === el, {
+      x: scrubX,
+      y: scrubY,
+    }),
+    true,
+  );
+  await page.mouse.move(scrubX, scrubY);
+  await page.mouse.down();
+  await page.mouse.move(scrubX + 24, scrubY, { steps: 5 });
+  await page.mouse.up();
+  await page.waitForTimeout(100);
+  assert.notEqual(await documentText(), sharedBefore, 'shared HSL drag commits a change');
+  await activateCommand(page, 'undo');
+  assert.deepEqual(JSON.parse(await documentText()), JSON.parse(sharedBefore));
+  sharedBefore = await documentText();
+  const beforeState = await page.evaluate(() => window.nect.commandState);
+  const gesture = async (name, action, dx = 24) => {
+    const input = shared(name);
+    await input.evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'center' }));
+    const box = await input.boundingBox(),
+      x = box.x + box.width * 0.4,
+      y = box.y + box.height / 2;
+    assert.equal(
+      await input.evaluate((el, p) => document.elementFromPoint(p.x, p.y) === el, { x, y }),
+      true,
+    );
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    if (action !== 'click') await page.mouse.move(x + dx, y, { steps: 5 });
+    if (action === 'cancel') await page.keyboard.press('Escape');
+    if (action === 'origin') await page.mouse.move(x, y, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForFunction(
+      () => !window.nect.gestureState && !window.nect.colorPreviewSnapshot(),
+    );
+  };
+  for (const action of ['click', 'cancel', 'origin']) {
+    await gesture('h', action);
+    assert.deepEqual(
+      JSON.parse(await documentText()),
+      JSON.parse(sharedBefore),
+      `${action} preserves color`,
+    );
+    assert.deepEqual(
+      await page.evaluate(() => window.nect.commandState),
+      beforeState,
+      `${action} preserves history`,
+    );
+    assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  }
+  await shared('h').focus();
+  await shared('h').evaluate((el) =>
+    el.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })),
+  );
+  await gesture('h', 'commit');
+  assert.deepEqual(
+    JSON.parse(await documentText()),
+    JSON.parse(sharedBefore),
+    'composition blocks scrub',
+  );
+  assert.deepEqual(await page.evaluate(() => window.nect.commandState), beforeState);
+  await shared('h').evaluate((el) =>
+    el.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true })),
+  );
+  await page.keyboard.press('Escape');
+  for (const [typedChannel, typedValue, scrubChannel, expectedValue] of [
+    ['h', '30', 's', '80'],
+    ['s', '70', 'h', '20'],
+  ]) {
+    const before = JSON.parse(await documentText());
+    const literal = before.colorSlots.find((slot) => slot.id === slotId).value.hex;
+    const typedHex = updateHexHsl(literal, typedChannel, typedValue);
+    await shared(typedChannel).fill(typedValue);
+    await page.waitForFunction(() => window.nect.colorPreviewSnapshot() !== null);
+    await gesture(scrubChannel, 'commit', scrubChannel === 's' ? -24 : 24);
+    const after = JSON.parse(await documentText());
+    assert.equal(
+      after.colorSlots.find((slot) => slot.id === slotId).value.hex,
+      updateHexHsl(typedHex, scrubChannel, expectedValue),
+    );
+    await activateCommand(page, 'undo');
+    assert.equal(
+      JSON.parse(await documentText()).colorSlots.find((slot) => slot.id === slotId).value.hex,
+      typedHex,
+    );
+    await activateCommand(page, 'undo');
+    assert.deepEqual(JSON.parse(await documentText()), before);
+  }
+  sharedBefore = await documentText();
   await shared('h').fill('120');
   await page.waitForFunction(() => window.nect.colorPreviewSnapshot() !== null);
   assert.equal(await documentText(), sharedBefore, 'live HSL preview does not author each input');
