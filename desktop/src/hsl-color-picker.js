@@ -62,7 +62,14 @@ export function updateHexHsl(hex, channel, raw) {
 
 export function renderHslFields(
   hex,
-  { mode = 'parameter', name = 'Color', id = '', disabled = false, base = false } = {},
+  {
+    mode = 'parameter',
+    name = 'Color',
+    id = '',
+    disabled = false,
+    base = false,
+    scrub = false,
+  } = {},
 ) {
   if (!['parameter', 'shared'].includes(mode)) throw Error('Invalid HSL input mode');
   const values = hexToHsl(hex);
@@ -77,7 +84,7 @@ export function renderHslFields(
         ? `data-shared-color-edit="hsl-${channel}" data-shared-color-id="${esc(id)}"`
         : `data-color="hsl-${channel}"${base ? ' data-color-base' : ''}`;
     const rounded = Number(values[channel].toFixed(2));
-    return `<label class="hsl-color-channel">${short}<input type="number" min="0" max="${max}" step="any" value="${rounded}" ${data} aria-label="${label} ${short} (${unit})" ${disabled ? 'disabled' : ''}><span aria-hidden="true">${unit}</span></label>`;
+    return `<label class="hsl-color-channel">${short}<input type="number" min="0" max="${max}" step="any" value="${rounded}" ${data} ${scrub ? 'data-color-scrub-step="1"' : ''} aria-label="${label} ${short} (${unit})" ${disabled ? 'disabled' : ''}><span aria-hidden="true">${unit}</span></label>`;
   });
   return `<div class="hsl-color-fields" role="group" aria-label="${label} HSL">${fields.join('')}</div>`;
 }
