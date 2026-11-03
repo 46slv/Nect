@@ -1450,6 +1450,7 @@ let openRequest = 0,
   pngScale = 1,
   pngExportMode = 'scale',
   pngPpi = 300,
+  pngSettingsRevision = 0,
   selectedSvgExportPreset = null,
   svgExportPresetName = '',
   selectedPngExportPreset = null,
@@ -2293,10 +2294,82 @@ function numericControlTarget(input) {
 // Unmigrated numeric surfaces keep their previous route.
 function numericBehaviorBinding(input) {
   return (
+    pngPpiNumericBinding(input) ||
     textSelectionNumericBinding(input) ||
     numericCommandBinding(input) ||
     pointOrScalarNumericBinding(input)
   );
+}
+function pngPpiNumericBinding(input) {
+  if (input.id !== 'png-ppi') return null;
+  const owner = session,
+    envelope = owner.state,
+    compositionId = owner.activeCompositionId,
+    epoch = sourceEpoch,
+    settingsRevision = pngSettingsRevision,
+    step = input.dataset.scrubStep;
+  let original, originalInput, originalPreset;
+  const ownsSettings = () => settingsRevision === pngSettingsRevision && pngExportMode === 'ppi';
+  return {
+    // Export settings are local UI state; no Session gesture or document Undo.
+    mode: 'staged',
+    valid: () =>
+      ownsSettings() &&
+      owner === session &&
+      owner.state.sessionId === envelope.sessionId &&
+      owner.state.expectedRevision === envelope.expectedRevision &&
+      owner.activeCompositionId === compositionId &&
+      sourceEpoch === epoch &&
+      input === app.querySelector('#png-ppi') &&
+      input.isConnected &&
+      !input.disabled &&
+      !input.readOnly &&
+      input.dataset.scrubStep === step &&
+      !composing &&
+      !owner.hasGesture &&
+      !owner.hasTextComposition &&
+      !document.querySelector('dialog[open]') &&
+      !!input.closest('[data-output-settings]') &&
+      !input.closest('details:not([open])'),
+    read() {
+      original = pngPpi;
+      originalInput = input.value;
+      originalPreset = selectedPngExportPreset;
+      pngDimensions(history.doc, { mode: 'ppi', ppi: original });
+      if (!originalInput.trim() || Number(originalInput) !== original)
+        throw Error('Expected a valid PNG PPI');
+      return [original];
+    },
+    step: () => Number(step),
+    // Positive PPI and document-dependent size limits remain raster.js's authority.
+    bounds: () => [0, Number.MAX_VALUE],
+    begin() {},
+    preview([value]) {
+      pngDimensions(history.doc, { mode: 'ppi', ppi: value });
+      pngPpi = value;
+      clearExportPresetSelection('png');
+      input.value = value === original ? originalInput : String(value);
+      updatePngExportPreview();
+    },
+    commit() {
+      pngSettingsRevision++;
+    },
+    cancel() {
+      // A newer typed value, mode or preset owns its settings; never roll it back.
+      if (!ownsSettings()) return;
+      pngPpi = original;
+      selectedPngExportPreset = originalPreset;
+      const currentInput = app.querySelector('#png-ppi'),
+        preset = app.querySelector('#png-export-preset');
+      if (currentInput) currentInput.value = originalInput;
+      if (preset) preset.value = originalPreset || '';
+      updatePngExportPreview();
+    },
+  };
+}
+function invalidatePngNumericScrub() {
+  if (drag?.capture?.id === 'png-ppi' && drag.behavior) cancelInteraction(false);
+  pngSettingsRevision++;
 }
 function textSelectionNumericBinding(input) {
   const data = input.dataset,
@@ -4503,6 +4576,7 @@ function clearExportPresetSelection(format) {
   }
 }
 function saveCurrentExportPreset(format) {
+  if (format === 'png') invalidatePngNumericScrub();
   const nameInput = app.querySelector('#' + format + '-export-preset-name'),
     settings =
       format === 'svg'
@@ -4529,6 +4603,7 @@ function applySavedExportPreset(format, name) {
   const preset = exportPresets.find((item) => item.format === format && item.name === name);
   if (!preset) throw Error('Saved export preset was not found');
   const settings = applyExportPreset(preset, format);
+  if (format === 'png') invalidatePngNumericScrub();
   if (format === 'svg') {
     svgExportSizing = settings.sizing;
     svgExportUnit = settings.unit;
@@ -9983,8 +10058,11 @@ app.addEventListener('input', (e) => {
     return;
   }
   if (e.target.id === 'png-ppi') {
+    const value = e.target.value;
+    invalidatePngNumericScrub();
+    e.target.value = value;
     clearExportPresetSelection('png');
-    pngPpi = Number(e.target.value);
+    pngPpi = Number(value);
     updatePngExportPreview();
     return;
   }
@@ -10126,6 +10204,7 @@ app.addEventListener('change', async (e) => {
   if (el.id === 'svg-export-preset' || el.id === 'png-export-preset') {
     const format = el.id === 'svg-export-preset' ? 'svg' : 'png';
     if (!el.value) {
+      if (format === 'png') invalidatePngNumericScrub();
       clearExportPresetSelection(format);
       if (format === 'svg') svgExportPresetName = '';
       else pngExportPresetName = '';
@@ -10365,18 +10444,23 @@ app.addEventListener('change', async (e) => {
   }
   if (el.id === 'png-export-mode') {
     if (!['scale', 'ppi'].includes(el.value)) return;
+    invalidatePngNumericScrub();
     clearExportPresetSelection('png');
     pngExportMode = el.value;
     render();
     return;
   }
   if (el.id === 'png-ppi') {
+    const value = el.value;
+    invalidatePngNumericScrub();
+    el.value = value;
     clearExportPresetSelection('png');
-    pngPpi = Number(el.value);
+    pngPpi = Number(value);
     updatePngExportPreview();
     return;
   }
   if (el.id === 'png-scale') {
+    invalidatePngNumericScrub();
     clearExportPresetSelection('png');
     pngScale = Number(el.value);
     render();
