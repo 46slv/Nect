@@ -43,6 +43,7 @@ test('Document and Guide numeric behavior preserves canonical state and ownershi
     '\nwindow.p2History = () => ({past:history.past.length,future:history.future.length,gesture:session.hasGesture});';
   source += '\nwindow.p2Switch = switchActiveComposition;';
   source += '\nwindow.gridOpacityBinding = numericCommandBinding;';
+  source += '\nwindow.layoutDraftSnapshot = () => layoutDraft && structuredClone(layoutDraft);';
   source +=
     '\nfor(let attempt=0; !bundledFont && attempt<500; attempt++) await new Promise(r=>setTimeout(r,10)); if(!bundledFont) throw Error(document.body.textContent.slice(-1000));';
   t.after(() => win.happyDOM.abort());
@@ -121,6 +122,111 @@ test('Document and Guide numeric behavior preserves canonical state and ownershi
     if (!$('input[type="number"][data-grid-opacity]')) activate('grid-panel');
     return $('input[type="number"][data-grid-opacity]');
   };
+  await t.test('Layout Grid scrubs restore an absent draft on cancel and origin', async () => {
+    await load(true);
+    activate('layout-panel');
+    const input = $('[data-layout-field="columns"]'),
+      before = saved(),
+      history = state();
+    const startLayout = (el) => {
+      el.focus();
+      fire(el, 'pointerdown');
+      fire(document, 'pointermove', 124);
+    };
+    assert.equal(win.layoutDraftSnapshot(), null);
+    startLayout(input);
+    assert.notEqual(win.layoutDraftSnapshot(), null);
+    fire(document, 'pointercancel', 124);
+    end();
+    assert.equal(win.layoutDraftSnapshot(), null, 'cancel restores the absent draft');
+    sameSaved(before);
+    assert.deepEqual(state(), history);
+    startLayout($('[data-layout-field="columns"]'));
+    fire(document, 'pointermove', 100);
+    end(0);
+    assert.equal(win.layoutDraftSnapshot(), null, 'return to origin restores the absent draft');
+    sameSaved(before);
+    assert.deepEqual(state(), history);
+  });
+  await t.test('Layout Grid keeps typed drafts, bounds and one-Undo Apply', async () => {
+    await load(true);
+    if (!$('[data-layout-field="columns"]')) activate('layout-panel');
+    const before = saved(),
+      history = state();
+    let input = $('[data-layout-field="columns"]');
+    change(input, '5');
+    input = $('[data-layout-field="columns"]');
+    const typed = win.layoutDraftSnapshot();
+    begin(input, 5);
+    assert.equal(Number(input.value), 6);
+    fire(document, 'pointercancel', 105);
+    end(5);
+    assert.deepEqual(win.layoutDraftSnapshot(), typed, 'cancel preserves the prior typed draft');
+    assert.equal(Number($('[data-layout-field="columns"]').value), 5);
+    sameSaved(before);
+    assert.deepEqual(state(), history);
+    input = $('[data-layout-field="columns"]');
+    input.value = '7';
+    begin(input, 5);
+    fire(document, 'pointercancel', 105);
+    end(5);
+    assert.equal(win.layoutDraftSnapshot().columns, 7, 'pending typing survives cancellation');
+    input = $('[data-layout-field="columns"]');
+    begin(input, 5);
+    input.value = '9';
+    input.dispatchEvent(new win.Event('input', { bubbles: true }));
+    end(5);
+    assert.equal(input.value, '9', 'typing cancels the old drag without losing the new input');
+    change(input, '9');
+    assert.equal(win.layoutDraftSnapshot().columns, 9);
+    input = $('[data-layout-field="columns"]');
+    begin(input, 200);
+    assert.equal(Number(input.value), 40, 'count reaches the existing upper bound');
+    end(200);
+    assert.equal(win.layoutDraftSnapshot().columns, 40);
+    sameSaved(before);
+    change($('[data-layout-field="marginX"]'), '0.12345678901234566');
+    input = $('[data-layout-field="marginX"]');
+    begin(input, -5);
+    assert.equal(Number(input.value), 0, 'precise margin reaches the exact lower bound');
+    end(-5);
+    assert.equal(win.layoutDraftSnapshot().marginX, 0);
+    change($('[data-layout-field="marginX"]'), '40');
+    change($('[data-layout-field="columns"]'), '2');
+    $('[data-layout-apply]').click();
+    assert.equal(win.nect.document.editor.layoutGrid.columns, 2);
+    assert.equal(state().past, history.past + 1);
+    undo();
+    sameSaved(before);
+  });
+  await t.test('Closing Layout Grid cancels an in-flight draft preview', async () => {
+    await load(true);
+    if (!$('[data-layout-field="columns"]')) activate('layout-panel');
+    const before = saved(),
+      history = state();
+    begin($('[data-layout-field="columns"]'), 5);
+    $('[data-action="layout-panel"]').click();
+    end(5);
+    assert.equal(win.layoutDraftSnapshot(), null);
+    sameSaved(before);
+    assert.deepEqual(state(), history);
+  });
+  await t.test('Layout Grid rejects a drag after document replacement', async () => {
+    await load(true);
+    if (!$('[data-layout-field="columns"]')) activate('layout-panel');
+    const input = $('[data-layout-field="columns"]');
+    begin(input, 5);
+    assert.equal(state().gesture, false, 'layout draft never opens a Session gesture');
+    const replacement = compoundFixture([8, 5, 7, 4]);
+    replacement.doc.width = 321;
+    win.nect.load(serialize(replacement.doc));
+    const afterExternal = saved(),
+      history = state();
+    end(5);
+    sameSaved(afterExternal);
+    assert.deepEqual(state(), history);
+    assert.equal(win.layoutDraftSnapshot(), null, 'stale preview is discarded');
+  });
   await t.test('Grid opacity percent scrub shares its preview, peers and one Undo', async () => {
     const f = await load(true);
     f.doc.editor.gridVisible = true;
