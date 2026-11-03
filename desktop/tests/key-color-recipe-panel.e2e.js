@@ -288,6 +288,15 @@ try {
     send(document, 'pointerup', x + 24, 0);
   });
   assert.equal(await grayHue.inputValue(), composingHue, 'sibling composition blocks HSL scrub');
+  await page.mouse.move(grayX, grayY);
+  await page.mouse.down();
+  await page.mouse.move(grayX + 24, grayY, { steps: 6 });
+  await page.mouse.up();
+  assert.equal(
+    await grayHue.inputValue(),
+    composingHue,
+    'sibling composition preserves native input',
+  );
   await field('deltaL').dispatchEvent('compositionend');
   const graySat = field('hsl-s'),
     graySatBox = await graySat.boundingBox(),

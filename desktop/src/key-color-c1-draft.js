@@ -2,7 +2,11 @@ import { hexToHsl, hslToHex } from './hsl-color-picker.js';
 import { createNumericControlBehavior } from './numeric-control-behavior.js';
 
 // Local input only. The recipe panel owns Preview/Apply and the Session envelope.
-export function createKeyColorC1Draft(host, value, { valid = () => true } = {}) {
+export function createKeyColorC1Draft(
+  host,
+  value,
+  { valid = () => true, blocked = () => false } = {},
+) {
   const document = host.ownerDocument;
   const field = (kind) => host.querySelector(`[data-key-color-input="${kind}"]`);
   let hsl = hexToHsl(value.hex),
@@ -161,7 +165,11 @@ export function createKeyColorC1Draft(host, value, { valid = () => true } = {}) 
       kind = input?.dataset.keyColorInput,
       channel = kind?.startsWith('hsl-') ? kind.slice(4) : null;
     if (input !== alpha && !['h', 's', 'l'].includes(channel)) return;
-    if (scrub || event.button !== 0 || event.isPrimary === false || composing.size) return;
+    if (scrub || event.button !== 0 || event.isPrimary === false) return;
+    if (composing.size || blocked()) {
+      event.preventDefault();
+      return;
+    }
     const rect = input.getBoundingClientRect(),
       number = Number(input.value),
       max = channel ? (channel === 'h' ? 360 : 100) : 1;
