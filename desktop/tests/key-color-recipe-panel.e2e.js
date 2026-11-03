@@ -94,6 +94,52 @@ try {
     await page.mouse.move(x + dx, y, { steps: 6 });
     return { x, y };
   };
+  const alphaBox = await c1Alpha.boundingBox(),
+    hostBox = await page.locator('[data-key-color-c1]').boundingBox(),
+    outsideX = Math.max(1, hostBox.x - 15),
+    alphaY = alphaBox.y + alphaBox.height / 2;
+  await page.mouse.move(alphaBox.x + 12, alphaY);
+  await page.mouse.down();
+  await page.mouse.move(outsideX, alphaY);
+  await page.mouse.up();
+  await page.mouse.move(alphaBox.x + 40, alphaY);
+  await page.mouse.down();
+  await page.mouse.move(alphaBox.x + 43, alphaY);
+  await page.mouse.up();
+  assert.equal(await c1Alpha.inputValue(), '0', 'release outside host clears the pending gesture');
+  await unchanged(before, beforeState);
+  await c1Alpha.evaluate((el) => {
+    const send = (target, type, x, buttons) =>
+      target.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          pointerId: 42,
+          isPrimary: true,
+          button: 0,
+          buttons,
+          clientX: x,
+        }),
+      );
+    const x = el.getBoundingClientRect().left + 12;
+    send(el, 'pointerdown', x, 1);
+    send(document.body, 'pointermove', x - 100, 1);
+    send(document.body, 'pointerup', x - 100, 0);
+    send(el, 'pointermove', x + 80, 0);
+  });
+  assert.equal(await c1Alpha.inputValue(), '0', 'outside release does not leave a pending scrub');
+  await unchanged(before, beforeState);
+  await alphaStart();
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await page.mouse.up();
+  assert.equal(await c1Alpha.inputValue(), '0', 'window blur cancels the active preview');
+  await unchanged(before, beforeState);
+  await alphaStart();
+  await page.locator('dialog footer [data-key-color-cancel]').evaluate((button) => button.click());
+  await page.mouse.up();
+  await unchanged(before, beforeState);
+  await open();
+  assert.equal(await c1Alpha.inputValue(), '0', 'closing during a drag discards its listeners');
+  await preview();
   await alphaStart(3);
   await page.mouse.up();
   assert.equal(await c1Alpha.inputValue(), '0');

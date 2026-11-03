@@ -91,10 +91,8 @@ export function createKeyColorC1Draft(host, value, { valid = () => true } = {}) 
   }
   host.addEventListener('input', (event) => {
     if (scrub && !internalInput) {
-      const raw = event.target.value,
-        previous = scrub;
-      scrub = null;
-      previous.behavior.cancel();
+      const raw = event.target.value;
+      finishScrub();
       event.target.value = raw;
     }
     edit(event.target);
@@ -102,9 +100,7 @@ export function createKeyColorC1Draft(host, value, { valid = () => true } = {}) 
   host.addEventListener('change', (event) => edit(event.target));
   host.addEventListener('compositionstart', (event) => {
     if (scrub) {
-      const previous = scrub;
-      scrub = null;
-      previous.behavior.cancel();
+      finishScrub();
     }
     composing.add(event.target);
   });
@@ -122,6 +118,36 @@ export function createKeyColorC1Draft(host, value, { valid = () => true } = {}) 
       internalInput = false;
     }
   };
+  function finishScrub(commit = false) {
+    if (!scrub) return;
+    const previous = scrub;
+    scrub = null;
+    document.removeEventListener('pointermove', onScrubMove, true);
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
+      document.removeEventListener(type, onScrubEnd, true);
+    document.defaultView?.removeEventListener('blur', onWindowBlur);
+    if (commit) previous.behavior.finish();
+    else previous.behavior.cancel();
+  }
+  function onWindowBlur() {
+    finishScrub();
+  }
+  function onScrubMove(event) {
+    if (!scrub || event.pointerId !== scrub.id) return;
+    const current = scrub,
+      result = current.behavior.move(event.clientX - current.x);
+    if (result.cancelled) finishScrub();
+    else if (current.behavior.active) {
+      event.preventDefault();
+      try {
+        alpha.setPointerCapture(event.pointerId);
+      } catch {}
+    }
+  }
+  function onScrubEnd(event) {
+    if (!scrub || event.pointerId !== scrub.id) return;
+    finishScrub(event.type === 'pointerup');
+  }
   alpha.addEventListener('pointerdown', (event) => {
     if (scrub || event.button !== 0 || event.isPrimary === false || composing.size) return;
     const rect = alpha.getBoundingClientRect(),
@@ -157,36 +183,17 @@ export function createKeyColorC1Draft(host, value, { valid = () => true } = {}) 
       cancel: () => setAlpha(original),
     });
     scrub = { behavior, id: event.pointerId, x: event.clientX };
+    document.addEventListener('pointermove', onScrubMove, true);
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
+      document.addEventListener(type, onScrubEnd, true);
+    document.defaultView?.addEventListener('blur', onWindowBlur);
   });
   alpha.addEventListener('dragstart', (event) => {
     if (scrub) event.preventDefault();
   });
   alpha.addEventListener('blur', () => {
-    if (!scrub) return;
-    const previous = scrub;
-    scrub = null;
-    previous.behavior.cancel();
+    finishScrub();
   });
-  host.addEventListener('pointermove', (event) => {
-    if (!scrub || event.pointerId !== scrub.id) return;
-    const current = scrub,
-      result = current.behavior.move(event.clientX - current.x);
-    if (result.cancelled) scrub = null;
-    else if (current.behavior.active) {
-      event.preventDefault();
-      try {
-        alpha.setPointerCapture(event.pointerId);
-      } catch {}
-    }
-  });
-  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
-    host.addEventListener(type, (event) => {
-      if (!scrub || event.pointerId !== scrub.id) return;
-      const current = scrub;
-      scrub = null;
-      if (type === 'pointerup') current.behavior.finish();
-      else current.behavior.cancel();
-    });
   function fromPlane(event) {
     if (
       composing.size ||
@@ -219,4 +226,5 @@ export function createKeyColorC1Draft(host, value, { valid = () => true } = {}) 
       pointer = null;
     });
   paint();
+  return { dispose: () => finishScrub() };
 }
