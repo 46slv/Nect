@@ -1,4 +1,5 @@
 import { hexToHsl, hslToHex } from './hsl-color-picker.js';
+import { createNumericControlBehavior } from './numeric-control-behavior.js';
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const sameHex = (a, b) => a.toLowerCase() === b.toLowerCase();
@@ -12,6 +13,9 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     hex = null,
     committedHex = null,
     pointer = null,
+    scrub = null,
+    dirtyNumbers = new WeakSet(),
+    composing = new Set(),
     paintedHue = null,
     trigger = null,
     triggerSurface = null;
@@ -91,6 +95,9 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     const oldTrigger = trigger,
       oldTarget = target,
       oldSurface = triggerSurface;
+    if (scrub) scrub.behavior.cancel();
+    scrub = null;
+    composing.clear();
     pointer = null;
     popover?.remove();
     popover = null;
@@ -127,6 +134,7 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     committedHex = color.hex;
     hex = color.hex;
     hsl = hexToHsl(hex);
+    dirtyNumbers = new WeakSet();
     const el = document.createElement('section');
     popover = el;
     el.className = 'hsl-color-popover';
@@ -211,7 +219,7 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     (event) => {
       // Pointer capture does not imply keyboard focus: the nonfocusable plane
       // can be dragged with BODY focused. Escape still owns that pending edit.
-      if (!popover || (!pointer && !popover.contains(event.target))) return;
+      if (!popover || (!pointer && !scrub && !popover.contains(event.target))) return;
       event.stopImmediatePropagation();
       if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) {
         event.preventDefault();
@@ -226,18 +234,60 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
   });
   document.addEventListener('resize', () => close(), true);
   document.defaultView?.addEventListener('resize', () => close());
+  document.addEventListener(
+    'dragstart',
+    (event) => {
+      if (scrub?.input === event.target) event.preventDefault();
+    },
+    true,
+  );
+
+  document.addEventListener(
+    'compositionstart',
+    (event) => {
+      if (!popover?.contains(event.target)) return;
+      if (scrub) {
+        const previous = scrub;
+        scrub = null;
+        previous.behavior.cancel();
+      }
+      composing.add(event.target);
+    },
+    true,
+  );
+  document.addEventListener('compositionend', (event) => composing.delete(event.target), true);
 
   document.addEventListener(
     'input',
     (event) => {
-      if (popover?.contains(event.target)) handleEdit(event.target, false);
+      if (popover?.contains(event.target)) {
+        if (scrub) {
+          const value = event.target.value;
+          const previous = scrub;
+          scrub = null;
+          previous.behavior.cancel();
+          event.target.value = value;
+        }
+        if (event.target.matches('[data-hsl-number]')) dirtyNumbers.add(event.target);
+        handleEdit(event.target, false);
+      }
     },
     true,
   );
   document.addEventListener(
     'change',
     (event) => {
-      if (popover?.contains(event.target)) handleEdit(event.target, true);
+      if (popover?.contains(event.target)) {
+        if (scrub) {
+          const value = event.target.value;
+          const previous = scrub;
+          scrub = null;
+          previous.behavior.cancel();
+          event.target.value = value;
+        }
+        if (event.target.matches('[data-hsl-number]')) dirtyNumbers.delete(event.target);
+        handleEdit(event.target, true);
+      }
     },
     true,
   );
@@ -252,6 +302,72 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
   document.addEventListener(
     'pointerdown',
     (event) => {
+      if (scrub || pointer) return;
+      const input = event.target.closest?.('[data-hsl-number]');
+      if (
+        popover?.contains(input) &&
+        event.button === 0 &&
+        event.isPrimary !== false &&
+        !composing.size
+      ) {
+        const rect = input.getBoundingClientRect();
+        if (rect.width && event.clientX >= rect.right - 18) return;
+        if (!input.value.trim() || !Number.isFinite(Number(input.value))) return;
+        const channel = input.dataset.hslNumber,
+          max = channel === 'h' ? 360 : 100;
+        if (Number(input.value) < 0 || Number(input.value) > max) return;
+        const owner = popover,
+          ownerTarget = target,
+          session = target?.session,
+          composition = session?.activeCompositionId;
+        let before,
+          revision = target?.revision;
+        const binding = {
+          valid: () =>
+            popover === owner &&
+            target === ownerTarget &&
+            input.isConnected &&
+            !composing.size &&
+            (!session ||
+              (session.state.sessionId === ownerTarget.sessionId &&
+                session.state.expectedRevision === revision &&
+                session.activeCompositionId === composition)),
+          read: () => {
+            // A click leaves an uncommitted typing draft alone. Settle it only
+            // after the pointer crosses the shared drag threshold.
+            if (dirtyNumbers.has(input)) {
+              dirtyNumbers.delete(input);
+              handleEdit(input, true);
+              if (popover !== owner || target !== ownerTarget) throw Error('Color edit cancelled');
+              revision = ownerTarget?.revision;
+            }
+            before = { hsl: { ...hsl }, hex };
+            return [hsl[channel]];
+          },
+          step: () => 1,
+          bounds: () => [0, max],
+          begin() {},
+          preview: ([value]) => {
+            if (value === before.hsl[channel]) {
+              hsl = { ...before.hsl };
+              hex = before.hex;
+              paint();
+            } else setHsl({ ...before.hsl, [channel]: value });
+          },
+          commit,
+          cancel: () => {
+            if (popover === owner && target === ownerTarget) {
+              hsl = { ...before.hsl };
+              hex = before.hex;
+              paint();
+            }
+          },
+        };
+        const behavior = createNumericControlBehavior(binding);
+        scrub = { input, id: event.pointerId, x: event.clientX, behavior, binding };
+        event.stopImmediatePropagation();
+        return;
+      }
       if (
         !popover ||
         event.target !== popover.querySelector('[data-hsl-plane]') ||
@@ -272,6 +388,29 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
   document.addEventListener(
     'pointermove',
     (event) => {
+      if (scrub && event.pointerId === scrub.id) {
+        const current = scrub;
+        try {
+          const result = current.behavior.move(event.clientX - current.x);
+          if (result.cancelled) {
+            scrub = null;
+            close();
+            return;
+          }
+          if (current.behavior.active) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            try {
+              current.input.setPointerCapture?.(event.pointerId);
+            } catch {}
+          }
+        } catch (error) {
+          current.behavior.cancel();
+          scrub = null;
+          onError(error);
+        }
+        return;
+      }
       if (!pointer || event.pointerId !== pointer.id || !popover) return;
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -283,6 +422,17 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     document.addEventListener(
       type,
       (event) => {
+        if (scrub && event.pointerId === scrub.id) {
+          const current = scrub;
+          scrub = null;
+          if (type === 'pointerup' && !current.binding.valid()) {
+            current.behavior.cancel();
+            close();
+          } else if (type === 'pointerup') current.behavior.finish();
+          else current.behavior.cancel();
+          event.stopImmediatePropagation();
+          return;
+        }
         if (!pointer || event.pointerId !== pointer.id) return;
         event.stopImmediatePropagation();
         pointer = null;
