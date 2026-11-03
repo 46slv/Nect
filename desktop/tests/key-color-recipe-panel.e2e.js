@@ -81,6 +81,146 @@ try {
   assert.equal(await field('alpha').inputValue(), '0');
   assert.equal(await page.locator('[data-key-color-dormant] input').count(), 0);
   assert.equal(await page.locator('dialog details input,dialog details select').count(), 0);
+  const delta = field('deltaL');
+  await delta.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  const deltaBefore = Number(await delta.inputValue()),
+    deltaBox = await delta.boundingBox(),
+    deltaX = deltaBox.x + deltaBox.width * 0.4,
+    deltaY = deltaBox.y + deltaBox.height / 2;
+  assert.equal(
+    await delta.evaluate((el, p) => document.elementFromPoint(p.x, p.y) === el, {
+      x: deltaX,
+      y: deltaY,
+    }),
+    true,
+  );
+  await page.mouse.move(deltaX, deltaY);
+  await page.mouse.down();
+  await page.mouse.move(deltaX + 24, deltaY, { steps: 5 });
+  assert.ok(
+    Math.abs(Number(await delta.inputValue()) - (deltaBefore + 0.2)) < 1e-12,
+    'delta drag changes the draft',
+  );
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  assert.equal(Number(await delta.inputValue()), deltaBefore);
+  await unchanged(before, beforeState);
+  await preview();
+  assert.equal(await page.locator('[data-key-color-apply]').isEnabled(), true);
+  await delta.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  const dragDelta = async (input, dx, finish = 'commit') => {
+    await input.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    const box = await input.boundingBox(),
+      x = box.x + box.width * 0.4,
+      y = box.y + box.height / 2;
+    assert.equal(
+      await input.evaluate((el, p) => document.elementFromPoint(p.x, p.y) === el, { x, y }),
+      true,
+    );
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + dx, y, { steps: 5 });
+    if (finish === 'origin') await page.mouse.move(x, y, { steps: 5 });
+    if (finish === 'cancel') await page.keyboard.press('Escape');
+    await page.mouse.up();
+  };
+  await dragDelta(delta, 4);
+  assert.equal(
+    await page.locator('[data-key-color-apply]').isEnabled(),
+    true,
+    'no-op retains Preview',
+  );
+  await dragDelta(delta, 24, 'origin');
+  assert.equal(Number(await delta.inputValue()), deltaBefore);
+  assert.equal(
+    await page.locator('[data-key-color-apply]').isDisabled(),
+    true,
+    'old Preview stays invalidated',
+  );
+  await field('deltaL').fill('-2.1234567890123457');
+  await field('deltaRatioCmax').fill('3.375');
+  await dragDelta(field('deltaRatioCmax'), 24, 'cancel');
+  assert.equal(await field('deltaRatioCmax').inputValue(), '3.375');
+  assert.equal(await field('deltaL').inputValue(), '-2.1234567890123457');
+  assert.equal(await page.locator('dialog[data-key-color-recipe-panel]').count(), 1);
+  await field('deltaL').dispatchEvent('compositionstart');
+  await dragDelta(field('deltaRatioCmax'), 24);
+  assert.equal(
+    await field('deltaRatioCmax').inputValue(),
+    '3.375',
+    'composition blocks sibling drag',
+  );
+  await field('deltaL').dispatchEvent('compositionend');
+  await dragDelta(field('deltaRatioCmax'), 24);
+  assert.ok(Math.abs(Number(await field('deltaRatioCmax').inputValue()) - 3.575) < 1e-12);
+  assert.equal(await field('deltaL').inputValue(), '-2.1234567890123457');
+  const simultaneous = await page.evaluate(() => {
+    const a = document.querySelector('[data-key-color-input="deltaL"]');
+    const b = document.querySelector('[data-key-color-input="hsl-h"]');
+    const fire = (target, type, id, dx = 0) => {
+      const box = target.getBoundingClientRect();
+      return target.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          pointerId: id,
+          isPrimary: true,
+          button: 0,
+          clientX: box.left + 5 + dx,
+          clientY: box.top + 5,
+        }),
+      );
+    };
+    const before = [a.value, b.value];
+    fire(a, 'pointerdown', 41);
+    const c1Blocked = !fire(b, 'pointerdown', 42);
+    document.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 41 }));
+    fire(b, 'pointerdown', 43);
+    const deltaBlocked = !fire(a, 'pointerdown', 44);
+    document.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 43 }));
+    return { before, after: [a.value, b.value], c1Blocked, deltaBlocked };
+  });
+  assert.deepEqual(simultaneous.after, simultaneous.before);
+  assert.equal(simultaneous.c1Blocked, true);
+  assert.equal(simultaneous.deltaBlocked, true);
+  await unchanged(before, beforeState);
+  await cancel();
+  await unchanged(before, beforeState);
+  await open();
+  const applyDeltaStart = Number(await field('deltaL').inputValue());
+  await dragDelta(field('deltaL'), 24);
+  assert.ok(Math.abs(Number(await field('deltaL').inputValue()) - (applyDeltaStart + 0.2)) < 1e-12);
+  await unchanged(before, beforeState);
+  await preview();
+  await page.locator('[data-key-color-apply]').click();
+  const deltaApplied = await snapshot();
+  assert.ok(
+    Math.abs(
+      deltaApplied.keyColorRecipe.committedSnapshot.intent.slots[0].deltaL -
+        (applyDeltaStart + 0.2),
+    ) < 1e-12,
+  );
+  assert.deepEqual(
+    deltaApplied.keyColorRecipe.committedSnapshot.intent.keyColor,
+    before.keyColorRecipe.committedSnapshot.intent.keyColor,
+  );
+  assert.equal((await command()).expectedRevision, beforeState.expectedRevision + 1);
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), before);
+  beforeState = await command();
+  await open();
+  for (const [dx, finish] of [
+    [4, 'commit'],
+    [24, 'cancel'],
+    [24, 'origin'],
+  ]) {
+    await dragDelta(field('deltaL'), dx, finish);
+    await unchanged(before, beforeState);
+  }
+  await cancel();
+  await unchanged(before, beforeState);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await open();
   await field('hsl-h').fill('0');
   const typedHex = await field('hex').inputValue(),
     hBox = await field('hsl-h').boundingBox(),

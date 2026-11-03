@@ -281,5 +281,10 @@ export function createKeyColorC1Draft(
       pointer = null;
     });
   paint();
-  return { dispose: () => finishScrub() };
+  return {
+    get active() {
+      return !!scrub || pointer !== null;
+    },
+    dispose: () => finishScrub(),
+  };
 }
