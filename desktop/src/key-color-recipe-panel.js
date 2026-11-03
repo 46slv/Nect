@@ -1,6 +1,7 @@
 import { restoreKeyColorRecipe, editKeyColorRecipe } from './key-color-recipe.js';
 import { prepareKeyColorRecipeApplication } from './key-color-recipe-document.js';
 import { createKeyColorC1Draft } from './key-color-c1-draft.js';
+import { createKeyColorDeltaScrub } from './key-color-delta-scrub.js';
 
 const esc = (value) =>
   String(value).replace(
@@ -20,6 +21,7 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
     base = null,
     preview = null,
     c1Draft = null,
+    deltaScrub = null,
     stale = false,
     applying = false;
   const composing = new Set();
@@ -27,6 +29,8 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
   function close(restoreFocus = true) {
     const oldTrigger = trigger;
     const old = dialog;
+    deltaScrub?.dispose();
+    deltaScrub = null;
     c1Draft?.dispose();
     c1Draft = null;
     dialog = null;
@@ -256,7 +260,7 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
         dialog.querySelector('[data-key-color-c1]'),
         base.intent.keyColor.value,
         {
-          blocked: () => composing.size > 0,
+          blocked: () => composing.size > 0 || !!deltaScrub?.active,
           valid: () => {
             try {
               current();
@@ -267,6 +271,17 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
           },
         },
       );
+      deltaScrub = createKeyColorDeltaScrub(dialog, {
+        blocked: () => composing.size > 0 || !!c1Draft?.active,
+        valid: () => {
+          try {
+            current();
+            return owner.activeCompositionId === compositionId && !composing.size;
+          } catch {
+            return false;
+          }
+        },
+      });
     }
     document.body.append(dialog);
     dialog.addEventListener('input', invalidate);
@@ -313,6 +328,7 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
         !composing.size
       ) {
         event.preventDefault();
+        if (deltaScrub?.cancel()) return;
         close();
       }
     },
