@@ -14,44 +14,46 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-11-02 REQ-42 Document/Guide numeric behavior P2a
+## ACTIVE CHECKPOINT — 2026-11-03 REQ-42 Text mixed numeric behavior P2b
 
-Goal: Connect Document W/H and Guide position/grid spacing/angle to the P1 numeric
-behavior and their existing Session numeric-command owner. Preserve display-unit
-editing, exact canonical snapshots, one-Undo gestures and cancellation/Redo.
+Goal: Connect selected-character offsets, rotation/scale and numeric typography to
+P1/P2a's common input behavior and the existing Session text-values owner. Retain
+mixed differences for scrubbing, absolute typing, sparse/inherited state and Undo.
 Source: [REQ-42 implementation packet](https://app.notion.com/p/40cfd279a6f3811e8438c585e952c71d).
 
-Base: main `6710b55dedb7d9b6ed89ed2d94d3e1ee3acd34cf`, tree
-`f57aea90ae776c73c3c7450ebf153548db0578cd`, the normal merge of P1 PR #166.
-P2a began as a separate branch at P1 and fast-forwarded to its identical merge
-tree without changing P1. Sole writer: `codex/req42-p2a-document-guide-20261102`.
+Base: main `d2119c5dc999991c123d512a3c2d6b5b2dbb44b1`, tree
+`9fd22e7528b130c4e609c9e2a03cd07e1c79b7c8`, the normal merge of P2a PR #167.
+P2b started from the exact P2a candidate and fast-forwarded to the identical
+merged tree. Sole writer: `codex/req42-p2b-text-mixed-20261103`.
 
-Approach: bounded binding resolver, display-unit calculation with conversion at
-the Session boundary; existing numeric domains and core validation. Canonical
-start values never come from rounded display strings. Settle committed controls
-so later blur cannot create an extra rounded dimension edit. Claimed numeric
-gestures suppress native selected-digit drag/drop while click/type remain native.
+Current phase: implementation and focused acceptance. Before the change, DOM and
+actual Chrome reproduce pending width/height percent typing cancelling the scrub:
+the legacy comparison mixes displayed percentages with saved multipliers. The
+binding now compares displayed units and converts only at the Session boundary.
+The common behavior, numeric calculation, Session/core and schema are unchanged.
 
-Current phase: 43 focused unit/DOM checks PASS with zero failures/skips; format
-and build PASS (existing bundle warning). Actual Chrome 156 passes P2a units,
-typing/native arrows, focus, pending typing, no-op/cancel/Redo and stale units;
-P1, graph navigation and Guide Chrome regressions PASS. No physical IME claim.
-P1 integration and post-merge CI passed at main `6710b55`. Initial P2a CI exposed
-missing Grid angle preview context; the existing DOM failure is repaired by
-passing the existing command target with the preview. Actual Chrome also asserts
-Grid angle overlay and Document viewBox. A fresh exact-head CI run is required.
-Next: publish the P2a-only Draft PR and record exact-head CI; return for parent review.
+Proven: actual Chrome mouse/keyboard tests cover pending 125% then relative scrub,
+separate Undo steps, live detached preview, mixed differences, no-op/cancel/Redo,
+stale selection, focus, pinned palette, zoom and JSON/SVG persistence. Targeted
+DOM adds route/source/revision/unit guards; P1/P2a and graph navigation regressions
+are checked separately. Evidence is task-scoped in `req42-p2b-evidence` beside the
+isolated worktree; exact candidate and CI receipt are required before acceptance.
 
-Done for next: px/mm/cm and Guide units, typing/keyboard/focus, pending typing as
-a separate Undo, changed gesture one Undo, exact no-op/cancel/Redo, stale unit,
-Composition/target/revision, deletion and lock guards. Keep P1/#162 regressions.
-Text mixed and its factor-comparison issue remain P2b; full inventory/async is P3.
-No kernel/schema/core-rule changes, Guide mm conversion or native API repair.
-Native WebView2/physical IME remains LOCAL_WAIT, separate from Chrome evidence.
+Next task: finish focused DOM/unit, format/build and source-bound evidence;
+commit/push this P2b-only branch, open a Draft PR against main and wait for its
+exact-head CI. Return to parent for independent review; do not integrate P2b.
 
-Authority: explicit P2a delegation covers implementation/test/non-force push and
-Draft PR. No P2a Ready/merge/release/approval review. P1 integration has separate
-exact-PR user approval. Handoff: CONTINUE_CURRENT_TASK.
+Done for next: changed gesture one Undo, pending typing a separate Undo,
+no-op/return-origin/cancel preserve Redo and sparse authored state; selection,
+route, source, units, Composition and Session revision cannot retarget late input.
+Preserve nonselected text, inheritance and PR #162 selection/focus/pan behavior.
+Kerning, asynchronous fonts, wrap/leading and other remaining surfaces are P3.
+Native WebView2/physical OS IME remains LOCAL_WAIT, separate from actual Chrome.
+
+Authority: explicit P2b delegation permits implementation/test/commit/non-force
+push and Draft PR. No P2b Ready/merge, release, force/history rewrite, approval
+review or authentication/permission changes. P2a integration has separate exact-PR
+user approval. Parent retains Mission ownership. Handoff: CONTINUE_CURRENT_TASK.
 
 ## Prior checkpoint — 2026-11-01 explicit key-color initialization infrastructure
 

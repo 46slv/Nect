@@ -109,6 +109,76 @@ try {
   const undo = () => page.locator('[data-action="undo"]').click();
   const empty = async () =>
     assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
+  for (const key of ['width', 'height']) {
+    await load(true, ['c1', 'c2']);
+    const original = await saved(),
+      input = field(`character-style="${key}"`, '.inspector-body');
+    await input.fill('125');
+    const p = await start(input);
+    await page.mouse.move(p.x + 14, p.y, { steps: 5 });
+    assert.equal(
+      await input.evaluate((el) => el.isConnected && el === document.activeElement),
+      true,
+    );
+    assert.deepEqual(
+      [
+        (await read()).characterPositions.styles.c1[key],
+        (await read()).characterPositions.styles.c2[key],
+      ],
+      [1.25, 1.25],
+    );
+    const preview = await page.evaluate(
+      () => window.nect.previewSnapshot(window.nect.gestureState.gestureId).document,
+    );
+    assert.deepEqual(
+      [
+        preview.layers[0].nodes[0].characterPositions.styles.c1[key],
+        preview.layers[0].nodes[0].characterPositions.styles.c2[key],
+      ],
+      [1.35, 1.35],
+    );
+    if (key === 'width') {
+      await fs.mkdir('test-results', { recursive: true });
+      await page.screenshot({ path: 'test-results/text-mixed-pending-percent-preview.png' });
+    }
+    await page.mouse.up();
+    const styles = (await read()).characterPositions.styles;
+    assert.deepEqual([styles.c1[key], styles.c2[key]], [1.35, 1.35]);
+    await undo();
+    const typed = (await read()).characterPositions.styles;
+    assert.deepEqual([typed.c1[key], typed.c2[key]], [1.25, 1.25]);
+    await undo();
+    assert.equal(await saved(), original);
+    await empty();
+  }
+  await load(true, ['c1', 'c2']);
+  const redoBefore = await saved();
+  await scrub(field('character-transform="scale"'));
+  const redoAfter = await saved();
+  await undo();
+  if (!(await field('character-style="width"', '.inspector-body').isVisible()))
+    await page.locator('[data-character-mode]').click();
+  await page.locator('[data-character-selection]').selectOption(['c1', 'c2']);
+  const redoState = await page.evaluate(() => window.nect.commandState);
+  for (const ending of ['jitter', 'origin', 'Escape']) {
+    const input = field('character-style="width"', '.inspector-body'),
+      p = await start(input);
+    await page.mouse.move(p.x + (ending === 'jitter' ? 3 : 24), p.y, { steps: 4 });
+    if (ending === 'origin') await page.mouse.move(p.x, p.y);
+    if (ending === 'Escape') await page.keyboard.press('Escape');
+    await page.mouse.up();
+    assert.equal(await saved(), redoBefore);
+    assert.deepEqual(await page.evaluate(() => window.nect.commandState), redoState);
+  }
+  const staleInput = field('character-style="width"', '.inspector-body'),
+    stale = await start(staleInput);
+  await page.mouse.move(stale.x + 24, stale.y, { steps: 4 });
+  await page.locator('[data-character-selection]').selectOption(['c3']);
+  await page.mouse.up();
+  assert.equal(await saved(), redoBefore);
+  assert.deepEqual(await page.evaluate(() => window.nect.commandState), redoState);
+  await page.locator('[data-action="redo"]').click();
+  assert.equal(await saved(), redoAfter);
   for (const panel of ['.character-floating', '.inspector-body']) {
     for (const [attribute, key, expected] of [
       ['character-axis="0"', 'axis0', 10],

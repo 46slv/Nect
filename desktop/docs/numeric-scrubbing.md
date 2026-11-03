@@ -51,6 +51,30 @@ only while the shared behavior claims that number field.
 
 P2b Text mixed-selection and P3 remaining/async surfaces are not part of P2a.
 
+## REQ-42 P2b Text mixed-selection binding
+
+Selected-character offsets, rotation, scale, size, width, height, tracking and
+baseline shift now resolve through the same input behavior as P1/P2a. They retain
+the existing Session `text-values` gesture target and its validators. The binding
+captures the exact character IDs, output route, source text, Composition, layer,
+Session revision and control units before admitting a gesture. A change in those
+guards cancels rather than applying late pointer input to another selection.
+
+The calculation uses displayed units. Width and height remain percentages in the
+input, then convert to saved multipliers at the Session update boundary. Pending
+absolute typing is compared with the committed displayed values before capturing
+the scrub baseline. Previously the legacy comparison divided the pending percent
+by 100 while comparing it with displayed percentages, so typing 125% then dragging
+committed 125% but cancelled the relative gesture.
+
+Scrubbing adds a common delta to mixed values; typing sets the same absolute value
+on selected characters. Preview stays detached from document/history, a changed
+gesture is one Undo, and pending typing is a separate Undo. Cancel/no-op/return to
+origin keep Redo, sparse records and inherited values. No calculation kernel,
+Session command, schema, saved UI metadata or typography meaning changes.
+Kerning, font selection/async work, wrap/leading and remaining surfaces keep their
+existing routes for P3. Native WebView2 and physical IME acceptance remain separate.
+
 ## Existing character and typography coverage
 
 The floating character palette's **ΔX**, **ΔY**, **Rotate °** and **Scale ×** inputs now use the same gesture lifecycle as graph/Inspector numeric inputs. Their Inspector copies are supported too. The original defect had two parts: the character inputs lacked the scrub opt-in, and the generic pointer handler assumed every opted-in input was a graph parameter inside a `.field[data-node]` wrapper. The floating palette has no such wrapper. Explicit Text/character target resolution now connects the real number inputs to model previews and the existing document transaction.

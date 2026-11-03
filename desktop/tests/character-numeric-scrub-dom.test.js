@@ -11,9 +11,12 @@ import {
   setCharacterTransforms,
   setCharacterStyles,
 } from '../src/core.js';
+import { createNumericControlBehavior } from '../src/numeric-control-behavior.js';
+import { migrateLegacyDocumentToCompositionProject } from '../src/composition-project-model.js';
 
-test('actual character palette and typography inputs scrub atomically, preserve mixed differences and cancel safely', async () => {
+test('actual character palette and typography inputs scrub atomically, preserve mixed differences and cancel safely', async (ctx) => {
   const win = new Window({ url: 'http://localhost:5173' });
+  ctx.after(() => win.happyDOM.abort());
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement', 'DOMPoint', 'requestAnimationFrame'])
     globalThis[key] = key === 'requestAnimationFrame' ? () => 0 : win[key];
@@ -42,6 +45,10 @@ test('actual character palette and typography inputs scrub atomically, preserve 
       /from '(\.\/[^']+)'/g,
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
+  source +=
+    '\nwindow.textNumericHistory = () => ({...session.state,past:history.past.length,future:history.future.length,gesture:session.hasGesture});';
+  source += '\nwindow.textBindingForTest = input => textSelectionNumericBinding(input);';
+  source += '\nwindow.textSwitchForTest = switchActiveComposition;';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const tick = () => new Promise((r) => setTimeout(r, 15));
   for (let i = 0; i < 300 && (!win.nect || win.nect.evaluate().error); i++) await tick();
@@ -115,6 +122,139 @@ test('actual character palette and typography inputs scrub atomically, preserve 
     if (key.startsWith('axis')) return glyph.offset[Number(key.at(-1))];
     return glyph[key];
   };
+
+  // A pending absolute percent edit must settle before the relative scrub snapshot.
+  await load(
+    (n) => {
+      n.characterPositions = setCharacterStyles(n.text, undefined, {
+        c1: { width: 0.8 },
+        c2: { width: 1.2 },
+      });
+    },
+    ['c1', 'c2'],
+  );
+  const pendingWidth = field('character-style="width"', '.inspector-body');
+  pendingWidth.value = '125';
+  pendingWidth.dispatchEvent(new win.Event('input', { bubbles: true }));
+  scrub(pendingWidth);
+  assert.deepEqual(
+    ['c1', 'c2'].map((id) => read().characterPositions.styles[id].width),
+    [1.35, 1.35],
+  );
+  undo();
+  assert.deepEqual(
+    ['c1', 'c2'].map((id) => read().characterPositions.styles[id].width),
+    [1.25, 1.25],
+  );
+  undo();
+  assert.deepEqual(
+    ['c1', 'c2'].map((id) => read().characterPositions.styles[id].width),
+    [0.8, 1.2],
+  );
+  empty();
+
+  // Cancel/no-op/stale callbacks retain an already queued Redo entry.
+  for (const [attribute, panel] of [
+    ['character-axis="0"', '.character-floating'],
+    ['character-transform="scale"', '.character-floating'],
+    ['character-style="width"', '.inspector-body'],
+  ]) {
+    await load(undefined, ['c1', 'c2']);
+    scrub(field(attribute, panel));
+    undo();
+    if (!field(attribute, panel)) mode(['c1', 'c2']);
+    const before = saved(),
+      history = win.textNumericHistory();
+    assert.equal(history.future, 1);
+    for (const ending of ['jitter', 'origin', 'Escape', 'pointercancel']) {
+      const input = field(attribute, panel);
+      start(input);
+      pointer(document, 'pointermove', ending === 'jitter' ? 103 : 124);
+      if (ending === 'origin') pointer(document, 'pointermove', 100);
+      if (ending === 'Escape') keyboard(input, 'Escape');
+      if (ending === 'pointercancel') pointer(document, 'pointercancel', 124);
+      pointer(document, 'pointerup', ending === 'jitter' ? 103 : 100);
+      assert.equal(saved(), before);
+      assert.deepEqual(win.textNumericHistory(), history);
+    }
+    let input = field(attribute, panel);
+    start(input);
+    pointer(document, 'pointermove', 124);
+    select(['c3']);
+    pointer(document, 'pointerup', 124);
+    assert.equal(saved(), before);
+    assert.deepEqual(win.textNumericHistory(), history);
+  }
+  await load(undefined, ['c1', 'c2']);
+  let guarded = field('character-style="width"', '.inspector-body');
+  const unitBefore = saved();
+  start(guarded);
+  pointer(document, 'pointermove', 124);
+  guarded.dataset.scrubStep = '0.5';
+  pointer(document, 'pointerup', 124);
+  assert.equal(saved(), unitBefore);
+  document.activeElement.blur();
+  await tick();
+  assert.equal(saved(), unitBefore, 'a cancelled preview must not become a typed change on blur');
+  empty();
+  await load(undefined, ['c1', 'c2']);
+  guarded = field('character-style="width"', '.inspector-body');
+  const binding = win.textBindingForTest(guarded),
+    behavior = createNumericControlBehavior(binding);
+  win.nect.dispatch({
+    ...win.nect.commandState,
+    type: 'set-parameter',
+    payload: { layerId: fixture.layers[0].id, nodeId: t.id, key: 'size', value: 41 },
+  });
+  const revised = saved(),
+    revisedHistory = win.textNumericHistory();
+  assert.equal(behavior.move(14).cancelled, true);
+  assert.equal(behavior.finish(), false);
+  assert.equal(saved(), revised);
+  assert.deepEqual(win.textNumericHistory(), revisedHistory);
+  await load(
+    (_n, doc) => {
+      const layer = doc.layers[0],
+        second = node('Transform'),
+        join = node('Join Geometry');
+      layer.nodes.push(second, join);
+      second.params.offset.value = [100, 0];
+      connect(layer, t.id, second.id, 'path');
+      connect(layer, tr.id, join.id, 'a');
+      connect(layer, second.id, join.id, 'b');
+      connect(layer, join.id, out.id, 'path');
+    },
+    ['c1', 'c2'],
+  );
+  let instance = document.querySelector('[data-character-instance]');
+  instance.selectedIndex = 1;
+  instance.dispatchEvent(new win.Event('change', { bubbles: true }));
+  const routeBefore = saved();
+  guarded = field('character-axis="0"');
+  start(guarded);
+  pointer(document, 'pointermove', 124);
+  instance = document.querySelector('[data-character-instance]');
+  const nextRoute = instance.options[2].value;
+  instance.selectedIndex = 2;
+  instance.dispatchEvent(new win.Event('change', { bubbles: true }));
+  pointer(document, 'pointerup', 124);
+  assert.equal(saved(), routeBefore);
+  empty();
+  assert.equal(
+    document.querySelector('[data-character-instance] option[selected]').value,
+    nextRoute,
+  );
+  await load();
+  guarded = field('character-axis="0"');
+  start(guarded);
+  pointer(document, 'pointermove', 124);
+  const replacement = structuredClone(fixture);
+  replacement.layers[0].nodes[0].text = 'ABCD';
+  win.nect.load(JSON.stringify(replacement));
+  const replaced = saved();
+  pointer(document, 'pointerup', 124);
+  assert.equal(saved(), replaced);
+  empty();
 
   // These are the exact four input elements in the user's screenshot, in both locations.
   for (const panel of ['.character-floating', '.inspector-body']) {
@@ -395,5 +535,23 @@ test('actual character palette and typography inputs scrub atomically, preserve 
       empty();
     }
   }
+  // A busy gesture refuses Composition switching; cancelled input cannot revive in another owner.
+  const project = migrateLegacyDocumentToCompositionProject(structuredClone(fixture)),
+    other = migrateLegacyDocumentToCompositionProject(makeDoc());
+  other.compositions[0].id = 'text-numeric-other-composition';
+  project.compositions.push(other.compositions[0]);
+  document.activeElement?.blur();
+  win.nect.load(JSON.stringify(project));
+  mode(['c1', 'c2']);
+  const projectBefore = JSON.stringify(win.nect.projectSnapshot());
+  guarded = field('character-axis="0"');
+  start(guarded);
+  pointer(document, 'pointermove', 124);
+  assert.throws(() => win.textSwitchForTest(other.compositions[0].id), /Finish or cancel/);
+  pointer(document, 'pointercancel', 124);
+  assert.equal(win.textSwitchForTest(other.compositions[0].id), true);
+  pointer(document, 'pointerup', 124);
+  assert.equal(JSON.stringify(win.nect.projectSnapshot()), projectBefore);
+  empty();
   await win.happyDOM.close();
 });
