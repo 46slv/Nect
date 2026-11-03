@@ -14,40 +14,44 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-11-02 REQ-42 numeric behavior P1
+## ACTIVE CHECKPOINT — 2026-11-02 REQ-42 Document/Guide numeric behavior P2a
 
-Goal: Connect ordinary Circle Radius and owned-point Δ staged inputs to a minimal
-shared input behavior, using the existing numeric-scrub calculation and each
-existing Session/draft owner. Source contract: [REQ-42 implementation packet](https://app.notion.com/p/40cfd279a6f3811e8438c585e952c71d).
+Goal: Connect Document W/H and Guide position/grid spacing/angle to the P1 numeric
+behavior and their existing Session numeric-command owner. Preserve display-unit
+editing, exact canonical snapshots, one-Undo gestures and cancellation/Redo.
+Source: [REQ-42 implementation packet](https://app.notion.com/p/40cfd279a6f3811e8438c585e952c71d).
 
-Base: main `c5409d04dcc5b570de7a4d6bd9a96dc7e15cf99a`, tree
-`798f21352825af23a427f1646c66333ccf6ecee3`; the only advance from packet base
-`fc6c13b` is accepted PR #161's graph-background CSS line. Sole implementation
-writer uses `codex/req42-p1-numeric-behavior-20261102` in an isolated worktree.
+Base: main `6710b55dedb7d9b6ed89ed2d94d3e1ee3acd34cf`, tree
+`f57aea90ae776c73c3c7450ebf153548db0578cd`, the normal merge of P1 PR #166.
+P2a began as a separate branch at P1 and fast-forwarded to its identical merge
+tree without changing P1. Sole writer: `codex/req42-p2a-document-guide-20261102`.
 
-Done for this checkpoint: typing/scrub/keyboard/focus and cancellation are checked
-in real DOM and Chrome; changed live gesture one Undo; staged edit document/history
-neutral until Apply, then one Undo; no-op/cancel/stale target preserve authored
-values and Redo. Focused regressions include PR #162 selection/Inspector/pan.
-Record diff, build/format, tests, exact PR/CI and explicit remaining surfaces.
+Approach: bounded binding resolver, display-unit calculation with conversion at
+the Session boundary; existing numeric domains and core validation. Canonical
+start values never come from rounded display strings. Settle committed controls
+so later blur cannot create an extra rounded dimension edit. Claimed numeric
+gestures suppress native selected-digit drag/drop while click/type remain native.
 
-Local candidate evidence: 79 focused unit/DOM checks PASS, zero failure/skip;
-format/build PASS. Actual Chrome verifies live/staged typing, native arrows,
-connected focus, pending typing as a separate Undo, cancellation/no-op/Redo,
-selection/revision refusal, plus existing numeric and PR #162 graph interaction
-acceptance. Exact baseline-source replay is 2 PASS / 6 FAIL (five targeted
-subtests and their parent), confirming the staged gap and stale live selection.
-Publication/CI receipt is pending; no native WebView2/physical IME claim.
+Current phase: 43 focused unit/DOM checks PASS with zero failures/skips; format
+and build PASS (existing bundle warning). Actual Chrome 156 passes P2a units,
+typing/native arrows, focus, pending typing, no-op/cancel/Redo and stale units;
+P1, graph navigation and Guide Chrome regressions PASS. No physical IME claim.
+P1 integration and post-merge CI passed at main `6710b55`. Initial P2a CI exposed
+missing Grid angle preview context; the existing DOM failure is repaired by
+passing the existing command target with the preview. Actual Chrome also asserts
+Grid angle overlay and Document viewBox. A fresh exact-head CI run is required.
+Next: publish the P2a-only Draft PR and record exact-head CI; return for parent review.
 
-Preserve numeric domain validation, source/expression behavior, definitions and
-saved schema. P2 Document/Guide/Text mixed, P3 full inventory/async, native API
-capability repair, zoom policy and other color work are out of scope. Native
-WebView2/physical IME remains a separate LOCAL_WAIT and is not a Chrome claim.
+Done for next: px/mm/cm and Guide units, typing/keyboard/focus, pending typing as
+a separate Undo, changed gesture one Undo, exact no-op/cancel/Redo, stale unit,
+Composition/target/revision, deletion and lock guards. Keep P1/#162 regressions.
+Text mixed and its factor-comparison issue remain P2b; full inventory/async is P3.
+No kernel/schema/core-rule changes, Guide mm conversion or native API repair.
+Native WebView2/physical IME remains LOCAL_WAIT, separate from Chrome evidence.
 
-Authority: Current explicit P1 implementation delegation and user's Nect
-development permission cover edit/test/commit/non-force branch push and Draft PR.
-Return the P1 candidate for parent review; no Ready/merge/release/approval review
-in this checkpoint. PR #161 integration is independently authorized and separate.
+Authority: explicit P2a delegation covers implementation/test/non-force push and
+Draft PR. No P2a Ready/merge/release/approval review. P1 integration has separate
+exact-PR user approval. Handoff: CONTINUE_CURRENT_TASK.
 
 ## Prior checkpoint — 2026-11-01 explicit key-color initialization infrastructure
 

@@ -86,6 +86,7 @@ export const browserTestFiles = Object.freeze([
   'tests/workspace-escape.e2e.js',
   'tests/key-color-recipe-panel.e2e.js',
   'tests/numeric-control-behavior.e2e.js',
+  'tests/document-guide-numeric.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };

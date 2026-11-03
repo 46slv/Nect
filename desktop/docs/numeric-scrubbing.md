@@ -32,6 +32,25 @@ unit conversion and Text mixed selection, and P3 remaining/async surfaces are no
 part of this slice. Chrome acceptance and Windows WebView2/physical IME acceptance
 remain separate evidence.
 
+## REQ-42 P2a Document and Guide bindings
+
+Document width/height and Guide position, grid spacing and grid angle use the
+same input behavior as P1. Their existing Session numeric-command targets retain
+command validation and history ownership. Document scrubbing calculates in the
+selected px/mm/cm display unit; its baseline is the exact saved px value and only
+the calculated delta crosses the unit conversion boundary. Guide fields retain
+their existing document units and angle degrees.
+
+Pending typing is settled as its own edit before the gesture snapshot. A changed
+gesture is one Undo; no-op, return to origin and cancellation preserve authored
+values and Redo. Unit/Composition/session/revision/target changes, disconnected
+controls and Guide deletion/locking cancel rather than retargeting late input.
+Completed dimension controls are settled before blur; an untouched formatted
+display is not a new dimension command. Native selected-text drag/drop is blocked
+only while the shared behavior claims that number field.
+
+P2b Text mixed-selection and P3 remaining/async surfaces are not part of P2a.
+
 ## Existing character and typography coverage
 
 The floating character palette's **ΔX**, **ΔY**, **Rotate °** and **Scale ×** inputs now use the same gesture lifecycle as graph/Inspector numeric inputs. Their Inspector copies are supported too. The original defect had two parts: the character inputs lacked the scrub opt-in, and the generic pointer handler assumed every opted-in input was a graph parameter inside a `.field[data-node]` wrapper. The floating palette has no such wrapper. Explicit Text/character target resolution now connects the real number inputs to model previews and the existing document transaction.
