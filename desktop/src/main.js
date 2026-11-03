@@ -2289,7 +2289,146 @@ function numericControlTarget(input) {
 // Surface adapters retain their existing Session or staged-draft commit authority.
 // Unmigrated numeric surfaces keep their previous route.
 function numericBehaviorBinding(input) {
-  return numericCommandBinding(input) || pointOrScalarNumericBinding(input);
+  return (
+    textSelectionNumericBinding(input) ||
+    numericCommandBinding(input) ||
+    pointOrScalarNumericBinding(input)
+  );
+}
+function textSelectionNumericBinding(input) {
+  const data = input.dataset,
+    style = data.characterStyle,
+    transform = data.characterTransform,
+    axis = data.characterAxis;
+  if (
+    !(
+      ['size', 'width', 'height', 'tracking', 'baselineShift'].includes(style) ||
+      ['rotation', 'scale'].includes(transform) ||
+      ['0', '1'].includes(axis)
+    )
+  )
+    return null;
+  const target = textNumericTarget(input);
+  if (!target || !['offset', 'transform', 'style'].includes(target.textKind)) return null;
+  const owner = session,
+    compositionId = owner.activeCompositionId,
+    layerId = current().id,
+    epoch = sourceEpoch,
+    sourceText = current().nodes.find((n) => n.id === target.nodeId)?.text,
+    route = characterEdit.route,
+    ids = [...target.ids],
+    factor = target.factor,
+    units = { step: input.dataset.scrubStep, min: input.min, max: input.max };
+  let envelope = owner.state,
+    gesture = null,
+    originalInput;
+  const state = () => textNumericState({ ...target, started: true, sourceText });
+  const sameTarget = () => {
+    if (
+      owner !== session ||
+      owner.activeCompositionId !== compositionId ||
+      current().id !== layerId ||
+      sourceEpoch !== epoch ||
+      owner.state.sessionId !== envelope.sessionId ||
+      owner.state.expectedRevision !== envelope.expectedRevision ||
+      !input.isConnected ||
+      input.disabled ||
+      input.readOnly ||
+      current().locked ||
+      composing ||
+      penDraft ||
+      nameEdit ||
+      variableAction ||
+      owner.hasTextComposition ||
+      document.querySelector('dialog[open]') ||
+      (owner.hasGesture && !gesture) ||
+      input.dataset.characterStyle !== style ||
+      input.dataset.characterTransform !== transform ||
+      input.dataset.characterAxis !== axis ||
+      input.dataset.scrubStep !== units.step ||
+      input.min !== units.min ||
+      input.max !== units.max ||
+      selected !== target.nodeId ||
+      characterEdit?.node !== target.nodeId ||
+      characterEdit?.layer !== layerId ||
+      characterEdit.route !== route ||
+      characterEdit.selected.size !== ids.length ||
+      !ids.every((id) => characterEdit.selected.has(id))
+    )
+      return false;
+    return !!state() && characterEdit.route === route;
+  };
+  return {
+    mode: 'live',
+    valid: sameTarget,
+    read() {
+      originalInput = input.value;
+      if (input.value !== input.defaultValue) {
+        const expected = Number(originalInput);
+        if (!originalInput.trim() || !Number.isFinite(expected))
+          throw Error('Expected a finite number');
+        input.dispatchEvent(new window.Event('change', { bubbles: true }));
+        const committed = state();
+        // Both sides are displayed units: width/height percentages, not saved multipliers.
+        if (
+          !committed ||
+          !committed.values.every(
+            (value) => Math.abs(value - expected) <= 1e-12 * Math.max(1, Math.abs(expected)),
+          )
+        )
+          throw Error('Number change cancelled');
+        settleNumericControl(input, true);
+      }
+      envelope = owner.state;
+      const baseline = state();
+      if (!baseline) throw Error('Number change cancelled');
+      return baseline.values;
+    },
+    step: () => Number(units.step),
+    bounds: () => [Number(units.min), Number(units.max)],
+    begin() {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'begin-gesture',
+        payload: {
+          target: {
+            kind: 'text-values',
+            layerId,
+            nodeId: target.nodeId,
+            textKind: target.textKind,
+            ids,
+            key: target.key,
+            axis: target.axis,
+          },
+        },
+      });
+    },
+    preview(values) {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'update-gesture',
+        payload: { ...gesture, update: { values: values.map((value) => value / factor) } },
+      });
+      drag.preview = owner.previewSnapshot(gesture.gestureId).document;
+      input.value = mixedNumericDisplay(values);
+      updateCanvas();
+    },
+    commit() {
+      settleNumericControl(
+        input,
+        owner.dispatch({ ...owner.state, type: 'commit-gesture', payload: gesture }),
+      );
+    },
+    cancel() {
+      if (gesture)
+        owner.dispatch({
+          ...owner.state,
+          type: 'cancel-gesture',
+          payload: { gestureId: gesture.gestureId },
+        });
+      if (sameTarget()) input.value = originalInput;
+    },
+  };
 }
 function numericCommandBinding(input) {
   const data = input.dataset,
