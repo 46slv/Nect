@@ -327,6 +327,9 @@ try {
   await page.mouse.up();
   assert.equal(await grayHue.inputValue(), invalidHue, 'invalid HEX cannot start a scrub');
   assert.equal(await field('hex').inputValue(), 'bad');
+  results.push(
+    'C1 HSL scrub: H/S/L, exact literal and alpha, bounds, origin, cancel, typing, stale state, composition and one-Undo Apply',
+  );
   await cancel();
   await open();
   await preview();
