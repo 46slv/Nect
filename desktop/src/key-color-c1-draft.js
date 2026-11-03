@@ -118,6 +118,14 @@ export function createKeyColorC1Draft(host, value, { valid = () => true } = {}) 
       internalInput = false;
     }
   };
+  const notifyDraft = () => {
+    internalInput = true;
+    try {
+      canvas.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+    } finally {
+      internalInput = false;
+    }
+  };
   function finishScrub(commit = false) {
     if (!scrub) return;
     const previous = scrub;
@@ -140,7 +148,7 @@ export function createKeyColorC1Draft(host, value, { valid = () => true } = {}) 
     else if (current.behavior.active) {
       event.preventDefault();
       try {
-        alpha.setPointerCapture(event.pointerId);
+        current.input.setPointerCapture(event.pointerId);
       } catch {}
     }
   }
@@ -148,52 +156,79 @@ export function createKeyColorC1Draft(host, value, { valid = () => true } = {}) 
     if (!scrub || event.pointerId !== scrub.id) return;
     finishScrub(event.type === 'pointerup');
   }
-  alpha.addEventListener('pointerdown', (event) => {
+  host.addEventListener('pointerdown', (event) => {
+    const input = event.target.closest?.('[data-key-color-input]'),
+      kind = input?.dataset.keyColorInput,
+      channel = kind?.startsWith('hsl-') ? kind.slice(4) : null;
+    if (input !== alpha && !['h', 's', 'l'].includes(channel)) return;
     if (scrub || event.button !== 0 || event.isPrimary === false || composing.size) return;
-    const rect = alpha.getBoundingClientRect(),
-      number = Number(alpha.value);
+    const rect = input.getBoundingClientRect(),
+      number = Number(input.value),
+      max = channel ? (channel === 'h' ? 360 : 100) : 1;
     if (
       (rect.width && event.clientX >= rect.right - 18) ||
-      !alpha.value.trim() ||
+      !input.value.trim() ||
       !Number.isFinite(number) ||
       number < 0 ||
-      number > 1 ||
+      number > max ||
+      (channel && (!validHsl() || !/^#[0-9a-f]{6}$/i.test(field('hex').value))) ||
       !valid()
     )
       return;
-    let original;
+    let original, originalHsl, originalHex;
+    const restore = () => {
+      if (!channel) return setAlpha(original);
+      hsl = { ...originalHsl };
+      field('hex').value = originalHex;
+      input.value = original;
+      paint(input);
+      notifyDraft();
+    };
     const behavior = createNumericControlBehavior({
       valid: () =>
-        alpha.isConnected && !alpha.disabled && !alpha.readOnly && !composing.size && valid(),
+        input.isConnected && !input.disabled && !input.readOnly && !composing.size && valid(),
       read: () => {
-        original = alpha.value;
-        return [Number(original)];
+        original = input.value;
+        originalHsl = { ...hsl };
+        originalHex = field('hex').value;
+        return [channel ? hsl[channel] : Number(original)];
       },
-      step: () => 0.01,
-      bounds: () => [0, 1],
+      step: () => (channel ? 1 : 0.01),
+      bounds: () => [0, max],
       normalizeValues(values, { baseline: [baseline], requestedDelta }) {
         if (requestedDelta === 0) return [baseline];
         if (requestedDelta <= -baseline) return [0];
-        if (requestedDelta >= 1 - baseline) return [1];
+        if (requestedDelta >= max - baseline) return [max];
         return values;
       },
       begin() {},
-      preview: ([next]) => setAlpha(next === Number(original) ? original : String(next)),
+      preview: ([next]) => {
+        if (next === (channel ? originalHsl[channel] : Number(original))) return restore();
+        if (!channel) return setAlpha(String(next));
+        hsl = { ...originalHsl, [channel]: next };
+        input.value = String(next);
+        writeHsl(input);
+        notifyDraft();
+      },
       commit() {},
-      cancel: () => setAlpha(original),
+      cancel: restore,
     });
-    scrub = { behavior, id: event.pointerId, x: event.clientX };
+    scrub = { behavior, input, id: event.pointerId, x: event.clientX };
     document.addEventListener('pointermove', onScrubMove, true);
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
       document.addEventListener(type, onScrubEnd, true);
     document.defaultView?.addEventListener('blur', onWindowBlur);
   });
-  alpha.addEventListener('dragstart', (event) => {
-    if (scrub) event.preventDefault();
+  host.addEventListener('dragstart', (event) => {
+    if (scrub?.input === event.target) event.preventDefault();
   });
-  alpha.addEventListener('blur', () => {
-    finishScrub();
-  });
+  host.addEventListener(
+    'blur',
+    (event) => {
+      if (scrub?.input === event.target) finishScrub();
+    },
+    true,
+  );
   function fromPlane(event) {
     if (
       composing.size ||

@@ -259,7 +259,7 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
           valid: () => {
             try {
               current();
-              return owner.activeCompositionId === compositionId;
+              return owner.activeCompositionId === compositionId && !composing.size;
             } catch {
               return false;
             }
