@@ -52,6 +52,196 @@ try {
     return { x, y, handle: await input.elementHandle() };
   };
   const move = (p, dx) => page.mouse.move(p.x + dx, p.y, { steps: 5 });
+  await load();
+  await activateBoundaryCommand(page, 'grid-panel');
+  const opacity = page.locator('input[type="number"][data-grid-opacity]'),
+    range = page.locator('input[type="range"][data-grid-opacity]'),
+    opacityBefore = await saved(),
+    opacityState = await state(),
+    opacityPointer = await start(opacity);
+  await move(opacityPointer, 24);
+  await page.screenshot({ path: `${output}/grid-opacity-preview.png` });
+  assert.equal(Number(await opacity.inputValue()), 45);
+  assert.equal(Number(await range.inputValue()), 45);
+  assert.equal(Number(await page.locator('[data-grid-overlay]').getAttribute('opacity')), 0.45);
+  assert.equal(await saved(), opacityBefore);
+  await page.mouse.up();
+  assert.equal(JSON.parse(await saved()).editor.gridOpacity, 0.45);
+  assert.equal((await state()).expectedRevision, opacityState.expectedRevision + 1);
+  await undo();
+  assert.equal(await saved(), opacityBefore);
+  results.push({ case: 'Grid opacity', percentBoundary: true, peerSync: true, oneUndo: true });
+  const openGrid = async () => {
+    if (!(await opacity.isVisible())) await activateBoundaryCommand(page, 'grid-panel');
+  };
+  const redoState = await state();
+  for (const ending of ['jitter', 'origin', 'Escape', 'blur', 'lostcapture']) {
+    await openGrid();
+    const p = await start(opacity);
+    await move(p, ending === 'jitter' ? 3 : 24);
+    if (ending === 'origin') await move(p, 0);
+    if (ending === 'Escape') await page.keyboard.press('Escape');
+    if (ending === 'blur') await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+    if (ending === 'lostcapture')
+      await p.handle.evaluate((el) => {
+        for (let id = 1; id < 8; id++) if (el.hasPointerCapture(id)) el.releasePointerCapture(id);
+      });
+    await page.mouse.up();
+    assert.equal(await saved(), opacityBefore);
+    assert.deepEqual(await state(), redoState);
+    await openGrid();
+    assert.equal(Number(await opacity.inputValue()), 25);
+    assert.equal(Number(await range.inputValue()), 25);
+  }
+  await openGrid();
+  await start(opacity);
+  await page.mouse.up();
+  assert.deepEqual(await state(), redoState);
+  await opacity.fill('40');
+  await opacity.press('ArrowUp');
+  assert.equal(Number(await opacity.inputValue()), 41);
+  await opacity.press('Tab');
+  assert.equal(JSON.parse(await saved()).editor.gridOpacity, 0.41);
+  await undo();
+  assert.equal(await saved(), opacityBefore);
+  await openGrid();
+  await opacity.fill('29');
+  assert.equal(await opacity.inputValue(), '29', 'percent preview keeps the typed number literal');
+  await opacity.press('ArrowUp');
+  assert.equal(Number(await opacity.inputValue()), 30);
+  await opacity.press('Tab');
+  assert.equal(JSON.parse(await saved()).editor.gridOpacity, 0.3);
+  await undo();
+  assert.equal(await saved(), opacityBefore);
+  await openGrid();
+  await opacity.fill('60');
+  const typed = await start(opacity);
+  await move(typed, 24);
+  assert.equal(
+    await typed.handle.evaluate((el) => el.isConnected && el === document.activeElement),
+    true,
+  );
+  assert.equal(JSON.parse(await saved()).editor.gridOpacity, 0.6);
+  assert.equal(Number(await range.inputValue()), 80);
+  await page.mouse.up();
+  assert.equal(JSON.parse(await saved()).editor.gridOpacity, 0.8);
+  await undo();
+  assert.equal(JSON.parse(await saved()).editor.gridOpacity, 0.6);
+  await undo();
+  assert.equal(await saved(), opacityBefore);
+  await openGrid();
+  const rangeBox = await range.boundingBox();
+  await page.mouse.move(rangeBox.x + rangeBox.width * 0.5, rangeBox.y + rangeBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(rangeBox.x + rangeBox.width * 0.7, rangeBox.y + rangeBox.height / 2, {
+    steps: 5,
+  });
+  assert.equal(await saved(), opacityBefore);
+  const rangeValue = Number(await range.inputValue());
+  assert.equal(Number(await opacity.inputValue()), rangeValue);
+  await page.mouse.up();
+  assert.equal(JSON.parse(await saved()).editor.gridOpacity, rangeValue / 100);
+  await undo();
+  assert.equal(await saved(), opacityBefore);
+  results.push({
+    case: 'Grid opacity lifecycle',
+    nativeTypingArrows: true,
+    rangeSlider: true,
+    pendingTypingUndo: true,
+    cancelNoopRedo: true,
+  });
+  await openGrid();
+  const staleOpacityState = await state(),
+    staleOpacity = await start(opacity);
+  await move(staleOpacity, 24);
+  await opacity.evaluate((el) => {
+    el.min = '10';
+  });
+  await page.mouse.up();
+  await opacity.press('Tab');
+  assert.equal(await saved(), opacityBefore);
+  assert.deepEqual(await state(), staleOpacityState);
+  await openGrid();
+  const pendingOpacity = await start(opacity);
+  await page.evaluate(() =>
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-guide-setting',
+      payload: { key: 'gridOpacity', value: 0.6 },
+    }),
+  );
+  const revisedOpacity = await saved(),
+    revisedOpacityState = await state();
+  await move(pendingOpacity, 24);
+  await page.mouse.up();
+  assert.equal(await saved(), revisedOpacity);
+  assert.deepEqual(await state(), revisedOpacityState);
+  results.push({ case: 'Grid opacity stale input/revision', lateCommit: false });
+  await load();
+  const preciseOpacity = 0.12345678901234566;
+  await page.evaluate((value) => {
+    const doc = structuredClone(window.nect.document);
+    doc.editor.gridOpacity = value;
+    window.nect.load(JSON.stringify(doc));
+  }, preciseOpacity);
+  const preciseBefore = await saved();
+  for (const [dx, endpoint] of [
+    [-30, 0],
+    [100, 1],
+  ]) {
+    await openGrid();
+    const h = await state(),
+      p = await start(opacity);
+    await move(p, dx);
+    if (endpoint === 0) await page.screenshot({ path: `${output}/grid-opacity-exact-zero.png` });
+    assert.equal(await opacity.inputValue(), String(endpoint * 100));
+    assert.equal(Number(await range.inputValue()), endpoint * 100);
+    assert.equal(
+      Number(await page.locator('[data-grid-overlay]').getAttribute('opacity')),
+      endpoint,
+    );
+    assert.equal(await saved(), preciseBefore);
+    await page.mouse.up();
+    assert.equal(JSON.parse(await saved()).editor.gridOpacity, endpoint);
+    assert.equal((await state()).expectedRevision, h.expectedRevision + 1);
+    await undo();
+    assert.equal(await saved(), preciseBefore);
+  }
+  const preciseRedo = await state();
+  for (const ending of ['origin', 'Escape', 'jitter']) {
+    await openGrid();
+    const p = await start(opacity);
+    await move(p, ending === 'jitter' ? 3 : -30);
+    if (ending === 'origin') await move(p, 0);
+    if (ending === 'Escape') await page.keyboard.press('Escape');
+    await page.mouse.up();
+    assert.equal(await saved(), preciseBefore);
+    assert.deepEqual(await state(), preciseRedo);
+  }
+  await page.evaluate(() => {
+    const doc = structuredClone(window.nect.document);
+    doc.editor.gridOpacity = 0.010000000000000002;
+    window.nect.load(JSON.stringify(doc));
+  });
+  const tinyBefore = await saved();
+  await openGrid();
+  const tiny = await start(opacity);
+  await move(tiny, -5);
+  assert.ok(
+    Number(await opacity.inputValue()) > 0,
+    'a request inside the bound keeps a small positive value',
+  );
+  await page.mouse.up();
+  assert.ok(JSON.parse(await saved()).editor.gridOpacity > 0);
+  await undo();
+  assert.equal(await saved(), tinyBefore);
+  results.push({
+    case: 'Grid exact endpoints',
+    highPrecisionBaseline: preciseOpacity,
+    exactEnds: true,
+    rawReturnAndCancel: true,
+    smallPositive: true,
+  });
   for (const unit of ['px', 'mm', 'cm']) {
     await load();
     await page.locator('[data-artboard-unit]').selectOption(unit);

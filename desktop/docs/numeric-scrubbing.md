@@ -75,6 +75,41 @@ Session command, schema, saved UI metadata or typography meaning changes.
 Kerning, font selection/async work, wrap/leading and remaining surfaces keep their
 existing routes for P3. Native WebView2 and physical IME acceptance remain separate.
 
+## REQ-42 P3a Grid opacity
+
+The Grid opacity number field now resolves to the existing `set-guide-setting`
+numeric-command gesture. It previously had scrub affordance but no numeric target.
+The adapter works in 0–100 percent and converts to the existing 0–1 saved value.
+The initial canonical fraction is captured directly; an unchanged display never
+round-trips it through percent conversion. Native range input keeps its existing
+preview/change route. Both controls and the overlay share `previewGridOpacity`
+and cancellation restoration; preview never changes the document or history.
+Peer preview retains the typed percent string instead of regenerating it from
+the saved fraction (for example, 29 must not become 28.999999999999996).
+
+Pending typing is its own command before the one-Undo scrub. Cancel, no-op and
+return to origin preserve Redo. Captured Session revision, Composition, control
+identity and units reject late input. The common pointer handlers, calculation,
+Session/core, schema and validation rules are unchanged. Other P3 surfaces and
+native WebView2/physical IME remain separate work.
+
+The input behavior optionally accepts
+`normalizeValues(values, { baseline, bounds, requestedDelta })`. Its context
+contains copies of the raw display baseline/bounds and the screen-pixel delta
+before kernel bounding/rounding (the existing 4px dead zone and integer motion
+times the binding step). The hook must return a same-length finite array. The
+normalized values participate in equality, preview, value tracking and finish's
+no-op decision. A refused normalization retains the previous accepted preview.
+Bindings without the hook keep the existing calculation and completion path.
+
+Only Grid opacity opts in. A zero request returns the raw display baseline.
+Requests reaching or passing `min - baseline` / `max - baseline` normalize to the
+exact endpoint, so high-precision fractions reach exact 0%/100% and saved 0/1.
+Interior results keep the existing kernel calculation, including legitimate tiny
+positive values. This is request-based normalization, not an epsilon clamp.
+The shared kernel's rounding and mixed-delta policies are unchanged; untouched,
+cancelled and return-to-origin edits retain the exact original saved fraction.
+
 ## Existing character and typography coverage
 
 The floating character palette's **ΔX**, **ΔY**, **Rotate °** and **Scale ×** inputs now use the same gesture lifecycle as graph/Inspector numeric inputs. Their Inspector copies are supported too. The original defect had two parts: the character inputs lacked the scrub opt-in, and the generic pointer handler assumed every opted-in input was a graph parameter inside a `.field[data-node]` wrapper. The floating palette has no such wrapper. Explicit Text/character target resolution now connects the real number inputs to model previews and the existing document transaction.
