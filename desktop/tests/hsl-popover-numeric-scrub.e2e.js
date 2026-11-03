@@ -168,6 +168,29 @@ try {
   assert.deepEqual(await value(), { hex: '#ff8000', alpha: 0.5 });
   await page.locator('[data-action="undo"]').click();
   assert.equal(await documentText(), original);
+  for (const [typed, typedValue, dragged, dx, expected] of [
+    ['h', '30', 's', -24, '80'],
+    ['s', '80', 'h', 24, '20'],
+  ]) {
+    await openPicker();
+    await channel(typed).fill(typedValue);
+    assert.equal(await documentText(), original, 'cross-channel typing remains a draft');
+    await begin(dx, dragged);
+    const typedDocument = await documentText();
+    assert.notEqual(typedDocument, original, 'blur commits typing before the other channel drag');
+    assert.equal(
+      await channel(dragged).inputValue(),
+      expected,
+      'first cross-channel drag previews',
+    );
+    await page.mouse.up();
+    assert.notEqual(await documentText(), typedDocument, 'drag commits separately');
+    assert.equal((await value()).alpha, 0.5);
+    await page.locator('[data-action="undo"]').click();
+    assert.equal(await documentText(), typedDocument, 'first Undo reverses only drag');
+    await page.locator('[data-action="undo"]').click();
+    assert.equal(await documentText(), original, 'second Undo reverses typing');
+  }
   for (const [name, dx, expected] of [
     ['s', -24, '80'],
     ['l', 24, '70'],

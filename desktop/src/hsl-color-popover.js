@@ -278,6 +278,21 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     'change',
     (event) => {
       if (popover?.contains(event.target)) {
+        // A different number input blurs after the next input's pointerdown.
+        // Settle its draft without discarding that still-pending gesture.
+        if (
+          scrub &&
+          !scrub.behavior.active &&
+          event.target !== scrub.input &&
+          dirtyNumbers.has(event.target) &&
+          scrub.binding.valid()
+        ) {
+          const current = scrub;
+          dirtyNumbers.delete(event.target);
+          handleEdit(event.target, true);
+          if (scrub === current) current.syncRevision();
+          return;
+        }
         if (scrub) {
           const value = event.target.value;
           const previous = scrub;
@@ -364,7 +379,14 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
           },
         };
         const behavior = createNumericControlBehavior(binding);
-        scrub = { input, id: event.pointerId, x: event.clientX, behavior, binding };
+        scrub = {
+          input,
+          id: event.pointerId,
+          x: event.clientX,
+          behavior,
+          binding,
+          syncRevision: () => (revision = ownerTarget?.revision),
+        };
         event.stopImmediatePropagation();
         return;
       }
