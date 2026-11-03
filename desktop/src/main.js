@@ -2206,6 +2206,7 @@ function startRepeaterAngle(control, event) {
     pointerId: event.pointerId,
     gesture,
     nodeId: context.n.id,
+    presentations: repeaterAnglePresentationAdapters(control),
     original: context.q.value,
     angle: angleDialPointer(control.getBoundingClientRect(), [event.clientX, event.clientY]),
     delta: 0,
@@ -2217,11 +2218,36 @@ function startRepeaterAngle(control, event) {
     cancelInteraction();
   }
 }
-function renderRepeaterAnglePresentations(control, parameter) {
+function repeaterAnglePresentationAdapters(control) {
   const field = control.closest('.field'),
     rows = [...app.querySelectorAll('.field[data-node][data-key="rotation"]')].filter(
       (row) => row.dataset.node === field.dataset.node,
-    );
+    ),
+    numericInputs = rows
+      .map((row) => row.querySelector('input[data-base], input[data-value]'))
+      .filter(Boolean),
+    dials = rows.flatMap((row) => [...row.querySelectorAll('[data-repeater-angle]')]);
+  return {
+    numeric: ({ value }) => {
+      for (const input of numericInputs) input.value = String(value);
+    },
+    'angle-dial': ({ value, snapshot }) => {
+      for (const dial of dials) {
+        dial.setAttribute('aria-valuenow', String(snapshot.authored));
+        dial.setAttribute(
+          'aria-valuetext',
+          `${snapshot.authored} degrees${snapshot.source || snapshot.expression ? ' base' : ''}; indicator ${value} degrees`,
+        );
+        dial.querySelector('[data-angle-indicator]').style.transform = `rotate(${value}deg)`;
+      }
+    },
+  };
+}
+function renderRepeaterAnglePresentations(
+  control,
+  parameter,
+  adapters = repeaterAnglePresentationAdapters(control),
+) {
   renderParameterPresentations(
     GEOMETRY_REPEATER_ROTATION_SURFACE,
     {
@@ -2231,26 +2257,7 @@ function renderRepeaterAnglePresentations(control, parameter) {
       source: parameter.source || null,
       expression: parameter.expression || null,
     },
-    {
-      numeric: ({ value }) => {
-        for (const row of rows) {
-          const input = row.querySelector('input[data-base], input[data-value]');
-          if (input) input.value = String(value);
-        }
-      },
-      'angle-dial': ({ value, snapshot }) => {
-        for (const dial of rows.flatMap((row) => [
-          ...row.querySelectorAll('[data-repeater-angle]'),
-        ])) {
-          dial.setAttribute('aria-valuenow', String(snapshot.authored));
-          dial.setAttribute(
-            'aria-valuetext',
-            `${snapshot.authored} degrees${snapshot.source || snapshot.expression ? ' base' : ''}; indicator ${value} degrees`,
-          );
-          dial.querySelector('[data-angle-indicator]').style.transform = `rotate(${value}deg)`;
-        }
-      },
-    },
+    adapters,
   );
 }
 function moveRepeaterAngle(event) {
@@ -2271,8 +2278,8 @@ function moveRepeaterAngle(event) {
   const previewLayer = updateGraphGesture({ value }),
     parameter = previewLayer?.nodes.find((node) => node.id === d.nodeId)?.params.rotation;
   if (!parameter) return;
-  // Keep the captured element stable. Every peer view reads the detached Session snapshot.
-  renderRepeaterAnglePresentations(d.capture, parameter);
+  // Keep the captured peer set stable. Every view reads the detached Session snapshot.
+  renderRepeaterAnglePresentations(d.capture, parameter, d.presentations);
   updateCanvas();
 }
 app.addEventListener(
