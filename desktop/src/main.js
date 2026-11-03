@@ -2369,6 +2369,26 @@ function handlePolarNumericBinding(input) {
   return {
     mode: 'live',
     valid: () => validTarget() && sameRevision(),
+    canHandoff(source) {
+      return (
+        validTarget() &&
+        sameRevision() &&
+        !gesture &&
+        source !== input &&
+        source.isConnected &&
+        !source.disabled &&
+        !source.readOnly &&
+        source.dataset.handlePolar &&
+        source.dataset.node === nodeId &&
+        ['handleA', 'handleB'].includes(source.dataset.handle) &&
+        source.value !== source.defaultValue &&
+        !composing &&
+        !owner.hasTextComposition
+      );
+    },
+    acceptHandoff() {
+      if (validTarget() && !gesture) envelope = owner.state;
+    },
     read() {
       originalInput = input.value;
       if (!originalInput.trim() || !Number.isFinite(Number(originalInput)))
@@ -10496,6 +10516,8 @@ app.addEventListener('change', async (e) => {
       if (el.disabled || !el.value.trim()) throw Error('Expected an editable finite handle value');
       // Display is rounded; Enter on an untouched field must not quantize geometry.
       if (el.value === el.defaultValue) return;
+      const pending =
+        drag?.type === 'numeric' && !drag.started && drag.binding?.canHandoff?.(el) ? drag : null;
       const result = commitHandlePolar(
         session,
         {
@@ -10513,6 +10535,7 @@ app.addEventListener('change', async (e) => {
         .points.find((p) => p.id === d.point);
       el.value = String(Number(handlePolar(pt[d.handle].value)[d.handlePolar].toFixed(3)));
       el.defaultValue = el.value;
+      if (result.changed && drag === pending) pending?.binding.acceptHandoff();
       if (result.changed) notify('Handle updated');
     } catch (error) {
       el.value = el.defaultValue;
@@ -12158,6 +12181,7 @@ app.addEventListener('pointerdown', (e) => {
     if (binding?.valid() && (!hitRect.width || e.clientX < hitRect.right - 18)) {
       drag = {
         type: 'numeric',
+        binding,
         behavior: createNumericControlBehavior(binding),
         behaviorMode: binding.mode,
         capture: numeric,

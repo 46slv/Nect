@@ -190,6 +190,25 @@ try {
   await page.mouse.up();
   await settled();
   assert.equal(await saved(), preciseBefore);
+  await seed('Curve', 'corner');
+  await input('handleB', 'length').fill('60');
+  await scrubPolar(input('handleB', 'angle'), 24);
+  let cross = handlePolar((await read()).handleB.value);
+  assert.ok(Math.abs(cross.length - 60) < 1e-8 && Math.abs(cross.angle - 20) < 1e-8);
+  await undo();
+  near((await read()).handleB.value, [60, 0]);
+  await undo();
+  near((await read()).handleB.value, [50, 0]);
+  await seed('Curve', 'corner');
+  await input('handleB', 'angle').fill('30');
+  await scrubPolar(input('handleB', 'length'), 24);
+  cross = handlePolar((await read()).handleB.value);
+  assert.ok(Math.abs(cross.length - 70) < 1e-8 && Math.abs(cross.angle - 30) < 1e-8);
+  await undo();
+  cross = handlePolar((await read()).handleB.value);
+  assert.ok(Math.abs(cross.length - 50) < 1e-8 && Math.abs(cross.angle - 30) < 1e-8);
+  await undo();
+  near((await read()).handleB.value, [50, 0]);
   checks.push('polar length horizontal scrub and Undo');
   console.log('Polar scrub focused cases PASS');
   for (const type of ['Curve', 'Multi Path'])
@@ -368,14 +387,19 @@ try {
   await seed();
   await choose();
   await input('handleB', 'length').focus();
-  const scroll = await input('handleB', 'length').evaluate((el) => {
+  await input('handleB', 'length').evaluate((el) => {
     const inspector = el.closest('.inspector'),
       rows = el.closest('.point-panel-rows');
     rows.scrollTop = 80;
     inspector.scrollTop = 60;
-    return [rows.scrollTop, inspector.scrollTop];
   });
   await input('handleB', 'length').fill('61');
+  // Playwright scrolls an offscreen input into view while filling it. Compare
+  // against the position immediately before Enter, which render must retain.
+  const scroll = await input('handleB', 'length').evaluate((el) => [
+    el.closest('.point-panel-rows').scrollTop,
+    el.closest('.inspector').scrollTop,
+  ]);
   await input('handleB', 'length').press('Enter');
   await settled();
   await page.waitForFunction(
@@ -400,6 +424,13 @@ try {
   await xy.fill('70');
   await xy.press('Tab');
   near((await read()).handleB.value, [70, 0]);
+  await page.waitForFunction(
+    (pointId) =>
+      document.querySelector(
+        `.inspector [data-point="${pointId}"][data-handle="handleB"][data-handle-polar="length"]`,
+      )?.value === '70',
+    pt.id,
+  );
   assert.equal(await input('handleB', 'length').inputValue(), '70');
   checks.push(
     'focused Enter commit preserves focus and nested scroll; existing XY edit remains synchronized',
