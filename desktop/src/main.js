@@ -2299,8 +2299,91 @@ function numericBehaviorBinding(input) {
     textSelectionNumericBinding(input) ||
     layoutGridNumericBinding(input) ||
     numericCommandBinding(input) ||
+    pointSpacingNumericBinding(input) ||
     pointOrScalarNumericBinding(input)
   );
+}
+// Point spacing is a staged local draft; only its existing Set X/Y commands edit the document.
+function pointSpacingNumericBinding(input) {
+  const nodeId = input.dataset.pointSpacing,
+    token = input.dataset.pointSpacingToken;
+  if (!nodeId || !token) return null;
+  const record = pointAlignmentActions.get(nodeId),
+    owner = session,
+    step = input.dataset.scrubStep;
+  if (!record || record.token !== token) return null;
+  let originalInput,
+    priorDraft,
+    stagedRecord,
+    started = false;
+  const valid = (allowComposition = false) => {
+    const n = selectedNode(),
+      state = owner.state;
+    return (
+      owner === session &&
+      owner.activeCompositionId === record.compositionId &&
+      current().id === record.layerId &&
+      sourceEpoch === record.epoch &&
+      state.sessionId === record.envelope.sessionId &&
+      state.expectedRevision === record.envelope.expectedRevision &&
+      pointAlignmentActions.get(nodeId) === record &&
+      input.isConnected &&
+      input.matches('input[type="number"]') &&
+      input.dataset.pointSpacing === nodeId &&
+      input.dataset.pointSpacingToken === token &&
+      input.dataset.scrubStep === step &&
+      (!started || pointSpacingDraft === stagedRecord) &&
+      !input.disabled &&
+      !input.readOnly &&
+      !current().locked &&
+      n?.id === nodeId &&
+      selected === nodeId &&
+      selection.size === 1 &&
+      selection.has(nodeId) &&
+      !artworkTarget &&
+      (allowComposition || !composing) &&
+      !penDraft &&
+      !nameEdit &&
+      !variableAction &&
+      !owner.hasTextComposition &&
+      !owner.hasGesture &&
+      !document.querySelector('dialog[open]') &&
+      JSON.stringify(record.pointIds) === JSON.stringify(selectedPointIds(n)) &&
+      samePointScope(record.scope, pointScopeIdentity(pointPanelSource(n), {}))
+    );
+  };
+  return {
+    mode: 'staged',
+    valid,
+    read() {
+      originalInput = input.value;
+      const value = Number(originalInput);
+      if (!originalInput.trim() || !Number.isFinite(value) || value < 0)
+        throw Error('Expected a nonnegative finite spacing');
+      priorDraft = pointSpacingDraft;
+      stagedRecord = priorDraft;
+      started = true;
+      return [value];
+    },
+    step: () => Number(step),
+    bounds: () => [0, Number.MAX_VALUE],
+    begin() {},
+    preview([value]) {
+      input.value = String(value);
+      stagePointSpacing(input);
+      stagedRecord = pointSpacingDraft;
+    },
+    commit() {},
+    cancel() {
+      if (pointSpacingDraft !== stagedRecord) return;
+      const restore = valid(true);
+      pointSpacingDraft = restore ? priorDraft : null;
+      if (restore)
+        for (const peer of document.querySelectorAll('[data-point-spacing]'))
+          if (peer.dataset.pointSpacing === nodeId && peer.dataset.pointSpacingToken === token)
+            peer.value = originalInput;
+    },
+  };
 }
 function handlePolarNumericBinding(input) {
   const { handlePolar: component, node: nodeId, point: pointId, handle: key } = input.dataset;
@@ -10335,6 +10418,11 @@ app.addEventListener('input', (e) => {
   draft.capture = null;
 });
 app.addEventListener('compositionstart', (e) => {
+  if (e.target.matches('[data-point-spacing]')) {
+    if (drag?.behavior && drag.capture?.dataset.pointSpacing !== undefined)
+      cancelInteraction(false);
+    return;
+  }
   if (e.target.dataset.text && variableNode(e.target.dataset.text)) {
     composing = true;
     return;
