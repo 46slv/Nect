@@ -139,9 +139,14 @@ try {
   );
   assert.equal(await field('height').inputValue(), '135');
   await fs.mkdir('test-results', { recursive: true });
+  const rejectedHeight = await field('height').elementHandle();
   await edit('height', '');
   assert.equal(await field('height').inputValue(), '135');
   assert.equal(await snapshot(), committed);
+  // Let the rejected edit's existing render finish before holding the next one.
+  // Otherwise scheduleRender reuses that reservation, outside the next capture.
+  await page.waitForFunction((el) => !el.isConnected, rejectedHeight);
+  await rejectedHeight.dispose();
   // Tab into the adjacent numeric component is navigation, not an unfinished
   // draft. The prior edit must render, and native Tab select-all must survive.
   const position = (axis) =>
