@@ -24,7 +24,6 @@ export const browserTestFiles = Object.freeze([
   'tests/layout-guides.e2e.js',
   'tests/images.e2e.js',
   'tests/artboard-units.e2e.js',
-  'tests/png-ppi-scrub.e2e.js',
   'tests/color.e2e.js',
   'tests/graph-navigation.e2e.js',
   'tests/graph-pan-joystick.e2e.js',
@@ -88,6 +87,7 @@ export const browserTestFiles = Object.freeze([
   'tests/key-color-recipe-panel.e2e.js',
   'tests/numeric-control-behavior.e2e.js',
   'tests/document-guide-numeric.e2e.js',
+  'tests/png-ppi-scrub.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
