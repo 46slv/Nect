@@ -181,6 +181,16 @@ test('Document and Guide numeric behavior preserves canonical state and ownershi
       begin(opacity(), 3);
       end(3);
       sameSaved(before);
+      const literal = opacity();
+      literal.value = '29';
+      literal.dispatchEvent(new win.Event('input', { bubbles: true }));
+      assert.equal(literal.value, '29');
+      assert.equal($('input[type="range"][data-grid-opacity]').value, '29');
+      sameSaved(before);
+      change(literal, '29');
+      assert.equal(win.nect.document.editor.gridOpacity, 0.29);
+      undo();
+      sameSaved(before);
       const input = opacity();
       input.value = '63.5';
       input.dispatchEvent(new win.Event('input', { bubbles: true }));

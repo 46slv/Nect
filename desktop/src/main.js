@@ -2554,7 +2554,7 @@ function numericCommandBinding(input) {
       });
       drag.preview = owner.previewSnapshot(gesture.gestureId).document;
       drag.commandTarget = target;
-      if (opacity) previewGridOpacity(next);
+      if (opacity) previewGridOpacity(next, String(value));
       input.value = String(value);
       if (dimension) fitCanvas();
       updateCanvas();
@@ -5108,11 +5108,10 @@ function updateAngledGridView(stage, svg) {
     density.textContent = layout.stride > 1 ? `Display every ${layout.stride} lines` : '';
   }
 }
-function previewGridOpacity(value) {
+function previewGridOpacity(value, displayed = String(value * 100)) {
   gridOpacityDraft = value;
   app.querySelector('[data-grid-overlay]')?.setAttribute('opacity', value);
-  for (const input of app.querySelectorAll('[data-grid-opacity]'))
-    input.value = String(value * 100);
+  for (const input of app.querySelectorAll('[data-grid-opacity]')) input.value = displayed;
 }
 function cancelGridOpacity() {
   if (gridOpacityDraft === null) return;
@@ -9981,7 +9980,8 @@ app.addEventListener('input', (e) => {
   }
   if (e.target.matches('[data-grid-opacity]')) {
     const value = e.target.value.trim() ? Number(e.target.value) / 100 : NaN;
-    if (Number.isFinite(value) && value >= 0 && value <= 1) previewGridOpacity(value);
+    if (Number.isFinite(value) && value >= 0 && value <= 1)
+      previewGridOpacity(value, e.target.value);
     return;
   }
   if (e.target.dataset.variableInstance) {

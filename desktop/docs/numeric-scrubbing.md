@@ -84,6 +84,8 @@ The initial canonical fraction is captured directly; an unchanged display never
 round-trips it through percent conversion. Native range input keeps its existing
 preview/change route. Both controls and the overlay share `previewGridOpacity`
 and cancellation restoration; preview never changes the document or history.
+Peer preview retains the typed percent string instead of regenerating it from
+the saved fraction (for example, 29 must not become 28.999999999999996).
 
 Pending typing is its own command before the one-Undo scrub. Cancel, no-op and
 return to origin preserve Redo. Captured Session revision, Composition, control

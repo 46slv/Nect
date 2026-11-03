@@ -105,6 +105,15 @@ try {
   await undo();
   assert.equal(await saved(), opacityBefore);
   await openGrid();
+  await opacity.fill('29');
+  assert.equal(await opacity.inputValue(), '29', 'percent preview keeps the typed number literal');
+  await opacity.press('ArrowUp');
+  assert.equal(Number(await opacity.inputValue()), 30);
+  await opacity.press('Tab');
+  assert.equal(JSON.parse(await saved()).editor.gridOpacity, 0.3);
+  await undo();
+  assert.equal(await saved(), opacityBefore);
+  await openGrid();
   await opacity.fill('60');
   const typed = await start(opacity);
   await move(typed, 24);
