@@ -223,7 +223,9 @@ try {
     await priorHeight.dispose();
     await filledHeight.dispose();
     await nextTarget.dispose();
-    console.log(`Predecessor ${delivery}: exact filled control, render, Tab select-all and Undo PASS`);
+    console.log(
+      `Predecessor ${delivery}: exact filled control, render, Tab select-all and Undo PASS`,
+    );
   }
   await page.screenshot({ path: 'test-results/numeric-render-race.png' });
   assert.deepEqual(errors, []);
