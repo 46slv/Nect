@@ -100,11 +100,98 @@ const choose = async () => {
   const button = page.locator(`.inspector [data-select-panel-point="${pt.id}"]`);
   await button.click();
 };
+const scrubPolar = async (field, dx, cancel = false) => {
+  await field.evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'center' }));
+  const box = await field.boundingBox();
+  const x = box.x + box.width * 0.4,
+    y = box.y + box.height / 2;
+  assert.equal(
+    await field.evaluate((el, p) => document.elementFromPoint(p.x, p.y) === el, { x, y }),
+    true,
+  );
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + dx, y, { steps: 5 });
+  if (cancel) await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await settled();
+};
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5205');
   await page.waitForFunction(() => window.nect);
   // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
   await ensureWorkspacePanel(page, 'inspector');
+  await seed('Curve', 'corner');
+  const length = input('handleB', 'length');
+  await scrubPolar(length, 24);
+  assert.equal(Math.round(handlePolar((await read()).handleB.value).length), 70);
+  await undo();
+  assert.equal(handlePolar((await read()).handleB.value).length, 50);
+  const beforeCancel = await saved();
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await scrubPolar(input('handleB', 'angle'), 24, true);
+  assert.equal(await saved(), beforeCancel);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await scrubPolar(input('handleB', 'angle'), 4);
+  assert.equal(await saved(), beforeCancel);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await scrubPolar(input('handleB', 'angle'), 24);
+  assert.ok(Math.abs(handlePolar((await read()).handleB.value).angle - 20) < 1e-8);
+  await undo();
+  assert.equal(await saved(), beforeCancel);
+  await input('handleB', 'length').fill('60');
+  await scrubPolar(input('handleB', 'length'), 24);
+  assert.equal(Math.round(handlePolar((await read()).handleB.value).length), 80);
+  await undo();
+  assert.equal(handlePolar((await read()).handleB.value).length, 60);
+  await undo();
+  assert.equal(handlePolar((await read()).handleB.value).length, 50);
+  await scrubPolar(input('handleB', 'length'), -1000);
+  assert.equal(handlePolar((await read()).handleB.value).length, 0);
+  await undo();
+  assert.equal(await saved(), beforeCancel);
+  await seed('Curve', 'symmetric');
+  await scrubPolar(input('handleB', 'length'), 24);
+  const coupled = await read();
+  near(coupled.handleB.value, [70, 0]);
+  near(coupled.handleA.value, [-70, 0]);
+  await undo();
+  const staleBefore = await saved();
+  const staleInput = input('handleB', 'length');
+  await staleInput.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  const staleBox = await staleInput.boundingBox();
+  const staleX = staleBox.x + staleBox.width * 0.4,
+    staleY = staleBox.y + staleBox.height / 2;
+  await page.mouse.move(staleX, staleY);
+  await page.mouse.down();
+  await page.mouse.move(staleX + 24, staleY, { steps: 5 });
+  await page.evaluate((nodeId) => {
+    const buttons = [
+      ...document.querySelectorAll(`.inspector [data-select-panel-point][data-node="${nodeId}"]`),
+    ];
+    buttons[1].click();
+  }, curve.id);
+  await page.mouse.up();
+  await settled();
+  assert.equal(await saved(), staleBefore);
+  await seed('Curve', 'corner', ({ pt }) => {
+    pt.handleB.value = [30.123456789, 40.123456789];
+  });
+  const preciseBefore = await saved(),
+    preciseInput = input('handleB', 'length');
+  await preciseInput.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  const preciseBox = await preciseInput.boundingBox();
+  const preciseX = preciseBox.x + preciseBox.width * 0.4,
+    preciseY = preciseBox.y + preciseBox.height / 2;
+  await page.mouse.move(preciseX, preciseY);
+  await page.mouse.down();
+  await page.mouse.move(preciseX + 24, preciseY, { steps: 5 });
+  await page.mouse.move(preciseX, preciseY, { steps: 5 });
+  await page.mouse.up();
+  await settled();
+  assert.equal(await saved(), preciseBefore);
+  checks.push('polar length horizontal scrub and Undo');
+  console.log('Polar scrub focused cases PASS');
   for (const type of ['Curve', 'Multi Path'])
     for (const mode of ['corner', 'smooth', 'symmetric']) {
       await seed(type, mode);

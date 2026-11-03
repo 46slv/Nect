@@ -71,7 +71,7 @@ import { prepareImage, preflightImages, pngDimensions, rasterizeSVG } from './ra
 import { captureFocus, restoreFocus } from './focus.js';
 import { graphemeDeletionRange, graphemeMovementCorrection } from './grapheme-editing.js';
 import { textToolGroup } from './text-tool.js';
-import { handlePolar, commitHandlePolar } from './handle-polar.js';
+import { handlePolar, polarHandleValue, commitHandlePolar } from './handle-polar.js';
 import { selectedPointBounds, selectedPointArtboardBounds } from './selected-point-bounds.js';
 import './style.css';
 import { createNumericControlBehavior } from './numeric-control-behavior.js';
@@ -2294,12 +2294,133 @@ function numericControlTarget(input) {
 // Unmigrated numeric surfaces keep their previous route.
 function numericBehaviorBinding(input) {
   return (
+    handlePolarNumericBinding(input) ||
     pngPpiNumericBinding(input) ||
     textSelectionNumericBinding(input) ||
     layoutGridNumericBinding(input) ||
     numericCommandBinding(input) ||
     pointOrScalarNumericBinding(input)
   );
+}
+function handlePolarNumericBinding(input) {
+  const { handlePolar: component, node: nodeId, point: pointId, handle: key } = input.dataset;
+  if (!['angle', 'length'].includes(component)) return null;
+  const owner = session,
+    compositionId = owner.activeCompositionId,
+    layerId = current().id,
+    epoch = sourceEpoch,
+    selectedIds = [...selection],
+    pointIds = selectedPointIds(current().nodes.find((n) => n.id === nodeId)),
+    step = input.dataset.scrubStep;
+  let envelope = owner.state,
+    gesture,
+    originalInput,
+    originalVector;
+  const getParameter = () =>
+    current()
+      .nodes.find((n) => n.id === nodeId)
+      ?.points?.find((p) => p.id === pointId)?.[key];
+  const validTarget = () => {
+    const n = current().nodes.find((item) => item.id === nodeId),
+      q = getParameter(),
+      livePointIds = n ? selectedPointIds(n) : [];
+    return (
+      owner === session &&
+      owner.activeCompositionId === compositionId &&
+      current().id === layerId &&
+      sourceEpoch === epoch &&
+      selected === nodeId &&
+      selectedIds.length === selection.size &&
+      selectedIds.every((id) => selection.has(id)) &&
+      pointIds.length === livePointIds.length &&
+      pointIds.every((id) => livePointIds.includes(id)) &&
+      input.isConnected &&
+      input.matches('input[type="number"]') &&
+      input.dataset.scrubStep === step &&
+      !input.disabled &&
+      !input.readOnly &&
+      !current().locked &&
+      !n?.locked &&
+      !n?.bypassed &&
+      ['Curve', 'Multi Path'].includes(n?.type) &&
+      ['handleA', 'handleB'].includes(key) &&
+      q &&
+      !q.locked &&
+      !q.source &&
+      !q.expression &&
+      input.dataset.node === nodeId &&
+      input.dataset.point === pointId &&
+      input.dataset.handle === key &&
+      input.dataset.handlePolar === component &&
+      !composing &&
+      !penDraft &&
+      !nameEdit &&
+      !variableAction &&
+      !owner.hasTextComposition &&
+      !document.querySelector('dialog[open]') &&
+      (!owner.hasGesture || !!gesture) &&
+      (component !== 'angle' || handlePolar(q.value).length > 0)
+    );
+  };
+  const sameRevision = () =>
+    !envelope ||
+    (owner.state.sessionId === envelope.sessionId &&
+      owner.state.expectedRevision === envelope.expectedRevision);
+  return {
+    mode: 'live',
+    valid: () => validTarget() && sameRevision(),
+    read() {
+      originalInput = input.value;
+      if (!originalInput.trim() || !Number.isFinite(Number(originalInput)))
+        throw Error('Expected a finite number');
+      if (input.value !== input.defaultValue) {
+        const expected = polarHandleValue(getParameter().value, component, Number(input.value));
+        input.dispatchEvent(new window.Event('change', { bubbles: true }));
+        if (!expected.every((v, i) => getParameter()?.value[i] === v))
+          throw Error('Number change cancelled');
+      }
+      envelope = owner.state;
+      originalVector = [...getParameter().value];
+      return [handlePolar(originalVector)[component]];
+    },
+    step: () => Number(input.dataset.scrubStep),
+    bounds: () => [component === 'length' ? 0 : -Number.MAX_VALUE, Number.MAX_VALUE],
+    begin() {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'begin-gesture',
+        payload: {
+          target: { kind: 'curve-point', layerId, nodeId, pointId, key },
+        },
+      });
+    },
+    preview([value]) {
+      const vector = polarHandleValue(originalVector, component, value);
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'update-gesture',
+        payload: {
+          ...gesture,
+          update: { delta: vector.map((v, i) => v - originalVector[i]) },
+        },
+      });
+      drag.preview = owner.previewSnapshot(gesture.gestureId).document;
+      input.value = String(value);
+      updateCanvas();
+    },
+    commit() {
+      owner.dispatch({ ...owner.state, type: 'commit-gesture', payload: gesture });
+    },
+    cancel() {
+      if (gesture)
+        owner.dispatch({
+          ...owner.state,
+          type: 'cancel-gesture',
+          payload: { gestureId: gesture.gestureId },
+        });
+      if (validTarget() && sameRevision()) input.value = originalInput;
+    },
+  };
 }
 function layoutGridNumericBinding(input) {
   const key = input.dataset.layoutField;
