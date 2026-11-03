@@ -2296,9 +2296,90 @@ function numericBehaviorBinding(input) {
   return (
     pngPpiNumericBinding(input) ||
     textSelectionNumericBinding(input) ||
+    layoutGridNumericBinding(input) ||
     numericCommandBinding(input) ||
     pointOrScalarNumericBinding(input)
   );
+}
+function layoutGridNumericBinding(input) {
+  const key = input.dataset.layoutField;
+  if (!['columns', 'rows', 'marginX', 'marginY', 'gutterX', 'gutterY'].includes(key)) return null;
+  const owner = session,
+    envelope = owner.state,
+    compositionId = owner.activeCompositionId,
+    epoch = sourceEpoch,
+    layerId = current().id,
+    bounds = [Number(input.min), Number(input.max)],
+    step = input.dataset.scrubStep;
+  let expectedDraft = layoutDraft,
+    priorDraft,
+    originalInput;
+  const sameOwner = () =>
+    owner === session &&
+    owner.state.sessionId === envelope.sessionId &&
+    owner.activeCompositionId === compositionId &&
+    sourceEpoch === epoch &&
+    current().id === layerId;
+  const sameContext = () =>
+    sameOwner() &&
+    layoutOpen &&
+    input.isConnected &&
+    input.dataset.layoutField === key &&
+    input.dataset.scrubStep === step &&
+    Number(input.min) === bounds[0] &&
+    Number(input.max) === bounds[1] &&
+    !input.disabled &&
+    !input.readOnly &&
+    !composing;
+  return {
+    mode: 'staged',
+    valid: () =>
+      sameContext() &&
+      owner.state.expectedRevision === envelope.expectedRevision &&
+      layoutDraft === expectedDraft,
+    read() {
+      originalInput = input.value;
+      const value = Number(originalInput);
+      if (
+        !originalInput.trim() ||
+        !Number.isFinite(value) ||
+        value < bounds[0] ||
+        value > bounds[1] ||
+        (['columns', 'rows'].includes(key) && !Number.isInteger(value))
+      )
+        throw Error('Enter a valid layout value before dragging');
+      if (value !== layoutConfig()[key]) {
+        layoutDraft = { ...layoutConfig(), [key]: value };
+        expectedDraft = layoutDraft;
+      }
+      priorDraft = layoutDraft;
+      return [value];
+    },
+    step: () => Number(step),
+    bounds: () => bounds,
+    normalizeValues(values, { baseline: [baseline], requestedDelta }) {
+      if (requestedDelta === 0) return [baseline];
+      if (requestedDelta <= bounds[0] - baseline) return [bounds[0]];
+      if (requestedDelta >= bounds[1] - baseline) return [bounds[1]];
+      return values;
+    },
+    begin() {},
+    preview([value]) {
+      layoutDraft = { ...layoutConfig(), [key]: value };
+      expectedDraft = layoutDraft;
+      input.value = String(value);
+      updateCanvas();
+    },
+    commit() {},
+    cancel() {
+      if (sameOwner() && layoutDraft === expectedDraft) {
+        layoutDraft = priorDraft;
+        expectedDraft = priorDraft;
+        if (input.isConnected) input.value = originalInput;
+        updateCanvas();
+      }
+    },
+  };
 }
 function pngPpiNumericBinding(input) {
   if (input.id !== 'png-ppi') return null;
@@ -10030,6 +10111,11 @@ app.addEventListener('keyup', (e) => {
     settleNativeTextMovement(e.target);
 });
 app.addEventListener('input', (e) => {
+  if (e.target.dataset.layoutField && drag?.behavior && drag.capture?.dataset.layoutField) {
+    const raw = e.target.value;
+    cancelInteraction(false);
+    e.target.value = raw;
+  }
   if (e.target.matches('[data-expression]') && !e.isComposing) {
     const f = e.target.closest('.field');
     if (f?.dataset.type === 'Color') colorDraftValidity(e.target, f.dataset.node, f.dataset.key);
