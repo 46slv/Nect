@@ -72,7 +72,7 @@ try {
 
   const fixture = retainedRecipeFixture();
   await load(fixture);
-  const before = await snapshot(),
+  let before = await snapshot(),
     beforeState = await command();
   await open(true);
   assert.equal(await field('hsl-h').evaluate((el) => el === document.activeElement), true);
@@ -81,6 +81,134 @@ try {
   assert.equal(await field('alpha').inputValue(), '0');
   assert.equal(await page.locator('[data-key-color-dormant] input').count(), 0);
   assert.equal(await page.locator('dialog details input,dialog details select').count(), 0);
+  await preview();
+  assert.equal(await page.locator('[data-key-color-apply]').isEnabled(), true);
+  const c1Alpha = field('alpha');
+  const alphaStart = async (dx = 24) => {
+    await c1Alpha.scrollIntoViewIfNeeded();
+    const box = await c1Alpha.boundingBox(),
+      x = box.x + 12,
+      y = box.y + box.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + dx, y, { steps: 6 });
+    return { x, y };
+  };
+  const alphaBox = await c1Alpha.boundingBox(),
+    hostBox = await page.locator('[data-key-color-c1]').boundingBox(),
+    outsideX = Math.max(1, hostBox.x - 15),
+    alphaY = alphaBox.y + alphaBox.height / 2;
+  await page.mouse.move(alphaBox.x + 12, alphaY);
+  await page.mouse.down();
+  await page.mouse.move(outsideX, alphaY);
+  await page.mouse.up();
+  await page.mouse.move(alphaBox.x + 40, alphaY);
+  await page.mouse.down();
+  await page.mouse.move(alphaBox.x + 43, alphaY);
+  await page.mouse.up();
+  assert.equal(await c1Alpha.inputValue(), '0', 'release outside host clears the pending gesture');
+  await unchanged(before, beforeState);
+  await c1Alpha.evaluate((el) => {
+    const send = (target, type, x, buttons) =>
+      target.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          pointerId: 42,
+          isPrimary: true,
+          button: 0,
+          buttons,
+          clientX: x,
+        }),
+      );
+    const x = el.getBoundingClientRect().left + 12;
+    send(el, 'pointerdown', x, 1);
+    send(document.body, 'pointermove', x - 100, 1);
+    send(document.body, 'pointerup', x - 100, 0);
+    send(el, 'pointermove', x + 80, 0);
+  });
+  assert.equal(await c1Alpha.inputValue(), '0', 'outside release does not leave a pending scrub');
+  await unchanged(before, beforeState);
+  await alphaStart();
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await page.mouse.up();
+  assert.equal(await c1Alpha.inputValue(), '0', 'window blur cancels the active preview');
+  await unchanged(before, beforeState);
+  await alphaStart();
+  await page.locator('dialog footer [data-key-color-cancel]').evaluate((button) => button.click());
+  await page.mouse.up();
+  await unchanged(before, beforeState);
+  await open();
+  assert.equal(await c1Alpha.inputValue(), '0', 'closing during a drag discards its listeners');
+  await preview();
+  await alphaStart(3);
+  await page.mouse.up();
+  assert.equal(await c1Alpha.inputValue(), '0');
+  assert.equal(await page.locator('[data-key-color-apply]').isEnabled(), true, 'jitter is a no-op');
+  const origin = await alphaStart();
+  await page.mouse.move(origin.x, origin.y, { steps: 6 });
+  await page.mouse.up();
+  assert.equal(await c1Alpha.inputValue(), '0', 'return to origin restores raw alpha');
+  await unchanged(before, beforeState);
+  await preview();
+  await alphaStart();
+  assert.equal(await c1Alpha.inputValue(), '0.2', 'C1 alpha drag changes the draft');
+  await unchanged(before, beforeState);
+  assert.equal(await page.locator('[data-key-color-apply]').isDisabled(), true);
+  await c1Alpha.dispatchEvent('pointercancel', { pointerId: 1, bubbles: true });
+  await page.mouse.up();
+  assert.equal(await c1Alpha.inputValue(), '0', 'pointer cancel restores exact alpha');
+  await unchanged(before, beforeState);
+  await c1Alpha.dispatchEvent('compositionstart');
+  await alphaStart();
+  await page.mouse.up();
+  assert.equal(await c1Alpha.inputValue(), '0', 'composition blocks scrubbing');
+  await c1Alpha.dispatchEvent('compositionend');
+  const preciseAlpha = '0.12345678901234566';
+  await c1Alpha.fill(preciseAlpha);
+  const preciseOrigin = await alphaStart();
+  await page.mouse.move(preciseOrigin.x, preciseOrigin.y, { steps: 6 });
+  await page.mouse.up();
+  assert.equal(await c1Alpha.inputValue(), preciseAlpha, 'origin preserves the exact alpha');
+  await alphaStart(-104);
+  await page.mouse.up();
+  assert.equal(await c1Alpha.inputValue(), '0', 'the lower endpoint is exact');
+  await c1Alpha.fill(preciseAlpha);
+  await alphaStart(104);
+  await page.mouse.up();
+  assert.equal(await c1Alpha.inputValue(), '1', 'the upper endpoint is exact');
+  await c1Alpha.fill('0');
+  await alphaStart();
+  await c1Alpha.fill('0.4');
+  await page.mouse.up();
+  assert.equal(await c1Alpha.inputValue(), '0.4', 'typing cancels the old drag');
+  await unchanged(before, beforeState);
+  await c1Alpha.fill('0');
+  await alphaStart();
+  await page.mouse.up();
+  assert.equal(await c1Alpha.inputValue(), '0.2');
+  await unchanged(before, beforeState);
+  await preview();
+  await page.locator('[data-key-color-apply]').click();
+  assert.equal((await snapshot()).colorSlots.find((slot) => slot.id === 'key').value.alpha, 0.2);
+  await page.locator('[data-action="undo"]').click();
+  assert.deepEqual(await snapshot(), before, 'one Undo restores the applied recipe');
+  await open();
+  await alphaStart();
+  await page.evaluate(() =>
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: window.nect.document.width + 1 },
+    }),
+  );
+  await page.mouse.up();
+  assert.equal(await c1Alpha.inputValue(), '0', 'stale revision cancels the drag');
+  assert.equal(await page.locator('[data-key-color-apply]').isDisabled(), true);
+  await cancel();
+  await load(fixture);
+  before = await snapshot();
+  beforeState = await command();
+  await open();
   await page.screenshot({ path: resolve(output, 'hsl-desktop.png'), fullPage: true });
   const plane = page.locator('[data-key-color-c1] canvas');
   await plane.click({ position: { x: 90, y: 66 } });
