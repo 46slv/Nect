@@ -247,11 +247,23 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
         })()
       : `<p data-key-color-empty>${esc(error || 'No retained experimental Key color recipe is available. This editor only opens an existing keyColorRecipe.committedSnapshot; it does not create a preset, choose coefficients or change defaults.')}</p>`;
     dialog.innerHTML = `<header><h2 id="key-color-recipe-title">Key color · Experimental</h2><button type="button" data-key-color-cancel aria-label="Close Key color">×</button></header><p>Opt-in one-shot Apply. The existing legacy wheel and product defaults are unchanged. Dark TonePlan coefficients remain unresolved.</p><div class="key-color-recipe-body">${controls}</div><footer><button type="button" data-key-color-cancel>Cancel</button>${base ? '<button type="button" data-key-color-preview>Preview</button><button type="button" data-key-color-apply disabled>Apply · 1 Undo</button>' : ''}</footer>${base ? '<p class="key-color-undo-note">A changed Apply is one Undo. Equal literals and receipt are a no-op. Cancel and Escape discard the draft.</p>' : ''}`;
-    if (base)
+    if (base) {
+      const compositionId = owner.activeCompositionId;
       createKeyColorC1Draft(
         dialog.querySelector('[data-key-color-c1]'),
         base.intent.keyColor.value,
+        {
+          valid: () => {
+            try {
+              current();
+              return owner.activeCompositionId === compositionId;
+            } catch {
+              return false;
+            }
+          },
+        },
       );
+    }
     document.body.append(dialog);
     dialog.addEventListener('input', invalidate);
     dialog.addEventListener('change', invalidate);
