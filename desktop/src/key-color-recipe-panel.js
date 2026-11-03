@@ -19,6 +19,7 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
     envelope = null,
     base = null,
     preview = null,
+    c1Draft = null,
     stale = false,
     applying = false;
   const composing = new Set();
@@ -26,6 +27,8 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
   function close(restoreFocus = true) {
     const oldTrigger = trigger;
     const old = dialog;
+    c1Draft?.dispose();
+    c1Draft = null;
     dialog = null;
     trigger = null;
     owner = null;
@@ -247,11 +250,23 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
         })()
       : `<p data-key-color-empty>${esc(error || 'No retained experimental Key color recipe is available. This editor only opens an existing keyColorRecipe.committedSnapshot; it does not create a preset, choose coefficients or change defaults.')}</p>`;
     dialog.innerHTML = `<header><h2 id="key-color-recipe-title">Key color · Experimental</h2><button type="button" data-key-color-cancel aria-label="Close Key color">×</button></header><p>Opt-in one-shot Apply. The existing legacy wheel and product defaults are unchanged. Dark TonePlan coefficients remain unresolved.</p><div class="key-color-recipe-body">${controls}</div><footer><button type="button" data-key-color-cancel>Cancel</button>${base ? '<button type="button" data-key-color-preview>Preview</button><button type="button" data-key-color-apply disabled>Apply · 1 Undo</button>' : ''}</footer>${base ? '<p class="key-color-undo-note">A changed Apply is one Undo. Equal literals and receipt are a no-op. Cancel and Escape discard the draft.</p>' : ''}`;
-    if (base)
-      createKeyColorC1Draft(
+    if (base) {
+      const compositionId = owner.activeCompositionId;
+      c1Draft = createKeyColorC1Draft(
         dialog.querySelector('[data-key-color-c1]'),
         base.intent.keyColor.value,
+        {
+          valid: () => {
+            try {
+              current();
+              return owner.activeCompositionId === compositionId;
+            } catch {
+              return false;
+            }
+          },
+        },
       );
+    }
     document.body.append(dialog);
     dialog.addEventListener('input', invalidate);
     dialog.addEventListener('change', invalidate);

@@ -1,12 +1,15 @@
 import { hexToHsl, hslToHex } from './hsl-color-picker.js';
+import { createNumericControlBehavior } from './numeric-control-behavior.js';
 
 // Local input only. The recipe panel owns Preview/Apply and the Session envelope.
-export function createKeyColorC1Draft(host, value) {
+export function createKeyColorC1Draft(host, value, { valid = () => true } = {}) {
   const document = host.ownerDocument;
   const field = (kind) => host.querySelector(`[data-key-color-input="${kind}"]`);
   let hsl = hexToHsl(value.hex),
     paintedHue = null,
-    pointer = null;
+    pointer = null,
+    scrub = null,
+    internalInput = false;
   const composing = new Set();
   host.innerHTML = `<div class="key-color-c1-picker"><div class="key-color-c1-plane"><canvas width="180" height="132" aria-label="Saturation left to right; lightness bottom to top"></canvas><span data-key-color-marker aria-hidden="true"></span></div><div class="key-color-c1-fields"><label class="hsl-picker-hue">Hue<input type="range" data-key-color-hue min="0" max="360" step="any" aria-label="C1 hue slider"></label><div>${['h', 's', 'l'].map((channel) => `<label>${channel.toUpperCase()}<input type="number" data-key-color-input="hsl-${channel}" min="0" max="${channel === 'h' ? 360 : 100}" step="any" aria-label="C1 ${channel === 'h' ? 'hue degrees' : channel === 's' ? 'saturation percent' : 'lightness percent'}"><span>${channel === 'h' ? '°' : '%'}</span></label>`).join('')}</div></div></div><div class="key-color-c1-literal"><span data-key-color-chip class="key-color-swatch" aria-hidden="true"></span><label>HEX<input type="text" data-key-color-input="hex" spellcheck="false" autocomplete="off" aria-label="C1 HEX literal"></label><label>Alpha<input type="number" data-key-color-input="alpha" min="0" max="1" step="any" aria-label="C1 alpha"></label></div>`;
   field('hex').value = value.hex;
@@ -86,12 +89,110 @@ export function createKeyColorC1Draft(host, value) {
       writeHsl();
     } else if (kind === 'alpha') paintChip();
   }
-  host.addEventListener('input', (event) => edit(event.target));
+  host.addEventListener('input', (event) => {
+    if (scrub && !internalInput) {
+      const raw = event.target.value;
+      finishScrub();
+      event.target.value = raw;
+    }
+    edit(event.target);
+  });
   host.addEventListener('change', (event) => edit(event.target));
-  host.addEventListener('compositionstart', (event) => composing.add(event.target));
+  host.addEventListener('compositionstart', (event) => {
+    if (scrub) {
+      finishScrub();
+    }
+    composing.add(event.target);
+  });
   host.addEventListener('compositionend', (event) => {
     composing.delete(event.target);
     edit(event.target);
+  });
+  const alpha = field('alpha');
+  const setAlpha = (raw) => {
+    alpha.value = raw;
+    internalInput = true;
+    try {
+      alpha.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+    } finally {
+      internalInput = false;
+    }
+  };
+  function finishScrub(commit = false) {
+    if (!scrub) return;
+    const previous = scrub;
+    scrub = null;
+    document.removeEventListener('pointermove', onScrubMove, true);
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
+      document.removeEventListener(type, onScrubEnd, true);
+    document.defaultView?.removeEventListener('blur', onWindowBlur);
+    if (commit) previous.behavior.finish();
+    else previous.behavior.cancel();
+  }
+  function onWindowBlur() {
+    finishScrub();
+  }
+  function onScrubMove(event) {
+    if (!scrub || event.pointerId !== scrub.id) return;
+    const current = scrub,
+      result = current.behavior.move(event.clientX - current.x);
+    if (result.cancelled) finishScrub();
+    else if (current.behavior.active) {
+      event.preventDefault();
+      try {
+        alpha.setPointerCapture(event.pointerId);
+      } catch {}
+    }
+  }
+  function onScrubEnd(event) {
+    if (!scrub || event.pointerId !== scrub.id) return;
+    finishScrub(event.type === 'pointerup');
+  }
+  alpha.addEventListener('pointerdown', (event) => {
+    if (scrub || event.button !== 0 || event.isPrimary === false || composing.size) return;
+    const rect = alpha.getBoundingClientRect(),
+      number = Number(alpha.value);
+    if (
+      (rect.width && event.clientX >= rect.right - 18) ||
+      !alpha.value.trim() ||
+      !Number.isFinite(number) ||
+      number < 0 ||
+      number > 1 ||
+      !valid()
+    )
+      return;
+    let original;
+    const behavior = createNumericControlBehavior({
+      valid: () =>
+        alpha.isConnected && !alpha.disabled && !alpha.readOnly && !composing.size && valid(),
+      read: () => {
+        original = alpha.value;
+        return [Number(original)];
+      },
+      step: () => 0.01,
+      bounds: () => [0, 1],
+      normalizeValues(values, { baseline: [baseline], requestedDelta }) {
+        if (requestedDelta === 0) return [baseline];
+        if (requestedDelta <= -baseline) return [0];
+        if (requestedDelta >= 1 - baseline) return [1];
+        return values;
+      },
+      begin() {},
+      preview: ([next]) => setAlpha(next === Number(original) ? original : String(next)),
+      commit() {},
+      cancel: () => setAlpha(original),
+    });
+    scrub = { behavior, id: event.pointerId, x: event.clientX };
+    document.addEventListener('pointermove', onScrubMove, true);
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
+      document.addEventListener(type, onScrubEnd, true);
+    document.defaultView?.addEventListener('blur', onWindowBlur);
+  });
+  alpha.addEventListener('dragstart', (event) => {
+    if (scrub) event.preventDefault();
+  });
+  alpha.addEventListener('blur', () => {
+    finishScrub();
   });
   function fromPlane(event) {
     if (
@@ -125,4 +226,5 @@ export function createKeyColorC1Draft(host, value) {
       pointer = null;
     });
   paint();
+  return { dispose: () => finishScrub() };
 }
