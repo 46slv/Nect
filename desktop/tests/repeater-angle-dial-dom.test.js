@@ -147,6 +147,11 @@ test(
     assert.equal(dial().getAttribute('role'), 'slider');
     assert.match(dial().getAttribute('aria-label'), /Rotation dial/);
     assert.match(dial().title, /0° right; clockwise positive/);
+    let peerEvents = 0;
+    const peer = input(),
+      recordPeerEvent = () => peerEvents++;
+    peer.addEventListener('input', recordPeerEvent);
+    peer.addEventListener('change', recordPeerEvent);
     const before = saved(),
       state = win.nect.commandState;
     const el = start(170);
@@ -160,6 +165,9 @@ test(
       735,
     );
     fire(document, 'pointerup', 180);
+    assert.equal(peerEvents, 0, 'peer refresh dispatches no synthetic input/change event');
+    peer.removeEventListener('input', recordPeerEvent);
+    peer.removeEventListener('change', recordPeerEvent);
     assert.equal(win.nect.gestureState, null, 'own release does not cancel the finished drag');
     assert.equal(q().value, 735);
     assert.equal(indicator(), 'rotate(15deg)');
