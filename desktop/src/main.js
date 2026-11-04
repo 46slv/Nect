@@ -1567,6 +1567,7 @@ function stepHistory(redo = false) {
   return null;
 }
 const remapBatches = new Map();
+const remapBatchInputVersions = new WeakMap();
 let characterEdit = null;
 let nameEdit = null,
   lastNameClick = null;
@@ -2294,6 +2295,7 @@ function numericControlTarget(input) {
 // Unmigrated numeric surfaces keep their previous route.
 function numericBehaviorBinding(input) {
   return (
+    remapBatchNumericBinding(input) ||
     handlePolarNumericBinding(input) ||
     pngPpiNumericBinding(input) ||
     textSelectionNumericBinding(input) ||
@@ -3038,6 +3040,104 @@ function pointOrScalarNumericBinding(input) {
           });
         if (sameTarget() && sameRevision()) input.value = originalInput;
       }
+    },
+  };
+}
+// Remap batch deltas are local drafts; only the existing Move command edits points.
+function remapBatchNumericBinding(input) {
+  const nodeId = input.dataset.node,
+    axis = Number(input.dataset.batchAxis),
+    batch = remapBatches.get(nodeId);
+  if (input.dataset.batchAxis === undefined || !nodeId || ![0, 1].includes(axis) || !batch)
+    return null;
+  const owner = session,
+    envelope = owner.state,
+    compositionId = owner.activeCompositionId,
+    layerId = current().id,
+    epoch = sourceEpoch,
+    selectedIds = [...batch.selected],
+    step = input.dataset.scrubStep;
+  let originalInput,
+    originalValue,
+    lastInput,
+    lastValue,
+    inputVersion,
+    started = false;
+  const sameTarget = () =>
+    owner === session &&
+    owner.activeCompositionId === compositionId &&
+    owner.state.sessionId === envelope.sessionId &&
+    owner.state.expectedRevision === envelope.expectedRevision &&
+    current().id === layerId &&
+    sourceEpoch === epoch &&
+    current().nodes.some((n) => n.id === nodeId && n.type === 'Path Remap') &&
+    remapBatches.get(nodeId) === batch &&
+    batch.selected.size === selectedIds.length &&
+    selectedIds.length > 0 &&
+    selectedIds.every((id) => batch.selected.has(id)) &&
+    input.isConnected &&
+    input.matches('input[type="number"]') &&
+    input.dataset.node === nodeId &&
+    input.dataset.batchAxis === String(axis) &&
+    input.dataset.scrubStep === step &&
+    !input.disabled &&
+    !input.readOnly;
+  return {
+    mode: 'staged',
+    valid: () =>
+      sameTarget() &&
+      !composing &&
+      !penDraft &&
+      !nameEdit &&
+      !variableAction &&
+      !owner.hasTextComposition &&
+      !owner.hasGesture &&
+      !document.querySelector('dialog[open]') &&
+      (!started ||
+        (batch.delta[axis] === lastValue &&
+          input.value === lastInput &&
+          (remapBatchInputVersions.get(input) || 0) === inputVersion)),
+    read() {
+      originalInput = input.value;
+      const value = Number(originalInput);
+      if (!originalInput.trim() || !Number.isFinite(value))
+        throw Error('Expected a finite batch delta');
+      // Preserve a value typed before the drag, even when its native change has not fired yet.
+      if (batch.delta[axis] !== value) {
+        input.dispatchEvent(new window.Event('change', { bubbles: true }));
+        if (batch.delta[axis] !== value) throw Error('Batch delta change cancelled');
+      }
+      originalValue = lastValue = value;
+      lastInput = originalInput;
+      inputVersion = remapBatchInputVersions.get(input) || 0;
+      started = true;
+      return [value];
+    },
+    step: () => Number(step),
+    bounds: () => [-Number.MAX_VALUE, Number.MAX_VALUE],
+    begin() {},
+    preview([value]) {
+      input.value = String(value);
+      batch.delta[axis] = value;
+      lastInput = input.value;
+      lastValue = value;
+    },
+    commit() {},
+    cancel() {
+      if (remapBatches.get(nodeId) !== batch || batch.delta[axis] !== lastValue) return;
+      const newerInput =
+        input.isConnected &&
+        (input.value !== lastInput || (remapBatchInputVersions.get(input) || 0) !== inputVersion);
+      const typed = newerInput && input.value.trim() ? Number(input.value) : NaN;
+      batch.delta[axis] = Number.isFinite(typed) && sameTarget() ? typed : originalValue;
+      if (!newerInput)
+        for (const peer of document.querySelectorAll('[data-batch-axis]'))
+          if (
+            peer.dataset.node === nodeId &&
+            peer.dataset.batchAxis === String(axis) &&
+            peer.value === lastInput
+          )
+            peer.value = originalInput;
     },
   };
 }
@@ -11579,6 +11679,29 @@ app.addEventListener(
     composing = true;
     space = false;
     updateNavigation();
+  },
+  true,
+);
+app.addEventListener(
+  'input',
+  (event) => {
+    if (event.target.matches?.('[data-batch-axis]'))
+      remapBatchInputVersions.set(
+        event.target,
+        (remapBatchInputVersions.get(event.target) || 0) + 1,
+      );
+  },
+  true,
+);
+app.addEventListener(
+  'compositionstart',
+  (event) => {
+    if (
+      event.target.matches?.('[data-batch-axis]') &&
+      drag?.behavior &&
+      drag.capture?.dataset.batchAxis !== undefined
+    )
+      cancelInteraction(false);
   },
   true,
 );
