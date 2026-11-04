@@ -77,6 +77,14 @@ Moving a panel or replacing a dial with fields must not require a document migra
 
 Property metadata belongs near the existing property owner. Inspector, API discovery and validation consume it rather than growing independent property tables. Shared basic controls and bespoke controls both use the same commands; no universal UI/plugin framework is required in advance.
 
+### Parameter Surface Contract
+
+A reusable parameter separates six concerns: value meaning and hard validity; authored/effective state; input/edit policy; one-or-more presentations; typed source/target dataflow; and the existing value/transaction authority. `desktop/src/parameter-surface.js` is a non-persisted descriptor/projection seam for those concerns. It never owns a document value, graph edge, validator or Undo stack.
+
+Every peer presentation renders from the same binding or Session-preview snapshot. NumericField, Slider, AngleDial, Canvas handle and readout do not synchronize by dispatching synthetic UI events to one another. Display transforms may differ from authored values: a multi-turn `720°` Base may project to a `0°` dial indicator without rewriting the Base. UI-only presentation changes do not change the native document schema.
+
+Ordinary extension follows `domain definition -> descriptor/binding -> shared behavior -> presentation`. Adding a parameter should not add a global pointer/change branch when an accepted binding family exists; adding a presentation should not modify domain/Session state. A compatible behavior change belongs in one semantic owner, while hard validity, typed connections and commit/history remain in their existing owners. Create a new family only from real repeated callers or protected invariants; do not grow a speculative global registry or caller-specific universal component. The product-specific protocol and acceptance matrix are in `desktop/docs/parameter-control-seam.md`.
+
 The accepted field UI supports literals, references and expression text, expanding for multiline input. Parse into typed edit intent before mutation: absolute assignment, one-shot relative adjustment, binding or committed expression. Exact syntax is not yet frozen. A negative literal must remain distinguishable from subtraction. Relative batch edits use a start snapshot once; they must not become self-referential expressions.
 
 Incomplete text/IME composition stays a draft. Type/unit/cycle/evaluation errors must not replace authored data with zero or silently remove a binding. A visible last-valid preview is not proof that the new expression is valid. Expression text is not a general shell or filesystem/network capability.

@@ -42,7 +42,7 @@ import { standardLigatureSupport, textFeatureReason } from './opentype-features.
 import { initialLayerId } from './initial-layer.js';
 import { hasDotControls } from './dither-controls.js';
 import { repeaterControls } from './repeater.js';
-import { angleDialIndicator, angleDialPointer, advanceAngleDial } from './repeater-angle-dial.js';
+import { angleDialPointer, advanceAngleDial } from './repeater-angle-dial.js';
 import { svgPartTarget } from './svg-part.js';
 import {
   directSelectionSource,
@@ -75,6 +75,14 @@ import { handlePolar, polarHandleValue, commitHandlePolar } from './handle-polar
 import { selectedPointBounds, selectedPointArtboardBounds } from './selected-point-bounds.js';
 import './style.css';
 import { createNumericControlBehavior } from './numeric-control-behavior.js';
+import {
+  GRID_OPACITY_SURFACE,
+  GEOMETRY_REPEATER_ROTATION_SURFACE,
+  nodeParameterSurface,
+  parameterPresentation,
+  projectParameterPresentation,
+  renderParameterPresentations,
+} from './parameter-surface.js';
 import { artworkMarqueeIds } from './canvas-artwork-marquee.js';
 import { anchorMarqueeIds } from './direct-anchor-marquee.js';
 import { anchorAlignments, pointAlignmentContext } from './point-alignment.js';
@@ -86,7 +94,9 @@ import { keyerInputPickContext, planKeyerInputPick } from './keyer-input-pick.js
 import { openKeyerInputPicker } from './keyer-input-picker.js';
 import { MAX_MASK_FEATHER } from './appearance-mask.js';
 import { arrangeTextInspector, retainTextFontDisclosures } from './text-inspector-layout.js';
-const graphemeEditingAvailable = typeof Intl.Segmenter === 'function';
+const graphemeEditingAvailable = typeof Intl.Segmenter === 'function',
+  gridOpacitySliderPresentation = parameterPresentation(GRID_OPACITY_SURFACE, 'slider'),
+  gridOpacityNumericPresentation = parameterPresentation(GRID_OPACITY_SURFACE, 'numeric');
 // Shared keyboard picker. Document changes stay in the caller's typed Session.
 function openSearchPanel({
   title,
@@ -1965,6 +1975,12 @@ function resetTransient() {
 }
 // Bounds are shared by rendered controls and pointer scrubbing.
 function numericLimits(n, key) {
+  const surface = nodeParameterSurface(n.type, key);
+  if (surface)
+    return [
+      surface.value.hard.min ?? -Number.MAX_VALUE,
+      surface.value.hard.max ?? Number.MAX_VALUE,
+    ];
   if (n.type === 'Mask' && key === 'feather') return [0, MAX_MASK_FEATHER];
   if (n.type === 'Keyer' && ['tolerance', 'softness'].includes(key)) return [0, 1];
   if (n.params.tonePower && key === 'tonePower') return [0.1, 10];
@@ -2070,16 +2086,34 @@ function numericLimits(n, key) {
 function numericAttributes(n, key) {
   if (n.type === 'Mask' && key === 'feather')
     return `min="0" max="${MAX_MASK_FEATHER}" data-scrub-step="0.25" title="Gaussian standard deviation in Mask input document units; later appearance transforms scale it"`;
-  const [min, max] = numericLimits(n, key);
-  return `${min === -Number.MAX_VALUE ? '' : `min="${min}" max="${max}"`} data-scrub-step="${['scale', 'scaleWidth'].includes(key) && isTransform(n) ? 1 : key === 'scale' || (n.type === 'Resample Path' && key === 'spacing') || (n.type === 'Smooth Path' && key === 'factor') || (n.type === 'Auto Handles' && key === 'strength') || (n.type === 'Expand Stroke' && ['startWidthMultiplier', 'endWidthMultiplier'].includes(key)) || (n.type === 'Trim Path' && ['start', 'end'].includes(key)) || (n.type === 'Set Path Start' && key === 'start') ? 0.01 : 1}" title="Drag horizontally to adjust; click to type"`;
+  const surface = nodeParameterSurface(n.type, key),
+    [min, max] = numericLimits(n, key),
+    scrubStep =
+      surface?.edit.step ??
+      (['scale', 'scaleWidth'].includes(key) && isTransform(n)
+        ? 1
+        : key === 'scale' ||
+            (n.type === 'Resample Path' && key === 'spacing') ||
+            (n.type === 'Smooth Path' && key === 'factor') ||
+            (n.type === 'Auto Handles' && key === 'strength') ||
+            (n.type === 'Expand Stroke' &&
+              ['startWidthMultiplier', 'endWidthMultiplier'].includes(key)) ||
+            (n.type === 'Trim Path' && ['start', 'end'].includes(key)) ||
+            (n.type === 'Set Path Start' && key === 'start')
+          ? 0.01
+          : 1);
+  return `${min === -Number.MAX_VALUE ? '' : `min="${min}" max="${max}"`} data-scrub-step="${scrubStep}" title="Drag horizontally to adjust; click to type"`;
 }
 // Presentation scopes reject detached or revision-stale controls without adding model state.
 const repeaterAngleScopes = new WeakMap();
 function repeaterAngleControl(n, q) {
   const base = q.source || q.expression ? ' base' : '',
     disabled = current().locked || q.locked,
-    angle = angleDialIndicator(q.value);
-  return `<button type="button" class="repeater-angle-dial" data-repeater-angle role="slider" aria-label="${esc(n.name + ' Rotation' + base + ' dial')}" aria-valuemin="${-Number.MAX_VALUE}" aria-valuemax="${Number.MAX_VALUE}" aria-valuenow="${q.value}" aria-valuetext="${q.value} degrees${base}; indicator ${angle} degrees" aria-disabled="${!!disabled}" title="0° right; clockwise positive. Arrow keys 1°; Shift 10°; Alt 0.1°." ${disabled ? 'disabled' : ''}><span class="angle-dial-face" aria-hidden="true"><span data-angle-indicator style="transform:rotate(${angle}deg)"></span></span></button>`;
+    angle = projectParameterPresentation(GEOMETRY_REPEATER_ROTATION_SURFACE, 'angle-dial', {
+      authored: q.value,
+    }),
+    edit = GEOMETRY_REPEATER_ROTATION_SURFACE.edit;
+  return `<button type="button" class="repeater-angle-dial" data-repeater-angle role="slider" aria-label="${esc(n.name + ' Rotation' + base + ' dial')}" aria-valuemin="${-Number.MAX_VALUE}" aria-valuemax="${Number.MAX_VALUE}" aria-valuenow="${q.value}" aria-valuetext="${q.value} degrees${base}; indicator ${angle} degrees" aria-disabled="${!!disabled}" title="0° right; clockwise positive. Arrow keys ${edit.step}°; Shift ${edit.coarseStep}°; Alt ${edit.fineStep}°." ${disabled ? 'disabled' : ''}><span class="angle-dial-face" aria-hidden="true"><span data-angle-indicator style="transform:rotate(${angle}deg)"></span></span></button>`;
 }
 function repeaterAngleContext(control) {
   const scope = repeaterAngleScopes.get(control),
@@ -2145,7 +2179,7 @@ function startRepeaterAngle(control, event) {
       return;
     active.defaultValue = active.value;
     repeaterAngleScopes.set(control, { ...scope, envelope: after });
-    showRepeaterAngle(control, expected);
+    renderRepeaterAnglePresentations(control, q);
   }
   const beforeFocus = repeaterAngleContext(control),
     focusScope = repeaterAngleScopes.get(control);
@@ -2172,6 +2206,8 @@ function startRepeaterAngle(control, event) {
     capture: control,
     pointerId: event.pointerId,
     gesture,
+    nodeId: context.n.id,
+    presentations: repeaterAnglePresentationAdapters(control),
     original: context.q.value,
     angle: angleDialPointer(control.getBoundingClientRect(), [event.clientX, event.clientY]),
     delta: 0,
@@ -2183,21 +2219,47 @@ function startRepeaterAngle(control, event) {
     cancelInteraction();
   }
 }
-function showRepeaterAngle(control, value) {
+function repeaterAnglePresentationAdapters(control) {
   const field = control.closest('.field'),
-    angle = angleDialIndicator(value);
-  for (const row of app.querySelectorAll('.field[data-node][data-key="rotation"]')) {
-    if (row.dataset.node !== field.dataset.node) continue;
-    const input = row.querySelector('input[data-base], input[data-value]');
-    if (input) input.value = String(value);
-  }
-  control.setAttribute('aria-valuenow', String(value));
-  const base = repeaterAngleContext(control)?.q;
-  control.setAttribute(
-    'aria-valuetext',
-    `${value} degrees${base?.source || base?.expression ? ' base' : ''}; indicator ${angle} degrees`,
+    rows = [...app.querySelectorAll('.field[data-node][data-key="rotation"]')].filter(
+      (row) => row.dataset.node === field.dataset.node,
+    ),
+    numericInputs = rows
+      .map((row) => row.querySelector('input[data-base], input[data-value]'))
+      .filter(Boolean),
+    dials = rows.flatMap((row) => [...row.querySelectorAll('[data-repeater-angle]')]);
+  return {
+    numeric: ({ value }) => {
+      for (const input of numericInputs) input.value = String(value);
+    },
+    'angle-dial': ({ value, snapshot }) => {
+      for (const dial of dials) {
+        dial.setAttribute('aria-valuenow', String(snapshot.authored));
+        dial.setAttribute(
+          'aria-valuetext',
+          `${snapshot.authored} degrees${snapshot.source || snapshot.expression ? ' base' : ''}; indicator ${value} degrees`,
+        );
+        dial.querySelector('[data-angle-indicator]').style.transform = `rotate(${value}deg)`;
+      }
+    },
+  };
+}
+function renderRepeaterAnglePresentations(
+  control,
+  parameter,
+  adapters = repeaterAnglePresentationAdapters(control),
+) {
+  renderParameterPresentations(
+    GEOMETRY_REPEATER_ROTATION_SURFACE,
+    {
+      authored: parameter.value,
+      revision: session.state.expectedRevision,
+      readOnly: control.disabled,
+      source: parameter.source || null,
+      expression: parameter.expression || null,
+    },
+    adapters,
   );
-  control.querySelector('[data-angle-indicator]').style.transform = `rotate(${angle}deg)`;
 }
 function moveRepeaterAngle(event) {
   const d = drag;
@@ -2214,9 +2276,11 @@ function moveRepeaterAngle(event) {
   d.delta = next.delta;
   const value = d.original + d.delta;
   if (!Number.isFinite(value)) return;
-  if (!updateGraphGesture({ value })) return;
-  // Keep the captured element stable. Canvas renders the detached Session preview only.
-  showRepeaterAngle(d.capture, value);
+  const previewLayer = updateGraphGesture({ value }),
+    parameter = previewLayer?.nodes.find((node) => node.id === d.nodeId)?.params.rotation;
+  if (!parameter) return;
+  // Keep the captured peer set stable. Every view reads the detached Session snapshot.
+  renderRepeaterAnglePresentations(d.capture, parameter, d.presentations);
   updateCanvas();
 }
 app.addEventListener(
@@ -2239,7 +2303,14 @@ app.addEventListener(
         payload: {
           ...token,
           update: {
-            value: context.q.value + direction * (event.altKey ? 0.1 : event.shiftKey ? 10 : 1),
+            value:
+              context.q.value +
+              direction *
+                (event.altKey
+                  ? GEOMETRY_REPEATER_ROTATION_SURFACE.edit.fineStep
+                  : event.shiftKey
+                    ? GEOMETRY_REPEATER_ROTATION_SURFACE.edit.coarseStep
+                    : GEOMETRY_REPEATER_ROTATION_SURFACE.edit.step),
           },
         },
       });
@@ -5503,7 +5574,13 @@ function guidesPanel() {
 }
 function gridPanel() {
   if (!gridOpen) return '';
-  const a = guideSettings(history.doc);
+  const a = guideSettings(history.doc),
+    sliderValue = projectParameterPresentation(GRID_OPACITY_SURFACE, 'slider', {
+      authored: a.gridOpacity,
+    }),
+    numericValue = projectParameterPresentation(GRID_OPACITY_SURFACE, 'numeric', {
+      authored: a.gridOpacity,
+    });
   return `<section class="guides-panel" aria-label="Grid"><div class="guide-toggles">${[
     ['gridVisible', 'Show grid'],
     ['snapGrid', 'Snap grid'],
@@ -5514,7 +5591,7 @@ function gridPanel() {
     )
     .join(
       '',
-    )}</div><label>Grid spacing <input type="number" step="any" min="1" max="10000" data-guide-setting="gridSize" aria-label="Grid spacing" value="${a.gridSize}"></label><div><label>Origin <select data-guide-setting="gridAnchor" aria-label="Grid origin">${gridAnchors.map((anchor) => `<option value="${anchor}" ${a.gridAnchor === anchor ? 'selected' : ''}>${anchor[0].toUpperCase() + anchor.slice(1).replaceAll('-', ' ')}</option>`).join('')}</select></label></div><div><label>Angle ° <input type="number" min="-360" max="360" step="any" data-scrub-step="1" data-guide-setting="gridAngle" aria-label="Grid angle" value="${a.gridAngle}"></label></div><small data-grid-density ${resolveGridBasis(history.doc, a).angle === 0 || angledGridDisplay(history.doc, a).stride === 1 ? 'hidden' : ''}>${resolveGridBasis(history.doc, a).angle !== 0 && angledGridDisplay(history.doc, a).stride > 1 ? `Display every ${angledGridDisplay(history.doc, a).stride} lines` : ''}</small><label>Grid opacity <input type="range" min="0" max="100" step="1" data-grid-opacity aria-label="Grid opacity" value="${a.gridOpacity * 100}"><input type="number" min="0" max="100" step="1" data-grid-opacity aria-label="Grid opacity percent" value="${a.gridOpacity * 100}">%</label><p>Grid snapping works even when hidden or transparent. Alt bypasses snapping.</p></section>`;
+    )}</div><label>Grid spacing <input type="number" step="any" min="1" max="10000" data-guide-setting="gridSize" aria-label="Grid spacing" value="${a.gridSize}"></label><div><label>Origin <select data-guide-setting="gridAnchor" aria-label="Grid origin">${gridAnchors.map((anchor) => `<option value="${anchor}" ${a.gridAnchor === anchor ? 'selected' : ''}>${anchor[0].toUpperCase() + anchor.slice(1).replaceAll('-', ' ')}</option>`).join('')}</select></label></div><div><label>Angle ° <input type="number" min="-360" max="360" step="any" data-scrub-step="1" data-guide-setting="gridAngle" aria-label="Grid angle" value="${a.gridAngle}"></label></div><small data-grid-density ${resolveGridBasis(history.doc, a).angle === 0 || angledGridDisplay(history.doc, a).stride === 1 ? 'hidden' : ''}>${resolveGridBasis(history.doc, a).angle !== 0 && angledGridDisplay(history.doc, a).stride > 1 ? `Display every ${angledGridDisplay(history.doc, a).stride} lines` : ''}</small><label>Grid opacity <input type="range" min="${gridOpacitySliderPresentation.min}" max="${gridOpacitySliderPresentation.max}" step="${gridOpacitySliderPresentation.step}" data-grid-opacity aria-label="Grid opacity" value="${sliderValue}"><input type="number" min="${gridOpacityNumericPresentation.min}" max="${gridOpacityNumericPresentation.max}" step="${gridOpacityNumericPresentation.step}" data-grid-opacity aria-label="Grid opacity percent" value="${numericValue}">%</label><p>Grid snapping works even when hidden or transparent. Alt bypasses snapping.</p></section>`;
 }
 function gridOverlay() {
   const doc =
@@ -5598,10 +5675,24 @@ function updateAngledGridView(stage, svg) {
     density.textContent = layout.stride > 1 ? `Display every ${layout.stride} lines` : '';
   }
 }
-function previewGridOpacity(value, displayed = String(value * 100)) {
+function previewGridOpacity(value, displayed) {
   gridOpacityDraft = value;
-  app.querySelector('[data-grid-overlay]')?.setAttribute('opacity', value);
-  for (const input of app.querySelectorAll('[data-grid-opacity]')) input.value = displayed;
+  renderParameterPresentations(
+    GRID_OPACITY_SURFACE,
+    { authored: value, revision: session.state.expectedRevision },
+    {
+      overlay: ({ value: opacity }) =>
+        app.querySelector('[data-grid-overlay]')?.setAttribute('opacity', opacity),
+      slider: ({ value: projected }) => {
+        const input = app.querySelector('input[type="range"][data-grid-opacity]');
+        if (input) input.value = displayed ?? String(projected);
+      },
+      numeric: ({ value: projected }) => {
+        const input = app.querySelector('input[type="number"][data-grid-opacity]');
+        if (input) input.value = displayed ?? String(projected);
+      },
+    },
+  );
 }
 function cancelGridOpacity() {
   if (gridOpacityDraft === null) return;

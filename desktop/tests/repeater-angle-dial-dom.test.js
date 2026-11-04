@@ -147,10 +147,29 @@ test(
     assert.equal(dial().getAttribute('role'), 'slider');
     assert.match(dial().getAttribute('aria-label'), /Rotation dial/);
     assert.match(dial().title, /0° right; clockwise positive/);
+    let peerEvents = 0;
+    const peer = input(),
+      recordPeerEvent = () => peerEvents++;
+    peer.addEventListener('input', recordPeerEvent);
+    peer.addEventListener('change', recordPeerEvent);
     const before = saved(),
-      state = win.nect.commandState;
-    const el = start(170);
+      state = win.nect.commandState,
+      appElement = document.getElementById('app'),
+      querySelectorAll = appElement.querySelectorAll.bind(appElement);
+    let rotationPeerLookups = 0;
+    appElement.querySelectorAll = (selector) => {
+      if (selector === '.field[data-node][data-key="rotation"]') rotationPeerLookups++;
+      return querySelectorAll(selector);
+    };
+    const el = start(170),
+      lookupsAtGestureStart = rotationPeerLookups;
+    assert.ok(lookupsAtGestureStart > 0, 'gesture start captures its peer presentations');
     fire(document, 'pointermove', 180);
+    assert.equal(
+      rotationPeerLookups,
+      lookupsAtGestureStart,
+      'pointermove reuses the captured peer set instead of rescanning the surface',
+    );
     assert.equal(dial(), el, 'preview never replaces the captured element');
     assert.equal(q().value, 725, 'preview is not authored');
     assert.equal(Number(input().value), 735);
@@ -160,6 +179,10 @@ test(
       735,
     );
     fire(document, 'pointerup', 180);
+    appElement.querySelectorAll = querySelectorAll;
+    assert.equal(peerEvents, 0, 'peer refresh dispatches no synthetic input/change event');
+    peer.removeEventListener('input', recordPeerEvent);
+    peer.removeEventListener('change', recordPeerEvent);
     assert.equal(win.nect.gestureState, null, 'own release does not cancel the finished drag');
     assert.equal(q().value, 735);
     assert.equal(indicator(), 'rotate(15deg)');
