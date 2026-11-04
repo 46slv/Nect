@@ -152,3 +152,12 @@ The input must remain connected to the DOM, editable and enabled, and the same d
 - Existing numeric-scrub, character-transform, rich-text, text-wrap and Shift-axis suites guard previous semantics.
 
 Synthetic DOM results do not prove browser rendering. Record actual Chrome evidence for the exact candidate and distinguish local/CI execution and any route restrictions. Native WebView2 acceptance remains separate.
+
+## REQ-42 P3 Type on Path start
+
+For static Text, the path start anchor uses the shared numeric behavior and the
+existing Session numeric-command gesture. The path identity, start mode, source,
+selection and revision are captured for each gesture. The existing validator
+continues to own path range and overflow; normalized anchors are not clamped to
+0–1. Variable and OS font paths keep their existing owner and route. Pending
+typing is a separate edit; cancelled or unchanged gestures preserve history.

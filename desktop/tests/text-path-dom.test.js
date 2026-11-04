@@ -42,6 +42,10 @@ test('Type on Path controls attach/edit/detach atomically with schema, locks, so
       /from '(\.\/[^']+)'/g,
       (_, p) => `from '${new URL('../src/' + p.slice(2), import.meta.url)}'`,
     );
+  source = source.replace(
+    'const binding = numericBehaviorBinding(numeric),',
+    'const binding = numericBehaviorBinding(numeric), __record = (globalThis.__pathBinding = !!binding),',
+  );
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const until = async (fn) => {
     const limit = Date.now() + 6000;
@@ -97,6 +101,65 @@ test('Type on Path controls attach/edit/detach atomically with schema, locks, so
   await change('text-path-mode', 'distance');
   assert.ok(Math.abs(text().pathAttachment.start - 300) < 1e-7);
   assert.equal(win.nect.export(), currentSVG);
+  const pointer = (el, type, x = 100) =>
+    el.dispatchEvent(
+      new win.PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        pointerId: 7,
+        clientX: x,
+        clientY: 20,
+      }),
+    );
+  const pathBaseline = text().pathAttachment.start;
+  const pathInput = control('text-path-start');
+  pathInput.focus();
+  pointer(pathInput, 'pointerdown');
+  assert.equal(globalThis.__pathBinding, true, 'shared behavior resolves the path input');
+  pointer(document, 'pointermove', 114);
+  assert.equal(text().pathAttachment.start, pathBaseline, 'preview remains detached');
+  pointer(document, 'pointerup', 114);
+  assert.equal(text().pathAttachment.start, 310);
+  control('text-path-start').blur();
+  undo();
+  assert.equal(text().pathAttachment.start, pathBaseline);
+  redo();
+  assert.equal(text().pathAttachment.start, 310);
+  undo();
+  assert.equal(text().pathAttachment.start, pathBaseline);
+  const beforeCancel = saved();
+  const cancelInput = control('text-path-start');
+  cancelInput.focus();
+  pointer(cancelInput, 'pointerdown');
+  pointer(document, 'pointermove', 114);
+  pointer(document, 'pointercancel', 114);
+  assert.equal(saved(), beforeCancel);
+  redo();
+  assert.equal(text().pathAttachment.start, 310, 'cancel preserves redo');
+  undo();
+  const typed = control('text-path-start');
+  typed.value = '320';
+  typed.focus();
+  pointer(typed, 'pointerdown');
+  pointer(document, 'pointermove', 114);
+  pointer(document, 'pointerup', 114);
+  assert.equal(text().pathAttachment.start, 330);
+  control('text-path-start').blur();
+  undo();
+  assert.equal(text().pathAttachment.start, 320, 'scrub is separate from typing');
+  undo();
+  assert.equal(text().pathAttachment.start, pathBaseline, 'typing has its own undo');
+  const readonlyBefore = saved();
+  const readonlyInput = control('text-path-start');
+  readonlyInput.focus();
+  pointer(readonlyInput, 'pointerdown');
+  pointer(document, 'pointermove', 114);
+  readonlyInput.readOnly = true;
+  pointer(document, 'pointerup', 114);
+  assert.equal(saved(), readonlyBefore, 'readonly interruption does not commit');
+  control('text-path-start').blur();
+  assert.equal(saved(), readonlyBefore, 'late blur does not commit preview');
   await change('text-path-reversed', true);
   assert.ok(win.nect.evaluate().textLayout(t.id).placements[0].tangent[0] < 0);
   const reversed = saved();
