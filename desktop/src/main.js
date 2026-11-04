@@ -2370,6 +2370,7 @@ function numericBehaviorBinding(input) {
     handlePolarNumericBinding(input) ||
     pngPpiNumericBinding(input) ||
     manualLeadingNumericBinding(input) ||
+    textWrapNumericBinding(input) ||
     textSelectionNumericBinding(input) ||
     layoutGridNumericBinding(input) ||
     numericCommandBinding(input) ||
@@ -2751,7 +2752,14 @@ function invalidatePngNumericScrub() {
   pngSettingsRevision++;
 }
 function manualLeadingNumericBinding(input) {
-  const nodeId = input.dataset.textLeadingValue;
+  return nodeTextNumericBinding(input, 'leading');
+}
+function textWrapNumericBinding(input) {
+  return nodeTextNumericBinding(input, 'wrap');
+}
+function nodeTextNumericBinding(input, textKind) {
+  const attribute = textKind === 'leading' ? 'textLeadingValue' : 'textWrapWidth',
+    nodeId = input.dataset[attribute];
   if (!nodeId) return null;
   const owner = session,
     compositionId = owner.activeCompositionId,
@@ -2760,13 +2768,18 @@ function manualLeadingNumericBinding(input) {
     originalNode = current().nodes.find((n) => n.id === nodeId);
   if (
     originalNode?.type !== 'Text' ||
-    originalNode.leading?.mode !== 'manual' ||
+    (textKind === 'leading' ? originalNode.leading?.mode !== 'manual' : !originalNode.textWrap) ||
     originalNode.variation ||
     history.doc.fontAssets?.[originalNode.font]?.kind === 'variable-glyf-v1'
   )
     return null;
   const sourceText = originalNode.text,
     font = originalNode.font,
+    writingMode = originalNode.writingMode,
+    wrapAxis =
+      originalNode.textWrap &&
+      (Object.hasOwn(originalNode.textWrap, 'height') ? 'height' : 'width'),
+    wrapPolicy = originalNode.textWrap?.policy,
     units = [input.dataset.scrubStep, input.min, input.max];
   let envelope = owner.state,
     gesture = null,
@@ -2776,10 +2789,10 @@ function manualLeadingNumericBinding(input) {
     if (drag?.capture !== input || !drag.behavior) return;
     const typed = input.value;
     cancelInteraction(false);
-    if (input.isConnected && input.dataset.textLeadingValue === nodeId) input.value = typed;
+    if (input.isConnected && input.dataset[attribute] === nodeId) input.value = typed;
     updateCanvas(true);
   };
-  const state = () => textNumericState({ textKind: 'leading', nodeId, started: true, sourceText });
+  const state = () => textNumericState({ textKind, nodeId, started: true, sourceText });
   const valid = () => {
     const n = current().nodes.find((entry) => entry.id === nodeId);
     return (
@@ -2791,7 +2804,7 @@ function manualLeadingNumericBinding(input) {
       owner.state.expectedRevision === envelope.expectedRevision &&
       input.isConnected &&
       input.matches('input[type="number"]') &&
-      input.dataset.textLeadingValue === nodeId &&
+      input.dataset[attribute] === nodeId &&
       input.dataset.scrubStep === units[0] &&
       input.min === units[1] &&
       input.max === units[2] &&
@@ -2807,6 +2820,10 @@ function manualLeadingNumericBinding(input) {
       (!owner.hasGesture || !!gesture) &&
       selected === nodeId &&
       n?.font === font &&
+      (textKind !== 'wrap' ||
+        (n?.writingMode === writingMode &&
+          (Object.hasOwn(n?.textWrap || {}, 'height') ? 'height' : 'width') === wrapAxis &&
+          n?.textWrap?.policy === wrapPolicy)) &&
       !n?.variation &&
       history.doc.fontAssets?.[n?.font]?.kind !== 'variable-glyf-v1' &&
       !!state()
@@ -2837,7 +2854,7 @@ function manualLeadingNumericBinding(input) {
       gesture = owner.dispatch({
         ...owner.state,
         type: 'begin-gesture',
-        payload: { target: { kind: 'text-values', layerId, nodeId, textKind: 'leading' } },
+        payload: { target: { kind: 'text-values', layerId, nodeId, textKind } },
       });
       input.addEventListener('input', onInput);
     },
@@ -2867,11 +2884,7 @@ function manualLeadingNumericBinding(input) {
           type: 'cancel-gesture',
           payload: { gestureId: gesture.gestureId },
         });
-      if (
-        input.isConnected &&
-        input.dataset.textLeadingValue === nodeId &&
-        input.value === previewInput
-      )
+      if (input.isConnected && input.dataset[attribute] === nodeId && input.value === previewInput)
         input.value = originalInput;
     },
   };

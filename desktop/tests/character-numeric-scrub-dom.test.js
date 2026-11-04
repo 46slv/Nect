@@ -49,6 +49,7 @@ test('actual character palette and typography inputs scrub atomically, preserve 
     '\nwindow.textNumericHistory = () => ({...session.state,past:history.past.length,future:history.future.length,gesture:session.hasGesture});';
   source += '\nwindow.textBindingForTest = input => textSelectionNumericBinding(input);';
   source += '\nwindow.leadingBindingForTest = input => manualLeadingNumericBinding(input);';
+  source += '\nwindow.wrapBindingForTest = input => textWrapNumericBinding(input);';
   source += '\nwindow.leadingCommittedForTest = () => JSON.stringify(history.doc);';
   source += '\nwindow.leadingRenderForTest = () => render();';
   source += '\nwindow.leadingPaintForTest = () => updateCanvas(true);';
@@ -520,6 +521,9 @@ test('actual character palette and typography inputs scrub atomically, preserve 
       const leadingInput = field(attribute, '.inspector-body');
       assert.ok(win.leadingBindingForTest(leadingInput), 'manual leading uses the shared behavior');
     }
+    if (kind === 'wrap') {
+      assert.ok(win.wrapBindingForTest(field(attribute, '.inspector-body')));
+    }
     scrub(field(attribute, '.inspector-body'));
     assert.equal(
       kind === 'leading' ? read().leading.value : read().textWrap.width,
@@ -544,6 +548,126 @@ test('actual character palette and typography inputs scrub atomically, preserve 
       empty();
     }
   }
+  // Wrap is node-level in either writing mode, and small authored distances survive no-ops.
+  for (const vertical of [false, true]) {
+    await load((n, doc) => {
+      n.writingMode = vertical ? 'vertical-rl' : 'horizontal-tb';
+      n.textWrap = vertical ? { height: 0.005, policy: 'japanese-basic-v1' } : { width: 0.005 };
+      doc.schemaVersion = vertical ? 34 : 8;
+    }, null);
+    openDOMPanel(document, 'inspector');
+    let wrap = field('text-wrap-width', '.inspector-body');
+    assert.ok(win.wrapBindingForTest(wrap));
+    const original = saved();
+    start(wrap);
+    pointer(document, 'pointermove', 124);
+    pointer(document, 'pointermove', 100);
+    pointer(document, 'pointerup', 100);
+    assert.equal(saved(), original);
+    wrap = field('text-wrap-width', '.inspector-body');
+    scrub(wrap);
+    assert.equal(read().textWrap[vertical ? 'height' : 'width'], 10.005);
+    document.querySelector('[data-action="undo"]').focus();
+    undo();
+    assert.equal(saved(), original);
+  }
+  await load((n, doc) => {
+    n.textWrap = { width: 300 };
+    doc.schemaVersion = 8;
+  }, null);
+  openDOMPanel(document, 'inspector');
+  let wrap = field('text-wrap-width', '.inspector-body');
+  wrap.value = '250';
+  scrub(wrap);
+  assert.equal(read().textWrap.width, 260);
+  document.querySelector('[data-action="undo"]').focus();
+  undo();
+  assert.equal(read().textWrap.width, 250);
+  undo();
+  assert.equal(read().textWrap.width, 300);
+  await tick();
+  win.leadingRenderForTest();
+  const wrapBaseline = saved(),
+    wrapHistory = win.textNumericHistory();
+  assert.equal(wrapHistory.future, 2);
+  wrap = field('text-wrap-width', '.inspector-body');
+  start(wrap);
+  pointer(document, 'pointermove', 124);
+  wrap.readOnly = true;
+  pointer(document, 'pointerup', 124);
+  wrap = field('text-wrap-width', '.inspector-body');
+  assert.equal(wrap.value, '300');
+  assert.equal(wrap.defaultValue, '300');
+  wrap.blur();
+  assert.equal(saved(), wrapBaseline);
+  assert.deepEqual(win.textNumericHistory(), wrapHistory);
+  wrap = field('text-wrap-width', '.inspector-body');
+  start(wrap);
+  pointer(document, 'pointermove', 124);
+  wrap.value = '42';
+  wrap.dispatchEvent(new win.InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+  pointer(document, 'pointercancel', 124);
+  assert.equal(wrap.value, '42', 'new wrap input survives cancellation of a preview');
+  assert.equal(saved(), wrapBaseline);
+  assert.deepEqual(win.textNumericHistory(), wrapHistory);
+
+  await load((n, doc) => {
+    n.textWrap = { width: 300 };
+    doc.schemaVersion = 8;
+  }, null);
+  openDOMPanel(document, 'inspector');
+  wrap = field('text-wrap-width', '.inspector-body');
+  const wrapBinding = win.wrapBindingForTest(wrap);
+  assert.equal(wrapBinding.valid(), true);
+  wrap.min = '0.02';
+  assert.equal(
+    wrapBinding.valid(),
+    false,
+    'changed control bounds invalidate the captured binding',
+  );
+  wrap.min = '0.01';
+  start(wrap);
+  const wrapText = document.querySelector('.inspector-body [data-text]');
+  wrapText.value = 'Changed';
+  wrapText.dispatchEvent(new win.Event('change', { bubbles: true }));
+  assert.equal(read().text, 'Changed');
+  const wrapChangedSource = saved(),
+    wrapChangedHistory = win.textNumericHistory();
+  pointer(document, 'pointermove', 124);
+  pointer(document, 'pointerup', 124);
+  assert.equal(saved(), wrapChangedSource, 'late wrap pointer cannot edit the changed source');
+  assert.deepEqual(win.textNumericHistory(), wrapChangedHistory);
+  assert.equal(read().textWrap.width, 300);
+
+  for (const [name, settings] of [
+    ['policy', { textWrap: { width: 300, policy: 'japanese-basic-v1' } }],
+    [
+      'axis',
+      { writingMode: 'vertical-rl', textWrap: { height: 300, policy: 'japanese-basic-v1' } },
+    ],
+  ]) {
+    await load((n, doc) => {
+      n.textWrap = { width: 300 };
+      doc.schemaVersion = 8;
+    }, null);
+    openDOMPanel(document, 'inspector');
+    wrap = field('text-wrap-width', '.inspector-body');
+    const binding = win.wrapBindingForTest(wrap);
+    start(wrap);
+    win.nect.dispatch({
+      ...win.nect.commandState,
+      type: 'set-text-settings',
+      payload: { layerId: win.nect.document.layers[0].id, nodeId: t.id, settings },
+    });
+    assert.equal(binding.valid(), false, `${name} change invalidates the captured binding`);
+    const changed = saved(),
+      history = win.textNumericHistory();
+    pointer(document, 'pointermove', 124);
+    pointer(document, 'pointerup', 124);
+    assert.equal(saved(), changed, `late pointer preserves changed ${name}`);
+    assert.deepEqual(win.textNumericHistory(), history);
+  }
+
   // Node-level leading works without a character selection and retains exact small authored values.
   await load((n, doc) => {
     n.leading = { mode: 'manual', value: 0.005 };
