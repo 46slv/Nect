@@ -48,6 +48,9 @@ test('actual character palette and typography inputs scrub atomically, preserve 
   source +=
     '\nwindow.textNumericHistory = () => ({...session.state,past:history.past.length,future:history.future.length,gesture:session.hasGesture});';
   source += '\nwindow.textBindingForTest = input => textSelectionNumericBinding(input);';
+  source += '\nwindow.leadingBindingForTest = input => manualLeadingNumericBinding(input);';
+  source += '\nwindow.leadingCommittedForTest = () => JSON.stringify(history.doc);';
+  source += '\nwindow.leadingRenderForTest = () => render();';
   source += '\nwindow.textSwitchForTest = switchActiveComposition;';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const tick = () => new Promise((r) => setTimeout(r, 15));
@@ -87,7 +90,7 @@ test('actual character palette and typography inputs scrub atomically, preserve 
     setup(doc.layers[0].nodes[0], doc);
     win.nect.load(JSON.stringify(doc));
     for (let i = 0; i < 300 && win.nect.evaluate().error; i++) await tick();
-    if (!doc.layers[0].locked) mode(ids);
+    if (!doc.layers[0].locked && ids) mode(ids);
     // Yield a real event-loop turn after render, even when evaluation is already ready.
     await tick();
   };
@@ -511,6 +514,10 @@ test('actual character palette and typography inputs scrub atomically, preserve 
     await load(setup);
     const before = saved(),
       attribute = kind === 'leading' ? 'text-leading-value' : 'text-wrap-width';
+    if (kind === 'leading') {
+      const leadingInput = field(attribute, '.inspector-body');
+      assert.ok(win.leadingBindingForTest(leadingInput), 'manual leading uses the shared behavior');
+    }
     scrub(field(attribute, '.inspector-body'));
     assert.equal(
       kind === 'leading' ? read().leading.value : read().textWrap.width,
@@ -535,6 +542,148 @@ test('actual character palette and typography inputs scrub atomically, preserve 
       empty();
     }
   }
+  // Node-level leading works without a character selection and retains exact small authored values.
+  await load((n, doc) => {
+    n.leading = { mode: 'manual', value: 0.005 };
+    doc.schemaVersion = 6;
+  }, null);
+  openDOMPanel(document, 'inspector');
+  let leading = field('text-leading-value', '.inspector-body');
+  assert.ok(win.leadingBindingForTest(leading));
+  const smallBefore = saved();
+  start(leading);
+  pointer(document, 'pointermove', 124);
+  pointer(document, 'pointermove', 100);
+  pointer(document, 'pointerup', 100);
+  assert.equal(saved(), smallBefore);
+  assert.equal(read().leading.value, 0.005);
+  leading = field('text-leading-value', '.inspector-body');
+  scrub(leading);
+  assert.equal(read().leading.value, 10.005);
+  undo();
+  assert.equal(saved(), smallBefore);
+
+  await load((n, doc) => {
+    n.leading = { mode: 'manual', value: 60 };
+    doc.schemaVersion = 6;
+  }, null);
+  openDOMPanel(document, 'inspector');
+  leading = field('text-leading-value', '.inspector-body');
+  leading.value = '25';
+  scrub(leading);
+  assert.equal(read().leading.value, 35, 'pending typing settles before the scrub');
+  document.activeElement?.blur();
+  undo();
+  assert.equal(read().leading.value, 25);
+  undo();
+  assert.equal(read().leading.value, 60);
+  await tick();
+  win.leadingRenderForTest(); // The HappyDOM harness disables requestAnimationFrame.
+  const redoBaseline = saved(),
+    redoHistory = win.textNumericHistory(),
+    committedBaseline = win.leadingCommittedForTest();
+  leading = field('text-leading-value', '.inspector-body');
+  assert.equal(leading.value, '60', 'rendered control follows Undo');
+  assert.equal(leading.defaultValue, '60', 'rendered default follows Undo');
+  start(leading);
+  pointer(document, 'pointermove', 103);
+  pointer(document, 'pointerup', 103);
+  assert.equal(saved(), redoBaseline, 'jitter is a no-op');
+  assert.deepEqual(win.textNumericHistory(), redoHistory);
+  leading = field('text-leading-value', '.inspector-body');
+  start(leading);
+  pointer(document, 'pointermove', 124, { pointerId: 8 });
+  pointer(document, 'pointerup', 124, { pointerId: 8 });
+  assert.equal(saved(), redoBaseline, 'another pointer cannot commit');
+  pointer(document, 'pointermove', 124);
+  assert.equal(leading.value, '80', 'preview is visible in the control');
+  assert.equal(
+    win.leadingCommittedForTest(),
+    committedBaseline,
+    'preview leaves history unchanged',
+  );
+  pointer(document, 'pointercancel', 124);
+  pointer(document, 'pointerup', 124);
+  leading.blur();
+  assert.equal(saved(), redoBaseline, 'late release and blur cannot commit a cancelled preview');
+  assert.deepEqual(win.textNumericHistory(), redoHistory);
+
+  await load((n, doc) => {
+    n.leading = { mode: 'manual', value: 60 };
+    doc.schemaVersion = 6;
+  }, null);
+  openDOMPanel(document, 'inspector');
+  leading = field('text-leading-value', '.inspector-body');
+  scrub(leading);
+  document.querySelector('[data-action="undo"]').focus();
+  undo();
+  await tick();
+  win.leadingRenderForTest();
+  leading = field('text-leading-value', '.inspector-body');
+  const staleBefore = saved();
+  const staleHistory = win.textNumericHistory();
+  assert.equal(staleHistory.future, 1);
+  assert.equal(leading.value, '60');
+  assert.equal(leading.defaultValue, '60');
+  start(leading);
+  pointer(document, 'pointermove', 124);
+  leading.readOnly = true;
+  pointer(document, 'pointerup', 124);
+  assert.equal(saved(), staleBefore, 'a newly readonly control cannot commit a preview');
+  assert.deepEqual(win.textNumericHistory(), staleHistory);
+  leading = field('text-leading-value', '.inspector-body');
+  assert.equal(leading.value, '60', 'cancel restores the visible leading');
+  assert.equal(leading.defaultValue, '60');
+  leading.readOnly = false;
+  start(leading);
+  pointer(document, 'pointermove', 124);
+  pointer(document, 'pointermove', 100);
+  pointer(document, 'pointerup', 100);
+  field('text-leading-value', '.inspector-body').blur();
+  assert.equal(
+    saved(),
+    staleBefore,
+    'next origin-return and blur do not commit a cancelled preview',
+  );
+  assert.deepEqual(win.textNumericHistory(), staleHistory);
+
+  leading = field('text-leading-value', '.inspector-body');
+  start(leading);
+  pointer(document, 'pointermove', 124);
+  leading.value = '42';
+  leading.dispatchEvent(new win.InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+  pointer(document, 'pointercancel', 124);
+  assert.equal(leading.value, '42', 'new typing survives cancellation of an older preview');
+  assert.equal(read().leading.value, 60);
+  const typedAfterCancel = field('text-leading-value', '.inspector-body');
+  assert.equal(typedAfterCancel.value, '42');
+  typedAfterCancel.dispatchEvent(new win.Event('change', { bubbles: true }));
+  assert.equal(read().leading.value, 42);
+  document.querySelector('[data-action="undo"]').focus();
+  await tick();
+  win.leadingRenderForTest();
+  undo();
+  assert.equal(read().leading.value, 60);
+
+  await load((n, doc) => {
+    n.leading = { mode: 'manual', value: 60 };
+    n.writingMode = 'vertical-rl';
+    doc.schemaVersion = 6;
+  }, null);
+  openDOMPanel(document, 'inspector');
+  leading = field('text-leading-value', '.inspector-body');
+  const verticalBefore = saved();
+  start(leading);
+  pointer(document, 'pointermove', 124);
+  pointer(leading, 'lostpointercapture', 124);
+  pointer(document, 'pointerup', 124);
+  assert.equal(saved(), verticalBefore, 'lost capture cancels vertical leading');
+  leading = field('text-leading-value', '.inspector-body');
+  scrub(leading);
+  assert.equal(read().leading.value, 70);
+  undo();
+  assert.equal(saved(), verticalBefore);
+
   // A busy gesture refuses Composition switching; cancelled input cannot revive in another owner.
   const project = migrateLegacyDocumentToCompositionProject(structuredClone(fixture)),
     other = migrateLegacyDocumentToCompositionProject(makeDoc());

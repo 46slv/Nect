@@ -138,6 +138,8 @@ The floating character palette's **ΔX**, **ΔY**, **Rotate °** and **Scale ×*
 
 Character edits retain Text Position/Position OUT, downstream transforms, unselected characters and unrelated properties. Selected typography still has its existing layout/reflow semantics. Character changes remain source-local under downstream rotation/reflection. Local numeric edits remain possible when the source mapping is valid but the output route does not allow canvas character manipulation.
 
+Manual leading on static Text uses the shared behavior as a node-level edit without requiring character selection. Its existing storage domain remains positive and may include values below the UI scrub minimum. Variable-font Text continues on its existing route because its preparation owner is asynchronous; migration of that route remains open.
+
 The input must remain connected to the DOM, editable and enabled, and the same document layer/source/character selection must remain active. Composition locks and suspended character correspondence refuse edits. The existing graph parameter guards for locks, connections and expressions remain in force; a locked/driven Text Position does not lock its independent character overrides. Invalid layout/path/offset previews roll back to the previous valid preview. These checks apply before preview and before commit.
 
 ## Verification
