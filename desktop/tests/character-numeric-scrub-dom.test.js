@@ -763,6 +763,7 @@ test('actual character palette and typography inputs scrub atomically, preserve 
 
   // Before activation a text change is allowed; a late pointer must not reuse the old source.
   leading = field('text-leading-value', '.inspector-body');
+  const oldLeading = leading;
   start(leading);
   const pendingSourceField = document.querySelector('.inspector-body [data-text]');
   pendingSourceField.value = 'Changed';
@@ -772,10 +773,22 @@ test('actual character palette and typography inputs scrub atomically, preserve 
     afterSourceHistory = win.textNumericHistory();
   pointer(document, 'pointermove', 124);
   pointer(document, 'pointerup', 124);
-  field('text-leading-value', '.inspector-body')?.blur();
+  let liveLeading = field('text-leading-value', '.inspector-body');
+  assert.ok(liveLeading);
+  assert.equal(liveLeading.dataset.textLeadingValue, t.id);
+  assert.equal(liveLeading.value, '60');
+  liveLeading.blur();
   assert.equal(saved(), afterSource, 'late pointer cannot edit the changed source');
   assert.deepEqual(win.textNumericHistory(), afterSourceHistory);
   assert.equal(read().leading.value, 60);
+  document.querySelector('[data-action="undo"]').focus();
+  undo();
+  assert.equal(read().text, 'ABC', 'source change can be undone');
+  document.querySelector('[data-action="redo"]').focus();
+  redo();
+  assert.equal(read().text, 'Changed', 'source change can be redone');
+  await tick();
+  win.leadingRenderForTest();
   pointer(otherHead(), 'pointerdown');
   pointer(document, 'pointerup');
   assert.equal(
@@ -783,6 +796,21 @@ test('actual character palette and typography inputs scrub atomically, preserve 
     secondText.id,
     'the same node route works after cancel',
   );
+  liveLeading = field('text-leading-value', '.inspector-body');
+  assert.ok(liveLeading);
+  assert.equal(liveLeading.dataset.textLeadingValue, secondText.id);
+  assert.equal(liveLeading.value, '90');
+  const selectedDocument = saved(),
+    selectedHistory = win.textNumericHistory();
+  assert.equal(oldLeading.isConnected, false, 'the old input is detached after selection');
+  pointer(document, 'pointerup', 124);
+  oldLeading.dispatchEvent(new win.FocusEvent('blur'));
+  assert.equal(win.leadingSelectedForTest(), secondText.id);
+  assert.equal(field('text-leading-value', '.inspector-body'), liveLeading);
+  assert.equal(liveLeading.value, '90');
+  assert.equal(liveLeading.defaultValue, '90');
+  assert.equal(saved(), selectedDocument);
+  assert.deepEqual(win.textNumericHistory(), selectedHistory);
 
   // A busy gesture refuses Composition switching; cancelled input cannot revive in another owner.
   const project = migrateLegacyDocumentToCompositionProject(structuredClone(fixture)),
