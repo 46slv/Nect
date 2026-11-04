@@ -2369,6 +2369,7 @@ function numericBehaviorBinding(input) {
     remapBatchNumericBinding(input) ||
     handlePolarNumericBinding(input) ||
     pngPpiNumericBinding(input) ||
+    manualLeadingNumericBinding(input) ||
     textSelectionNumericBinding(input) ||
     layoutGridNumericBinding(input) ||
     numericCommandBinding(input) ||
@@ -2748,6 +2749,132 @@ function pngPpiNumericBinding(input) {
 function invalidatePngNumericScrub() {
   if (drag?.capture?.id === 'png-ppi' && drag.behavior) cancelInteraction(false);
   pngSettingsRevision++;
+}
+function manualLeadingNumericBinding(input) {
+  const nodeId = input.dataset.textLeadingValue;
+  if (!nodeId) return null;
+  const owner = session,
+    compositionId = owner.activeCompositionId,
+    layerId = current().id,
+    epoch = sourceEpoch,
+    originalNode = current().nodes.find((n) => n.id === nodeId);
+  if (
+    originalNode?.type !== 'Text' ||
+    originalNode.leading?.mode !== 'manual' ||
+    originalNode.variation ||
+    history.doc.fontAssets?.[originalNode.font]?.kind === 'variable-glyf-v1'
+  )
+    return null;
+  const sourceText = originalNode.text,
+    font = originalNode.font,
+    units = [input.dataset.scrubStep, input.min, input.max];
+  let envelope = owner.state,
+    gesture = null,
+    originalInput,
+    previewInput;
+  const onInput = () => {
+    if (drag?.capture !== input || !drag.behavior) return;
+    const typed = input.value;
+    cancelInteraction(false);
+    if (input.isConnected && input.dataset.textLeadingValue === nodeId) input.value = typed;
+    updateCanvas(true);
+  };
+  const state = () => textNumericState({ textKind: 'leading', nodeId, started: true, sourceText });
+  const valid = () => {
+    const n = current().nodes.find((entry) => entry.id === nodeId);
+    return (
+      owner === session &&
+      owner.activeCompositionId === compositionId &&
+      current().id === layerId &&
+      sourceEpoch === epoch &&
+      owner.state.sessionId === envelope.sessionId &&
+      owner.state.expectedRevision === envelope.expectedRevision &&
+      input.isConnected &&
+      input.matches('input[type="number"]') &&
+      input.dataset.textLeadingValue === nodeId &&
+      input.dataset.scrubStep === units[0] &&
+      input.min === units[1] &&
+      input.max === units[2] &&
+      !input.disabled &&
+      !input.readOnly &&
+      !current().locked &&
+      !composing &&
+      !penDraft &&
+      !nameEdit &&
+      !variableAction &&
+      !owner.hasTextComposition &&
+      !document.querySelector('dialog[open]') &&
+      (!owner.hasGesture || !!gesture) &&
+      selected === nodeId &&
+      n?.font === font &&
+      !n?.variation &&
+      history.doc.fontAssets?.[n?.font]?.kind !== 'variable-glyf-v1' &&
+      !!state()
+    );
+  };
+  return {
+    mode: 'live',
+    valid,
+    read() {
+      originalInput = input.value;
+      if (input.value !== input.defaultValue) {
+        const expected = Number(originalInput);
+        if (!originalInput.trim() || !Number.isFinite(expected))
+          throw Error('Expected a finite number');
+        input.dispatchEvent(new window.Event('change', { bubbles: true }));
+        const committed = state();
+        if (!committed || committed.values[0] !== expected) throw Error('Number change cancelled');
+        settleNumericControl(input, true);
+      }
+      envelope = owner.state;
+      const baseline = state();
+      if (!baseline) throw Error('Number change cancelled');
+      return baseline.values;
+    },
+    step: () => Number(units[0]),
+    bounds: () => [Number(units[1]), Number(units[2])],
+    begin() {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'begin-gesture',
+        payload: { target: { kind: 'text-values', layerId, nodeId, textKind: 'leading' } },
+      });
+      input.addEventListener('input', onInput);
+    },
+    preview(values) {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'update-gesture',
+        payload: { ...gesture, update: { values } },
+      });
+      drag.preview = owner.previewSnapshot(gesture.gestureId).document;
+      input.value = mixedNumericDisplay(values);
+      previewInput = input.value;
+      updateCanvas();
+    },
+    commit() {
+      input.removeEventListener('input', onInput);
+      settleNumericControl(
+        input,
+        owner.dispatch({ ...owner.state, type: 'commit-gesture', payload: gesture }),
+      );
+    },
+    cancel() {
+      input.removeEventListener('input', onInput);
+      if (gesture)
+        owner.dispatch({
+          ...owner.state,
+          type: 'cancel-gesture',
+          payload: { gestureId: gesture.gestureId },
+        });
+      if (
+        input.isConnected &&
+        input.dataset.textLeadingValue === nodeId &&
+        input.value === previewInput
+      )
+        input.value = originalInput;
+    },
+  };
 }
 function textSelectionNumericBinding(input) {
   const data = input.dataset,
