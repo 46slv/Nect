@@ -51,6 +51,7 @@ test('pair kerning controls: caret/range identity, sparse history, scrub/cancel,
       /from '(\.\/[^']+)'/g,
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
+  source += '\nwindow.pairKerningBindingForTest = input => numericBehaviorBinding(input);';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const tick = () => new Promise((r) => setTimeout(r, 15));
   for (let i = 0; i < 300 && (!win.nect || win.nect.evaluate().error); i++) await tick();
@@ -127,6 +128,7 @@ test('pair kerning controls: caret/range identity, sparse history, scrub/cancel,
   assert.equal(field().disabled, false);
   assert.equal(field().value, '');
   assert.equal(field().placeholder, 'Inherited (0)');
+  assert.ok(win.pairKerningBindingForTest(field()), 'pair uses shared numeric behavior');
   assert.match(q('.pair-kerning').textContent, /A \| V/);
   await edit(0);
   assert.deepEqual(read().characterPositions.kerningPairs, { 'c1:c2': 0 });
@@ -202,6 +204,33 @@ test('pair kerning controls: caret/range identity, sparse history, scrub/cancel,
     assert.equal(saved(), before, cancel);
     assert.equal(field().value, '', cancel);
     empty();
+  }
+  await load();
+  range(1);
+  const readonlyBefore = saved();
+  let readonlyField = start();
+  pointer(document, 'pointermove', 124);
+  readonlyField.readOnly = true;
+  pointer(document, 'pointerup', 124);
+  readonlyField = field();
+  assert.equal(readonlyField.value, '', 'readonly cancellation restores inherited display');
+  assert.equal(saved(), readonlyBefore);
+  readonlyField.blur();
+  assert.equal(saved(), readonlyBefore);
+  empty();
+  for (const next of ['42', '20']) {
+    await load();
+    range(1);
+    const before = saved(),
+      control = start();
+    pointer(document, 'pointermove', 124);
+    control.value = next;
+    control.dispatchEvent(new win.InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+    pointer(document, 'pointercancel', 124);
+    assert.equal(field().value, next, 'new input is not replaced by the cancelled preview');
+    assert.equal(saved(), before);
+    await edit(next);
+    assert.equal(read().characterPositions.kerningPairs['c1:c2'], Number(next));
   }
   await load();
   range(1);

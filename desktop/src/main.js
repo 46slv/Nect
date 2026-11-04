@@ -2371,6 +2371,7 @@ function numericBehaviorBinding(input) {
     pngPpiNumericBinding(input) ||
     manualLeadingNumericBinding(input) ||
     textWrapNumericBinding(input) ||
+    pairKerningNumericBinding(input) ||
     textSelectionNumericBinding(input) ||
     layoutGridNumericBinding(input) ||
     numericCommandBinding(input) ||
@@ -2886,6 +2887,146 @@ function nodeTextNumericBinding(input, textKind) {
         });
       if (input.isConnected && input.dataset[attribute] === nodeId && input.value === previewInput)
         input.value = originalInput;
+    },
+  };
+}
+function pairKerningNumericBinding(input) {
+  if (input.dataset.characterKerning === undefined) return null;
+  const target = textNumericTarget(input);
+  if (!target || target.textKind !== 'kerning') return null;
+  const owner = session,
+    compositionId = owner.activeCompositionId,
+    layerId = current().id,
+    epoch = sourceEpoch,
+    nodeId = target.nodeId,
+    sourceText = target.targetText,
+    route = characterEdit.route,
+    ids = [...target.ids],
+    key = target.pairKey,
+    originalNode = current().nodes.find((n) => n.id === nodeId),
+    context = characterContext(),
+    pair = pairContext(context),
+    units = [input.dataset.scrubStep, input.min, input.max];
+  if (
+    originalNode?.osFont ||
+    originalNode?.variation ||
+    history.doc.fontAssets?.[originalNode?.font]?.kind === 'variable-glyf-v1' ||
+    pair?.rows.some((row) => history.doc.fontAssets?.[row.font]?.kind === 'variable-glyf-v1')
+  )
+    return null;
+  let envelope = owner.state,
+    gesture = null,
+    originalInput,
+    originalManual,
+    originalValue,
+    previewInput;
+  const sameControl = () =>
+    input.isConnected &&
+    input.dataset.kerningNode === nodeId &&
+    input.dataset.characterKerning === key &&
+    input.dataset.kerningText === JSON.stringify(sourceText);
+  const state = () => textNumericState({ ...target, started: true, sourceText });
+  const valid = () =>
+    owner === session &&
+    owner.activeCompositionId === compositionId &&
+    current().id === layerId &&
+    sourceEpoch === epoch &&
+    owner.state.sessionId === envelope.sessionId &&
+    owner.state.expectedRevision === envelope.expectedRevision &&
+    sameControl() &&
+    input.matches('input[type="number"]') &&
+    !input.disabled &&
+    !input.readOnly &&
+    input.dataset.scrubStep === units[0] &&
+    input.min === units[1] &&
+    input.max === units[2] &&
+    !current().locked &&
+    !composing &&
+    !penDraft &&
+    !nameEdit &&
+    !variableAction &&
+    !owner.hasTextComposition &&
+    !document.querySelector('dialog[open]') &&
+    (!owner.hasGesture || !!gesture) &&
+    selected === nodeId &&
+    characterEdit?.node === nodeId &&
+    characterEdit?.layer === layerId &&
+    characterEdit.route === route &&
+    !current().nodes.find((n) => n.id === nodeId)?.osFont &&
+    !current().nodes.find((n) => n.id === nodeId)?.variation &&
+    history.doc.fontAssets?.[current().nodes.find((n) => n.id === nodeId)?.font]?.kind !==
+      'variable-glyf-v1' &&
+    characterEdit.selected.size === ids.length &&
+    ids.every((id) => characterEdit.selected.has(id)) &&
+    !!state();
+  const onInput = () => {
+    if (drag?.capture !== input || !drag.behavior) return;
+    const typed = input.value;
+    cancelInteraction(false);
+    if (sameControl()) input.value = typed;
+    updateCanvas(true);
+  };
+  return {
+    mode: 'live',
+    valid,
+    read() {
+      originalInput = input.value;
+      if (input.value !== input.defaultValue) {
+        const expected = Number(originalInput);
+        if (!originalInput.trim() || !Number.isFinite(expected))
+          throw Error('Expected a finite number');
+        input.dispatchEvent(new window.Event('change', { bubbles: true }));
+        const committed = state();
+        if (!committed?.manual || committed.values[0] !== expected)
+          throw Error('Number change cancelled');
+        settleNumericControl(input, true);
+      }
+      envelope = owner.state;
+      const baseline = state();
+      if (!baseline) throw Error('Number change cancelled');
+      originalManual = baseline.manual;
+      originalValue = baseline.values[0];
+      return baseline.values;
+    },
+    step: () => Number(units[0]),
+    bounds: () => [Number(units[1]), Number(units[2])],
+    begin() {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'begin-gesture',
+        payload: {
+          target: { kind: 'text-values', layerId, nodeId, textKind: 'kerning', ids, pairKey: key },
+        },
+      });
+      input.addEventListener('input', onInput);
+    },
+    preview(values) {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'update-gesture',
+        payload: { ...gesture, update: { values } },
+      });
+      drag.preview = owner.previewSnapshot(gesture.gestureId).document;
+      input.value = !originalManual && values[0] === originalValue ? '' : String(values[0]);
+      previewInput = input.value;
+      updateCanvas();
+    },
+    commit() {
+      input.removeEventListener('input', onInput);
+      settleNumericControl(
+        input,
+        owner.dispatch({ ...owner.state, type: 'commit-gesture', payload: gesture }),
+      );
+    },
+    cancel() {
+      input.removeEventListener('input', onInput);
+      if (gesture)
+        owner.dispatch({
+          ...owner.state,
+          type: 'cancel-gesture',
+          payload: { gestureId: gesture.gestureId },
+        });
+      if (sameControl() && input.value === previewInput) input.value = originalInput;
     },
   };
 }

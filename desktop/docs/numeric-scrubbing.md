@@ -140,6 +140,8 @@ Character edits retain Text Position/Position OUT, downstream transforms, unsele
 
 Manual leading and wrap extent on static Text use the shared behavior as node-level edits without requiring character selection. Wrap extent is width for horizontal text and height for vertical text. Their existing storage domains remain positive and may include values below the UI scrub minimum. Variable-font Text continues on its existing route because its preparation owner is asynchronous; migration of that route remains open.
 
+Static Text pair kerning uses the shared behavior with its ordered character-pair identity and existing Session gesture. Inherited kerning remains distinct from an explicit zero; cancelling or returning to the origin preserves inheritance. Variable-font pair handling remains on its existing route.
+
 The input must remain connected to the DOM, editable and enabled, and the same document layer/source/character selection must remain active. Composition locks and suspended character correspondence refuse edits. The existing graph parameter guards for locks, connections and expressions remain in force; a locked/driven Text Position does not lock its independent character overrides. Invalid layout/path/offset previews roll back to the previous valid preview. These checks apply before preview and before commit.
 
 ## Verification
