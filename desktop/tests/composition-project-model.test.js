@@ -187,6 +187,65 @@ test('keeps legacy Layer-graph references within one outer Composition', () => {
   assert.throws(() => validateCompositionProject(project), /cannot cross outer Compositions/);
 });
 
+test('null Composition References validate and round-trip without changing scope', () => {
+  const project = twoCompositionProject(),
+    source = project.compositions[0].layers[0];
+  source.nodes.push({
+    id: 'unbound-reference',
+    type: 'Composition Reference',
+    compositionReference: null,
+  });
+  const before = structuredClone(project);
+  assert.strictEqual(validateCompositionProject(project), project);
+  assert.deepEqual(deserializeCompositionProject(serializeCompositionProject(project)), before);
+  assert.deepEqual(project, before, 'validation and serialization are read-only');
+});
+
+test('only exact null is unbound; absent, malformed and missing targets still reject', () => {
+  for (const target of [
+    undefined,
+    false,
+    0,
+    '',
+    [],
+    {},
+    { compositionId: null },
+    { compositionId: '' },
+    { compositionId: [] },
+    { compositionId: 'missing-layer' },
+  ]) {
+    const project = twoCompositionProject(),
+      source = project.compositions[0].layers[0],
+      reference = { id: 'invalid-reference', type: 'Composition Reference' };
+    if (target !== undefined) reference.compositionReference = target;
+    source.nodes.push(reference);
+    const before = structuredClone(project);
+    assert.throws(() => validateCompositionProject(project), /target is missing/);
+    assert.deepEqual(project, before, 'rejection must not alter the candidate');
+  }
+  const project = twoCompositionProject();
+  project.compositions[0].layers[0].nodes.push({
+    id: 'undefined-reference',
+    type: 'Composition Reference',
+    compositionReference: undefined,
+  });
+  assert.throws(() => validateCompositionProject(project));
+});
+
+test('SVG references still require a same-Composition target', () => {
+  const project = twoCompositionProject(),
+    source = project.compositions[0].layers[0],
+    reference = { id: 'svg-reference', type: 'SVG', compositionReference: null };
+  source.nodes.push(reference);
+  assert.throws(() => validateCompositionProject(project), /target is missing/);
+  reference.compositionReference = { compositionId: 'missing-layer' };
+  assert.throws(() => validateCompositionProject(project), /target is missing/);
+  reference.compositionReference = { compositionId: project.compositions[1].layers[0].id };
+  assert.throws(() => validateCompositionProject(project), /cannot cross outer Compositions/);
+  reference.compositionReference = { compositionId: source.id };
+  assert.strictEqual(validateCompositionProject(project), project);
+});
+
 test('legacy JSON is migrated once on read and new JSON is validated without remigration', () => {
   const legacy = legacyDocument({ width: 417, height: 263 }),
     migrated = deserializeCompositionProject(JSON.stringify(legacy)),
