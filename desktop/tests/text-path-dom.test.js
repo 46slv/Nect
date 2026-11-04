@@ -201,5 +201,81 @@ test('Type on Path controls attach/edit/detach atomically with schema, locks, so
   assert.equal(control('text-path').disabled, true);
   assert.equal(control('text-path-start').disabled, true);
   assert.notEqual(centered, attached);
+  // An empty source has no glyph span, allowing both normalized endpoints to
+  // remain valid with the existing one-unit scrub step.
+  const endpointDoc = JSON.parse(attached);
+  const endpointText = endpointDoc.layers[0].nodes[0];
+  endpointText.text = '';
+  endpointText.alignment = 'start';
+  endpointText.pathAttachment.startMode = 'normalized';
+  endpointText.pathAttachment.start = 0;
+  win.nect.load(JSON.stringify(endpointDoc));
+  const normalizedStart = saved();
+  let normalizedInput = control('text-path-start');
+  normalizedInput.focus();
+  globalThis.__pathBinding = false;
+  pointer(normalizedInput, 'pointerdown');
+  assert.equal(globalThis.__pathBinding, true, 'normalized resolver admitted input');
+  pointer(document, 'pointermove', 105);
+  pointer(document, 'pointerup', 105);
+  assert.equal(
+    text().pathAttachment.start,
+    1,
+    'normalized endpoint: ' + document.querySelector('.status .message').textContent,
+  );
+  assert.equal(text().pathAttachment.startMode, 'normalized');
+  control('text-path-start').blur();
+  undo();
+  assert.equal(saved(), normalizedStart);
+  redo();
+  assert.equal(text().pathAttachment.start, 1);
+  const normalizedEnd = saved();
+  normalizedInput = control('text-path-start');
+  normalizedInput.focus();
+  pointer(normalizedInput, 'pointerdown');
+  pointer(document, 'pointermove', 105);
+  pointer(document, 'pointerup', 105);
+  assert.equal(saved(), normalizedEnd, 'invalid normalized preview does not commit');
+  // Returning to the origin cancels without consuming the redo entry.
+  control('text-path-start').blur();
+  undo();
+  assert.equal(saved(), normalizedStart);
+  const originInput = control('text-path-start');
+  originInput.focus();
+  pointer(originInput, 'pointerdown');
+  pointer(document, 'pointermove', 105);
+  pointer(document, 'pointermove', 100);
+  pointer(document, 'pointerup', 100);
+  assert.equal(saved(), normalizedStart);
+  control('text-path-start').blur();
+  redo();
+  assert.equal(saved(), normalizedEnd, 'origin return keeps redo');
+  undo();
+  const staleModeInput = control('text-path-start');
+  staleModeInput.focus();
+  pointer(staleModeInput, 'pointerdown');
+  await change('text-path-mode', 'distance');
+  const afterModeChange = saved();
+  assert.equal(text().pathAttachment.startMode, 'distance');
+  pointer(document, 'pointermove', 114);
+  pointer(document, 'pointerup', 114);
+  staleModeInput.blur();
+  assert.equal(saved(), afterModeChange, 'late pointer cannot apply after mode change');
+  const staleSourceInput = control('text-path-start');
+  staleSourceInput.focus();
+  pointer(staleSourceInput, 'pointerdown');
+  await change('text', 'A');
+  assert.equal(text().text, 'A');
+  const afterSourceChange = saved();
+  pointer(document, 'pointermove', 114);
+  pointer(document, 'pointerup', 114);
+  staleSourceInput.blur();
+  assert.equal(saved(), afterSourceChange, 'late pointer cannot apply after source change');
+  const nextInput = control('text-path-start');
+  nextInput.focus();
+  pointer(nextInput, 'pointerdown');
+  pointer(document, 'pointermove', 114);
+  pointer(document, 'pointerup', 114);
+  assert.equal(text().pathAttachment.start, 10, 'current field remains editable');
   await win.happyDOM.close();
 });
