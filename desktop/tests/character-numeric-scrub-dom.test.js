@@ -1,4 +1,4 @@
-import { openDOMPanel } from './helpers/dom-workspace-controls.js';
+import { openDOMPanel, revealDOMBoundary } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -52,6 +52,7 @@ test('actual character palette and typography inputs scrub atomically, preserve 
   source += '\nwindow.leadingCommittedForTest = () => JSON.stringify(history.doc);';
   source += '\nwindow.leadingRenderForTest = () => render();';
   source += '\nwindow.leadingPaintForTest = () => updateCanvas(true);';
+  source += '\nwindow.leadingSelectedForTest = () => selected;';
   source += '\nwindow.textSwitchForTest = switchActiveComposition;';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const tick = () => new Promise((r) => setTimeout(r, 15));
@@ -707,6 +708,81 @@ test('actual character palette and typography inputs scrub atomically, preserve 
   assert.equal(read().leading.value, 70);
   undo();
   assert.equal(saved(), verticalBefore);
+
+  // The real node-selection and text-change routes cannot retarget an in-flight leading gesture.
+  const secondText = node('Text');
+  secondText.text = 'Other';
+  secondText.leading = { mode: 'manual', value: 90 };
+  await load((n, doc) => {
+    n.leading = { mode: 'manual', value: 60 };
+    doc.layers[0].nodes.push(secondText);
+    doc.schemaVersion = 6;
+  }, null);
+  openDOMPanel(document, 'inspector');
+  revealDOMBoundary(document, 'graph');
+  leading = field('text-leading-value', '.inspector-body');
+  scrub(leading);
+  document.querySelector('[data-action="undo"]').focus();
+  undo();
+  await tick();
+  win.leadingRenderForTest();
+  const nodeBaseline = saved(),
+    nodeHistory = win.textNumericHistory(),
+    originalSelected = win.leadingSelectedForTest();
+  assert.equal(originalSelected, t.id);
+  assert.equal(nodeHistory.future, 1);
+  const otherHead = () =>
+    document.querySelector(`.graph .node[data-id="${secondText.id}"] .node-head`);
+  assert.ok(otherHead());
+  for (const active of [false, true]) {
+    leading = field('text-leading-value', '.inspector-body');
+    start(leading);
+    if (active) pointer(document, 'pointermove', 124);
+    pointer(otherHead(), 'pointerdown', 124, { pointerId: 8 });
+    pointer(document, 'pointerup', 124, { pointerId: 8 });
+    assert.equal(win.leadingSelectedForTest(), originalSelected);
+    assert.equal(saved(), nodeBaseline);
+    pointer(document, 'pointercancel', 124);
+    pointer(document, 'pointerup', 124);
+    field('text-leading-value', '.inspector-body').blur();
+    assert.equal(saved(), nodeBaseline);
+    assert.deepEqual(win.textNumericHistory(), nodeHistory);
+  }
+  leading = field('text-leading-value', '.inspector-body');
+  start(leading);
+  pointer(document, 'pointermove', 124);
+  const sourceField = document.querySelector('.inspector-body [data-text]');
+  sourceField.value = 'Changed';
+  sourceField.dispatchEvent(new win.Event('change', { bubbles: true }));
+  assert.equal(read().text, 'ABC', 'the active Session rejects text replacement');
+  pointer(document, 'pointercancel', 124);
+  pointer(document, 'pointerup', 124);
+  field('text-leading-value', '.inspector-body').blur();
+  assert.equal(saved(), nodeBaseline);
+  assert.deepEqual(win.textNumericHistory(), nodeHistory);
+
+  // Before activation a text change is allowed; a late pointer must not reuse the old source.
+  leading = field('text-leading-value', '.inspector-body');
+  start(leading);
+  const pendingSourceField = document.querySelector('.inspector-body [data-text]');
+  pendingSourceField.value = 'Changed';
+  pendingSourceField.dispatchEvent(new win.Event('change', { bubbles: true }));
+  assert.equal(read().text, 'Changed');
+  const afterSource = saved(),
+    afterSourceHistory = win.textNumericHistory();
+  pointer(document, 'pointermove', 124);
+  pointer(document, 'pointerup', 124);
+  field('text-leading-value', '.inspector-body')?.blur();
+  assert.equal(saved(), afterSource, 'late pointer cannot edit the changed source');
+  assert.deepEqual(win.textNumericHistory(), afterSourceHistory);
+  assert.equal(read().leading.value, 60);
+  pointer(otherHead(), 'pointerdown');
+  pointer(document, 'pointerup');
+  assert.equal(
+    win.leadingSelectedForTest(),
+    secondText.id,
+    'the same node route works after cancel',
+  );
 
   // A busy gesture refuses Composition switching; cancelled input cannot revive in another owner.
   const project = migrateLegacyDocumentToCompositionProject(structuredClone(fixture)),
