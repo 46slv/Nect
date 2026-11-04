@@ -121,6 +121,17 @@ test('Type on Path controls attach/edit/detach atomically with schema, locks, so
   assert.equal(text().pathAttachment.start, pathBaseline, 'preview remains detached');
   pointer(document, 'pointerup', 114);
   assert.equal(text().pathAttachment.start, 310);
+  undo();
+  const afterFocusedUndo = control('text-path-start');
+  assert.equal(afterFocusedUndo.value, String(pathBaseline));
+  assert.equal(afterFocusedUndo.defaultValue, String(pathBaseline));
+  afterFocusedUndo.focus();
+  pointer(afterFocusedUndo, 'pointerdown');
+  pointer(document, 'pointermove', 114);
+  pointer(document, 'pointercancel', 114);
+  assert.equal(text().pathAttachment.start, pathBaseline, 'cancel does not re-commit old value');
+  redo();
+  assert.equal(text().pathAttachment.start, 310);
   control('text-path-start').blur();
   undo();
   assert.equal(text().pathAttachment.start, pathBaseline);

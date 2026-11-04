@@ -23,3 +23,41 @@ test('focus restoration distinguishes graph/inspector and retains text selection
   restoreFocus(root, snapshot);
   assert.notEqual(win.document.activeElement, root.querySelector('.graph input'));
 });
+
+test('clean number adopts current model while numeric and text drafts survive', () => {
+  const win = new Window();
+  const root = win.document.body;
+  const numberMarkup = (value) => `<input type="number" aria-label="Amount" value="${value}">`;
+  const numberCase = (value, badInput, expected) => {
+    root.innerHTML = numberMarkup('310');
+    const input = root.querySelector('input');
+    input.focus();
+    input.value = value;
+    if (badInput) Object.defineProperty(input, 'validity', { value: { badInput: true } });
+    const snapshot = captureFocus(root);
+    root.innerHTML = numberMarkup('300');
+    restoreFocus(root, snapshot);
+    const restored = root.querySelector('input');
+    assert.equal(win.document.activeElement, restored);
+    assert.equal(restored.defaultValue, '300');
+    assert.equal(restored.value, expected);
+  };
+  numberCase('310', false, '300');
+  numberCase('320', false, '320');
+  numberCase('', false, '');
+  numberCase('310', true, '310');
+  root.innerHTML = '<input type="text" aria-label="Expression" value="x">';
+  const text = root.querySelector('input');
+  text.focus();
+  text.value = 'x + 1';
+  text.setSelectionRange(1, 3);
+  const draft = captureFocus(root);
+  root.innerHTML = '<input type="text" aria-label="Expression" value="y">';
+  restoreFocus(root, draft);
+  assert.equal(root.querySelector('input').value, 'x + 1');
+  assert.equal(root.querySelector('input').selectionStart, 1);
+  assert.equal(root.querySelector('input').selectionEnd, 3);
+  root.innerHTML = '<input type="text" aria-label="Expression" value="y" disabled>';
+  restoreFocus(root, draft);
+  assert.notEqual(win.document.activeElement, root.querySelector('input'));
+});
