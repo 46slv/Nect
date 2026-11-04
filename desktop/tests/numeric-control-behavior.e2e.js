@@ -11,6 +11,8 @@ const browser = await chromium.launch({
   chromiumSandbox: true,
 });
 const page = await browser.newPage({ viewport: { width: 1800, height: 1100 } });
+// These geometry-only fixtures do not need font binaries.
+await page.route(/\.(ttf|otf|ttc|otc|woff2?)(\?|$)/i, (route) => route.abort());
 const errors = [],
   results = [];
 page.on('pageerror', (error) => errors.push(error.message));
@@ -257,3 +259,6 @@ try {
 } finally {
   await browser.close();
 }
+
+// Exercise the separate staged Remap adapter with its own isolated browser fixture.
+await import('./remap-batch-scrub.e2e.js');
