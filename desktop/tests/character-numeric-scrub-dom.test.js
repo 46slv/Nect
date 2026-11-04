@@ -51,6 +51,7 @@ test('actual character palette and typography inputs scrub atomically, preserve 
   source += '\nwindow.leadingBindingForTest = input => manualLeadingNumericBinding(input);';
   source += '\nwindow.leadingCommittedForTest = () => JSON.stringify(history.doc);';
   source += '\nwindow.leadingRenderForTest = () => render();';
+  source += '\nwindow.leadingPaintForTest = () => updateCanvas(true);';
   source += '\nwindow.textSwitchForTest = switchActiveComposition;';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const tick = () => new Promise((r) => setTimeout(r, 15));
@@ -625,6 +626,7 @@ test('actual character palette and typography inputs scrub atomically, preserve 
   assert.equal(staleHistory.future, 1);
   assert.equal(leading.value, '60');
   assert.equal(leading.defaultValue, '60');
+  assert.equal(read().leading.value, 60);
   start(leading);
   pointer(document, 'pointermove', 124);
   leading.readOnly = true;
@@ -664,6 +666,28 @@ test('actual character palette and typography inputs scrub atomically, preserve 
   win.leadingRenderForTest();
   undo();
   assert.equal(read().leading.value, 60);
+
+  await load((n, doc) => {
+    n.text = 'ABC\nABC';
+    n.leading = { mode: 'manual', value: 60 };
+    doc.schemaVersion = 6;
+  }, null);
+  openDOMPanel(document, 'inspector');
+  leading = field('text-leading-value', '.inspector-body');
+  win.leadingPaintForTest();
+  const authoredCanvas = document.querySelector('.artboard').innerHTML,
+    canvasBefore = saved(),
+    canvasHistory = win.textNumericHistory();
+  start(leading);
+  pointer(document, 'pointermove', 124);
+  win.leadingPaintForTest();
+  assert.notEqual(document.querySelector('.artboard').innerHTML, authoredCanvas);
+  leading.value = '42';
+  leading.dispatchEvent(new win.InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+  assert.equal(leading.value, '42');
+  assert.equal(document.querySelector('.artboard').innerHTML, authoredCanvas);
+  assert.equal(saved(), canvasBefore);
+  assert.deepEqual(win.textNumericHistory(), canvasHistory);
 
   await load((n, doc) => {
     n.leading = { mode: 'manual', value: 60 };

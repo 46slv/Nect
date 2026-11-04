@@ -2706,6 +2706,7 @@ function manualLeadingNumericBinding(input) {
     const typed = input.value;
     cancelInteraction(false);
     if (input.isConnected && input.dataset.textLeadingValue === nodeId) input.value = typed;
+    updateCanvas(true);
   };
   const state = () => textNumericState({ textKind: 'leading', nodeId, started: true, sourceText });
   const valid = () => {
