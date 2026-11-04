@@ -86,6 +86,7 @@ export const browserTestFiles = Object.freeze([
   'tests/workspace-escape.e2e.js',
   'tests/key-color-recipe-panel.e2e.js',
   'tests/numeric-control-behavior.e2e.js',
+  'tests/point-spacing-scrub.e2e.js',
   'tests/document-guide-numeric.e2e.js',
   'tests/png-ppi-scrub.e2e.js',
   'tests/hsl-popover-numeric-scrub.e2e.js',
