@@ -46,6 +46,10 @@ test('Type on Path controls attach/edit/detach atomically with schema, locks, so
     'const binding = numericBehaviorBinding(numeric),',
     'const binding = numericBehaviorBinding(numeric), __record = (globalThis.__pathBinding = !!binding),',
   );
+  source +=
+    '\nwindow.pathTestSelection = (primary, ids, refresh = false) => { selected = primary; selection = new Set(ids); if (refresh) render(); };';
+  source +=
+    '\nwindow.pathTestHistory = () => ({revision: session.state.expectedRevision, past: history.past.length, future: history.future.length});';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const until = async (fn) => {
     const limit = Date.now() + 6000;
@@ -59,14 +63,17 @@ test('Type on Path controls attach/edit/detach atomically with schema, locks, so
   const doc = newDocument(),
     t = node('Text'),
     c = node('Curve'),
+    c2 = node('Curve'),
     out = node('Output');
   t.text = 'TYPE';
   t.params.size.value = 40;
   t.params.position.value = [100, 250];
   c.points = [point(30, 100), point(630, 100)];
   c.params.closed.value = false;
+  c2.points = [point(30, 100), point(630, 100)];
+  c2.params.closed.value = false;
   out.params.path.source = t.id;
-  doc.layers[0].nodes = [t, c, out];
+  doc.layers[0].nodes = [t, c, c2, out];
   doc.layers[0].output = out.id;
   win.nect.load(serialize(doc));
   openDOMPanel(document, 'inspector');
@@ -282,11 +289,57 @@ test('Type on Path controls attach/edit/detach atomically with schema, locks, so
   pointer(document, 'pointerup', 114);
   staleSourceInput.blur();
   assert.equal(saved(), afterSourceChange, 'late pointer cannot apply after source change');
+  const oldPathInput = control('text-path-start');
+  oldPathInput.focus();
+  pointer(oldPathInput, 'pointerdown');
+  await change('text-path', JSON.stringify([c2.id, c2.id]));
+  assert.equal(text().pathAttachment.nodeId, c2.id);
+  const afterPathChange = saved(),
+    historyAfterPath = win.pathTestHistory();
+  pointer(document, 'pointermove', 114);
+  pointer(document, 'pointerup', 114);
+  oldPathInput.blur();
+  assert.equal(saved(), afterPathChange, 'late pointer cannot restore the old path');
+  assert.deepEqual(win.pathTestHistory(), historyAfterPath);
+  await change('text-path-mode', 'distance');
+  assert.equal(text().pathAttachment.startMode, 'distance');
   const nextInput = control('text-path-start');
   nextInput.focus();
   pointer(nextInput, 'pointerdown');
   pointer(document, 'pointermove', 114);
   pointer(document, 'pointerup', 114);
   assert.equal(text().pathAttachment.start, 10, 'current field remains editable');
+  control('text-path-start').blur();
+  undo();
+  assert.equal(text().pathAttachment.start, 0, 'new path scrub is one undo');
+  const baselineSelectionDoc = saved(),
+    baselineSelectionHistory = win.pathTestHistory();
+  const primaryInput = control('text-path-start');
+  primaryInput.focus();
+  pointer(primaryInput, 'pointerdown');
+  pointer(document, 'pointermove', 114);
+  win.pathTestSelection(c2.id, [c2.id]);
+  pointer(document, 'pointerup', 114);
+  primaryInput.blur();
+  assert.equal(saved(), baselineSelectionDoc, 'different primary cancels the old preview');
+  assert.deepEqual(win.pathTestHistory(), baselineSelectionHistory);
+  win.pathTestSelection(t.id, [t.id], true);
+  const multiInput = control('text-path-start');
+  multiInput.focus();
+  pointer(multiInput, 'pointerdown');
+  pointer(document, 'pointermove', 114);
+  win.pathTestSelection(t.id, [t.id, c2.id]);
+  pointer(document, 'pointerup', 114);
+  multiInput.blur();
+  assert.equal(saved(), baselineSelectionDoc, 'changed selection set cancels the old preview');
+  assert.deepEqual(win.pathTestHistory(), baselineSelectionHistory);
+  win.pathTestSelection(t.id, [t.id], true);
+  const recovered = control('text-path-start');
+  recovered.focus();
+  pointer(recovered, 'pointerdown');
+  pointer(document, 'pointermove', 114);
+  pointer(document, 'pointercancel', 114);
+  assert.equal(saved(), baselineSelectionDoc, 'new current gesture remains cancellable');
+  assert.deepEqual(win.pathTestHistory(), baselineSelectionHistory);
   await win.happyDOM.close();
 });

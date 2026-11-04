@@ -2761,6 +2761,7 @@ function textPathStartNumericBinding(input) {
     compositionId = owner.activeCompositionId,
     layerId = current().id,
     epoch = sourceEpoch,
+    selectedIds = [...selection],
     originalNode = current().nodes.find((n) => n.id === nodeId);
   if (
     originalNode?.type !== 'Text' ||
@@ -2807,6 +2808,8 @@ function textPathStartNumericBinding(input) {
       !document.querySelector('dialog[open]') &&
       (!owner.hasGesture || !!gesture) &&
       selected === nodeId &&
+      selectedIds.length === selection.size &&
+      selectedIds.every((id) => selection.has(id)) &&
       n?.type === 'Text' &&
       n.text === sourceText &&
       n.font === font &&
