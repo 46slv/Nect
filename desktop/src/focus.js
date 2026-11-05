@@ -1,4 +1,5 @@
 // Stable editor-control identity across a structural render; no selector interpolation.
+const focusTargets = 'input,select,textarea,button,[tabindex="0"],[data-workspace-focus-target]';
 function identity(el) {
   const field = el.closest('.field[data-node]');
   return JSON.stringify({
@@ -13,8 +14,7 @@ function identity(el) {
 }
 export function captureFocus(root) {
   const el = root.ownerDocument.activeElement;
-  if (!el || !root.contains(el) || !el.matches('input,select,textarea,button,[tabindex="0"]'))
-    return null;
+  if (!el || !root.contains(el) || !el.matches(focusTargets)) return null;
   return {
     identity: identity(el),
     value: el.value,
@@ -27,8 +27,12 @@ export function captureFocus(root) {
 }
 export function restoreFocus(root, state) {
   if (!state) return;
-  const el = [...root.querySelectorAll('input,select,textarea,button,[tabindex="0"]')].find(
-    (candidate) => identity(candidate) === state.identity && !candidate.disabled,
+  const el = [...root.querySelectorAll(focusTargets)].find(
+    (candidate) =>
+      identity(candidate) === state.identity &&
+      !candidate.disabled &&
+      (!candidate.hasAttribute('data-workspace-focus-target') ||
+        !candidate.closest('[hidden], [inert]')),
   );
   if (!el) return;
   el.focus({ preventScroll: true });

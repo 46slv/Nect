@@ -264,7 +264,7 @@ test('Viewer mode moves focus out of a suspended Color panel', () => {
   f.window.happyDOM.abort();
 });
 
-test('rapid close, reopen and switch keeps only the latest child interactive', () => {
+test('rapid close, reopen and switch keeps both editing panels interactive', () => {
   const f = fixture();
   const host = f.root.querySelector('[data-drawer-side="right"]');
   const layers = f.root.querySelector('.layers');
@@ -282,14 +282,249 @@ test('rapid close, reopen and switch keeps only the latest child interactive', (
   assert.equal(host.inert, false);
   assert.equal(layers.hidden, false);
   f.controller.select('inspector');
-  assert.equal(layers.hidden, true);
+  assert.equal(layers.hidden, false);
   assert.equal(inspector.hidden, false);
   assert.equal(host.dataset.activePanel, 'inspector');
   assert.equal(f.root.querySelectorAll('.inspector').length, 1);
   assert.equal(f.window.document.activeElement, inspector);
-  assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+  assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+  assert.equal(trigger.getAttribute('aria-pressed'), 'false');
   f.window.happyDOM.abort();
 });
+
+test('Layers and Inspector share one stack with independent focus and stable DOM', () => {
+  const f = fixture();
+  const layers = f.root.querySelector('.layers');
+  const inspector = f.root.querySelector('.inspector');
+  const layersButton = f.root.querySelector('[data-workspace-panel="layers"]');
+  const inspectorButton = f.root.querySelector('[data-workspace-panel="inspector"]');
+  layersButton.click();
+  assert.equal(layers.hidden, false);
+  assert.equal(inspector.hidden, false);
+  assert.equal(layersButton.getAttribute('aria-expanded'), 'true');
+  assert.equal(inspectorButton.getAttribute('aria-expanded'), 'true');
+  assert.equal(layersButton.getAttribute('aria-pressed'), 'true');
+  assert.equal(inspectorButton.getAttribute('aria-pressed'), 'false');
+  layers.scrollTop = 12;
+  inspector.scrollTop = 24;
+  inspectorButton.click();
+  assert.equal(f.root.querySelector('.layers'), layers);
+  assert.equal(f.root.querySelector('.inspector'), inspector);
+  assert.equal(layers.scrollTop, 12);
+  assert.equal(inspector.scrollTop, 24);
+  assert.equal(f.window.document.activeElement, inspector);
+  assert.equal(layersButton.getAttribute('aria-expanded'), 'true');
+  assert.equal(inspectorButton.getAttribute('aria-pressed'), 'true');
+  layers.focus();
+  assert.equal(layersButton.getAttribute('aria-pressed'), 'true');
+  layers.dispatchEvent(new f.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(f.root.querySelector('[data-drawer-side="right"]').hidden, true);
+  assert.equal(layersButton.getAttribute('aria-expanded'), 'false');
+  assert.equal(inspectorButton.getAttribute('aria-expanded'), 'false');
+  assert.equal(f.window.document.activeElement, layersButton);
+  f.window.happyDOM.abort();
+});
+
+test('Inspector composition blocks rail pointer blur and semantic switching until it ends', () => {
+  const f = fixture();
+  f.controller.select('inspector');
+  const input = f.window.document.createElement('input');
+  f.root.querySelector('.inspector').append(input);
+  input.value = '編集中';
+  input.focus();
+  input.dispatchEvent(new f.window.CompositionEvent('compositionstart', { bubbles: true }));
+  const layersButton = f.root.querySelector('[data-workspace-panel="layers"]');
+  const down = new f.window.PointerEvent('pointerdown', { bubbles: true, cancelable: true });
+  layersButton.dispatchEvent(down);
+  assert.equal(down.defaultPrevented, true);
+  const separator = f.root.querySelector('[data-workspace-split]');
+  const splitDown = new f.window.PointerEvent('pointerdown', { bubbles: true, cancelable: true });
+  separator.dispatchEvent(splitDown);
+  assert.equal(splitDown.defaultPrevented, true);
+  const layerAction = f.window.document.createElement('button');
+  let activations = 0;
+  layerAction.addEventListener('click', () => activations++);
+  f.root.querySelector('.layers').append(layerAction);
+  const sectionDown = new f.window.PointerEvent('pointerdown', { bubbles: true, cancelable: true });
+  layerAction.dispatchEvent(sectionDown);
+  layerAction.click();
+  assert.equal(sectionDown.defaultPrevented, true);
+  assert.equal(activations, 0);
+  layersButton.click();
+  f.controller.select('align');
+  f.controller.close('inspector');
+  assert.equal(f.controller.active.right, 'inspector');
+  assert.equal(f.window.document.activeElement, input);
+  assert.equal(input.value, '編集中');
+  input.dispatchEvent(new f.window.CompositionEvent('compositionend', { bubbles: true }));
+  layerAction.click();
+  assert.equal(activations, 1);
+  layersButton.click();
+  assert.equal(f.controller.active.right, 'layers');
+  assert.equal(f.root.querySelector('.inspector').hidden, false);
+  assert.equal(input.value, '編集中');
+  f.window.happyDOM.abort();
+});
+
+test('editing split keyboard and interrupted pointer gestures stay view-only and restore preferences', async () => {
+  const win = new Window();
+  const root = win.document.createElement('div');
+  root.innerHTML = markup;
+  win.document.body.append(root);
+  const values = new Map([
+    [DRAWER_PREFERENCES_KEY, JSON.stringify({ left: null, right: 'layers', lastSide: 'right' })],
+  ]);
+  const storage = {
+    getItem: (key) => values.get(key),
+    setItem: (key, value) => values.set(key, value),
+  };
+  const controller = createTestWorkspacePanels({
+    storage,
+    getAssetPanel: () => null,
+    onAssets() {},
+    onAlign() {},
+    onColors() {},
+  });
+  controller.attach(root);
+  await Promise.resolve();
+  const host = root.querySelector('[data-drawer-side="right"]');
+  Object.defineProperty(host, 'clientHeight', { configurable: true, value: 400 });
+  host.getBoundingClientRect = () => ({ top: 100, height: 400 });
+  controller.refresh();
+  let split = root.querySelector('[data-workspace-split]');
+  assert.equal(split.getAttribute('role'), 'separator');
+  assert.equal(split.getAttribute('aria-orientation'), 'horizontal');
+  assert.equal(split.getAttribute('aria-controls'), root.querySelector('.layers').id);
+  assert.equal(Number(split.getAttribute('aria-valuenow')), 38);
+  split.focus();
+  split.dispatchEvent(
+    new win.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+  );
+  const adjusted = Number(split.getAttribute('aria-valuenow'));
+  assert.ok(adjusted > 38);
+  assert.equal(JSON.parse(values.get(DRAWER_PREFERENCES_KEY)).splits.editing, adjusted);
+  const stored = values.get(DRAWER_PREFERENCES_KEY);
+  Object.defineProperty(host, 'clientHeight', { configurable: true, value: 120 });
+  controller.refresh();
+  assert.notEqual(Number(split.getAttribute('aria-valuenow')), adjusted);
+  assert.equal(values.get(DRAWER_PREFERENCES_KEY), stored);
+  Object.defineProperty(host, 'clientHeight', { configurable: true, value: 400 });
+  controller.refresh();
+  assert.equal(Number(split.getAttribute('aria-valuenow')), adjusted);
+  split.dispatchEvent(
+    new win.PointerEvent('pointerdown', {
+      pointerId: 7,
+      button: 0,
+      isPrimary: true,
+      bubbles: true,
+      clientY: 250,
+    }),
+  );
+  win.document.dispatchEvent(
+    new win.PointerEvent('pointermove', { pointerId: 7, bubbles: true, clientY: 290, buttons: 1 }),
+  );
+  assert.notEqual(Number(split.getAttribute('aria-valuenow')), adjusted);
+  win.document.dispatchEvent(
+    new win.PointerEvent('pointercancel', { pointerId: 7, bubbles: true }),
+  );
+  assert.equal(Number(split.getAttribute('aria-valuenow')), adjusted);
+  assert.equal(values.get(DRAWER_PREFERENCES_KEY), stored);
+  split.dispatchEvent(
+    new win.PointerEvent('pointerdown', {
+      pointerId: 10,
+      button: 0,
+      isPrimary: true,
+      bubbles: true,
+      clientY: 250,
+    }),
+  );
+  win.document.dispatchEvent(
+    new win.PointerEvent('pointermove', { pointerId: 10, bubbles: true, clientY: 290, buttons: 1 }),
+  );
+  controller.select('align');
+  win.document.dispatchEvent(new win.PointerEvent('pointerup', { pointerId: 10, bubbles: true }));
+  assert.equal(JSON.parse(values.get(DRAWER_PREFERENCES_KEY)).splits.editing, adjusted);
+  controller.select('layers');
+  assert.equal(Number(split.getAttribute('aria-valuenow')), adjusted);
+  const storedAfterSwitch = values.get(DRAWER_PREFERENCES_KEY);
+  split.dispatchEvent(
+    new win.PointerEvent('pointerdown', {
+      pointerId: 8,
+      button: 0,
+      isPrimary: true,
+      bubbles: true,
+      clientY: 250,
+    }),
+  );
+  win.document.dispatchEvent(
+    new win.PointerEvent('pointermove', { pointerId: 8, bubbles: true, clientY: 290, buttons: 1 }),
+  );
+  root.innerHTML = markup;
+  controller.attach(root);
+  split = root.querySelector('[data-workspace-split]');
+  win.document.dispatchEvent(
+    new win.PointerEvent('pointermove', { pointerId: 8, bubbles: true, clientY: 320, buttons: 1 }),
+  );
+  win.document.dispatchEvent(new win.PointerEvent('pointerup', { pointerId: 8, bubbles: true }));
+  assert.equal(values.get(DRAWER_PREFERENCES_KEY), storedAfterSwitch);
+  assert.equal(Number(split.getAttribute('aria-valuenow')), adjusted);
+  win.happyDOM.abort();
+});
+
+for (const action of ['click', 'ArrowUp', 'ArrowDown', 'Home', 'End'])
+  test(`clamped split preserves its preferred size on no-op ${action}`, () => {
+    const win = new Window();
+    const root = win.document.createElement('div');
+    root.innerHTML = markup;
+    win.document.body.append(root);
+    const original = JSON.stringify({
+      left: null,
+      right: 'layers',
+      lastSide: 'right',
+      splits: { editing: 38 },
+    });
+    let saved = original;
+    const controller = createTestWorkspacePanels({
+      storage: {
+        getItem: () => saved,
+        setItem: (_key, value) => {
+          saved = value;
+        },
+      },
+      getAssetPanel: () => null,
+      onAssets() {},
+      onAlign() {},
+      onColors() {},
+    });
+    controller.attach(root);
+    const host = root.querySelector('[data-drawer-side="right"]');
+    Object.defineProperty(host, 'clientHeight', { configurable: true, value: 120 });
+    controller.refresh();
+    const split = root.querySelector('[data-workspace-split]');
+    const clamped = Number(split.getAttribute('aria-valuenow'));
+    assert.notEqual(clamped, 38);
+    if (action === 'click') {
+      split.dispatchEvent(
+        new win.PointerEvent('pointerdown', {
+          pointerId: 9,
+          button: 0,
+          isPrimary: true,
+          bubbles: true,
+        }),
+      );
+      win.document.dispatchEvent(
+        new win.PointerEvent('pointerup', { pointerId: 9, bubbles: true }),
+      );
+    } else
+      split.dispatchEvent(
+        new win.KeyboardEvent('keydown', { key: action, bubbles: true, cancelable: true }),
+      );
+    assert.equal(saved, original);
+    Object.defineProperty(host, 'clientHeight', { configurable: true, value: 400 });
+    controller.refresh();
+    assert.equal(Number(split.getAttribute('aria-valuenow')), 38);
+    win.happyDOM.abort();
+  });
 
 test('asset portal uses the stable slot origin and retreats without motion', () => {
   const f = fixture();

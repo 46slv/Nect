@@ -4364,6 +4364,40 @@ input[data-color-scrub-step] {
   padding: 0;
   right: var(--stage-right, 0px);
 }
+/* The approved right-drawer prototype keeps these independent scrollports co-visible. */
+.workspace-drawer[data-drawer-side='right'][data-visible-group='editing'] {
+  overflow: hidden;
+}
+.workspace-drawer[data-visible-group='editing'] > .layers {
+  flex: 0 0 var(--workspace-split-size, 38%);
+  height: auto;
+  border-bottom: 1px solid var(--line);
+}
+.workspace-drawer[data-visible-group='editing'] > .inspector {
+  flex: 1 1 0;
+  height: auto;
+}
+.workspace-split-handle {
+  flex: 0 0 8px;
+  cursor: row-resize;
+  touch-action: none;
+  background: #e6eaee;
+}
+.workspace-split-handle::after {
+  content: '';
+  display: block;
+  width: 32px;
+  height: 2px;
+  margin: 3px auto;
+  border-radius: 1px;
+  background: #8a9aa5;
+}
+.workspace-split-handle:hover,
+.workspace-split-handle:focus-visible {
+  background: #9baeba;
+  outline: 2px solid var(--selection);
+  outline-offset: -2px;
+}
 .workspace-drawer-left {
   left: var(--stage-left, 48px);
   right: auto;

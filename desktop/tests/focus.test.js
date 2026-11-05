@@ -61,3 +61,22 @@ test('clean number adopts current model while numeric and text drafts survive', 
   restoreFocus(root, draft);
   assert.notEqual(win.document.activeElement, root.querySelector('input'));
 });
+
+test('workspace panel focus restores only the same visible section after replacement', () => {
+  const win = new Window();
+  const root = win.document.body;
+  const markup =
+    '<aside><section id="workspace-panel-layers" data-workspace-focus-target="layers" tabindex="-1"></section><section id="workspace-panel-inspector" data-workspace-focus-target="inspector" tabindex="-1"></section></aside>';
+  root.innerHTML = markup;
+  root.querySelector('#workspace-panel-inspector').focus();
+  const state = captureFocus(root);
+  assert.ok(state);
+  root.innerHTML = markup;
+  restoreFocus(root, state);
+  assert.equal(win.document.activeElement, root.querySelector('#workspace-panel-inspector'));
+  root.innerHTML = markup;
+  root.querySelector('aside').hidden = true;
+  restoreFocus(root, state);
+  assert.notEqual(win.document.activeElement, root.querySelector('#workspace-panel-inspector'));
+  win.happyDOM.abort();
+});

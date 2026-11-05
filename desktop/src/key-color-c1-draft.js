@@ -5,13 +5,19 @@ import { createNumericControlBehavior } from './numeric-control-behavior.js';
 export function createKeyColorC1Draft(
   host,
   value,
-  { valid = () => true, blocked = () => false, allowEmpty = false } = {},
+  {
+    valid = () => true,
+    blocked = () => false,
+    allowEmpty = false,
+    onActivityChange = () => {},
+  } = {},
 ) {
   const document = host.ownerDocument;
   const field = (kind) => host.querySelector(`[data-key-color-input="${kind}"]`);
   let hsl = value ? hexToHsl(value.hex) : null,
     paintedHue = null,
     pointer = null,
+    huePointer = null,
     scrub = null,
     internalInput = false;
   const composing = new Set();
@@ -21,6 +27,21 @@ export function createKeyColorC1Draft(
   field('alpha').value = value ? String(value.alpha) : '';
   const canvas = host.querySelector('canvas'),
     hue = host.querySelector('[data-key-color-hue]');
+
+  function endHuePointer(event) {
+    if (huePointer === null || (event && event.pointerId !== huePointer)) return;
+    huePointer = null;
+    onActivityChange();
+  }
+  const blurHuePointer = () => endHuePointer();
+  hue.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || event.isPrimary === false || hue.disabled) return;
+    huePointer = event.pointerId;
+    onActivityChange();
+  });
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
+    document.addEventListener(type, endHuePointer, true);
+  document.defaultView?.addEventListener('blur', blurHuePointer);
 
   function paint(skip = null) {
     const marker = host.querySelector('[data-key-color-marker]');
@@ -159,6 +180,7 @@ export function createKeyColorC1Draft(
     document.defaultView?.removeEventListener('blur', onWindowBlur);
     if (commit) previous.behavior.finish();
     else previous.behavior.cancel();
+    onActivityChange();
   }
   function onWindowBlur() {
     finishScrub();
@@ -254,6 +276,7 @@ export function createKeyColorC1Draft(
       cancel: restore,
     });
     scrub = { behavior, input, id: event.pointerId, x: event.clientX };
+    onActivityChange();
     document.addEventListener('pointermove', onScrubMove, true);
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
       document.addEventListener(type, onScrubEnd, true);
@@ -292,6 +315,7 @@ export function createKeyColorC1Draft(
     event.preventDefault();
     field('hsl-s').focus();
     pointer = event.pointerId;
+    onActivityChange();
     canvas.setPointerCapture(pointer);
     fromPlane(event);
   });
@@ -301,11 +325,12 @@ export function createKeyColorC1Draft(
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
     canvas.addEventListener(type, () => {
       pointer = null;
+      onActivityChange();
     });
   paint();
   return {
     get active() {
-      return !!scrub || pointer !== null;
+      return !!scrub || pointer !== null || huePointer !== null;
     },
     settleComposition() {
       if (!allowEmpty || composing.size || blocked()) return;
@@ -320,6 +345,10 @@ export function createKeyColorC1Draft(
     },
     dispose: () => {
       finishScrub();
+      for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
+        document.removeEventListener(type, endHuePointer, true);
+      document.defaultView?.removeEventListener('blur', blurHuePointer);
+      endHuePointer();
       pendingComposition.clear();
       if (allowEmpty && pointer !== null) {
         try {

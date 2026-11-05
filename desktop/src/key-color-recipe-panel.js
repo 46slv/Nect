@@ -83,6 +83,7 @@ export function createKeyColorRecipePanel({
     research = false,
     researchComposition = null,
     researchIds = null,
+    initialInputKey = null,
     stale = false,
     applying = false;
   const composing = new Set();
@@ -106,6 +107,7 @@ export function createKeyColorRecipePanel({
     research = false;
     researchComposition = null;
     researchIds = null;
+    initialInputKey = null;
     composing.clear();
     if (old?.open) old.close();
     old?.remove();
@@ -184,11 +186,70 @@ export function createKeyColorRecipePanel({
     }
     return {
       values,
-      key: JSON.stringify([
-        ...values.map(({ kind, slotId, raw }) => [kind, slotId, raw]),
-        ['hue-slider', dialog.querySelector('[data-key-color-hue]')?.value],
-      ]),
+      key: inputKey(),
     };
+  }
+
+  function inputKey() {
+    return JSON.stringify([
+      ...[...dialog.querySelectorAll('[data-key-color-input]')].map((input) => [
+        input.dataset.keyColorInput,
+        input.dataset.keyColorSlot,
+        input.value,
+      ]),
+      ['hue-slider', dialog.querySelector('[data-key-color-hue]')?.value],
+    ]);
+  }
+
+  function canUnlink() {
+    current();
+    return (
+      isLiveKeyColorRecipe(getDocument()) &&
+      initialInputKey !== null &&
+      !composing.size &&
+      !c1Draft?.active &&
+      !deltaScrub?.active &&
+      !preview &&
+      !artworkProjection &&
+      inputKey() === initialInputKey
+    );
+  }
+
+  function updateUnlink() {
+    const button = dialog?.querySelector('[data-key-color-unlink]');
+    if (!button) return;
+    let enabled = false;
+    try {
+      enabled = canUnlink();
+    } catch {
+      // A stale Session must be reopened, never silently rebased.
+    }
+    button.disabled = !enabled;
+    dialog.querySelector('[data-key-color-unlink-hint]').hidden = enabled;
+  }
+
+  function unlink() {
+    try {
+      if (!canUnlink()) throw Error('Close and reopen Key color to unlink the saved colors.');
+      applying = true;
+      const result = dispatch(
+        'detach-live-key-color-recipe',
+        { expectedPaletteRevision: base.revision },
+        { ...envelope },
+      );
+      if (result == null || result === false) throw Error('Unlink was not accepted.');
+      close();
+      notify('Trial colors unlinked');
+    } catch (error) {
+      if (dialog) {
+        updateUnlink();
+        status(error.message, true);
+      }
+      notify(error.message, true);
+    } finally {
+      applying = false;
+      reconcile();
+    }
   }
 
   function candidate(values) {
@@ -443,6 +504,7 @@ export function createKeyColorRecipePanel({
     preview = null;
     dialog.querySelector('[data-key-color-comparison]').innerHTML = '';
     dialog.querySelector('[data-key-color-apply]').disabled = true;
+    updateUnlink();
   }
 
   function researchInputs() {
@@ -732,6 +794,7 @@ export function createKeyColorRecipePanel({
       // Preview is an explicit review step: bring its actual before/after
       // literals into the bounded scrollport, not only a below-the-fold heading.
       dialog.querySelector('[data-key-color-comparison]').scrollIntoView?.({ block: 'start' });
+      updateUnlink();
     } catch (error) {
       clearPreview();
       status(error.message, true);
@@ -785,6 +848,7 @@ export function createKeyColorRecipePanel({
     if (!dialog || !base || applying) return;
     validateDraft();
     refreshTrialUsage();
+    updateUnlink();
   }
 
   function retainedControls() {
@@ -818,7 +882,7 @@ export function createKeyColorRecipePanel({
       })
       .join('');
     const saved = isLiveKeyColorRecipe(getDocument())
-      ? '<p>Linked trial palette. Edit its colors here.</p>'
+      ? '<p>Linked trial palette.</p><button type="button" data-key-color-unlink disabled aria-describedby="key-color-unlink-hint">Unlink · keep colors</button><p id="key-color-unlink-hint" data-key-color-unlink-hint hidden>Close and reopen Key color to unlink the saved colors.</p>'
       : isB
         ? `<p>Saved recipe · revision ${base.revision}. Later shared-color edits do not update this snapshot.</p>`
         : `<p>Palette <code>${esc(base.paletteId)}</code> · retained revision ${base.revision}. This receipt is historical, not a live driver.</p>`;
@@ -858,13 +922,14 @@ export function createKeyColorRecipePanel({
     const controls = base
       ? retainedControls()
       : research
-        ? `<p data-key-color-empty>Research candidates. B adds five trial colors without changing existing colors, in one Undo. Coverage and readability are not evaluated; colors may coincide.</p><fieldset><legend>C1</legend><div data-key-color-c1></div></fieldset><label>Research candidate <select data-research-plan><option value="">Choose a candidate</option><option value="research-triadic-offset">A · chromatic comparison</option><option value="research-neutral-start">B · neutral start</option></select></label><label data-research-live-option hidden><input type="checkbox" data-research-live>Link trial colors to C1</label><p data-research-live-warning role="status" aria-live="polite" hidden>Older Nect versions cannot open linked palettes. Detaching the palette is not yet available.</p><details><summary>Candidate roles and coefficients</summary><pre data-research-details></pre></details><p data-key-color-status role="status" aria-live="polite">Enter C1 and choose a candidate.</p><section data-research-results aria-label="Research color preview"></section>`
+        ? `<p data-key-color-empty>Research candidates. B adds five trial colors without changing existing colors, in one Undo. Coverage and readability are not evaluated; colors may coincide.</p><fieldset><legend>C1</legend><div data-key-color-c1></div></fieldset><label>Research candidate <select data-research-plan><option value="">Choose a candidate</option><option value="research-triadic-offset">A · chromatic comparison</option><option value="research-neutral-start">B · neutral start</option></select></label><label data-research-live-option hidden><input type="checkbox" data-research-live>Link trial colors to C1</label><p data-research-live-warning role="status" aria-live="polite" hidden>Older Nect versions cannot open this project after linking.</p><details><summary>Candidate roles and coefficients</summary><pre data-research-details></pre></details><p data-key-color-status role="status" aria-live="polite">Enter C1 and choose a candidate.</p><section data-research-results aria-label="Research color preview"></section>`
         : `<p data-key-color-empty>${esc(error || 'The retained recipe is unavailable.')}</p>`;
     const isB =
       base &&
       trialB(base.intent.preset.id, base.intent.preset.version) &&
       base.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION;
-    dialog.innerHTML = `<header><h2 id="key-color-recipe-title">Key color · Experimental</h2><button type="button" data-key-color-cancel aria-label="Close Key color">×</button></header>${base ? (isB ? '<p>Trial palette.</p>' : '<p>Opt-in one-shot Apply. The existing legacy wheel and product defaults are unchanged. Dark TonePlan coefficients remain unresolved.</p>') : ''}<div class="key-color-recipe-body">${controls}</div><footer><button type="button" data-key-color-cancel>Cancel</button>${base ? '<button type="button" data-key-color-preview>Preview</button><button type="button" data-key-color-apply disabled>Apply · 1 Undo</button>' : research ? '<button type="button" data-research-preview disabled>Preview</button><button type="button" data-research-create disabled>Add 5 trial colors · 1 Undo</button>' : ''}</footer>${base && !isB ? '<p class="key-color-undo-note">A changed Apply is one Undo. Equal literals and receipt are a no-op. Cancel and Escape discard the draft.</p>' : ''}`;
+    const linked = !!base && isLiveKeyColorRecipe(getDocument());
+    dialog.innerHTML = `<header><h2 id="key-color-recipe-title">Key color · Experimental</h2><button type="button" data-key-color-cancel aria-label="Close Key color">×</button></header>${base && !linked ? (isB ? '<p>Trial palette.</p>' : '<p>Opt-in one-shot Apply. The existing legacy wheel and product defaults are unchanged. Dark TonePlan coefficients remain unresolved.</p>') : ''}<div class="key-color-recipe-body">${controls}</div><footer><button type="button" data-key-color-cancel>Cancel</button>${base ? '<button type="button" data-key-color-preview>Preview</button><button type="button" data-key-color-apply disabled>Apply · 1 Undo</button>' : research ? '<button type="button" data-research-preview disabled>Preview</button><button type="button" data-research-create disabled>Add 5 trial colors · 1 Undo</button>' : ''}</footer>${base && !isB ? '<p class="key-color-undo-note">A changed Apply is one Undo. Equal literals and receipt are a no-op. Cancel and Escape discard the draft.</p>' : ''}`;
     if (
       base &&
       trialB(base.intent.preset.id, base.intent.preset.version) &&
@@ -893,6 +958,7 @@ export function createKeyColorRecipePanel({
         base ? base.intent.keyColor.value : null,
         {
           allowEmpty: research,
+          onActivityChange: updateUnlink,
           blocked: () => composing.size > 0 || !!deltaScrub?.active,
           valid: () => {
             try {
@@ -910,6 +976,7 @@ export function createKeyColorRecipePanel({
       }
       if (base)
         deltaScrub = createKeyColorDeltaScrub(dialog, {
+          onActivityChange: updateUnlink,
           blocked: () => composing.size > 0 || !!c1Draft?.active,
           valid: () => {
             try {
@@ -922,6 +989,8 @@ export function createKeyColorRecipePanel({
         });
     }
     document.body.append(dialog);
+    if (base) initialInputKey = inputKey();
+    updateUnlink();
     const onInput = (event) => {
       if (event.target.matches?.('[data-pair-foreground], [data-pair-background]'))
         clearPairResult();
@@ -950,6 +1019,7 @@ export function createKeyColorRecipePanel({
       else if (event.target.closest('[data-research-create]')) createTrial();
       else if (event.target.closest('[data-key-color-preview]')) showPreview();
       else if (event.target.closest('[data-key-color-apply]')) apply();
+      else if (event.target.closest('[data-key-color-unlink]')) unlink();
     });
     dialog.addEventListener('cancel', (event) => {
       event.preventDefault();

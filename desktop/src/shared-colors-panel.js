@@ -532,6 +532,9 @@ export function createSharedColorsPanel({
     get composing() {
       return hasActiveComposition();
     },
+    captureViewState() {
+      chroma.captureViewState();
+    },
     get previewDocument() {
       return chroma.previewDocument;
     },

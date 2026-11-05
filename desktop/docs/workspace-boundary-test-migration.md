@@ -1,7 +1,8 @@
 # Workspace boundary test migration
 
-The reviewed layout makes drawers mutually exclusive and opens the Inspector and
-boundary controls only on request. Tests that previously clicked hidden controls
+The reviewed layout keeps left and right drawers mutually exclusive; the approved
+right editing stack shows Layers and Inspector together when requested. Boundary
+controls still open only on request. Tests that previously clicked hidden controls
 must use the visible trigger; changing layout is not permission to bypass inert.
 
 - **Keep:** editing, document and project integrity, import/export, undo/redo,

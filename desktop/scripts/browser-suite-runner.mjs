@@ -93,6 +93,7 @@ export const browserTestFiles = Object.freeze([
   'tests/png-ppi-scrub.e2e.js',
   'tests/hsl-popover-numeric-scrub.e2e.js',
   'tests/asset-library-bootstrap.e2e.js',
+  'tests/workspace-stack.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };

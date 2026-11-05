@@ -6,6 +6,20 @@ The Assets adapter keeps the existing singleton under `document.body` and aligns
 
 The Colors binding mounts its view after the Assets slot and synchronizes its visibility; it can still attach an existing element for legacy callers. The Alignment binding synchronizes its toolbar pressed state. Adapter refresh runs in reverse declaration order so these updates precede the Assets slot measurement. This preserves the existing order; it is not a general layout policy.
 
+The approved Layers and Inspector prototype declares a fixed co-visible `editing`
+group in `WORKSPACE_SURFACES`. Both sections keep their existing owners and scroll
+independently in the right drawer; the selected rail denotes the focus target and
+either legacy right-side preference opens the stack. The group does not create a
+movable docking system. A right-drawer composition blocks rail, Viewer and sibling
+section transitions before pointer blur; after composition ends the normal input
+owner remains responsible for its existing commit behavior. Physical IME and native
+WebView2 still require separate verification.
+
+The same fixed group declares its primary Layers split. The host provides the
+separator and stores only its view preference; it never writes the Session. A
+cancelled gesture or replaced host discards the preview, while a committed size
+is bounded by the available viewport and restored after structural render.
+
 Production supplies the Shared Colors controller's view factory to its fixed adapter. The controller's existing HTML projection creates the view for each structural render; the adapter mounts it after the Assets slot inside the app. The controller retains its delegated events and Session ownership. This does not make the view persistent or movable.
 
 This is a fixed-placement adapter, not relocation, a profile system, independent left/right drawers, or a new feature controller. Existing cross-side exclusivity, preference format and workspace geometry remain in force. Actual browser/native, active IME and in-flight asset integration remain separate acceptance work.

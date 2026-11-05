@@ -1904,6 +1904,7 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
         type === 'initialize-key-color-recipe' ||
         type === 'initialize-live-key-color-recipe' ||
         type === 'apply-live-key-color-recipe-snapshot' ||
+        type === 'detach-live-key-color-recipe' ||
         type === 'apply-key-color-recipe-snapshot'
           ? payload
           : { layerId: current().id, ...payload },
@@ -6079,6 +6080,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     artworkTarget ? artworkSelection : l.id,
     pathBounds,
   );
+  sharedColors.captureViewState();
   app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button>${
     session.projectSnapshot().compositions.length > 1
       ? `<label>Composition <select data-active-composition aria-label="Composition">${session
