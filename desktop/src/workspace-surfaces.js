@@ -1,6 +1,6 @@
 export const WORKSPACE_SURFACES = Object.freeze(
   [
-    { id: 'assets', side: 'left', label: 'Toggle Assets panel' },
+    { id: 'assets', side: 'left', label: 'Toggle Assets panel', kind: 'portal' },
     { id: 'colors', side: 'left', label: 'Toggle Shared Colors panel' },
     { id: 'layers', side: 'right', label: 'Focus Layers', selector: '.layers' },
     { id: 'align', side: 'right', label: 'Toggle Alignment panel', selector: '.alignment-panel' },
@@ -111,6 +111,7 @@ export function resolveWorkspaceSurfaces(declarations, adapters) {
       !/^[a-z][a-z0-9-]*$/.test(item.id) ||
       ids.has(item.id) ||
       !['left', 'right'].includes(item.side) ||
+      (item.kind !== undefined && item.kind !== 'portal') ||
       typeof item.label !== 'string' ||
       !item.label ||
       (item.selector !== undefined &&
@@ -131,6 +132,14 @@ export function resolveWorkspaceSurfaces(declarations, adapters) {
       typeof adapter.focus !== 'function'
     )
       throw Error(`Invalid workspace surface adapter: ${item.id}`);
+    if (
+      item.kind === 'portal' &&
+      (typeof adapter.canRetreat !== 'boolean' ||
+        ['attach', 'setMotion', 'contains', 'refresh'].some(
+          (key) => typeof adapter[key] !== 'function',
+        ))
+    )
+      throw Error(`Invalid workspace portal adapter: ${item.id}`);
     return Object.freeze({ ...item, adapter });
   });
   if (Object.keys(adapters).some((id) => !ids.has(id)))

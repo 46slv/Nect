@@ -23,6 +23,7 @@ test('invalid registration fails before DOM and preference mutation', () => {
   for (const [declarations, bindings] of [
     [[...WORKSPACE_SURFACES, WORKSPACE_SURFACES[0]], adapters],
     [WORKSPACE_SURFACES, { ...adapters, assets: { open: 42 } }],
+    [WORKSPACE_SURFACES, { ...adapters, assets: adapters.layers }],
     [WORKSPACE_SURFACES, { ...adapters, assets: { ...adapters.assets, canRetreat: 'yes' } }],
     [WORKSPACE_SURFACES, { ...adapters, unknown: adapters.layers }],
     [[...WORKSPACE_SURFACES, { id: 'unknown', side: 'left', label: 'Unknown' }], adapters],
