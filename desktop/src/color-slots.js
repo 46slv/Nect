@@ -234,7 +234,8 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
   if (type === 'apply-live-key-color-recipe-snapshot') {
     const prepared = prepareLiveKeyColorRecipeApplication(doc, payload, slots);
     const updates = prepareColorSlotUpdates(slots, prepared.updates);
-    for (const { slot, value } of updates) slot.value = value;
+    for (const { slot, value } of updates)
+      if (slot.value.hex !== value.hex || slot.value.alpha !== value.alpha) slot.value = value;
     doc.keyColorRecipe.committedSnapshot = prepared.snapshot;
     validateColorSlots(doc);
     return {

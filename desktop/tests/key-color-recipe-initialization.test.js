@@ -673,6 +673,39 @@ for (const kind of ['document', 'composition']) {
     assert.equal(JSON.stringify(saved), text);
   });
 
+  test(`${kind}: live no-op after reloading differently ordered Color keys preserves pending Redo`, () => {
+    const source = fixture(kind);
+    source.send('initialize-live-key-color-recipe', request());
+    const saved = source.session.projectSnapshot
+      ? source.session.projectSnapshot()
+      : source.session.snapshot();
+    for (const slot of saved.colorSlots)
+      slot.value = { alpha: slot.value.alpha, hex: slot.value.hex };
+    const text = JSON.stringify(saved);
+    const session =
+      kind === 'document'
+        ? new CommandSession(deserialize(text))
+        : createCompositionSessionOwner(deserializeCompositionProject(text));
+    const f = {
+      session,
+      send: (type, payload = {}) => session.dispatch({ ...session.state, type, payload }),
+    };
+    f.send('set-document-settings', { key: 'width', value: 1001 });
+    f.send('undo');
+    const before = captured(session);
+    assert.equal(session.historyView.future.length, 1);
+    assert.deepEqual(Object.keys(session.snapshot().colorSlots[0].value), ['alpha', 'hex']);
+    const snapshot = session.snapshot().keyColorRecipe.committedSnapshot;
+    const result = f.send('apply-live-key-color-recipe-snapshot', {
+      snapshot,
+      expectedPaletteRevision: snapshot.revision,
+    });
+    assert.equal(result.changed, false);
+    assert.deepEqual(captured(session), before);
+    f.send('redo');
+    assert.equal(session.snapshot().width, 1001);
+  });
+
   test(`${kind}: live validation rejects a snapshot accessor without invoking it`, () => {
     const f = fixture(kind);
     f.send('initialize-live-key-color-recipe', request());
