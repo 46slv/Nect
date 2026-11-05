@@ -44,11 +44,36 @@ const alignRail = page.locator('[data-workspace-panel="align"]');
 const snapshot = () => page.evaluate(() => window.nect.projectSnapshot());
 const command = () => page.evaluate(() => window.nect.commandState);
 const visibleStack = async () => {
-  assert.equal(await layers.isVisible(), true);
-  assert.equal(await inspector.isVisible(), true);
-  assert.equal(await layersRail.getAttribute('aria-expanded'), 'true');
-  assert.equal(await inspectorRail.getAttribute('aria-expanded'), 'true');
-  const [a, b] = await Promise.all([layers.boundingBox(), inspector.boundingBox()]);
+  // A composition commit can schedule a structural render between separate
+  // Playwright reads. Check both panes and their rails in the same DOM turn.
+  const observed = await page.waitForFunction(() => {
+    const a = document.querySelector('[data-drawer-side="right"] .layers'),
+      b = document.querySelector('[data-drawer-side="right"] .inspector'),
+      aRail = document.querySelector('[data-workspace-panel="layers"]'),
+      bRail = document.querySelector('[data-workspace-panel="inspector"]');
+    const visible = (el) =>
+      el && getComputedStyle(el).visibility === 'visible' && el.getClientRects().length > 0;
+    if (
+      !visible(a) ||
+      !visible(b) ||
+      aRail?.getAttribute('aria-expanded') !== 'true' ||
+      bRail?.getAttribute('aria-expanded') !== 'true'
+    )
+      return false;
+    const first = a.getBoundingClientRect(),
+      second = b.getBoundingClientRect();
+    if (
+      first.width <= 100 ||
+      second.width <= 100 ||
+      first.height <= 40 ||
+      second.height <= 40 ||
+      first.y + first.height > second.y + 1
+    )
+      return false;
+    return { a: first.toJSON(), b: second.toJSON() };
+  });
+  const { a, b } = await observed.jsonValue();
+  await observed.dispose();
   assert.ok(a.width > 100 && b.width > 100 && a.height > 40 && b.height > 40);
   assert.ok(a.y + a.height <= b.y + 1, 'Layers precedes Inspector without overlapping');
 };

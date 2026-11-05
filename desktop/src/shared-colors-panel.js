@@ -621,6 +621,9 @@ export function createSharedColorsPanel({
     get composing() {
       return hasActiveComposition();
     },
+    captureViewState() {
+      chroma.captureViewState();
+    },
     observeCommittedProject() {
       if (
         copiedColor?.kind === 'reference' &&
