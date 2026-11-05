@@ -66,6 +66,7 @@ try {
     'Linear Gradient Fill',
     'Radial Gradient Fill',
     'Angular Gradient Fill',
+    'Stroke',
     'Text',
   ]) {
     const { doc, nodeId } = fixture(type);
@@ -73,9 +74,9 @@ try {
     await copy('reference');
     await page.locator(`.graph .node[data-id="${nodeId}"] .node-head strong`).click();
     await ensureWorkspacePanel(page, 'inspector');
-    const key = type === 'Text' ? 'color' : 'startColor',
-      valueKey =
-        type === 'Angular Gradient Fill' ? 'color2' : type === 'Text' ? 'color' : 'endColor',
+    const direct = type === 'Text' || type === 'Stroke',
+      key = direct ? 'color' : 'startColor',
+      valueKey = type === 'Angular Gradient Fill' ? 'color2' : direct ? 'color' : 'endColor',
       field = (name) =>
         page.locator(`.inspector-body .field[data-node="${nodeId}"][data-key="${name}"]`),
       parameter = async (name) =>
@@ -97,8 +98,11 @@ try {
     await row().locator('[data-shared-color-edit="alpha"]').fill('0.8');
     await row().locator('[data-shared-color-edit="alpha"]').press('Tab');
     await page.waitForFunction(() => !window.nect.evaluate().error);
-    const resolved = await page.evaluate(() => window.nect.evaluate().path.fill);
-    assert.equal(type === 'Text' ? resolved.alpha : resolved.startColor.alpha, 0.8);
+    const resolved = await page.evaluate((kind) => {
+      const path = window.nect.evaluate().path;
+      return kind === 'Stroke' ? path.stroke : path.fill;
+    }, type);
+    assert.equal(direct ? resolved.alpha : resolved.startColor.alpha, 0.8);
     await copy('value');
     await row().locator('[data-shared-color-edit="alpha"]').fill('0.2');
     await row().locator('[data-shared-color-edit="alpha"]').press('Tab');

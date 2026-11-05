@@ -24,9 +24,9 @@ The opt-in Key color trial has a separate, versioned recipe contract.
   requires copying it again. The
   temporary in-app copy does not read or write the system clipboard. Pasting over
   a bound Color parameter explicitly replaces its link with the copied value in
-  one Undo step. The same Color-parameter controls are available for gradient
-  stops and for a Fill applied to Text; Text character-specific paint is not a
-  supported paste surface.
+  one Undo step. The same Color-parameter controls are available for Stroke,
+  gradient stops and a Fill applied to Text; Text character-specific paint is not
+  a supported paste surface.
 - A row's Actions menu can find direct uses across the current project. The list
   contains typed node Color parameters bound to that exact slot ID, not equal
   literals, expression dependencies or inferred visible coverage. Choosing a use
