@@ -27,14 +27,26 @@ function assertJsonTree(value, path = '$', ancestors = new Set()) {
     throw Error(`Symbol keys are not supported at ${path}`);
 
   ancestors.add(value);
+  // Inspect even non-enumerable properties before later schema validation can
+  // read a required field. JSON traversal must never invoke an accessor.
+  for (const key of Object.getOwnPropertyNames(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value'))
+      throw Error(`Unsupported JSON accessor at ${path}.${key}`);
+  }
   if (Array.isArray(value)) {
     for (let index = 0; index < value.length; index++) {
-      if (!Object.hasOwn(value, index)) throw Error(`Sparse JSON array at ${path}[${index}]`);
-      assertJsonTree(value[index], `${path}[${index}]`, ancestors);
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!descriptor) throw Error(`Sparse JSON array at ${path}[${index}]`);
+      if (!Object.hasOwn(descriptor, 'value'))
+        throw Error(`Unsupported JSON accessor at ${path}[${index}]`);
+      assertJsonTree(descriptor.value, `${path}[${index}]`, ancestors);
     }
   } else {
-    for (const [key, child] of Object.entries(value))
-      assertJsonTree(child, `${path}.${key}`, ancestors);
+    for (const key of Object.keys(value)) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      assertJsonTree(descriptor.value, `${path}.${key}`, ancestors);
+    }
   }
   ancestors.delete(value);
 }

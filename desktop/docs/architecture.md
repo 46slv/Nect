@@ -1,12 +1,16 @@
 # Architecture and format v2
 
+This older overview describes the original single-Document core. For the current
+outer Composition project and Session owner, see [Composition Session](composition-session-owner.md)
+and the live implementation; older format examples below are historical.
+
 ## Boundaries and decisions
 
 - `src/core.js`: UI-independent document constructors, typed graph connection rules, safe numeric expressions, geometry evaluation, JSON validation/serialization, SVG export and transactional undo. It uses Paper.js and the shared pure font/layout modules, and does not access browser or Windows APIs.
 - `src/fonts.js`, `src/text-layout.js`: bounded local font assets and deterministic Japanese/Latin outline layout, shared by editor and CLI. See [typography](typography.md).
-- `src/main.js`, `src/style.css`: browser editor. Canvas and graph mutate the same document. No second geometry source of truth exists.
+- `src/main.js`, `src/style.css`: browser editor. Canvas and graph use the shared Session and its document; no second geometry source of truth exists.
 - `src/svg-import.js`: strict browser/XML adapter for basic SVG shapes and compound path data. It rejects unsupported attributes/elements rather than silently changing rendering.
-- `src/composition-project-model.js`: dependency-free, isolated model for an outer Composition envelope, legacy migration, validated JSON round-tripping, and active-Composition bridging to/from a single Document. It is not used by the operational project validator, serializer, storage, Open/Save, UI, import, or export; the operational project format remains the single root frame below.
+- `src/composition-project-model.js`: outer Composition envelope, legacy migration, validated JSON round-tripping, and active-Composition bridging to/from a Document. `composition-session-owner.js` uses this model for the operational project and shared Session; see [Composition Session](composition-session-owner.md).
 - `src/storage.js`: thin browser-download / Tauri-command adapter. Native destinations are selected by the user; the frontend does not receive a general filesystem API. Windows font discovery opts into bounded `localizedNames` from the same DirectWrite family/face. `font-choice-ui.js` detaches only that known discovery field into search metadata; the strict seven-field `DesktopFace` remains the identity for axes, shaping, Favorites and saved documents. Calling `list_desktop_font_faces` without `includeLocalizedNames: true` retains the original seven-field rows. No font bytes or separately joined catalog names enter this metadata path.
 - `src-tauri/`: Tauri 2 host and Windows NSIS configuration. Chosen for small distribution and reusable existing browser UI. This is a scaffold pending compilation and Windows interaction verification.
 - `cli/export.js`: Node headless adapter. It supplies fonts and calls the same core API. Future cloud rendering should wrap this adapter with request limits, timeouts and isolation; no endpoint exists yet.
@@ -14,7 +18,7 @@
 
 ## Public API
 
-`document()` creates a schemaVersion 2 project; `layer(name)`, `node(type)` and `point(x,y)` create stable UUID identities.
+`document()` creates a schemaVersion 24 demo Document and `blankDocument()` creates a schemaVersion 27 blank Document; `layer(name)`, `node(type)` and `point(x,y)` create stable UUID identities.
 
 `connect(layer, sourceId, targetId, parameterKey)` validates type, edit lock and cycles, replaces an existing connection, and restores its previous edge on rejection. Connections cannot cross compositions. `disconnect(node, parameterKey)` drops only the edge, retaining direct value and expression.
 
@@ -46,7 +50,7 @@ Paper.js 0.12.18 computes cubic Bézier Boolean union/subtract/intersection/excl
 
 Primitive/Curve vertex IDs are stable; Transform preserves their IDs because affine transforms do not alter topology. Boolean, Text and Imported Path contours are marked unstable. Their Remap edits store an exact source-geometry fingerprint and suspend with a warning whenever it changes. This conservative rule can suspend more edits than necessary, but never intentionally assigns an old edit to a different vertex. Suspended definitions remain in the saved file; the user can explicitly rebind a retained edit to the currently displayed point, or clear it. Rebind changes only the source fingerprint and is undoable; it does not automatically infer correspondence. Better provenance mapping is deferred.
 
-Text uses OpenType.js with bundled DejaVu Sans or embedded local static TTF/OTF bytes. Multiple contours/counters, Japanese and mixed vertical writing are preserved; the detailed layout, fallback, format and licensing boundaries are in [typography](typography.md). Complex shaping, variable-font axes and automatic font fallback are not supported. Text is evaluated into outlines, with a pass-through Text to Path node retained as the explicit UI boundary.
+Text is evaluated into outlines, with a pass-through Text to Path node retained as the explicit UI boundary. Current layout, font routes, format and licensing boundaries are in [typography](typography.md) and the corresponding implementation.
 
 ## Trust and failures
 

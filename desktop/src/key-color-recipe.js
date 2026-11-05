@@ -1,10 +1,15 @@
 import { MAX_CHROMA, proposeAutoChroma } from './auto-chroma.js';
 import { harmonyCells } from './harmony-wheel.js';
 
-// Isolated prototype: not a native schema, Session command or public editor API.
+// Pure experimental recipe model; native storage and Session policies are separate adapters.
 export const KEY_COLOR_RECIPE_VERSION = 2;
 export const KEY_COLOR_SOLVER_VERSION = 'experimental-affine-v1';
+export const KEY_COLOR_NEUTRAL_SOLVER_VERSION = 'experimental-affine-neutral-text-v1';
 export const KEY_COLOR_SEMANTICS_VERSION = 'linear-srgb-straight-v1';
+export const isNeutralTextPolicySlot = (solverVersion, role) =>
+  solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION && (role === 'Neutral' || role === 'Text');
+const supportedSolver = (version) =>
+  version === KEY_COLOR_SOLVER_VERSION || version === KEY_COLOR_NEUTRAL_SOLVER_VERSION;
 const clamp = (n) => Math.max(0, Math.min(1, n));
 const norm = (h) => ((h % 360) + 360) % 360;
 const unit = (n) => Number.isFinite(n) && n >= 0 && n <= 1;
@@ -116,7 +121,7 @@ function cells(preset) {
     lightnessRange: 0,
   });
 }
-function validateIntent(intent) {
+function validateIntent(intent, solverVersion) {
   fields(intent, ['keyColor', 'preset', 'slots', 'settings']);
   const { keyColor: key, preset } = intent;
   fields(key, ['id', 'role', 'value', 'hueHint']);
@@ -164,16 +169,22 @@ function validateIntent(intent) {
     if (!Number.isInteger(plan.position) || !Object.hasOwn(hueCells, plan.position))
       throw Error('Invalid preset harmony position');
     finite(plan.lightnessScale, plan.lightnessOffset, plan.chromaScale, plan.chromaOffset);
+    if (
+      isNeutralTextPolicySlot(solverVersion, plan.role) &&
+      (plan.chromaScale !== 0 || plan.chromaOffset !== 0)
+    )
+      throw Error('Neutral/Text support plan must have zero chroma');
     if (plan.alpha !== undefined && !unit(plan.alpha)) throw Error('Invalid preset alpha');
   }
   return slots;
 }
-function resolveSlot(slot, plan, key, preset) {
+function resolveSlot(slot, plan, key, preset, solverVersion) {
   const h = norm(key.h + (cells(preset)[plan.position] * 360) / preset.hueSteps),
     baseL = key.L * plan.lightnessScale + plan.lightnessOffset,
     baseRatioCmax = key.rTarget * plan.chromaScale + plan.chromaOffset,
     requestedL = baseL + slot.deltaL,
-    requestedRatio = baseRatioCmax + slot.deltaRatioCmax;
+    requestedRatio =
+      baseRatioCmax + (isNeutralTextPolicySlot(solverVersion, slot.role) ? 0 : slot.deltaRatioCmax);
   finite(baseL, baseRatioCmax, requestedL, requestedRatio);
   const L = clamp(requestedL),
     rTarget = clamp(requestedRatio),
@@ -193,6 +204,9 @@ function resolveSlot(slot, plan, key, preset) {
     baseRatioCmax,
     ...ratioFields(sample.C, cmax, rTarget),
     diagnostics: [
+      ...(isNeutralTextPolicySlot(solverVersion, slot.role) && slot.deltaRatioCmax !== 0
+        ? ['support-chroma-intent-unapplied']
+        : []),
       ...(requestedL !== L ? ['lightness-clamped'] : []),
       ...(requestedRatio !== rTarget ? ['ratio-clamped'] : []),
       ...(cmax === 0 ? ['zero-cmax'] : []),
@@ -200,8 +214,8 @@ function resolveSlot(slot, plan, key, preset) {
     ],
   };
 }
-function solve(intent, previous = [], onlyId = null) {
-  validateIntent(intent);
+function solve(intent, previous = [], onlyId = null, solverVersion = KEY_COLOR_SOLVER_VERSION) {
+  validateIntent(intent, solverVersion);
   const old = new Map(previous.map((row) => [row.id, row])),
     key = onlyId === null ? keySample(intent.keyColor) : old.get(intent.keyColor.id),
     plans = new Map(intent.preset.slots.map((plan) => [plan.id, plan]));
@@ -214,7 +228,7 @@ function solve(intent, previous = [], onlyId = null) {
         return { ...old.get(slot.id), active: false };
       }
       if (onlyId !== null && slot.id !== onlyId) return old.get(slot.id);
-      return resolveSlot(slot, plan, key, intent.preset);
+      return resolveSlot(slot, plan, key, intent.preset, solverVersion);
     }),
   ];
 }
@@ -222,7 +236,9 @@ const diagnostics = (intent) =>
   intent.settings.areaAware ? ['coverage-unavailable-unweighted'] : [];
 
 export function createKeyColorRecipe(input) {
-  fields(input, ['paletteId', 'keyColor', 'preset', 'slots'], ['settings']);
+  fields(input, ['paletteId', 'keyColor', 'preset', 'slots'], ['settings', 'solverVersion']);
+  const solverVersion = input.solverVersion ?? KEY_COLOR_SOLVER_VERSION;
+  if (!supportedSolver(solverVersion)) throw Error('Unsupported key-color solver version');
   id(input.paletteId);
   fields(input.keyColor, ['id', 'role', 'value'], ['hueHint']);
   const intent = structuredClone({
@@ -234,11 +250,11 @@ export function createKeyColorRecipe(input) {
     slots: input.slots,
     settings: input.settings === undefined ? { areaAware: true } : input.settings,
   });
-  const resolved = solve(intent);
+  const resolved = solve(intent, [], null, solverVersion);
   intent.keyColor.hueHint = resolved[0].h;
   return {
     version: KEY_COLOR_RECIPE_VERSION,
-    solverVersion: KEY_COLOR_SOLVER_VERSION,
+    solverVersion,
     colorSemanticsVersion: KEY_COLOR_SEMANTICS_VERSION,
     paletteId: input.paletteId,
     revision: 0,
@@ -264,14 +280,15 @@ export function restoreKeyColorRecipe(saved) {
   ]);
   if (
     ![1, KEY_COLOR_RECIPE_VERSION].includes(saved.version) ||
-    saved.solverVersion !== KEY_COLOR_SOLVER_VERSION ||
+    !supportedSolver(saved.solverVersion) ||
+    (saved.version === 1 && saved.solverVersion !== KEY_COLOR_SOLVER_VERSION) ||
     saved.colorSemanticsVersion !== KEY_COLOR_SEMANTICS_VERSION ||
     !Number.isSafeInteger(saved.revision) ||
     saved.revision < 0
   )
     throw Error('Unsupported key-color snapshot version or revision');
   id(saved.paletteId);
-  const slots = validateIntent(saved.intent),
+  const slots = validateIntent(saved.intent, saved.solverVersion),
     used = new Set(),
     plans = new Set(saved.intent.preset.slots.map((plan) => plan.id));
   for (const row of list(saved.resolved)) {
@@ -325,12 +342,20 @@ export function restoreKeyColorRecipe(saved) {
     if (!isKey) finite(row.baseL, row.baseRatioCmax);
     for (const code of list(row.diagnostics, 8))
       if (typeof code !== 'string' || !code) throw Error('Invalid color diagnostic');
-    const rRealized = row.cmax === 0 ? 0 : row.C / row.cmax,
-      rawRatio = isKey ? rRealized : row.baseRatioCmax + slots.get(row.id).deltaRatioCmax,
+    const policySupport = !isKey && isNeutralTextPolicySlot(saved.solverVersion, row.role),
+      rRealized = row.cmax === 0 ? 0 : row.C / row.cmax,
+      rawRatio = isKey
+        ? rRealized
+        : row.baseRatioCmax + (policySupport ? 0 : slots.get(row.id).deltaRatioCmax),
       rTarget = clamp(rawRatio);
     finite(rRealized, rawRatio);
     if (
       row.effectiveRatioCmax !== rTarget ||
+      (policySupport &&
+        (row.baseRatioCmax !== 0 ||
+          row.C !== 0 ||
+          row.diagnostics.includes('support-chroma-intent-unapplied') !==
+            (slots.get(row.id).deltaRatioCmax !== 0))) ||
       (saved.version >= 2 && (row.rTarget !== rTarget || row.rRealized !== rRealized)) ||
       (row.cmax === 0 && (row.C !== 0 || !row.diagnostics.includes('zero-cmax'))) ||
       (!isKey && row.C > row.cmax * rTarget + 1e-12)
@@ -388,7 +413,7 @@ export function editKeyColorRecipe(committed, edit) {
   } else if (edit.type === 'recompute') {
     fields(edit, ['type', 'expectedRevision']);
   } else throw Error('Unsupported key-color edit');
-  candidate.resolved = solve(intent, candidate.resolved, onlyId);
+  candidate.resolved = solve(intent, candidate.resolved, onlyId, candidate.solverVersion);
   intent.keyColor.hueHint = candidate.resolved[0].h;
   if (!Number.isSafeInteger(candidate.revision + 1)) throw Error('Palette revision exhausted');
   candidate.revision++;

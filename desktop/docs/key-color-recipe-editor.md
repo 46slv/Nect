@@ -1,12 +1,63 @@
-# Key color · Experimental — retained-recipe editor
+# Key color · Experimental — trial and retained-recipe editor
 
 Open **Shared colors → Key color · Experimental**. This is an opt-in editor for
-an **already retained** `keyColorRecipe.committedSnapshot`, not a new default
-palette. If no receipt exists, the dialog explains the boundary and offers only
-Close/Cancel. It does not create a palette, bootstrap a preset, pick coefficients
-or convert the legacy wheel. Dark TonePlan coefficients remain unresolved.
+an existing retained or linked trial `keyColorRecipe.committedSnapshot`, not a
+new default palette. Without a recipe, the same launcher opens a research-only detached
+preview with initially blank HEX, alpha and candidate selection. The compared
+`research-triadic-offset` and `research-neutral-start` v1 coefficients are
+explicitly inspectable, not adopted defaults. Preview creates no shared slots,
+receipt or History entry. After an explicit B Preview, the user may add five
+trial shared colors and a receipt in one Undo, or explicitly choose a linked
+trial; A remains Preview-only. The linked choice is not a default and does not
+convert any existing palette. Choosing it displays the older-reader and current
+palette-detach limitations before creation. B uses
+`experimental-affine-neutral-text-v1`, fresh draft-stable IDs and the same
+closed initialization preflight. Inputs, candidate
+changes and composing invalidate the preview; owner, revision or Composition
+changes make the draft stale until it is closed. The neutral-start candidate
+keeps C1 exactly and starts all derived colors with zero chroma; no derived
+chroma controls are provided. Coverage and contrast are not evaluated. This
+does not automatically bootstrap a palette or convert the legacy wheel. On
+reopening a B trial receipt, Assort and Accent expose draft Δr. Exact gray C1
+requires active chroma intent to be zero before Preview or Apply; pending
+values are preserved. This also checks hidden active custom-role chroma intent
+and nonzero chroma offsets. Near-gray hue is not evaluated. Neutral/Text and other B
+roles keep Δr hidden, dormant rows remain unchanged, and legacy controls keep
+their existing behavior.
+Each active B derived color can reset its draft ΔL to zero; this invalidates
+Preview and changes the document only after a new Preview and Apply.
+
+B trial status lists saved and proposed OKLCH L and ΔL separately. Visible paint
+share comes only from the existing current coverage snapshot matched by stable
+slot ID; the refresh button rereads it. Missing, stale or unavailable results are
+not converted to zero. Before creation, usage is not measured. Readability and
+procedure checks are not evaluated here, and literal equality includes alpha.
+L is abbreviated as an approximation for scanning; exact L, ΔL, stable ID and
+diagnostics remain in each keyboard-accessible Details disclosure. Duplicate
+visible roles or shared-color names receive a distinguishing ID-derived suffix;
+all commands and comparisons continue to use the full stable ID.
+For retained B recipes, pairwise derived model L order compares effective L
+against the clamped zero-offset baseline by stable ID. Equality is exact; this
+informational result does not judge appearance, contrast or whether Apply is allowed.
+
+For a retained B trial, explicitly select two different stable IDs to check a
+foreground/background pair. The advisory compares current shared literals and,
+only while valid, the detached Preview separately. It composites foreground
+alpha in encoded sRGB over an opaque background and compares the unrounded
+ratio with the normal-text 4.5:1 reference. Missing, ambiguous, invalid or
+translucent-background inputs are unknown. This is not an artwork accessibility
+audit and does not change the document or colors.
+
+The research C1 uses the same draft-only HSL picker as the retained editor.
+Until a valid six-digit HEX is entered, HSL controls and the plane cannot edit a
+color; no seed color is used for Preview. HEX spelling and alpha zero remain
+literal until an explicit HSL change, and a hue-only edit on gray preserves HEX.
 
 ## Edit, Preview, Apply
+
+- For explicitly initialized `experimental-affine-neutral-text-v1` receipts,
+  Neutral/Text expose ΔL only. Their stored Δr remains visible as unapplied
+  intent with a diagnostic when nonzero. Legacy solver controls are unchanged.
 
 - C1 uses a **draft-only HSL picker**: saturation/lightness plane, hue slider and
   H/S/L fields, with a text HEX field and separate alpha. Opening, displaying HSL
@@ -26,11 +77,17 @@ or convert the legacy wheel. Dark TonePlan coefficients remain unresolved.
 - **Preview** explicitly computes a detached candidate using the existing
   `restoreKeyColorRecipe` / `editKeyColorRecipe` APIs. The comparison shows
   **current shared literals → proposed shared literals**, including alpha, for
-  active targets only. It does not modify Canvas, authored data or History.
+  active targets only. Preview alone does not change Canvas, authored data or History.
+- For a retained B trial, **Show proposal on artwork** temporarily displays the
+  proposal through existing shared-color bindings. **Show saved artwork** restores
+  the authored view while retaining the valid detached preview. Neither action
+  changes the document or History; an expired preview restores the authored view.
 - Any input/change invalidates that preview. Blank, malformed, nonfinite or
   out-of-range alpha anywhere disables Preview/Apply and removes the old
   comparison. Apply also rechecks every input and the exact preview fingerprint,
-  so a silent/unobserved input change cannot dispatch the old valid result.
+  so a silent/unobserved input change cannot dispatch the old valid result. A
+  subsequent display-document read also expires the detached comparison and
+  artwork projection if the fingerprint has changed.
 - **Apply · 1 Undo** calls `prepareKeyColorRecipeApplication` again, then sends
   exactly `apply-key-color-recipe-snapshot` with the closed `{ snapshot }`
   payload through the real app dispatcher and common Session. It does not inject
@@ -74,6 +131,7 @@ Run from `desktop/`:
 ```sh
 node --test tests/key-color-recipe-panel.test.js tests/key-color-recipe-app-dispatch-dom.test.js
 BASE_URL=http://127.0.0.1:5173 node tests/key-color-recipe-panel.e2e.js
+BASE_URL=http://127.0.0.1:5173 node tests/key-color-artwork-status.e2e.js
 ```
 
 The DOM tests use both real Session kinds, native serializers, real `main.js`
@@ -95,6 +153,10 @@ save/reopen and narrow layout. The earlier Linux sandbox startup refusal was not
 retested by this change. Windows Tauri dialogs, WebView2/native exit/restart,
 human comfort, final presets/dark coefficients and ColorF32/Field rendering remain
 separate acceptance limits.
+
+The focused artwork-status acceptance uses an independent sandboxed Chrome and
+a synthetic B trial to check explicit projection, restoring the authored view,
+and expiration after an unobserved input change and browser resize.
 
 See [retention and Apply contract](key-color-recipe-retention.md) and
 [pure model contract](../../docs/key-color-recipe-contract.md).

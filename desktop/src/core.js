@@ -1,4 +1,17 @@
-import { KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION } from './key-color-recipe-document.js';
+import { JOIN_SLOT_LIMIT, validJoinSlotOrder } from './join-slots-protocol.js';
+export { JOIN_SLOT_LIMIT } from './join-slots-protocol.js';
+import { contourGroups } from './path-groups.js';
+import { signature } from './path-signature.js';
+export { signature } from './path-signature.js';
+import { builtinNodeRegistry, registeredNodes } from './builtin-node-registry.js';
+import { placeRegistered } from './registered-node-projections.js';
+import { isVector2 } from './node-value-validation.js';
+import { nectOutputPort } from './nect-node-host.js';
+import {
+  KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION,
+  LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION,
+  isLiveKeyColorRecipe,
+} from './key-color-recipe-document.js';
 import {
   COLOR_SLOTS_SCHEMA_VERSION,
   COLOR_DESIGN_SCHEMA_VERSION,
@@ -120,7 +133,6 @@ import {
   hasRepeaterStrokeAuthorship,
   assertRepeaterRoute,
 } from './repeater.js';
-import { reversePathGeometry } from './reverse-path-geometry.js';
 import { setClosureGeometry } from './set-closure-geometry.js';
 import { instancePointsGeometry } from './instance-points-geometry.js';
 import { sampleLuminanceGrid } from './luminance-field.js';
@@ -272,7 +284,7 @@ export function sameDocument(a, b) {
 }
 export const uid = (prefix = 'id') => `${prefix}-${globalThis.crypto.randomUUID()}`;
 const p = (type, value) => ({ type, value, expression: '', locked: false });
-export const definitions = {
+const legacyDefinitions = {
   Image: { position: p('Vector2', [100, 100]), size: p('Vector2', [320, 240]) },
   'Image Output': { path: p('Image', null) },
   Keyer: {
@@ -301,7 +313,6 @@ export const definitions = {
   Curve: { closed: p('Boolean', true) },
   'Multi Path': {},
   Boolean: { a: p('Path', null), b: p('Path', null) },
-  'Join Geometry': { a: p('Path', null), b: p('Path', null) },
   'Convert to Path': { path: p('Path', null) },
   'Closed Path Offset': {
     path: p('Path', null),
@@ -365,7 +376,6 @@ export const definitions = {
     inverse: p('Boolean', false),
   },
   'Auto Handles': { path: p('Path', null), strength: p('Scalar', 1) },
-  'Reverse Path': { path: p('Path', null) },
   'Wave Points': {
     path: p('Path', null),
     amplitude: p('Scalar', 20),
@@ -448,9 +458,6 @@ export const definitions = {
     alignTangent: p('Boolean', false),
   },
   Value: { value: p('Scalar', 100) },
-  Math: { a: p('Scalar', 0), b: p('Scalar', 0), min: p('Scalar', 0), max: p('Scalar', 1) },
-  'Vector Math': { a: p('Vector2', [0, 0]), b: p('Vector2', [0, 0]), scale: p('Scalar', 1) },
-  'Separate Vector': { vector: p('Vector2', [0, 0]) },
   'Combine Vector': { x: p('Scalar', 0), y: p('Scalar', 0) },
   Toggle: { value: p('Boolean', true) },
   Color: { value: p('Color', { hex: '#36434e', alpha: 1 }) },
@@ -544,7 +551,18 @@ export const definitions = {
   'Text to Path': { path: p('Path', null) },
   'Imported Path': {},
 };
+export const definitions = Object.fromEntries(
+  placeRegistered(Object.entries(legacyDefinitions), registeredNodes, 'definitionAfter', (row) =>
+    Object.fromEntries(
+      row.resolved.declaration.parameters.map(({ id, type, default: value }) => [
+        id,
+        p(type, value),
+      ]),
+    ),
+  ),
+);
 for (const type of imageDitherTypes) {
+  if (Object.hasOwn(definitions, type)) throw Error(`Duplicate projected type: ${type}`);
   const shapeType = type.replace(/ Image$/, '');
   definitions[type] = { ...structuredClone(definitions[shapeType]), path: p('Image', null) };
 }
@@ -668,12 +686,12 @@ export function node(type, x = 40, y = 40) {
   return {
     id: uid('node'),
     type,
-    name: type === 'Join Geometry' ? 'Join Paths' : type,
+    name: builtinNodeRegistry.get(type)?.declaration.factoryName ?? type,
     position: [x, y],
     width: 264,
     collapsed: false,
     params: clone(definitions[type]),
-    ...(type === 'Join Geometry' ? { joinInputOrder: ['a', 'b'] } : {}),
+    ...(builtinNodeRegistry.get(type)?.initialFields() ?? {}),
     points: type === 'Curve' ? [point(250, 150), point(450, 150), point(350, 350)] : [],
     operation: isDither(type)
       ? 'square'
@@ -691,8 +709,8 @@ export function node(type, x = 40, y = 40) {
                   ? 'miter'
                   : type === 'Geometry Repeater'
                     ? 'linear'
-                    : ['Math', 'Vector Math'].includes(type)
-                      ? 'add'
+                    : builtinNodeRegistry.get(type)?.declaration.defaultOperation
+                      ? builtinNodeRegistry.get(type).declaration.defaultOperation
                       : 'subtract',
     edits: [],
     text: 'Nect',
@@ -785,26 +803,29 @@ export function hasEmptyOutput(layer, output = layer.nodes?.find((n) => n.id ===
   );
 }
 export function outputPorts(n) {
-  return n.type === 'Separate Vector'
+  const registered = builtinNodeRegistry.get(n.type);
+  if (registered)
+    return registered.declaration.outputs.map(({ id, label, legacyDefault, type }) => {
+      const port = nectOutputPort({ id, legacyDefault });
+      return { id: port, label, type: legacyDefault ? outputType(n, port) : type };
+    });
+  return n.type === 'Text'
     ? [
-        { id: 'x', label: 'X', type: 'Scalar' },
-        { id: 'y', label: 'Y', type: 'Scalar' },
+        { id: undefined, label: 'Path', type: 'Path' },
+        { id: 'position', label: 'Position', type: 'Vector2' },
       ]
-    : n.type === 'Text'
-      ? [
-          { id: undefined, label: 'Path', type: 'Path' },
-          { id: 'position', label: 'Position', type: 'Vector2' },
-        ]
-      : [{ id: undefined, label: n.type === 'Null' ? 'Position' : '', type: outputType(n) }];
+    : [{ id: undefined, label: n.type === 'Null' ? 'Position' : '', type: outputType(n) }];
 }
 export function outputType(n, port) {
   if (['Composition Reference', 'SVG'].includes(n.type) || n.paintMode)
     return port === undefined ? 'PaintedPath' : undefined;
-  if (n.type === 'Separate Vector') return ['x', 'y'].includes(port) ? 'Scalar' : undefined;
+  const registered = builtinNodeRegistry.get(n.type);
+  if (registered)
+    return registered
+      .interface(n.operation, registered.hasShape ? registered.snapshot(n) : undefined)
+      .outputs.find((output) => nectOutputPort(output) === port)?.type;
   if (n.type === 'Text' && port === 'position') return 'Vector2';
   if (port !== undefined) return undefined;
-  if (n.type === 'Vector Math')
-    return ['length', 'distance', 'dot'].includes(n.operation) ? 'Scalar' : 'Vector2';
   if (
     [
       'Fill',
@@ -829,7 +850,7 @@ export function outputType(n, port) {
   )
     return 'Image';
   if (n.type === 'Mask') return 'PaintedPath';
-  return ['Value', 'Expression', 'Math'].includes(n.type)
+  return ['Value', 'Expression'].includes(n.type)
     ? 'Scalar'
     : ['Vector', 'Combine Vector', 'Null', 'Reference', 'Vector Transform'].includes(n.type)
       ? 'Vector2'
@@ -839,21 +860,22 @@ export function outputType(n, port) {
 }
 // Deliberate identity contracts. Never guess the first socket of a new node type.
 const bypassInputs = Object.freeze({
+  ...Object.fromEntries(
+    registeredNodes
+      .filter((row) => row.resolved.declaration.bypassInput !== undefined)
+      .map((row) => [row.resolved.declaration.typeId, row.resolved.declaration.bypassInput]),
+  ),
   Keyer: 'path',
   'Ordered Dither Image': 'path',
   'Error Diffusion Dither Image': 'path',
   Mask: 'path',
   Boolean: 'a',
-  'Join Geometry': 'a',
-  Math: 'a',
-  'Vector Math': 'a',
   Transform: 'path',
   Mirror: 'path',
   'Corner Round': 'path',
   'Resample Path': 'path',
   Roughen: 'path',
   'Smooth Path': 'path',
-  'Reverse Path': 'path',
   'Trim Path': 'path',
   'Set Path Start': 'path',
   'Set Closure': 'path',
@@ -1311,7 +1333,6 @@ function hasImageMask(layer) {
   const byId = new Map(layer.nodes.map((n) => [n.id, n]));
   return layer.nodes.some((n) => isImageMask(n, byId));
 }
-export const JOIN_SLOT_LIMIT = 1024;
 export const joinInputKeys = (n) => n.joinInputOrder ?? ['a', 'b'];
 export const booleanInputKeys = (n) => n.booleanInputOrder ?? ['a', 'b'];
 // Only command/migration paths call these; reads never allocate or renumber sockets.
@@ -1368,12 +1389,14 @@ function normalizeBooleanInputs(n, compact = false) {
   } else n.booleanInputOrder = keys;
 }
 export function parameters(n) {
-  const entries =
-    n.type === 'Join Geometry'
-      ? joinInputKeys(n).map((key) => [key, n.params[key]])
-      : n.type === 'Boolean'
-        ? booleanInputKeys(n).map((key) => [key, n.params[key]])
-        : Object.entries(n.params);
+  const entries = builtinNodeRegistry.get(n.type)?.hasShape
+    ? builtinNodeRegistry
+        .get(n.type)
+        .snapshot(n)
+        .slots.map(({ id }) => [id, n.params[id]])
+    : n.type === 'Boolean'
+      ? booleanInputKeys(n).map((key) => [key, n.params[key]])
+      : Object.entries(n.params);
   if (n.type === 'Mask' && !Object.hasOwn(n.params, 'feather'))
     entries.push(['feather', p('Scalar', 0)]);
   if (n.type === 'Mask' && !Object.hasOwn(n.params, 'luminance'))
@@ -1402,18 +1425,14 @@ export const operationOptions = {
   'Resample Path': ['count', 'spacing'],
   'Line Screen': ['horizontal', 'vertical'],
   Boolean: ['union', 'subtract', 'intersect', 'difference'],
-  Math: ['add', 'subtract', 'multiply', 'divide', 'min', 'max', 'abs', 'clamp'],
-  'Vector Math': [
-    'add',
-    'subtract',
-    'multiply',
-    'divide',
-    'scale',
-    'normalize',
-    'length',
-    'distance',
-    'dot',
-  ],
+  ...Object.fromEntries(
+    registeredNodes
+      .filter((row) => row.resolved.declaration.operations)
+      .map((row) => [
+        row.resolved.declaration.typeId,
+        row.resolved.declaration.operations.map(({ id }) => id),
+      ]),
+  ),
 };
 export function activeParameters(n) {
   const entries = parameters(n);
@@ -1434,15 +1453,7 @@ export function activeParameters(n) {
     return entries.filter(
       ([key]) => key === 'path' || key === (n.operation === 'spacing' ? 'spacing' : 'count'),
     );
-  if (n.type === 'Vector Math') {
-    const keys =
-      n.operation === 'scale'
-        ? ['a', 'scale']
-        : ['normalize', 'length'].includes(n.operation)
-          ? ['a']
-          : ['a', 'b'];
-    return entries.filter(([key]) => keys.includes(key));
-  }
+
   if (
     isTransform(n) &&
     (!n.params.uniformScale ||
@@ -1451,10 +1462,10 @@ export function activeParameters(n) {
         !n.params.uniformScale.expression))
   )
     return entries.filter(([key]) => key !== 'scaleWidth');
-  if (n.type !== 'Math') return entries;
-  const keys =
-    n.operation === 'abs' ? ['a'] : n.operation === 'clamp' ? ['a', 'min', 'max'] : ['a', 'b'];
-  return entries.filter(([key]) => keys.includes(key));
+  const registered = builtinNodeRegistry.get(n.type);
+  if (!registered?.declaration.operations) return entries;
+  const active = registered.interface(n.operation).active;
+  return entries.filter(([key]) => active.includes(key));
 }
 export function setOperation(layer, nodeId, operation) {
   const n = layer.nodes.find((n) => n.id === nodeId);
@@ -1476,55 +1487,6 @@ export function setOperation(layer, nodeId, operation) {
     )
       throw Error('Operation would break a Reference Vector2 output');
   n.operation = operation;
-}
-function mathValue(operation, read) {
-  if (!operationOptions.Math.includes(operation)) throw Error('Invalid Math operation');
-  const a = read('a');
-  if (operation === 'abs') return Math.abs(a);
-  if (operation === 'clamp') {
-    const min = read('min'),
-      max = read('max');
-    if (min > max) throw Error('Clamp minimum exceeds maximum');
-    return Math.min(max, Math.max(min, a));
-  }
-  const b = read('b');
-  return {
-    add: () => a + b,
-    subtract: () => a - b,
-    multiply: () => a * b,
-    divide: () => (b === 0 ? 0 : a / b),
-    min: () => Math.min(a, b),
-    max: () => Math.max(a, b),
-  }[operation]();
-}
-function vectorMathValue(operation, read) {
-  if (!operationOptions['Vector Math'].includes(operation))
-    throw Error('Invalid Vector Math operation');
-  const a = read('a');
-  if (operation === 'length') return Math.hypot(...a);
-  if (operation === 'normalize') {
-    // Scale before measuring so both huge and subnormal finite inputs normalize safely.
-    const largest = Math.max(...a.map(Math.abs));
-    if (largest === 0) return [0, 0];
-    const scaled = a.map((v) => v / largest),
-      length = Math.hypot(...scaled);
-    return scaled.map((v) => v / length);
-  }
-  if (operation === 'scale') {
-    const scale = read('scale');
-    return a.map((v) => v * scale);
-  }
-  const b = read('b');
-  if (operation === 'distance') return Math.hypot(a[0] - b[0], a[1] - b[1]);
-  if (operation === 'dot') return a[0] * b[0] + a[1] * b[1];
-  return a.map((v, i) =>
-    ({
-      add: () => v + b[i],
-      subtract: () => v - b[i],
-      multiply: () => v * b[i],
-      divide: () => (b[i] === 0 ? 0 : v / b[i]),
-    })[operation](),
-  );
 }
 // Evaluator-owned identities only: authored data and caller-supplied alias fields never
 // grant compatibility. The second identity reproduces the empty-expression-field era
@@ -1923,11 +1885,7 @@ function assertValue(type, value) {
   )
     throw Error('Expected Color with hex #RRGGBB and alpha from 0 to 1');
   if (type === 'Scalar' && !Number.isFinite(value)) throw Error('Expected finite Scalar');
-  if (
-    type === 'Vector2' &&
-    (!Array.isArray(value) || value.length !== 2 || !value.every(Number.isFinite))
-  )
-    throw Error('Expected Vector2');
+  if (type === 'Vector2' && !isVector2(value)) throw Error('Expected Vector2');
   if (type === 'Boolean' && typeof value !== 'boolean') throw Error('Expected Boolean');
 }
 function toPaper(path) {
@@ -1939,15 +1897,6 @@ function toPaper(path) {
     compound.addChild(child);
   }
   return compound;
-}
-function contourGroups(path) {
-  const groups = new Map();
-  for (const c of path.contours) {
-    const key = c.group ?? '';
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(c);
-  }
-  return [...groups.values()];
 }
 function booleanOperand(path) {
   if (!path.contours.some((c) => c.group !== undefined)) return toPaper(path);
@@ -2553,18 +2502,6 @@ export function parsePath(data, prefix = 'imported') {
     item.remove();
   }
 }
-export function signature(path) {
-  return JSON.stringify(
-    path.contours.map((c) => [
-      c.closed,
-      c.points.map((p) => [p.position, p.handleA, p.handleB]),
-      ...(c.group === undefined ? [] : [c.group]),
-      ...(c.repeaterOpacity === undefined ? [] : [c.repeaterOpacity]),
-      ...(c.repeaterFill === undefined ? [] : [c.repeaterFill]),
-      ...(c.repeaterStroke === undefined ? [] : [c.repeaterStroke]),
-    ]),
-  );
-}
 export function pathData(path, precision) {
   const obj = toPaper(path);
   try {
@@ -2792,7 +2729,12 @@ export function evaluate(
     const n = byId.get(id);
     if (!n || !outputType(n, port)) throw Error('Missing output socket');
     const value = runNode(id, port);
-    return n.type === 'Separate Vector' ? value[port === 'x' ? 0 : 1] : value;
+    const registered = builtinNodeRegistry.get(n.type);
+    if (!registered) return value;
+    const output = registered.declaration.outputs.find((item) => nectOutputPort(item) === port);
+    const projected = registered.project(output.id, value);
+    assertValue(outputType(n, port), projected);
+    return projected;
   }
   function runNode(id, port) {
     const key = outputKey(id, port),
@@ -2848,10 +2790,16 @@ export function evaluate(
       const imageAsset = n.type === 'Image' ? imageAssets[n.asset] : undefined,
         cacheKey = JSON.stringify(
           positionOutput
-            ? [inputs, dependencyVersions, documentContext?.colorSlots]
+            ? [
+                inputs,
+                dependencyVersions,
+                documentContext?.colorSlots,
+                isLiveKeyColorRecipe(documentContext || {}) ? documentContext.keyColorRecipe : null,
+              ]
             : [
                 n.type,
                 documentContext?.colorSlots,
+                isLiveKeyColorRecipe(documentContext || {}) ? documentContext.keyColorRecipe : null,
                 !!n.bypassed,
                 n.reference,
                 n.compositionReference,
@@ -2957,13 +2905,23 @@ export function evaluate(
         result = read('value');
       else if (n.type === 'Vector Transform')
         result = transformVector(transformValues(n, read), read('vector'));
-      else if (n.type === 'Vector Math') {
-        result = vectorMathValue(n.operation, read);
-        assertValue(outputType(n), result);
-      } else if (n.type === 'Separate Vector') result = read('vector');
-      else if (n.type === 'Math') {
-        result = mathValue(n.operation, read);
-        assertValue('Scalar', result);
+      else if (builtinNodeRegistry.get(n.type)) {
+        const registered = builtinNodeRegistry.get(n.type);
+        const nodeId = n.id;
+        const shape = registered.hasShape ? registered.snapshot(n) : undefined;
+        const context = shape
+          ? Object.freeze({
+              nodeId,
+              shape,
+              paintedGroup: (inputs) => {
+                const painted = evaluatedPaintedGroup(inputs, { prefix: nodeId });
+                setEvaluationFingerprint(painted, () => [nodeId, inputs]);
+                return painted;
+              },
+            })
+          : Object.freeze({ nodeId });
+        result = registered.evaluate(n.operation, read, context);
+        assertValue(registered.interface(n.operation, shape).resultType, result);
       } else if (n.type === 'Combine Vector') {
         result = [read('x'), read('y')];
         assertValue('Vector2', result);
@@ -3192,13 +3150,6 @@ export function evaluate(
         result.unstable = true;
         result.fingerprint = signature(result);
         item.remove();
-      } else if (n.type === 'Join Geometry' && n.paintMode) {
-        const inputs = joinInputKeys(n)
-          .filter((key) => n.params[key].source)
-          .map((key) => read(key));
-        if (!inputs.length) throw Error('Connect a path to Join Geometry');
-        result = evaluatedPaintedGroup(inputs, { prefix: n.id });
-        setEvaluationFingerprint(result, (currentEra) => [n.id, inputs]);
       } else if (n.type === 'Transform' && n.paintMode) {
         const source = read('path');
         if (!source) throw Error('Connect a PaintedPath input');
@@ -3207,43 +3158,6 @@ export function evaluate(
           prefix: n.id,
         });
         setEvaluationFingerprint(result, (currentEra) => [n.id, source, result.matrix]);
-      } else if (n.type === 'Join Geometry') {
-        const inputs = joinInputKeys(n)
-          .filter((key) => n.params[key].source)
-          .map((key) => [key, read(key)]);
-        if (!inputs.length) throw Error('Connect a path to Join Geometry');
-        let contourCount = 0,
-          pointCount = 0;
-        const groups = [];
-        for (const [, path] of inputs) {
-          contourCount += path.contours.length;
-          for (const contour of path.contours) pointCount += contour.points.length;
-          if (contourCount > 10000 || pointCount > 100000)
-            throw Error('Join exceeds geometry budget');
-          const inputGroups = contourGroups(path);
-          if (groups.length + inputGroups.length > 256)
-            throw Error('Join exceeds 256 independent groups');
-          groups.push(...inputGroups);
-        }
-        const prefix = fingerprint(n.id);
-        result = {
-          contours: groups.flatMap((group, gi) =>
-            group.map((c, ci) => ({
-              ...clone(c),
-              id: `${prefix}:g${gi}:c${ci}`,
-              group: `${prefix}:g${gi}`,
-              points: c.points.map((pt, pi) => ({
-                ...clone(pt),
-                id: `${prefix}:g${gi}:c${ci}:p${pi}`,
-              })),
-            })),
-          ),
-        };
-        result.characterOccurrences = inputs.flatMap(([key, path]) =>
-          routeCharacters(path, `${n.id}:${key}`),
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Dash Path') {
         const source = read('path');
         result = dashPathGeometry(source, {
@@ -3331,17 +3245,6 @@ export function evaluate(
           evaluatedFingerprint(source, currentEra) || signature(source),
           signature(result),
         ]);
-      } else if (n.type === 'Reverse Path') {
-        const source = read('path');
-        result = reversePathGeometry(source, { prefix: fingerprint(n.id) });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Reverse Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Taper') {
         const source = read('path');
         result = taperGeometry(source, {
@@ -4718,7 +4621,8 @@ export function validate(doc) {
       doc.schemaVersion !== COLOR_DESIGN_SCHEMA_VERSION &&
       doc.schemaVersion !== HARMONY_DESIGN_SCHEMA_VERSION &&
       doc.schemaVersion !== CHROMA_OVERRIDE_SCHEMA_VERSION &&
-      doc.schemaVersion !== KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION)
+      doc.schemaVersion !== KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION &&
+      doc.schemaVersion !== LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   const colorSlots = validateColorSlots(doc);
@@ -4990,22 +4894,7 @@ export function validate(doc) {
           normalizeJoinInputs(n, false, true);
         }
         const keys = n.joinInputOrder;
-        if (
-          !Array.isArray(keys) ||
-          keys.length < 2 ||
-          keys.length > JOIN_SLOT_LIMIT ||
-          keys[0] !== 'a' ||
-          keys[1] !== 'b' ||
-          new Set(keys).size !== keys.length ||
-          Object.keys(n.params).length !== keys.length ||
-          keys.some(
-            (key, index) =>
-              typeof key !== 'string' ||
-              (index > 1 && !/^input_[A-Za-z0-9_-]{1,100}$/.test(key)) ||
-              !Object.hasOwn(n.params, key),
-          )
-        )
-          throw Error('Invalid Join input order');
+        if (!validJoinSlotOrder(keys, n.params)) throw Error('Invalid Join input order');
         for (const key of keys) {
           const q = n.params[key];
           param(q, n.paintMode ? 'PaintedPath' : 'Path');

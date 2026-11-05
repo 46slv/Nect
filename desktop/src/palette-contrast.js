@@ -30,6 +30,46 @@ function luminance(channels) {
   return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
 }
 
+function compareChannels(foreground, alpha, background) {
+  const mixed = foreground.map(
+    (channel, index) => channel * alpha + background[index] * (1 - alpha),
+  );
+  const a = luminance(mixed),
+    b = luminance(background);
+  const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  return { ratio, status: ratio >= NORMAL_TEXT_CONTRAST_THRESHOLD ? 'pass' : 'fail', reason: null };
+}
+
+// Advisory for two explicit sRGB literals, not a rendered-artwork audit.
+export function analyzeExplicitContrast(foreground, background) {
+  const fg = rgb(foreground),
+    bg = rgb(background);
+  if (!bg) return { ratio: null, status: 'unknown', reason: 'invalid-background-color' };
+  if (background.alpha !== 1)
+    return { ratio: null, status: 'unknown', reason: 'non-opaque-background' };
+  if (!fg) return { ratio: null, status: 'unknown', reason: 'invalid-text-color' };
+  return compareChannels(fg, foreground.alpha, bg);
+}
+
+export function analyzeSelectedContrast(slots, foregroundId, backgroundId) {
+  const unknown = (reason) => ({ ratio: null, status: 'unknown', reason });
+  if (!validId(foregroundId) || !validId(backgroundId)) return unknown('select-two-colors');
+  if (foregroundId === backgroundId) return unknown('select-distinct-colors');
+  if (!Array.isArray(slots) || slots.length > LIMIT) return unknown('invalid-color-slots');
+  const ids = new Set();
+  for (const slot of slots) {
+    if (!record(slot) || !validId(slot.id)) return unknown('invalid-color-slots');
+    if (ids.has(slot.id)) return unknown('duplicate-color-slot-id');
+    ids.add(slot.id);
+  }
+  const fg = slots.filter((slot) => record(slot) && slot.id === foregroundId);
+  const bg = slots.filter((slot) => record(slot) && slot.id === backgroundId);
+  if (fg.length > 1 || bg.length > 1) return unknown('duplicate-color-slot-id');
+  if (!bg.length) return unknown('missing-background-color');
+  if (!fg.length) return unknown('missing-text-color');
+  return analyzeExplicitContrast(fg[0].value, bg[0].value);
+}
+
 /**
  * Analyze explicitly authored Text × Background slot candidates.
  * Slot names, equal hex values and palette order never infer semantic roles.
@@ -126,15 +166,10 @@ export function analyzePaletteContrast(doc) {
       else if (!foreground) pair.reason = 'missing-text-color';
       else if (!foreground.channels) pair.reason = 'invalid-text-color';
       else {
-        const resolved = foreground.channels.map(
-          (c, index) => c * foreground.alpha + backdrop.channels[index] * (1 - foreground.alpha),
+        Object.assign(
+          pair,
+          compareChannels(foreground.channels, foreground.alpha, backdrop.channels),
         );
-        const textLuminance = luminance(resolved);
-        const backgroundLuminance = luminance(backdrop.channels);
-        pair.ratio =
-          (Math.max(textLuminance, backgroundLuminance) + 0.05) /
-          (Math.min(textLuminance, backgroundLuminance) + 0.05);
-        pair.status = pair.ratio >= NORMAL_TEXT_CONTRAST_THRESHOLD ? 'pass' : 'fail';
       }
       report.pairs.push(pair);
     }

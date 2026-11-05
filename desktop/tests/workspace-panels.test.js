@@ -6,6 +6,11 @@ import {
   DRAWER_PREFERENCES_KEY,
   workspaceRailGeometry,
 } from '../src/workspace-panels.js';
+import { createWorkspaceSurfaceAdapters } from '../src/workspace-surfaces.js';
+
+function createTestWorkspacePanels({ storage, ...bindings }) {
+  return createWorkspacePanels({ storage, adapters: createWorkspaceSurfaceAdapters(bindings) });
+}
 
 const markup = `<div class="workspace"><nav class="tools"></nav><main class="middle"><div class="canvas-wrap"><div class="canvas-stage"></div><div class="node-viewers"></div></div><section class="graph-panel"></section></main><aside class="right"><section class="layers"><div class="panel-head">Layers</div></section><section class="alignment-panel">Align</section><section class="shared-colors-panel">Colors</section><section class="inspector">Inspector</section></aside></div>`;
 function fixture() {
@@ -14,7 +19,7 @@ function fixture() {
   root.innerHTML = markup;
   window.document.body.append(root);
   let panel = null;
-  const controller = createWorkspacePanels({
+  const controller = createTestWorkspacePanels({
     getAssetPanel: () => panel,
     onAssets: () => {
       panel = window.document.createElement('aside');
@@ -52,6 +57,43 @@ test('opposite sides switch exclusively without changing the graph', () => {
   assert.equal(f.root.querySelector('.graph-panel'), graph);
   assert.equal(graph.closest('[data-drawer-side]'), null);
   f.window.happyDOM.abort();
+});
+
+test('an active owner can defer close and same-side or cross-side switches', () => {
+  const win = new Window();
+  const root = win.document.createElement('div');
+  root.innerHTML = markup;
+  win.document.body.append(root);
+  let blocked = true,
+    writes = 0,
+    assetOpens = 0;
+  const controller = createTestWorkspacePanels({
+    storage: { getItem: () => null, setItem: () => writes++ },
+    getAssetPanel: () => null,
+    onAssets: () => assetOpens++,
+    onAlign: () => {},
+    canDeactivateColors: () => !blocked,
+  });
+  controller.attach(root);
+  controller.select('colors');
+  const input = win.document.createElement('input');
+  root.querySelector('.shared-colors-panel').append(input);
+  input.focus();
+  const beforeWrites = writes;
+  controller.select('assets');
+  controller.select('layers');
+  controller.close('colors');
+  controller.select('colors');
+  assert.deepEqual(controller.active, { left: 'colors', right: null });
+  assert.equal(root.querySelector('.shared-colors-panel').hidden, false);
+  assert.equal(win.document.activeElement, input);
+  assert.equal(writes, beforeWrites);
+  assert.equal(assetOpens, 0);
+  blocked = false;
+  controller.select('assets');
+  assert.deepEqual(controller.active, { left: 'assets', right: null });
+  assert.equal(assetOpens, 1);
+  win.happyDOM.abort();
 });
 
 test('same trigger closes, hidden panels are inert, and dismissal restores focus', () => {
@@ -144,7 +186,7 @@ test('drawer preferences restore real owners and ignore invalid or legacy data',
     setItem: (key, value) => values.set(key, value),
   };
   const create = () =>
-    createWorkspacePanels({
+    createTestWorkspacePanels({
       storage,
       getAssetPanel: () => panel,
       onAssets: (focus) => {
@@ -365,7 +407,7 @@ test('synchronous Assets mount refresh sees the original motion request', () => 
   root.innerHTML = markup;
   window.document.body.append(root);
   let panel, controller, observed;
-  controller = createWorkspacePanels({
+  controller = createTestWorkspacePanels({
     getAssetPanel: () => panel,
     onAssets: () => {
       panel = window.document.createElement('aside');
@@ -434,7 +476,7 @@ test('saved last side wins an old both-open preference without losing either own
     [DRAWER_PREFERENCES_KEY, JSON.stringify({ left: 'assets', right: 'layers', lastSide: 'left' })],
   ]);
   let panel;
-  const controller = createWorkspacePanels({
+  const controller = createTestWorkspacePanels({
     storage: { getItem: (key) => values.get(key), setItem: (key, value) => values.set(key, value) },
     getAssetPanel: () => panel,
     onAssets: () => {
@@ -454,4 +496,208 @@ test('saved last side wins an old both-open preference without losing either own
   assert.equal(panel.isConnected, true);
   assert.equal(panel.hidden && panel.inert, true);
   w.happyDOM.abort();
+});
+
+test('legacy adapters retain DOM order, focus and sync visibility before portal measurement', async () => {
+  const win = new Window(),
+    root = win.document.createElement('div');
+  root.innerHTML = markup;
+  root
+    .querySelector('.canvas-wrap')
+    .insertAdjacentHTML(
+      'afterbegin',
+      '<div class="canvas-toolbar"><button data-action="align-panel"></button></div>',
+    );
+  win.document.body.append(root);
+  const colors = root.querySelector('.shared-colors-panel');
+  let panel = null,
+    colorsCalls = 0,
+    alignCalls = 0,
+    assetCalls = 0;
+  const controller = createTestWorkspacePanels({
+    getAssetPanel: () => panel,
+    onAssets: () => {
+      assetCalls++;
+      panel = win.document.createElement('aside');
+      panel.innerHTML = '<input data-asset-search>';
+      win.document.body.append(panel);
+    },
+    onAlign: () => {
+      alignCalls++;
+    },
+    onColors: () => {
+      colorsCalls++;
+    },
+  });
+  controller.attach(root);
+  await Promise.resolve();
+  const left = root.querySelector('[data-drawer-side="left"]'),
+    slot = left.querySelector('[data-workspace-asset-slot]');
+  assert.equal(colors.parentNode, left);
+  assert.deepEqual([...left.children], [slot, colors]);
+  controller.select('colors');
+  assert.equal(colors.hidden, false);
+  assert.equal(win.document.activeElement, colors);
+  assert.equal(colorsCalls, 1);
+  const measures = [];
+  slot.getBoundingClientRect = () => {
+    measures.push({
+      hidden: colors.hidden,
+      pressed: root.querySelector('[data-action="align-panel"]').getAttribute('aria-pressed'),
+    });
+    return { left: 1, top: 2, width: 3, height: 4 };
+  };
+  controller.select('assets');
+  assert.equal(assetCalls, 1);
+  assert.ok(measures.length);
+  assert.ok(measures.every((x) => x.hidden && x.pressed === 'false'));
+  controller.select('align');
+  assert.equal(alignCalls, 1);
+  assert.equal(
+    root.querySelector('[data-action="align-panel"]').getAttribute('aria-pressed'),
+    'true',
+  );
+  assert.equal(win.document.activeElement, root.querySelector('.alignment-panel'));
+  controller.refresh();
+  controller.attach(root);
+  assert.equal(alignCalls, 1);
+  assert.equal(colorsCalls, 1);
+  assert.equal(assetCalls, 1);
+  assert.equal(colors.parentNode, left);
+  assert.deepEqual([...left.children], [slot, colors]);
+  controller.select('colors');
+  assert.equal(colorsCalls, 2);
+  assert.equal(colors.hidden, false);
+  assert.equal(
+    root.querySelector('[data-action="align-panel"]').getAttribute('aria-pressed'),
+    'false',
+  );
+  win.happyDOM.abort();
+});
+
+test('incomplete attach target preserves the old portal and its Escape listener', () => {
+  const win = new Window(),
+    root = win.document.createElement('div');
+  root.innerHTML = markup;
+  win.document.body.append(root);
+  let panel = null,
+    opens = 0,
+    writes = 0;
+  const values = new Map(),
+    storage = {
+      getItem: (key) => values.get(key),
+      setItem: (key, value) => {
+        writes++;
+        values.set(key, value);
+      },
+    };
+  const controller = createTestWorkspacePanels({
+    storage,
+    getAssetPanel: () => panel,
+    onAssets: () => {
+      opens++;
+      panel = win.document.createElement('aside');
+      panel.innerHTML = '<input data-asset-search>';
+      win.document.body.append(panel);
+    },
+    onAlign() {},
+  });
+  controller.attach(root);
+  controller.select('assets');
+  const original = panel,
+    input = panel.querySelector('input');
+  input.value = 'unsaved search';
+  input.focus();
+  const html = root.innerHTML,
+    preferences = JSON.stringify([...values]),
+    active = JSON.stringify(controller.active),
+    beforeWrites = writes;
+  const incomplete = win.document.createElement('div');
+  incomplete.innerHTML = '<div class="canvas-wrap"></div>';
+  win.document.body.append(incomplete);
+  controller.attach(incomplete);
+  assert.equal(root.innerHTML, html);
+  assert.equal(panel, original);
+  assert.equal(panel.parentNode, win.document.body);
+  assert.equal(input.value, 'unsaved search');
+  assert.equal(win.document.activeElement, input);
+  assert.equal(JSON.stringify(controller.active), active);
+  assert.equal(JSON.stringify([...values]), preferences);
+  assert.equal(writes, beforeWrites);
+  assert.equal(opens, 1);
+  const trigger = root.querySelector('[data-workspace-panel="assets"]');
+  trigger.focus();
+  const escape = new win.KeyboardEvent('keydown', {
+    key: 'Escape',
+    bubbles: true,
+    cancelable: true,
+  });
+  trigger.dispatchEvent(escape);
+  assert.equal(escape.defaultPrevented, true);
+  assert.equal(controller.active.left, null);
+  assert.equal(panel.hidden, true);
+  assert.equal(panel, input.parentNode);
+  assert.equal(input.value, 'unsaved search');
+  win.happyDOM.abort();
+});
+
+test('invalid roots and missing required descendants preserve queued restoration and observer', async () => {
+  const win = new Window(),
+    root = win.document.createElement('div');
+  root.innerHTML = markup;
+  win.document.body.append(root);
+  let observed = 0,
+    disconnected = 0,
+    panel = null;
+  const focusArgs = [];
+  win.ResizeObserver = class {
+    observe() {
+      observed++;
+    }
+    disconnect() {
+      disconnected++;
+    }
+  };
+  const saved = JSON.stringify({ left: 'assets', right: null, lastSide: 'left' });
+  const storage = {
+    getItem: () => saved,
+    setItem: () => {
+      throw Error('unexpected write');
+    },
+  };
+  const controller = createTestWorkspacePanels({
+    storage,
+    getAssetPanel: () => panel,
+    onAssets: (focus) => {
+      focusArgs.push(focus);
+      panel = win.document.createElement('aside');
+      win.document.body.append(panel);
+    },
+    onAlign() {},
+  });
+  controller.attach(root);
+  const before = root.innerHTML;
+  for (const target of [
+    null,
+    {},
+    ...['canvas-wrap', 'right', 'tools'].map((missing) => {
+      const el = win.document.createElement('div');
+      el.innerHTML = markup;
+      el.querySelector('.' + missing).remove();
+      return el;
+    }),
+  ]) {
+    assert.doesNotThrow(() => controller.attach(target));
+    assert.equal(root.innerHTML, before);
+    assert.equal(disconnected, 0);
+    assert.equal(observed, 1);
+    assert.equal(panel, null);
+  }
+  await Promise.resolve();
+  assert.deepEqual(focusArgs, [false]);
+  assert.ok(panel);
+  assert.equal(controller.active.left, 'assets');
+  assert.equal(panel.parentNode, win.document.body);
+  assert.equal(disconnected, 0);
+  win.happyDOM.abort();
 });

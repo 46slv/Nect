@@ -255,6 +255,41 @@ test('binding and unbinding use exact layer, node, key and slot IDs, not names o
   ]);
 });
 
+test('binding labels distinguish equal names and literals without changing IDs', (t) => {
+  const s = setup(t);
+  s.model.colorSlots = [
+    { id: 'a-1111', name: 'Brand <&>', value: { hex: '#123456', alpha: 0.5 } },
+    { id: 'b-1111', name: 'Brand <&>', value: { hex: '#123456', alpha: 0.5 } },
+    { id: 'c-2222', name: 'Brand <&> · a-1111', value: { hex: '#abcdef', alpha: 1 } },
+    { id: 'd-3333', name: 'Unique', value: { hex: '#000000', alpha: 1 } },
+    { id: 'e-4444', name: 'Local color', value: { hex: '#000000', alpha: 1 } },
+    { id: 'f-5678', name: 'が', value: { hex: '#000000', alpha: 1 } },
+    { id: 'g-5678', name: 'か\u3099', value: { hex: '#000000', alpha: 1 } },
+    { id: 'h-0000', name: 'が · f-5678', value: { hex: '#000000', alpha: 1 } },
+  ];
+  let select = s.bind({ colorSlotId: 'b-1111' });
+  const labels = () =>
+    Object.fromEntries([...select.options].slice(1).map((o) => [o.value, o.textContent]));
+  const before = labels();
+  assert.equal(
+    new Set([...Object.values(before), 'Local color'].map((name) => name.normalize('NFC'))).size,
+    9,
+  );
+  assert.equal(before['c-2222'], 'Brand <&> · a-1111');
+  assert.equal(before['d-3333'], 'Unique');
+  assert.notEqual(before['e-4444'], 'Local color');
+  assert.ok(before['f-5678'].startsWith('が · '));
+  assert.ok(before['g-5678'].startsWith('か\u3099 · '));
+  assert.equal(select.querySelector('option[value="b-1111"]').hasAttribute('selected'), true);
+  assert.equal(select.querySelectorAll('script,img').length, 0);
+  s.model.colorSlots.reverse();
+  select = s.bind({ colorSlotId: 'b-1111' });
+  assert.deepEqual(labels(), before);
+  select.value = 'a-1111';
+  s.fire(select);
+  assert.equal(s.calls.at(-1).payload.slotId, 'a-1111');
+});
+
 test('binding availability follows locked, sourced and expression-owned parameters and layers', (t) => {
   const s = setup(t);
   for (const q of [{ locked: true }, { source: { nodeId: 'other' } }, { expression: '1' }])

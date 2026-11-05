@@ -3,14 +3,17 @@
 The packet is **opt-in historical persistence, not a live color driver**. A
 separate explicit Session command can materialize its active resolved values once;
 loading never does so. No new coefficients or defaults are selected. The separate
-[opt-in experimental editor](key-color-recipe-editor.md) opens only an existing
-retained receipt for explicit Preview/Apply. The pure
+[opt-in experimental editor](key-color-recipe-editor.md) opens an existing
+retained receipt for explicit Preview/Apply; without one, it offers a research
+preview and explicitly selected B trial creation. The pure
 model is carried from reviewed prototype `535052c4415207143294dea561ad3f96dbdf5456`;
 its experimental affine coefficients and pure editing/alpha policies are unchanged.
 See [the prototype contract](../../docs/key-color-recipe-contract.md).
 The separate [developer/test-fixture initialization API](key-color-recipe-initialization.md)
 can atomically allocate explicitly specified fresh slots and a revision-zero
-receipt. It adds no user creation flow, preset/default or live ownership.
+receipt. The B trial uses it only after explicit Preview; its ordinary path adds
+no live ownership. A separate opt-in [linked trial](key-color-recipe-initialization.md#explicit-linked-trial-schema59)
+uses a distinct versioned packet and never converts this historical format.
 
 ## Separate, versioned storage
 
@@ -145,10 +148,12 @@ base project. Its other unknown-root-field merge behavior is unchanged.
   target/realized ratios. Loading calls validation, not the color solver.
 - Legacy documents without the field neither opt in nor advance schema on load
   or save. Existing old-format values/recipes remain byte-equivalent.
-- Foreign Composition import keeps the receiving packet and recipe. Only artwork-
+- Foreign Composition import of retained-only recipes keeps the receiving packet and recipe. Only artwork-
   referenced foreign colors are copied/remapped by the existing import policy;
   source packets and unused/dormant source identities are not auto-adopted. The
   existing `Math.max` schema promotion may retain schema58 even without a packet.
+  A source live packet follows the separate linked-import rules in
+  [initialization](key-color-recipe-initialization.md#explicit-linked-trial-schema59).
 - SVG replacement preserves both old `colorDesign` and the new packet alongside
   the existing global registries, deep-copies the metadata and validates the final
   candidate. This also fixes the former omission of old recipe metadata there.

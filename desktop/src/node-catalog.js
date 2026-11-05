@@ -1,3 +1,6 @@
+import { registeredNodes } from './builtin-node-registry.js';
+import { placeRegistered } from './registered-node-projections.js';
+
 // Editor-only metadata. Never serialized into a document or used as a node type ID.
 export const nodeCategories = [
   {
@@ -33,7 +36,7 @@ export const nodeCategories = [
     label: '値・制御',
   },
 ];
-export const nodeCatalog = [
+const legacyNodeCatalog = [
   {
     typeId: 'Angular Gradient Fill',
     categoryId: 'paint',
@@ -227,14 +230,6 @@ export const nodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Reverse Path',
-    categoryId: 'path',
-    labelJa: '反転',
-    aliases: ['反転', '方向'],
-    description: '反転 方向',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Subdivide Path',
     categoryId: 'path',
     labelJa: '分割',
@@ -344,14 +339,6 @@ export const nodeCatalog = [
     labelJa: '結合',
     aliases: ['結合', 'ブーリアン', 'シルエット'],
     description: '輪郭を演算して合成する',
-    creationRoute: 'add',
-  },
-  {
-    typeId: 'Join Geometry',
-    categoryId: 'combine',
-    labelJa: '結合',
-    aliases: ['結合', '独立パス'],
-    description: '独立したパスを束ねる / independent path groups',
     creationRoute: 'add',
   },
   {
@@ -475,14 +462,6 @@ export const nodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Math',
-    categoryId: 'value',
-    labelJa: '計算',
-    aliases: ['計算'],
-    description: '計算',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Vector',
     categoryId: 'value',
     labelJa: 'ベクトル',
@@ -491,27 +470,11 @@ export const nodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Vector Math',
-    categoryId: 'value',
-    labelJa: 'ベクトル計算',
-    aliases: ['ベクトル計算'],
-    description: 'ベクトル計算',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Vector Transform',
     categoryId: 'value',
     labelJa: 'ベクトル変換',
     aliases: ['ベクトル変換'],
     description: '数値ベクトルの移動・回転・拡大縮小',
-    creationRoute: 'add',
-  },
-  {
-    typeId: 'Separate Vector',
-    categoryId: 'value',
-    labelJa: 'ベクトル分離',
-    aliases: ['ベクトル分離'],
-    description: 'ベクトル分離',
     creationRoute: 'add',
   },
   {
@@ -563,11 +526,22 @@ export const nodeCatalog = [
     creationRoute: 'add',
   },
 ];
+export const nodeCatalog = placeRegistered(
+  legacyNodeCatalog.map((entry) => [entry.typeId, entry]),
+  registeredNodes.filter((row) => row.exposure === 'public'),
+  'catalogAfter',
+  (row) => ({ typeId: row.resolved.declaration.typeId, ...row.resolved.declaration.catalog }),
+).map(([, entry]) => entry);
+const privateTypes = new Set(
+  registeredNodes
+    .filter((row) => row.exposure === 'private')
+    .map((row) => row.resolved.declaration.typeId),
+);
 const excludedTypes = new Set(['Output', 'Image Output', 'Image', 'SVG']);
 export function nodePickerItems(definitions, label = (type) => type) {
   const metadata = new Map(nodeCatalog.map((entry) => [entry.typeId, entry]));
   return Object.keys(definitions)
-    .filter((type) => !excludedTypes.has(type))
+    .filter((type) => !excludedTypes.has(type) && !privateTypes.has(type))
     .map((type) => {
       const entry = metadata.get(type) || {
         typeId: type,

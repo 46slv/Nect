@@ -7,8 +7,15 @@ import {
 import { MAX_CHROMA } from './auto-chroma.js';
 import {
   keyColorRecipeDocumentCommands,
+  KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION,
+  LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION,
+  isLiveKeyColorRecipe,
+  assertNoLiveKeyColorWrites,
+  liveKeyColorSlotIds,
+  prepareLiveKeyColorRecipeApplication,
   validateRetainedKeyColorRecipe,
   applyRetainedKeyColorRecipeCommand,
+  applyInitializedKeyColorRecipe,
   prepareKeyColorRecipeApplication,
   prepareKeyColorRecipeInitialization,
 } from './key-color-recipe-document.js';
@@ -33,6 +40,8 @@ export const colorSlotCommands = new Set([
   'set-color-slots',
   'apply-key-color-recipe-snapshot',
   'initialize-key-color-recipe',
+  'initialize-live-key-color-recipe',
+  'apply-live-key-color-recipe-snapshot',
   'bind-color-slot',
   'unbind-color-slot',
   ...keyColorRecipeDocumentCommands,
@@ -204,21 +213,40 @@ function prepareColorSlotUpdates(slots, updates) {
 }
 export function applyColorSlotCommand(doc, type, payload, makeId) {
   const slots = validateColorSlots(doc);
-  if (type === 'initialize-key-color-recipe') {
+  if (type === 'initialize-key-color-recipe' || type === 'initialize-live-key-color-recipe') {
     const prepared = prepareKeyColorRecipeInitialization(doc, payload, slots);
-    // One private candidate: fresh slots and the revision-zero historical
-    // receipt enter the same Session transaction, never chained public edits.
+    // Fresh slots and their versioned packet enter one private candidate,
+    // never a chain of public edits.
     doc.colorSlots = [...(doc.colorSlots || []), ...prepared.slots];
     for (const slot of prepared.slots) slots.set(slot.id, slot);
-    const result = applyRetainedKeyColorRecipeCommand(
-      doc,
-      'retain-key-color-recipe-snapshot',
-      { snapshot: prepared.snapshot },
-      slots,
-    );
+    if (type === 'initialize-live-key-color-recipe') {
+      doc.schemaVersion = Math.max(doc.schemaVersion, LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION);
+      doc.keyColorRecipe = { version: 2, mode: 'live', committedSnapshot: prepared.snapshot };
+      validateColorSlots(doc);
+      return {
+        paletteId: prepared.snapshot.paletteId,
+        paletteRevision: prepared.snapshot.revision,
+        slotIds: prepared.slots.map((slot) => slot.id),
+      };
+    }
+    const result = applyInitializedKeyColorRecipe(doc, prepared.snapshot, slots);
     return { ...result, slotIds: prepared.slots.map((slot) => slot.id) };
   }
+  if (type === 'apply-live-key-color-recipe-snapshot') {
+    const prepared = prepareLiveKeyColorRecipeApplication(doc, payload, slots);
+    const updates = prepareColorSlotUpdates(slots, prepared.updates);
+    for (const { slot, value } of updates)
+      if (slot.value.hex !== value.hex || slot.value.alpha !== value.alpha) slot.value = value;
+    doc.keyColorRecipe.committedSnapshot = prepared.snapshot;
+    validateColorSlots(doc);
+    return {
+      paletteId: prepared.snapshot.paletteId,
+      paletteRevision: prepared.snapshot.revision,
+      slotIds: updates.map(({ slot }) => slot.id),
+    };
+  }
   if (type === 'apply-key-color-recipe-snapshot') {
+    if (isLiveKeyColorRecipe(doc)) throw Error('Use the live key-color command');
     const prepared = prepareKeyColorRecipeApplication(doc, payload, slots),
       updates = prepareColorSlotUpdates(slots, prepared.updates),
       result = applyRetainedKeyColorRecipeCommand(
@@ -317,6 +345,10 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
   }
   if (type === 'set-color-slots') {
     const updates = prepareColorSlotUpdates(slots, payload.updates);
+    assertNoLiveKeyColorWrites(
+      doc,
+      updates.map(({ slot }) => slot.id),
+    );
     let design;
     if (payload.design !== undefined) {
       design = structuredClone(payload.design);
@@ -354,6 +386,7 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
       name(payload.name);
       slot.name = payload.name;
     } else {
+      assertNoLiveKeyColorWrites(doc, [slot.id]);
       color(payload.value);
       slot.value = { ...payload.value };
     }
@@ -375,20 +408,50 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
 }
 
 // Import only referenced slots; never coalesce independent identities by value.
-// `copies` are already detached/remapped geometry. Neither input document mutates.
-export function importColorSlots(current, source, copies, occupied) {
+// `layers` are already detached/remapped geometry. Neither input document mutates.
+function walkColorBindings(layers, visit) {
+  // Only graph parameters have binding semantics. Other JSON fields, including
+  // extensions nested inside a parameter, are authored metadata to preserve.
+  for (const layer of layers)
+    for (const node of layer.nodes)
+      for (const parameter of Object.values(node.params || {}))
+        if (parameter?.type === 'Color' && parameter.colorSlotId !== undefined) visit(parameter);
+}
+
+export function importsLiveKeyColors(source, layers) {
+  const live = liveKeyColorSlotIds(source);
+  let found = false;
+  if (live.size)
+    walkColorBindings(layers, (q) => {
+      if (live.has(q.colorSlotId)) found = true;
+    });
+  return found;
+}
+
+// Schema 59 introduces only the live packet. When no selected artwork imports
+// that packet, do not promote an older destination to an unnecessary version.
+export function colorImportSchemaVersion(source, importedColors) {
+  return source.schemaVersion === LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION &&
+    !Object.hasOwn(importedColors, 'keyColorRecipe')
+    ? KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION
+    : source.schemaVersion;
+}
+
+export function importColorSlots(current, source, layers, occupied) {
   const sourceSlots = validateColorSlots(source),
     refs = new Set();
-  function walk(value, visit) {
-    if (!value || typeof value !== 'object') return;
-    if (Array.isArray(value)) {
-      for (const item of value) walk(item, visit);
-      return;
-    }
-    if (value.colorSlotId !== undefined) visit(value);
-    for (const child of Object.values(value)) walk(child, visit);
+  walkColorBindings(layers, (q) => refs.add(q.colorSlotId));
+  const importingLive = importsLiveKeyColors(source, layers);
+  if (importingLive && Object.hasOwn(current, 'keyColorRecipe'))
+    throw Object.assign(
+      Error('This project already has Key colors. Unbind the source colors before import.'),
+      { code: 'LIVE_COLOR_IMPORT_CONFLICT' },
+    );
+  if (importingLive) {
+    // paletteId is not among the entity keys gathered by collectIds.
+    occupied.add(source.keyColorRecipe.committedSnapshot.paletteId);
+    for (const row of source.keyColorRecipe.committedSnapshot.resolved) refs.add(row.id);
   }
-  walk(copies, (q) => refs.add(q.colorSlotId));
   const result = structuredClone(current.colorSlots || []),
     mapping = new Map();
   for (const id of refs) {
@@ -401,9 +464,28 @@ export function importColorSlots(current, source, copies, occupied) {
     mapping.set(id, next);
     result.push({ ...structuredClone(slot), id: next });
   }
-  walk(copies, (q) => {
+  walkColorBindings(layers, (q) => {
     q.colorSlotId = mapping.get(q.colorSlotId);
   });
   if (result.length > 256) throw Error('Imported Color slot budget exceeded');
-  return current.colorSlots !== undefined || refs.size ? result : undefined;
+  let keyColorRecipe;
+  if (importingLive) {
+    keyColorRecipe = structuredClone(source.keyColorRecipe);
+    const snapshot = keyColorRecipe.committedSnapshot;
+    const originalPaletteId = snapshot.paletteId;
+    let index = 1,
+      paletteId;
+    do paletteId = `${originalPaletteId.slice(0, 96)}-import-${index++}`;
+    while (occupied.has(paletteId) || paletteId === originalPaletteId);
+    occupied.add(paletteId);
+    snapshot.paletteId = paletteId;
+    snapshot.intent.keyColor.id = mapping.get(snapshot.intent.keyColor.id);
+    for (const row of snapshot.intent.slots) row.id = mapping.get(row.id);
+    for (const row of snapshot.intent.preset.slots) row.id = mapping.get(row.id);
+    for (const row of snapshot.resolved) row.id = mapping.get(row.id);
+  }
+  return {
+    colorSlots: current.colorSlots !== undefined || refs.size ? result : undefined,
+    ...(keyColorRecipe ? { keyColorRecipe } : {}),
+  };
 }

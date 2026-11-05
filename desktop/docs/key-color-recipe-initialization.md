@@ -1,13 +1,23 @@
-# Explicit key-color initialization — developer/test-fixture API only
+# Explicit key-color initialization
 
-`initialize-key-color-recipe` is a typed Session command for preparing explicitly
-specified experimental fixtures. It is **not ordinary user creation**: there is
-no creation button, preset factory, coefficient editor, JSON-import UX or new
-`main.js` routing. Product defaults and unresolved dark TonePlan/ChromaPlan
-coefficients remain unchanged. See the [pure model contract](../../docs/key-color-recipe-contract.md)
+`initialize-key-color-recipe` is a typed Session command for explicitly
+specified plans. The research panel permits only the explicitly selected B
+trial plan to use it or the linked variant after Preview; this is not an ordinary default palette or
+a generic preset factory, coefficient editor or JSON-import UX. The main
+dispatcher preserves its closed project-level payload without adding a layer ID.
+Product defaults and unresolved dark TonePlan/ChromaPlan coefficients remain
+unchanged. See the [pure model contract](../../docs/key-color-recipe-contract.md)
 and [historical receipt contract](key-color-recipe-retention.md).
 
 ## Closed version-1 request
+
+The explicit `solverVersion` may be `experimental-affine-v1` (unchanged) or
+`experimental-affine-neutral-text-v1`. The latter is create-only: Neutral and
+Text plans require zero chroma scale and offset, use ΔL but do not apply stored
+Δr, and diagnose nonzero unapplied Δr. No product plan, coefficient, default,
+or automatic legacy migration is selected by choosing this policy. A new-policy
+receipt may subsequently be edited under the same version. Retain, replace and
+Apply cannot convert a legacy receipt or arbitrary existing colors to it.
 
 Use the usual captured `{sessionId, expectedRevision, type, payload}` envelope.
 The payload has exactly these fields:
@@ -96,6 +106,51 @@ are untouched. New slots create no bindings. The receipt remains historical:
 manual edits do not regenerate or rewrite it, and native save/load validates
 without solving. Ordinary New/load still introduces no key-color recipe/default.
 
+## Explicit linked trial schema59
+
+The separate `initialize-live-key-color-recipe` command accepts the same closed,
+fully explicit request and fresh-ID preflight. Its schema59 root packet is
+`{version: 2, mode: 'live', committedSnapshot}`. Existing schema58 v1 receipts
+remain historical; neither loading nor a legacy command converts them. The
+experimental UI exposes linking only for an explicitly selected B trial after
+Preview. It is not a product default or an adoption of B's coefficients.
+
+All active IDs are owned by this packet. The C1 input and the explicit L/chroma
+offsets may be changed through `apply-live-key-color-recipe-snapshot` with the
+captured Session envelope and `{snapshot, expectedPaletteRevision}`. The command
+rebuilds permitted changes with the named solver from the current snapshot and
+rejects changed IDs, plan, policy or fabricated revision/result. It writes the
+resulting packet and exact shared-slot `{hex, alpha}` projection in one private
+candidate and one Undo. An equal candidate preserves History and pending Redo.
+Existing Fill and Color references use the same stable IDs and projected values;
+capture/unbind freezes the current literal. Slot names may change independently.
+Legacy single, batch and gesture writes targeting any owned ID reject atomically.
+The legacy UI excludes these IDs from its color edits and identifies them as linked.
+
+Loading checks supported versions, active identities, opaque derived alpha,
+absence of competing legacy ownership, and exact agreement between each saved
+resolved literal and its shared slot. It preserves the saved snapshot verbatim
+without re-solving platform-dependent floating-point calculations. The existing
+snapshot validator checks its documented structural and ratio constraints; it
+does not prove the complete mathematical equivalence of arbitrary externally
+fabricated intent and derived metadata. New creation and edits run the solver;
+load alone never rounds or rewrites the user's saved values. Cache dependencies
+include both slots and the live packet, including its identity, revision and
+contents, so equal revision numbers on different Undo branches do not alias.
+
+Old Document and Composition readers reject the new wrapper rather than silently
+discarding its meaning. Importing selected Compositions that reference a live
+slot copies the complete linked palette into a destination without an existing
+key-color packet. Slot identities and every binding are remapped together on
+collision; the imported palette receives a fresh identity. Saved values, solver,
+semantics and revision are preserved without recomputation, and the import is one
+Undo. A destination with any existing key-color packet rejects that import rather
+than overwriting it. The dialog identifies the full palette addition and old-reader
+incompatibility. When the selected source does not reference the live palette,
+ordinary import is retained and schema59 alone does not unnecessarily upgrade an
+older destination. The trial does not supply final presets, a full-precision Field
+evaluator, palette migration or a general detach/convert command.
+
 ## Verification scope
 
 `tests/key-color-recipe-initialization.test.js` parameterizes real Document and
@@ -106,6 +161,6 @@ budget rejection with pending Redo; detached preparation and stale envelopes;
 and unchanged ordinary New/load. Existing solver, dormant retention, Apply and
 editor tests remain the regression authority for their unchanged behavior.
 
-This establishes initialization infrastructure only. Ordinary-user creation still
-needs an accepted versioned initial plan and explicit role/count mapping, especially
-dark-role lightness ordering, or approval of a particular experimental plan.
+The only approved user-facing creation plan is the explicitly selected B trial
+in the research panel. General creation and product defaults still need their
+own accepted versioned plans and role/count mappings.

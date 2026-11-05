@@ -10,79 +10,18 @@ Must: coherent Canvas/Graph/Inspector and direct generator edits; practical shap
 
 Done: actual production artwork → edit → Undo/Redo → save → exit → restart → re-edit → SVG/PNG, adopted Musts verified, major actual-use defects repaired. A first vertical is not product completion. Performance budgets follow measurements. Dashboard: NOT_CONNECTED; this checkpoint is the current reference.
 
-Authority: user's current formal takeover/development instruction. Edits/tests/development branches/commits/non-force push/Draft PR permitted; mainline merge, release, force/history rewrite, credentials/permission/billing changes excluded.
+Authority: the current user directs Terra to continue development, prioritizing panels and color. Edits, tests, coherent commits and non-force development-branch pushes are authorized. Mainline integration requires its own exact-stack checks and review; release, force/history rewrite, credential or billing changes and bypass of safety denials are excluded. Product decisions remain in [Confirmed requirements](https://app.notion.com/p/01b2ff7802fc410ab4cdb8fd26264495); [REQ-211](https://app.notion.com/p/3fbfd279a6f381a9a7c9c36f5089fba1) governs color and the current [Workspace action](https://app.notion.com/p/40ffd279a6f38132856ce92091df60ea) governs the approved staged panel work. Research plans are not adopted product presets.
 
-Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
+Coarse route: panels and color → remaining adopted Session, document, shape and text requirements chosen from live dependencies → measured native stabilization and Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-11-03 REQ-42 Grid opacity numeric binding P3a
+## ACTIVE CHECKPOINT — explicitly end linked color trial
 
-Goal: Connect the existing Grid opacity number field to the common input behavior
-and existing numeric-command Session owner, with 0–100 percent display and 0–1
-saved values. Preserve its range slider, typing, exact values and Undo/Redo.
-Source: [REQ-42 implementation packet](https://app.notion.com/p/40cfd279a6f3811e8438c585e952c71d).
-
-Base: main `ee3e37ceeb621161a0572b79564379c635e1922e`, tree
-`4af82244c97fae7b109b22f0a53ff1220403b3c2`, normal merge of P2b PR #168.
-This isolated branch started at unchanged P2b head `623c7c51` and fast-forwarded
-to the identical merge tree. Sole writer: `codex/req42-p3-grid-opacity-20261103`.
-
-Current phase: implementation and focused acceptance. Actual Chrome reproduced
-25% staying 25% after a 24px horizontal drag instead of reaching 45%: the field
-had numeric affordance but no binding. The existing command binding now resolves
-Grid opacity, converts only at its UI/Session boundary and reuses the existing
-preview/cancel functions to synchronize number, range and overlay. No kernel,
-Session/schema changes or new pointer-handler branch.
-
-Proven: actual Chrome passes scrub/live preview/one Undo, range slider, native
-click/type/arrows, pending typing as a separate Undo, cancellation and Redo.
-DOM checks exact unchanged fractions, canonical endpoints, stale control/revision
-and Composition ownership. P1/P2a/P2b focused regression and normal CI are required
-for the exact candidate. Task evidence: `req42-p3-grid-opacity-evidence` beside
-this worktree; original font/user document/application state is not a fixture.
-
-Endpoint repair: parent authorized an optional input-behavior normalization hook.
-Grid alone uses raw requested delta/baseline/bounds to produce exact endpoints;
-the normalized values drive same/preview/tracking/finish. Zero request retains
-the raw baseline and interior small positive values keep kernel results. Kernel,
-Session/history, other binding and mixed-selection policies remain unchanged.
-High-precision lower/upper, cancellation/origin and small-positive tests are added.
-
-Next task: finish focused tests/Chrome, format/build, source-bound receipt;
-commit/push the endpoint repair and update existing Draft PR #169. Record exact-head
-CI terminal results and return to parent review. #168 integration/post-merge CI
-is tracked separately in `req42-p2b-evidence`.
-
-Done for next: 0–100% display/0–1 saved, peer range synchronization, native input,
-pending typing separate Undo and gesture one Undo; exact no-op/return-origin/
-cancel with Redo retained; stale revision/Composition/control never late-commit.
-Unchanged number displays do not round-trip authored fractions through percent.
-PPI, asynchronous font work, Color changes and other scalar migrations excluded.
-
-Authority: explicit P3a delegation permits implementation/test/commit/non-force
-push and Draft PR. No P3a Ready/merge/release/approval review, force/history rewrite
-or security changes. #168 integration has separate exact-PR user approval.
-Native WebView2/physical OS IME remains separate LOCAL_WAIT; do not repeat known
-missing capability or CIM access failure. Parent retains Mission ownership.
+Goal: let a user end an explicitly selected linked color trial while keeping the same shared Color IDs, values and artwork references.
+Current phase: inspect the live/retained codec, Session commands and existing Key color UI before choosing the smallest safe transition.
+Proven: Assets folder discovery restores the registered list across search, picker cancellation and picker failure. Registration errors remain visible through automatic restoration and clear on the next explicit interaction; simultaneous discovery failure remains visible too. 50 focused tests, build and formatting passed, and sandboxed Windows Chrome exercised five synthetic IPC response orders. Real OS picker and native WebView2 remain unverified. `59f2d74e` limits Color import to typed graph parameters and explicit layers: 126 focused tests and 15 sandboxed Chrome cases passed, including metadata-only imports, collisions and Undo/Redo.
+Next task: determine whether the current linked packet can be converted to retained-only in one guarded Session operation without changing any shared slot, reference or authored appearance, and expose an explicit action if the contracts support it.
+Approach: maintain schema59 monotonicity rather than promising old-reader compatibility; preserve stored snapshot and legacy semantics, reject stale requests, verify one-step Undo/Redo, save/reload and continued ordinary shared-color editing. Use Interface Method for a concise action and real browser interaction; do not introduce coefficients, defaults or preset decisions. Afterward consider the approved REQ-309 Layers + Inspector right-drawer prototype, retaining existing preference compatibility and focus/IME behavior.
+Done for next: explicit trial exit preserves IDs, values and references, is safely undoable and reloadable, and is observable in the real browser, or a concrete incompatible contract is recorded and independent panel work continues.
+State: worktree `D:/Documents/Codex/2026-11-02/task/Nect-pr178-combination`, branch `codex/key-color-artwork-status-20261105`, parent before this checkpoint `59f2d74e1cc9363d0ca854e4b3b10fbb5515269a`. The commit containing this file is the source pointer; read back remote after push. #178 was normally merged to main `5e0aa17983f557c1a831b8ed7d007b883401c384`; draft #186 freezes `7e2434fe` for stack CI and does not cover newer checkpoints. Existing-packet linked import, general palette detach, final presets, native file dialogs/physical IME, measured performance and subjective acceptance remain unverified or unsupported. Effective permission profile observed `:danger-full-access`; requested Terra Max model/effort is not independently observable from the shell. Cargo and rustc were observed at `C:/Users/shiro/.cargo/bin`, outside PATH; native build remains unverified.
+Authority: current user instruction delegates this worktree to one Terra writer and authorizes coherent commits and non-force development-branch push. No release, force/history rewrite, credential/billing changes, other workers' edits or safety-denial bypass. Product requirements remain in the linked Brief sources above.
 Handoff: CONTINUE_CURRENT_TASK.
-
-## Prior checkpoint — 2026-11-01 explicit key-color initialization infrastructure
-
-Historical infrastructure checkpoint, superseded as the active task by P1 above.
-
-Goal: Add developer/test-fixture-only atomic initialization from fully explicit supported versioned intent and exact fresh stable-ID/name allocation. Do not treat this as ordinary-user creation or approved product coefficients.
-
-Current phase: Sole source lane on `feat/keycolor-atomic-initialization`, isolated worktree `/tmp/nect-keycolor-atomic-initialization-20261101`, exact base `e462c1aab68c9e531e5e64d887889b308811d548`. Independent review is read-only.
-
-Proven: 21 new real Document/Composition tests pass, and the combined initialization/retention/Apply regression is 70/70 PASS. Exact C1 HEX/alpha0 and IDs/names; revision-zero receipt and one Undo/Redo/native round trip; legacy preservation; receipt-present refusal; fresh-only/global collisions including inactive Composition/Layer/Node/Point/Guide/Node-group; allocation/version/mapping/raw JSON/alpha/budget rejection with exact Session envelope and pending Redo; detached preparation, stale request and unchanged blank defaults. Independent read-only review found and verified repair of an inherited Array/proxy allocation-method atomicity hole: nonordinary arrays reject and the whole guarded request is detached before consumption. No remaining actionable review findings; independent focused regression 70/70 PASS and diff-check PASS. Existing prototype/retention/Apply/editor semantics are unchanged.
-
-Approach: Closed v1 initialization request pins model2, experimental-affine-v1 and linear-srgb-straight-v1. Reuse raw lossless-JSON guard before whole-request detachment and pure createKeyColorRecipe. Append new slots and schema58 retained-only receipt in one private Session candidate. Composition proposed-ID preflight runs before inner Session commit, not the generic post-validation rebuild fallback.
-
-Next task: Complete aggregate format/unit/build checks, independent source review, source-bound receipt and authorized development-branch/Draft PR publication; follow normal CI to a terminal result for the exact candidate tree. Repair bounded findings within this lane.
-
-Done for next: Independent review has no unresolved actionable finding, local checks and exact-tree CI evidence are reconciled, source-bound receipt and Draft PR are available. This packet completes infrastructure only; ordinary-user creation still needs an accepted versioned initial plan/role-count mapping, especially dark-role lightness ordering, or explicit approval of a particular experimental plan.
-
-State: Local candidate based on main after #153/#154 completion. No creation button/preset factory/coefficient editor/JSON import UX/main wiring; no sticky ownership/load solve/default change. Browser/native acceptance is not claimed; known local browser sandbox failures are not retried or bypassed. No font bytes, user documents, native app launches or denied/session paths are accessed.
-
-Authority: Current explicit bounded implementation request permits Nect code/tests/docs, coherent commit, development-branch publication and Draft PR. Do not mark Ready, merge, release, force-push, rewrite history or submit approval reviews. Do not change authentication, permissions or billing.
-
-Handoff: CONTINUE_CURRENT_TASK. Parent retains overall Mission ownership; this isolated lane owns only initialization implementation/verification/publication.

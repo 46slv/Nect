@@ -24,6 +24,7 @@ import { createKeyColorRecipePanel } from './key-color-recipe-panel.js';
 import { createHslColorPicker } from './hsl-color-popover.js';
 import { mountAssetLibrary, getAssetLibraryPanel, closeAssetLibrary } from './asset-library.js';
 import { createWorkspacePanels } from './workspace-panels.js';
+import { createWorkspaceSurfaceAdapters } from './workspace-surfaces.js';
 import { createUiSoundSettings } from './ui-sound-settings.js';
 import { installLayerReorder } from './layer-reorder.js';
 import { createGraphPanJoystick, joystickOverviewLayout } from './graph-pan-joystick.js';
@@ -851,6 +852,7 @@ import {
   serializeCompositionProject,
   validateCompositionProject,
 } from './composition-project-model.js';
+import { importsLiveKeyColors } from './color-slots.js';
 import { createCompositionSessionOwner } from './composition-session-owner-core.js';
 import {
   blankDocument,
@@ -962,6 +964,8 @@ const keyColorRecipePanel = createKeyColorRecipePanel({
   document,
   getSession: () => session,
   getDocument: () => history.doc,
+  getCoverageSnapshot: () => coverageView.snapshot(),
+  onArtworkPreview: (immediate = true) => updateCanvas(immediate),
   dispatch: (type, payload, envelope) => commandChange(type, payload, undefined, false, envelope),
   notify: (message, error) => notify(message, error),
 });
@@ -973,7 +977,14 @@ const sharedColors = createSharedColorsPanel({
   getCoverageSnapshot: () => coverageView.snapshot(),
   getSession: () => session,
   getDocument: () => history.doc,
-  dispatch: (type, payload, envelope) => commandChange(type, payload, undefined, false, envelope),
+  dispatch: (type, payload, envelope) =>
+    commandChange(
+      type,
+      payload,
+      undefined,
+      type === 'rename-color-slot' && pointerActive,
+      envelope,
+    ),
   render: () => render(),
   notify: (message, error) => notify(message, error),
   onClose: () => workspacePanels.close('colors'),
@@ -1096,17 +1107,21 @@ const coverageView = createColorCoverageView({
   },
 });
 const workspacePanels = createWorkspacePanels({
-  getAssetPanel: getAssetLibraryPanel,
   storage: {
     getItem: (key) => localStorage.getItem(key),
     setItem: (key, value) => localStorage.setItem(key, value),
   },
-  onAssets: (focus = true) => {
-    if (getAssetLibraryPanel()) closeAssetLibrary();
-    else openAssetLibrary(focus);
-  },
-  onColors: () => coverageView.refresh(),
-  onAlign: () => {},
+  adapters: createWorkspaceSurfaceAdapters({
+    getAssetPanel: getAssetLibraryPanel,
+    onAssets: (focus = true) => {
+      if (getAssetLibraryPanel()) closeAssetLibrary();
+      else openAssetLibrary(focus);
+    },
+    onColors: () => coverageView.refresh(),
+    createColorsView: () => sharedColors.createView(),
+    canDeactivateColors: () => !sharedColors.composing,
+    onAlign: () => {},
+  }),
 });
 function readAlignmentPreferences() {
   try {
@@ -1609,6 +1624,7 @@ const displayDocument = () =>
   fontPreview ||
   drag?.preview ||
   (textPreviewRevision === session.state.expectedRevision && textPreview) ||
+  keyColorRecipePanel.previewDocument ||
   history.doc;
 const evaluate = (layer, fonts = {}, imageAssets = {}, doc = displayDocument()) =>
   evaluateCore(layer, fonts, imageAssets, doc);
@@ -1885,6 +1901,9 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
       payload:
         type === 'create-harmony-palette' ||
         type === 'add-harmony-color' ||
+        type === 'initialize-key-color-recipe' ||
+        type === 'initialize-live-key-color-recipe' ||
+        type === 'apply-live-key-color-recipe-snapshot' ||
         type === 'apply-key-color-recipe-snapshot'
           ? payload
           : { layerId: current().id, ...payload },
@@ -2366,9 +2385,15 @@ function numericControlTarget(input) {
 // Unmigrated numeric surfaces keep their previous route.
 function numericBehaviorBinding(input) {
   return (
+    alignmentSpacingNumericBinding(input) ||
+    remapIndividualNumericBinding(input) ||
     remapBatchNumericBinding(input) ||
     handlePolarNumericBinding(input) ||
     pngPpiNumericBinding(input) ||
+    textPathStartNumericBinding(input) ||
+    manualLeadingNumericBinding(input) ||
+    textWrapNumericBinding(input) ||
+    pairKerningNumericBinding(input) ||
     textSelectionNumericBinding(input) ||
     layoutGridNumericBinding(input) ||
     numericCommandBinding(input) ||
@@ -2748,6 +2773,429 @@ function pngPpiNumericBinding(input) {
 function invalidatePngNumericScrub() {
   if (drag?.capture?.id === 'png-ppi' && drag.behavior) cancelInteraction(false);
   pngSettingsRevision++;
+}
+// Type on Path retains the existing numeric-command Session owner and path validator.
+function textPathStartNumericBinding(input) {
+  const nodeId = input.dataset.textPathStart;
+  if (!nodeId) return null;
+  const owner = session,
+    compositionId = owner.activeCompositionId,
+    layerId = current().id,
+    epoch = sourceEpoch,
+    selectedIds = [...selection],
+    originalNode = current().nodes.find((n) => n.id === nodeId);
+  if (
+    originalNode?.type !== 'Text' ||
+    !originalNode.pathAttachment ||
+    originalNode.osFont ||
+    originalNode.variation ||
+    history.doc.fontAssets?.[originalNode.font]?.kind === 'variable-glyf-v1'
+  )
+    return null;
+  const sourceText = originalNode.text,
+    font = originalNode.font,
+    alignment = originalNode.alignment,
+    { nodeId: pathId, contourId, startMode, reversed } = originalNode.pathAttachment,
+    units = [input.dataset.scrubStep, input.min, input.max];
+  let envelope = owner.state,
+    gesture = null,
+    originalInput,
+    previewInput;
+  const state = () => current().nodes.find((n) => n.id === nodeId);
+  const valid = () => {
+    const n = state(),
+      path = n?.pathAttachment;
+    return (
+      owner === session &&
+      owner.activeCompositionId === compositionId &&
+      current().id === layerId &&
+      sourceEpoch === epoch &&
+      owner.state.sessionId === envelope.sessionId &&
+      owner.state.expectedRevision === envelope.expectedRevision &&
+      input.isConnected &&
+      input.matches('input[type="number"]') &&
+      input.dataset.textPathStart === nodeId &&
+      input.dataset.scrubStep === units[0] &&
+      input.min === units[1] &&
+      input.max === units[2] &&
+      !input.disabled &&
+      !input.readOnly &&
+      !current().locked &&
+      !composing &&
+      !penDraft &&
+      !nameEdit &&
+      !variableAction &&
+      !owner.hasTextComposition &&
+      !document.querySelector('dialog[open]') &&
+      (!owner.hasGesture || !!gesture) &&
+      selected === nodeId &&
+      selectedIds.length === selection.size &&
+      selectedIds.every((id) => selection.has(id)) &&
+      n?.type === 'Text' &&
+      n.text === sourceText &&
+      n.font === font &&
+      n.alignment === alignment &&
+      !n.osFont &&
+      !n.variation &&
+      history.doc.fontAssets?.[n.font]?.kind !== 'variable-glyf-v1' &&
+      path?.nodeId === pathId &&
+      path.contourId === contourId &&
+      path.startMode === startMode &&
+      path.reversed === reversed
+    );
+  };
+  const onInput = () => {
+    if (drag?.capture !== input || !drag.behavior) return;
+    const typed = input.value;
+    cancelInteraction(false);
+    if (input.isConnected && input.dataset.textPathStart === nodeId) input.value = typed;
+    updateCanvas(true);
+  };
+  return {
+    mode: 'live',
+    valid,
+    read() {
+      originalInput = input.value;
+      if (input.value !== input.defaultValue) {
+        const expected = Number(originalInput);
+        if (!originalInput.trim() || !Number.isFinite(expected))
+          throw Error('Expected a finite number');
+        input.dispatchEvent(new window.Event('change', { bubbles: true }));
+        if (state()?.pathAttachment?.start !== expected) throw Error('Number change cancelled');
+        settleNumericControl(input, true);
+      }
+      envelope = owner.state;
+      return [state().pathAttachment.start];
+    },
+    step: () => Number(units[0]),
+    bounds: () => [Number(units[1] || -Number.MAX_VALUE), Number(units[2] || Number.MAX_VALUE)],
+    begin() {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'begin-gesture',
+        payload: {
+          target: {
+            kind: 'numeric-command',
+            command: 'set-text-settings',
+            payload: { layerId, nodeId },
+            initial: state().pathAttachment.start,
+          },
+        },
+      });
+      input.addEventListener('input', onInput);
+    },
+    preview([value]) {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'update-gesture',
+        payload: { ...gesture, update: { value } },
+      });
+      drag.preview = owner.previewSnapshot(gesture.gestureId).document;
+      input.value = String(value);
+      previewInput = input.value;
+      updateCanvas();
+    },
+    commit() {
+      input.removeEventListener('input', onInput);
+      settleNumericControl(
+        input,
+        owner.dispatch({ ...owner.state, type: 'commit-gesture', payload: gesture }),
+      );
+    },
+    cancel() {
+      input.removeEventListener('input', onInput);
+      if (gesture)
+        owner.dispatch({
+          ...owner.state,
+          type: 'cancel-gesture',
+          payload: { gestureId: gesture.gestureId },
+        });
+      if (
+        input.isConnected &&
+        input.dataset.textPathStart === nodeId &&
+        input.value === previewInput
+      )
+        input.value = originalInput;
+    },
+  };
+}
+function manualLeadingNumericBinding(input) {
+  return nodeTextNumericBinding(input, 'leading');
+}
+function textWrapNumericBinding(input) {
+  return nodeTextNumericBinding(input, 'wrap');
+}
+function nodeTextNumericBinding(input, textKind) {
+  const attribute = textKind === 'leading' ? 'textLeadingValue' : 'textWrapWidth',
+    nodeId = input.dataset[attribute];
+  if (!nodeId) return null;
+  const owner = session,
+    compositionId = owner.activeCompositionId,
+    layerId = current().id,
+    epoch = sourceEpoch,
+    originalNode = current().nodes.find((n) => n.id === nodeId);
+  if (
+    originalNode?.type !== 'Text' ||
+    (textKind === 'leading' ? originalNode.leading?.mode !== 'manual' : !originalNode.textWrap) ||
+    originalNode.variation ||
+    history.doc.fontAssets?.[originalNode.font]?.kind === 'variable-glyf-v1'
+  )
+    return null;
+  const sourceText = originalNode.text,
+    font = originalNode.font,
+    writingMode = originalNode.writingMode,
+    wrapAxis =
+      originalNode.textWrap &&
+      (Object.hasOwn(originalNode.textWrap, 'height') ? 'height' : 'width'),
+    wrapPolicy = originalNode.textWrap?.policy,
+    units = [input.dataset.scrubStep, input.min, input.max];
+  let envelope = owner.state,
+    gesture = null,
+    originalInput,
+    previewInput;
+  const onInput = () => {
+    if (drag?.capture !== input || !drag.behavior) return;
+    const typed = input.value;
+    cancelInteraction(false);
+    if (input.isConnected && input.dataset[attribute] === nodeId) input.value = typed;
+    updateCanvas(true);
+  };
+  const state = () => textNumericState({ textKind, nodeId, started: true, sourceText });
+  const valid = () => {
+    const n = current().nodes.find((entry) => entry.id === nodeId);
+    return (
+      owner === session &&
+      owner.activeCompositionId === compositionId &&
+      current().id === layerId &&
+      sourceEpoch === epoch &&
+      owner.state.sessionId === envelope.sessionId &&
+      owner.state.expectedRevision === envelope.expectedRevision &&
+      input.isConnected &&
+      input.matches('input[type="number"]') &&
+      input.dataset[attribute] === nodeId &&
+      input.dataset.scrubStep === units[0] &&
+      input.min === units[1] &&
+      input.max === units[2] &&
+      !input.disabled &&
+      !input.readOnly &&
+      !current().locked &&
+      !composing &&
+      !penDraft &&
+      !nameEdit &&
+      !variableAction &&
+      !owner.hasTextComposition &&
+      !document.querySelector('dialog[open]') &&
+      (!owner.hasGesture || !!gesture) &&
+      selected === nodeId &&
+      n?.font === font &&
+      (textKind !== 'wrap' ||
+        (n?.writingMode === writingMode &&
+          (Object.hasOwn(n?.textWrap || {}, 'height') ? 'height' : 'width') === wrapAxis &&
+          n?.textWrap?.policy === wrapPolicy)) &&
+      !n?.variation &&
+      history.doc.fontAssets?.[n?.font]?.kind !== 'variable-glyf-v1' &&
+      !!state()
+    );
+  };
+  return {
+    mode: 'live',
+    valid,
+    read() {
+      originalInput = input.value;
+      if (input.value !== input.defaultValue) {
+        const expected = Number(originalInput);
+        if (!originalInput.trim() || !Number.isFinite(expected))
+          throw Error('Expected a finite number');
+        input.dispatchEvent(new window.Event('change', { bubbles: true }));
+        const committed = state();
+        if (!committed || committed.values[0] !== expected) throw Error('Number change cancelled');
+        settleNumericControl(input, true);
+      }
+      envelope = owner.state;
+      const baseline = state();
+      if (!baseline) throw Error('Number change cancelled');
+      return baseline.values;
+    },
+    step: () => Number(units[0]),
+    bounds: () => [Number(units[1]), Number(units[2])],
+    begin() {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'begin-gesture',
+        payload: { target: { kind: 'text-values', layerId, nodeId, textKind } },
+      });
+      input.addEventListener('input', onInput);
+    },
+    preview(values) {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'update-gesture',
+        payload: { ...gesture, update: { values } },
+      });
+      drag.preview = owner.previewSnapshot(gesture.gestureId).document;
+      input.value = mixedNumericDisplay(values);
+      previewInput = input.value;
+      updateCanvas();
+    },
+    commit() {
+      input.removeEventListener('input', onInput);
+      settleNumericControl(
+        input,
+        owner.dispatch({ ...owner.state, type: 'commit-gesture', payload: gesture }),
+      );
+    },
+    cancel() {
+      input.removeEventListener('input', onInput);
+      if (gesture)
+        owner.dispatch({
+          ...owner.state,
+          type: 'cancel-gesture',
+          payload: { gestureId: gesture.gestureId },
+        });
+      if (input.isConnected && input.dataset[attribute] === nodeId && input.value === previewInput)
+        input.value = originalInput;
+    },
+  };
+}
+function pairKerningNumericBinding(input) {
+  if (input.dataset.characterKerning === undefined) return null;
+  const target = textNumericTarget(input);
+  if (!target || target.textKind !== 'kerning') return null;
+  const owner = session,
+    compositionId = owner.activeCompositionId,
+    layerId = current().id,
+    epoch = sourceEpoch,
+    nodeId = target.nodeId,
+    sourceText = target.targetText,
+    route = characterEdit.route,
+    ids = [...target.ids],
+    key = target.pairKey,
+    originalNode = current().nodes.find((n) => n.id === nodeId),
+    context = characterContext(),
+    pair = pairContext(context),
+    units = [input.dataset.scrubStep, input.min, input.max];
+  if (
+    originalNode?.osFont ||
+    originalNode?.variation ||
+    history.doc.fontAssets?.[originalNode?.font]?.kind === 'variable-glyf-v1' ||
+    pair?.rows.some((row) => history.doc.fontAssets?.[row.font]?.kind === 'variable-glyf-v1')
+  )
+    return null;
+  let envelope = owner.state,
+    gesture = null,
+    originalInput,
+    originalManual,
+    originalValue,
+    previewInput;
+  const sameControl = () =>
+    input.isConnected &&
+    input.dataset.kerningNode === nodeId &&
+    input.dataset.characterKerning === key &&
+    input.dataset.kerningText === JSON.stringify(sourceText);
+  const state = () => textNumericState({ ...target, started: true, sourceText });
+  const valid = () =>
+    owner === session &&
+    owner.activeCompositionId === compositionId &&
+    current().id === layerId &&
+    sourceEpoch === epoch &&
+    owner.state.sessionId === envelope.sessionId &&
+    owner.state.expectedRevision === envelope.expectedRevision &&
+    sameControl() &&
+    input.matches('input[type="number"]') &&
+    !input.disabled &&
+    !input.readOnly &&
+    input.dataset.scrubStep === units[0] &&
+    input.min === units[1] &&
+    input.max === units[2] &&
+    !current().locked &&
+    !composing &&
+    !penDraft &&
+    !nameEdit &&
+    !variableAction &&
+    !owner.hasTextComposition &&
+    !document.querySelector('dialog[open]') &&
+    (!owner.hasGesture || !!gesture) &&
+    selected === nodeId &&
+    characterEdit?.node === nodeId &&
+    characterEdit?.layer === layerId &&
+    characterEdit.route === route &&
+    !current().nodes.find((n) => n.id === nodeId)?.osFont &&
+    !current().nodes.find((n) => n.id === nodeId)?.variation &&
+    history.doc.fontAssets?.[current().nodes.find((n) => n.id === nodeId)?.font]?.kind !==
+      'variable-glyf-v1' &&
+    characterEdit.selected.size === ids.length &&
+    ids.every((id) => characterEdit.selected.has(id)) &&
+    !!state();
+  const onInput = () => {
+    if (drag?.capture !== input || !drag.behavior) return;
+    const typed = input.value;
+    cancelInteraction(false);
+    if (sameControl()) input.value = typed;
+    updateCanvas(true);
+  };
+  return {
+    mode: 'live',
+    valid,
+    read() {
+      originalInput = input.value;
+      if (input.value !== input.defaultValue) {
+        const expected = Number(originalInput);
+        if (!originalInput.trim() || !Number.isFinite(expected))
+          throw Error('Expected a finite number');
+        input.dispatchEvent(new window.Event('change', { bubbles: true }));
+        const committed = state();
+        if (!committed?.manual || committed.values[0] !== expected)
+          throw Error('Number change cancelled');
+        settleNumericControl(input, true);
+      }
+      envelope = owner.state;
+      const baseline = state();
+      if (!baseline) throw Error('Number change cancelled');
+      originalManual = baseline.manual;
+      originalValue = baseline.values[0];
+      return baseline.values;
+    },
+    step: () => Number(units[0]),
+    bounds: () => [Number(units[1]), Number(units[2])],
+    begin() {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'begin-gesture',
+        payload: {
+          target: { kind: 'text-values', layerId, nodeId, textKind: 'kerning', ids, pairKey: key },
+        },
+      });
+      input.addEventListener('input', onInput);
+    },
+    preview(values) {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'update-gesture',
+        payload: { ...gesture, update: { values } },
+      });
+      drag.preview = owner.previewSnapshot(gesture.gestureId).document;
+      input.value = !originalManual && values[0] === originalValue ? '' : String(values[0]);
+      previewInput = input.value;
+      updateCanvas();
+    },
+    commit() {
+      input.removeEventListener('input', onInput);
+      settleNumericControl(
+        input,
+        owner.dispatch({ ...owner.state, type: 'commit-gesture', payload: gesture }),
+      );
+    },
+    cancel() {
+      input.removeEventListener('input', onInput);
+      if (gesture)
+        owner.dispatch({
+          ...owner.state,
+          type: 'cancel-gesture',
+          payload: { gestureId: gesture.gestureId },
+        });
+      if (sameControl() && input.value === previewInput) input.value = originalInput;
+    },
+  };
 }
 function textSelectionNumericBinding(input) {
   const data = input.dataset,
@@ -3194,6 +3642,296 @@ function pointOrScalarNumericBinding(input) {
           });
         if (sameTarget() && sameRevision()) input.value = originalInput;
       }
+    },
+  };
+}
+// Artwork gap is a local preference, not a document or history gesture.
+function alignmentSpacingNumericBinding(input) {
+  if (input.dataset.alignSpacing === undefined) return null;
+  const owner = session,
+    envelope = owner.state,
+    compositionId = owner.activeCompositionId,
+    layerId = current().id,
+    epoch = sourceEpoch,
+    selectedIds = [...selection],
+    artworkIds = [...artworkSelection],
+    target = artworkTarget,
+    reference = alignmentPreferences.reference,
+    units = [input.dataset.scrubStep, input.min, input.max];
+  let originalInput,
+    originalValue,
+    originalStorage,
+    lastInput,
+    lastValue,
+    started = false;
+  const sameTarget = () =>
+    owner === session &&
+    owner.activeCompositionId === compositionId &&
+    owner.state.sessionId === envelope.sessionId &&
+    owner.state.expectedRevision === envelope.expectedRevision &&
+    current().id === layerId &&
+    sourceEpoch === epoch &&
+    selectedIds.length === selection.size &&
+    selectedIds.every((id) => selection.has(id)) &&
+    artworkIds.length === artworkSelection.size &&
+    artworkIds.every((id) => artworkSelection.has(id)) &&
+    artworkTarget === target &&
+    alignmentPreferences.reference === reference &&
+    input.isConnected &&
+    input.matches('input[type="number"][data-align-spacing]') &&
+    input.dataset.scrubStep === units[0] &&
+    input.min === units[1] &&
+    input.max === units[2] &&
+    !input.disabled &&
+    !input.readOnly &&
+    !composing &&
+    !penDraft &&
+    !nameEdit &&
+    !variableAction &&
+    !owner.hasTextComposition &&
+    !owner.hasGesture &&
+    !document.querySelector('dialog[open]');
+  const onInput = () => {
+    if (drag?.capture === input && drag.behavior) cancelInteraction(false);
+  };
+  return {
+    mode: 'staged',
+    valid: () =>
+      sameTarget() &&
+      (!started || (input.value === lastInput && alignmentPreferences.spacing === lastValue)),
+    read() {
+      originalInput = input.value;
+      originalValue = alignmentPreferences.spacing;
+      if (
+        input.validity.badInput ||
+        (originalInput.trim() &&
+          (!Number.isFinite(Number(originalInput)) || Number(originalInput) !== originalValue))
+      )
+        throw Error('Invalid spacing');
+      try {
+        originalStorage = localStorage.getItem(ALIGN_PREFERENCES_KEY);
+      } catch {
+        originalStorage = undefined;
+      }
+      lastInput = originalInput;
+      lastValue = originalValue;
+      started = true;
+      return [originalValue ?? 0];
+    },
+    step: () => Number(units[0]),
+    bounds: () => [-100000, 100000],
+    begin() {
+      input.addEventListener('input', onInput);
+    },
+    preview([value]) {
+      input.value = String(value);
+      editAlignmentSpacing(input);
+      lastInput = input.value;
+      lastValue = value;
+    },
+    commit() {
+      input.removeEventListener('input', onInput);
+    },
+    cancel() {
+      input.removeEventListener('input', onInput);
+      if (alignmentPreferences.spacing !== lastValue) return;
+      const live = document.querySelector('[data-align-spacing]');
+      if (live && live.value !== lastInput) return;
+      alignmentPreferences.spacing = originalValue;
+      if (live) {
+        live.value = originalInput;
+        editAlignmentSpacing(live);
+      }
+      if (alignmentPreferences.reference !== reference) {
+        saveAlignmentPreferences();
+        return;
+      }
+      try {
+        if (originalStorage === null) localStorage.removeItem(ALIGN_PREFERENCES_KEY);
+        else if (originalStorage !== undefined)
+          localStorage.setItem(ALIGN_PREFERENCES_KEY, originalStorage);
+      } catch {
+        /* The existing preference owner handles unavailable storage. */
+      }
+    },
+  };
+}
+// Individual raw remap controls retain the existing edit-remap Session owner.
+function remapIndividualNumericBinding(input) {
+  const { remap: pointId, node: nodeId, component, axis: axisText } = input.dataset,
+    axis = Number(axisText);
+  if (
+    !pointId ||
+    !nodeId ||
+    !['position', 'handleA', 'handleB'].includes(component) ||
+    ![0, 1].includes(axis)
+  )
+    return null;
+  const owner = session,
+    compositionId = owner.activeCompositionId,
+    layerId = current().id,
+    epoch = sourceEpoch,
+    selectedIds = [...selection],
+    originalNode = current().nodes.find((n) => n.id === nodeId),
+    sourceId = originalNode?.params?.path?.source,
+    units = [input.dataset.scrubStep, input.min, input.max];
+  let envelope = owner.state,
+    gesture = null,
+    originalInput,
+    previewInput;
+  const state = () => {
+    const n = current().nodes.find((entry) => entry.id === nodeId);
+    if (n?.type !== 'Path Remap' || !sourceId || n.params?.path?.source !== sourceId) return null;
+    try {
+      const path = evaluate(
+          current(),
+          resolveFonts(history.doc, activeFonts()),
+          history.doc.imageAssets,
+        ).run(sourceId),
+        edit = n.edits.find((entry) => entry.pointId === pointId);
+      if (
+        !path?.contours.some((contour) => contour.points.some((point) => point.id === pointId)) ||
+        edit?.params ||
+        (edit && path.unstable && !remapFingerprintMatches(path, edit.fingerprint))
+      )
+        return null;
+      return {
+        n,
+        signature: JSON.stringify({
+          fingerprint: path.fingerprint || null,
+          unstable: !!path.unstable,
+          contours: path.contours.map((contour) => ({
+            id: contour.id,
+            closed: contour.closed,
+            points: contour.points.map((point) => point.id),
+          })),
+        }),
+        value: edit?.[component]?.[axis] ?? 0,
+      };
+    } catch {
+      return null;
+    }
+  };
+  const initial = state(),
+    signature = initial?.signature;
+  const valid = () => {
+    const currentState = state();
+    return (
+      owner === session &&
+      owner.activeCompositionId === compositionId &&
+      current().id === layerId &&
+      sourceEpoch === epoch &&
+      owner.state.sessionId === envelope.sessionId &&
+      owner.state.expectedRevision === envelope.expectedRevision &&
+      selected === nodeId &&
+      selectedIds.length === selection.size &&
+      selectedIds.every((id) => selection.has(id)) &&
+      input.isConnected &&
+      input.matches('input[type="number"]') &&
+      input.dataset.remap === pointId &&
+      input.dataset.node === nodeId &&
+      input.dataset.component === component &&
+      input.dataset.axis === axisText &&
+      input.dataset.scrubStep === units[0] &&
+      input.min === units[1] &&
+      input.max === units[2] &&
+      !input.disabled &&
+      !input.readOnly &&
+      !current().locked &&
+      !currentState?.n.locked &&
+      !currentState?.n.bypassed &&
+      !composing &&
+      !penDraft &&
+      !nameEdit &&
+      !variableAction &&
+      !owner.hasTextComposition &&
+      !document.querySelector('dialog[open]') &&
+      (!owner.hasGesture || !!gesture) &&
+      !!currentState &&
+      currentState.signature === signature
+    );
+  };
+  const sameControl = () =>
+    owner === session &&
+    owner.activeCompositionId === compositionId &&
+    current().id === layerId &&
+    sourceEpoch === epoch &&
+    current().nodes.find((node) => node.id === nodeId)?.params?.path?.source === sourceId &&
+    input.isConnected &&
+    input.dataset.remap === pointId &&
+    input.dataset.node === nodeId &&
+    input.dataset.component === component &&
+    input.dataset.axis === axisText;
+  const onInput = () => {
+    if (drag?.capture !== input || !drag.behavior) return;
+    const typed = input.value;
+    cancelInteraction(false);
+    if (sameControl()) input.value = typed;
+    updateCanvas(true);
+  };
+  return {
+    mode: 'live',
+    valid,
+    read() {
+      originalInput = input.value;
+      if (input.value !== input.defaultValue) {
+        const expected = Number(originalInput);
+        if (!originalInput.trim() || !Number.isFinite(expected))
+          throw Error('Expected a finite number');
+        input.dispatchEvent(new window.Event('change', { bubbles: true }));
+        if (state()?.value !== expected) throw Error('Number change cancelled');
+        settleNumericControl(input, true);
+      }
+      envelope = owner.state;
+      const currentState = state();
+      if (!currentState || currentState.signature !== signature)
+        throw Error('Remap target changed');
+      return [currentState.value];
+    },
+    step: () => Number(units[0]),
+    bounds: () => [Number(units[1] || -Number.MAX_VALUE), Number(units[2] || Number.MAX_VALUE)],
+    begin() {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'begin-gesture',
+        payload: {
+          target: {
+            kind: 'numeric-command',
+            command: 'edit-remap',
+            payload: { layerId, nodeId, action: 'set', pointId, component, axis },
+            initial: state().value,
+          },
+        },
+      });
+      input.addEventListener('input', onInput);
+    },
+    preview([value]) {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'update-gesture',
+        payload: { ...gesture, update: { value } },
+      });
+      drag.preview = owner.previewSnapshot(gesture.gestureId).document;
+      input.value = String(value);
+      previewInput = input.value;
+      updateCanvas();
+    },
+    commit() {
+      input.removeEventListener('input', onInput);
+      settleNumericControl(
+        input,
+        owner.dispatch({ ...owner.state, type: 'commit-gesture', payload: gesture }),
+      );
+    },
+    cancel() {
+      input.removeEventListener('input', onInput);
+      if (gesture)
+        owner.dispatch({
+          ...owner.state,
+          type: 'cancel-gesture',
+          payload: { gestureId: gesture.gestureId },
+        });
+      if (sameControl() && input.value === previewInput) input.value = originalInput;
     },
   };
 }
@@ -5389,7 +6127,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     )
     .join(
       '',
-    )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}<section class="artboard-settings" aria-label="Composition artboard settings"><h3>Artboard</h3><p>Target · ${esc(session.projectSnapshot().compositions.find((composition) => composition.id === session.activeCompositionId)?.name || 'Active composition')}</p><div class="field"><label for="artboard-unit">Artboard units</label><select id="artboard-unit" data-artboard-unit aria-label="Artboard units">${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === artboardUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select></div><div class="field"><label>Artboard W (${artboardUnit})</label><input type="number" step="any" data-dimension="width" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.width, artboardUnit)}" aria-label="Artboard width (${artboardUnit})"></div><div class="field"><label>Artboard H (${artboardUnit})</label><input type="number" step="any" data-dimension="height" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.height, artboardUnit)}" aria-label="Artboard height (${artboardUnit})"></div></section></section>${alignmentPanel(move)}${sharedColors.html()}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body" data-inspector-node="${esc(n?.id || '')}">${inspectorMarkup(n, l, result, results, move, duplication)}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden><input id="svg-part-file" type="file" accept=".svg,image/svg+xml" hidden>`;
+    )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}<section class="artboard-settings" aria-label="Composition artboard settings"><h3>Artboard</h3><p>Target · ${esc(session.projectSnapshot().compositions.find((composition) => composition.id === session.activeCompositionId)?.name || 'Active composition')}</p><div class="field"><label for="artboard-unit">Artboard units</label><select id="artboard-unit" data-artboard-unit aria-label="Artboard units">${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === artboardUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select></div><div class="field"><label>Artboard W (${artboardUnit})</label><input type="number" step="any" data-dimension="width" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.width, artboardUnit)}" aria-label="Artboard width (${artboardUnit})"></div><div class="field"><label>Artboard H (${artboardUnit})</label><input type="number" step="any" data-dimension="height" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.height, artboardUnit)}" aria-label="Artboard height (${artboardUnit})"></div></section></section>${alignmentPanel(move)}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body" data-inspector-node="${esc(n?.id || '')}">${inspectorMarkup(n, l, result, results, move, duplication)}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden><input id="svg-part-file" type="file" accept=".svg,image/svg+xml" hidden>`;
   retainTextFontDisclosures(app);
   renderCompositionTablist();
   // A deferred view/font refresh must not detach an active browser chooser.
@@ -5495,7 +6233,13 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     updateGraphBounds();
     drawWires();
   });
-  if (sharedColors.previewDocument || fontPreview || textPreview) updateCanvas(true);
+  if (
+    keyColorRecipePanel.previewDocument ||
+    sharedColors.previewDocument ||
+    fontPreview ||
+    textPreview
+  )
+    updateCanvas(true);
   coverageView.refresh();
 }
 function editGuides(type, payload, deferRender = false) {
@@ -7935,10 +8679,13 @@ async function openCompositionImportDialog() {
     await documents.releaseUnused(opened.binding);
   }
   const dialog = document.createElement('dialog');
+  dialog.className = 'composition-import-dialog';
   dialog.innerHTML =
     '<form method="dialog"><h3>Project compositions</h3><label>Compositions to add <select data-composition-choice></select></label><output role="status"></output><footer><button value="cancel">Cancel</button><button value="import">Import</button></footer></form>';
   const select = dialog.querySelector('[data-composition-choice]');
   const status = dialog.querySelector('output');
+  const importButton = dialog.querySelector('button[value="import"]');
+  const destinationHasKeyColors = Object.hasOwn(session.projectSnapshot(), 'keyColorRecipe');
   const allOption = document.createElement('option');
   allOption.value = '__all__';
   allOption.textContent = 'All Compositions (' + source.compositions.length + ')';
@@ -7949,11 +8696,27 @@ async function openCompositionImportDialog() {
     option.textContent = composition.name + ' - ' + composition.width + ' x ' + composition.height;
     select.append(option);
   }
-  status.textContent =
-    source.compositions.length +
-    ' Compositions in ' +
-    source.name +
-    '; All adds the project set in one Undo step; choose one to add only that Composition.';
+  function updateImportStatus() {
+    const selected =
+      select.value === '__all__'
+        ? source.compositions
+        : source.compositions.filter((composition) => composition.id === select.value);
+    const linked = importsLiveKeyColors(
+      source,
+      selected.flatMap((composition) => composition.layers),
+    );
+    importButton.disabled = linked && destinationHasKeyColors;
+    status.textContent = importButton.disabled
+      ? 'This project already has Key colors. Choose a Composition without linked colors, or unbind them in the source.'
+      : linked
+        ? 'Adds the full linked palette. Older Nect versions cannot open the result.'
+        : source.compositions.length +
+          ' Compositions in ' +
+          source.name +
+          '; All adds the project set in one Undo step; choose one to add only that Composition.';
+  }
+  select.addEventListener('change', updateImportStatus);
+  updateImportStatus();
   dialog.addEventListener('close', () => {
     const value = dialog.returnValue;
     dialog.remove();

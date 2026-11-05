@@ -18,6 +18,8 @@ export function captureFocus(root) {
   return {
     identity: identity(el),
     value: el.value,
+    cleanNumber:
+      el.matches('input[type=number]') && el.value === el.defaultValue && !el.validity.badInput,
     start: el.selectionStart,
     end: el.selectionEnd,
     direction: el.selectionDirection,
@@ -31,7 +33,10 @@ export function restoreFocus(root, state) {
   if (!el) return;
   el.focus({ preventScroll: true });
   // Keep a draft that has not emitted change yet. Committed edits live in the model.
-  if (el.matches('input:not([type=file]):not([type=checkbox]):not([type=color]),textarea'))
+  if (
+    !state.cleanNumber &&
+    el.matches('input:not([type=file]):not([type=checkbox]):not([type=color]),textarea')
+  )
     el.value = state.value;
   if (state.start !== null && state.start !== undefined && el.setSelectionRange)
     try {

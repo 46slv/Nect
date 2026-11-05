@@ -3,6 +3,7 @@ export function createLiveColorEdit({
   app,
   getSession,
   getDocument,
+  targetSlotIds = () => getDocument().colorSlots.map((slot) => slot.id),
   proposal,
   onPreview,
   onSettled,
@@ -54,7 +55,7 @@ export function createLiveColorEdit({
           payload: {
             target: {
               kind: 'color-slots',
-              slotIds: getDocument().colorSlots.map((slot) => slot.id),
+              slotIds: targetSlotIds(),
             },
           },
         });

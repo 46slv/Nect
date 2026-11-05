@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
-import { serialize } from '../src/core.js';
+import { blankDocument, blankLayer, node, connect, serialize } from '../src/core.js';
+import { migrateLegacyDocumentToCompositionProject } from '../src/composition-project-model.js';
 import { editKeyColorRecipe } from '../src/key-color-recipe.js';
 import { retainedRecipeFixture } from './helpers/key-color-recipe-fixture.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
@@ -12,9 +13,13 @@ import { activateCommand } from './command-menu-actions.js';
 const output = resolve('test-results/key-color-recipe-panel');
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
+  executablePath:
+    process.env.CHROMIUM_PATH ||
+    (process.platform === 'win32'
+      ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+      : '/usr/bin/chromium'),
   headless: true,
-  args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  chromiumSandbox: true,
 });
 const page = await browser.newPage({
   viewport: { width: 1440, height: 1000 },
@@ -61,14 +66,333 @@ try {
   const blank = await snapshot(),
     blankState = await command();
   await open(true);
-  assert.match(
-    await page.locator('[data-key-color-empty]').textContent(),
-    /does not create a preset/,
-  );
-  assert.equal(await page.locator('[data-key-color-input]').count(), 0);
+  assert.match(await page.locator('[data-key-color-empty]').textContent(), /Research candidates/);
+  assert.equal(await page.locator('[data-research-hex]').inputValue(), '');
+  assert.equal(await page.locator('[data-research-preview]').isDisabled(), true);
+  assert.equal(await page.locator('[data-research-create]').isDisabled(), true);
   await cancel();
   await unchanged(blank, blankState);
-  results.push('blank opt-in explanatory state: no recipe/bootstrap/default/history change');
+  results.push('blank research draft: no recipe/bootstrap/default/history change');
+
+  // Explicit linked B trial, with a separate legacy color and a real Fill.
+  const liveFixture = blankDocument();
+  const liveLayer = liveFixture.layers[0],
+    liveShape = node('Rectangle'),
+    liveFill = node('Fill');
+  liveShape.params.center.value = [250, 270];
+  liveShape.params.size.value = [180, 180];
+  const liveOutput = liveLayer.nodes[0];
+  liveLayer.nodes.push(liveShape, liveFill);
+  connect(liveLayer, liveShape.id, liveFill.id, 'path');
+  connect(liveLayer, liveFill.id, liveOutput.id, 'path');
+  const harmonyLayer = blankLayer('Legacy palette example'),
+    harmonyShape = node('Rectangle'),
+    harmonyFill = node('Fill');
+  const harmonyOutput = harmonyLayer.nodes[0];
+  harmonyShape.params.center.value = [650, 270];
+  harmonyShape.params.size.value = [180, 180];
+  harmonyLayer.nodes.push(harmonyShape, harmonyFill);
+  connect(harmonyLayer, harmonyShape.id, harmonyFill.id, 'path');
+  connect(harmonyLayer, harmonyFill.id, harmonyOutput.id, 'path');
+  liveFixture.layers.push(harmonyLayer);
+  await load(liveFixture);
+  await page.locator('[data-shared-color-add]').click();
+  const legacyId = (await page.evaluate(() => window.nect.document)).colorSlots[0].id;
+  await open();
+  await page.locator('[data-research-hex]').fill('#3273c7');
+  await page.locator('[data-research-alpha]').fill('1');
+  await page.locator('[data-research-plan]').selectOption('research-neutral-start');
+  assert.equal(await page.locator('[data-research-live-warning]').isVisible(), false);
+  await page.locator('[data-research-live]').check();
+  assert.equal(await page.locator('[data-research-live-warning]').isVisible(), true);
+  assert.match(
+    await page.locator('[data-research-live-warning]').textContent(),
+    /Older Nect versions cannot open/,
+  );
+  assert.match(
+    await page.locator('[data-research-live-warning]').textContent(),
+    /Detaching the palette is not yet available/,
+  );
+  await page.locator('[data-research-preview]').click();
+  await page.screenshot({ path: resolve(output, 'linked-trial-preview.png'), fullPage: true });
+  await page.setViewportSize({ width: 420, height: 820 });
+  const narrowLive = await page.locator('dialog[data-key-color-recipe-panel]').boundingBox();
+  assert.ok(narrowLive.x >= 0 && narrowLive.x + narrowLive.width <= 420);
+  assert.equal(await page.locator('[data-research-create]').isEnabled(), true);
+  await page.screenshot({ path: resolve(output, 'linked-trial-narrow.png'), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  assert.equal(await page.locator('[data-research-create]').isEnabled(), true);
+  await page.locator('[data-research-create]').click();
+  let liveDoc = await page.evaluate(() => window.nect.document);
+  assert.equal(liveDoc.keyColorRecipe.mode, 'live');
+  const liveKey = liveDoc.keyColorRecipe.committedSnapshot.intent.keyColor.id;
+  const liveDerived = liveDoc.keyColorRecipe.committedSnapshot.intent.preset.slots[0].id;
+  const advancedLive = page.locator('[data-color-advanced]');
+  if (!(await advancedLive.evaluate((el) => el.open)))
+    await advancedLive.locator('summary').click();
+  await page
+    .locator(`[data-shared-color-row="${liveKey}"] [data-live-color-note]`)
+    .scrollIntoViewIfNeeded();
+  await page.screenshot({ path: resolve(output, 'linked-trial-mixed.png'), fullPage: true });
+  assert.equal(
+    await page
+      .locator(`[data-shared-color-row="${liveKey}"] [data-shared-color-edit="hex"]`)
+      .isDisabled(),
+    true,
+  );
+  assert.match(await page.locator(`[data-shared-color-row="${liveKey}"]`).textContent(), /Linked/);
+  const priorPacket = structuredClone(liveDoc.keyColorRecipe);
+  await page
+    .locator(`[data-shared-color-row="${legacyId}"] [data-shared-color-edit="hex"]`)
+    .fill('#456789');
+  liveDoc = await page.evaluate(() => window.nect.document);
+  assert.equal(liveDoc.colorSlots.find((slot) => slot.id === legacyId).value.hex, '#456789');
+  assert.deepEqual(liveDoc.keyColorRecipe, priorPacket);
+  const beforeLegacyChroma = await command();
+  await page.locator('[data-chroma-strength]').fill('0.37');
+  await page.locator('[data-chroma-strength]').press('Tab');
+  await page.waitForFunction(
+    (revision) => window.nect.commandState.expectedRevision > revision,
+    beforeLegacyChroma.expectedRevision,
+  );
+  assert.deepEqual((await page.evaluate(() => window.nect.document)).keyColorRecipe, priorPacket);
+  await ensureWorkspacePanel(page, 'layers');
+  await page.locator(`[data-select-layer="${liveLayer.id}"]`).click();
+  await page.locator(`.graph .node[data-id="${liveFill.id}"] .node-head strong`).click();
+  await ensureWorkspacePanel(page, 'inspector');
+  await page
+    .locator(
+      `.inspector-body .field[data-node="${liveFill.id}"][data-key="color"] [data-shared-color-binding]`,
+    )
+    .selectOption(liveDerived);
+  await ensureWorkspacePanel(page, 'colors');
+  await page.locator('[data-harmony-create]').click();
+  const withHarmony = await page.evaluate(() => window.nect.document);
+  assert.equal(withHarmony.colorDesign.version, 2);
+  const harmonyId = withHarmony.colorDesign.palette[0].id;
+  await ensureWorkspacePanel(page, 'layers');
+  await page.locator(`[data-select-layer="${harmonyLayer.id}"]`).click();
+  await page.locator(`.graph .node[data-id="${harmonyFill.id}"] .node-head strong`).click();
+  await ensureWorkspacePanel(page, 'inspector');
+  await page
+    .locator(
+      `.inspector-body .field[data-node="${harmonyFill.id}"][data-key="color"] [data-shared-color-binding]`,
+    )
+    .selectOption(harmonyId);
+  await ensureWorkspacePanel(page, 'colors');
+  const harmonyAdvanced = page.locator('[data-color-advanced]');
+  if (!(await harmonyAdvanced.evaluate((el) => el.open)))
+    await harmonyAdvanced.locator('summary').click();
+  await page.waitForFunction(
+    ({ liveDerived, harmonyId }) => {
+      const value = (id) =>
+        Number.parseFloat(document.querySelector(`[data-color-coverage-id="${id}"]`)?.textContent);
+      return value(liveDerived) > 0 && value(harmonyId) > 0;
+    },
+    { liveDerived, harmonyId },
+  );
+  const beforeHarmonyEdit = await page.evaluate(() => window.nect.document);
+  const harmonyRevision = await command();
+  await page.locator('[data-chroma-strength]').fill('0.93');
+  await page.locator('[data-chroma-strength]').press('Tab');
+  await page.waitForFunction(
+    (revision) => window.nect.commandState.expectedRevision > revision,
+    harmonyRevision.expectedRevision,
+  );
+  const afterHarmonyEdit = await page.evaluate(() => window.nect.document);
+  assert.deepEqual(afterHarmonyEdit.keyColorRecipe, beforeHarmonyEdit.keyColorRecipe);
+  for (const row of beforeHarmonyEdit.keyColorRecipe.committedSnapshot.resolved)
+    assert.deepEqual(
+      afterHarmonyEdit.colorSlots.find((slot) => slot.id === row.id),
+      beforeHarmonyEdit.colorSlots.find((slot) => slot.id === row.id),
+    );
+  assert.ok(
+    beforeHarmonyEdit.colorDesign.palette.some(
+      ({ id }) =>
+        JSON.stringify(beforeHarmonyEdit.colorSlots.find((slot) => slot.id === id).value) !==
+        JSON.stringify(afterHarmonyEdit.colorSlots.find((slot) => slot.id === id).value),
+    ),
+  );
+  await ensureWorkspacePanel(page, 'layers');
+  await page.locator(`[data-select-layer="${liveLayer.id}"]`).click();
+  const boundLive = await snapshot();
+  const oldDerived = (await page.evaluate(() => window.nect.document)).colorSlots.find(
+    (slot) => slot.id === liveDerived,
+  ).value;
+  await page.waitForFunction(
+    (color) =>
+      [...document.querySelectorAll('.shape')].some(
+        (shape) => shape.getAttribute('fill') === color.hex,
+      ),
+    oldDerived,
+  );
+  await open();
+  assert.match(await page.locator('dialog').textContent(), /Linked trial palette/);
+  await field('hex').fill('#e43f74');
+  await preview();
+  const proposedHex = await page
+    .locator(`[data-key-color-compare="${liveDerived}"] [data-key-color-after] code`)
+    .textContent();
+  await page.locator('[data-artwork-show]').click();
+  await page.waitForFunction(
+    (hex) =>
+      [...document.querySelectorAll('.shape')].some((shape) => shape.getAttribute('fill') === hex),
+    proposedHex,
+  );
+  assert.deepEqual(await snapshot(), boundLive);
+  await page.locator('[data-artwork-restore]').click();
+  await page.waitForFunction(
+    (color) =>
+      [...document.querySelectorAll('.shape')].some(
+        (shape) => shape.getAttribute('fill') === color.hex,
+      ),
+    oldDerived,
+  );
+  assert.deepEqual(await snapshot(), boundLive);
+  await page.locator('[data-key-color-apply]').click();
+  const editedLive = await snapshot();
+  liveDoc = await page.evaluate(() => window.nect.document);
+  const newDerived = liveDoc.colorSlots.find((slot) => slot.id === liveDerived).value;
+  assert.notDeepEqual(newDerived, oldDerived);
+  await page.waitForFunction(
+    (color) =>
+      [...document.querySelectorAll('.shape')].some(
+        (shape) => shape.getAttribute('fill') === color.hex,
+      ),
+    newDerived,
+  );
+  assert.equal(
+    liveDoc.layers[0].nodes.find((n) => n.id === liveFill.id).params.color.colorSlotId,
+    liveDerived,
+  );
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), boundLive);
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await snapshot(), editedLive);
+  const liveDownload = page.waitForEvent('download');
+  await activateCommand(page, 'save');
+  const liveFile = resolve(output, 'saved-linked-trial.json');
+  await (await liveDownload).saveAs(liveFile);
+  assert.deepEqual(JSON.parse(await readFile(liveFile, 'utf8')), editedLive);
+  await page.reload();
+  await page.waitForFunction(() => window.nect);
+  const dirtyAfterLiveRestart = await page.evaluate(() => window.nect.fileState.dirty);
+  const liveChooser = page.waitForEvent('filechooser');
+  await activateCommand(page, 'open');
+  if (dirtyAfterLiveRestart) await page.locator('dialog[open] button[value="discard"]').click();
+  await (await liveChooser).setFiles(liveFile);
+  await page.waitForFunction(() => window.nect.document.keyColorRecipe?.mode === 'live');
+  assert.deepEqual(await snapshot(), editedLive);
+  await open();
+  await field('hex').fill('#3a9842');
+  await preview();
+  await page.locator('[data-key-color-apply]').click();
+  assert.equal(
+    (await page.evaluate(() => window.nect.document)).colorSlots.find((slot) => slot.id === liveKey)
+      .value.hex,
+    '#3a9842',
+  );
+  results.push(
+    'explicit linked trial: mixed legacy edit, visible Fill binding, one-Undo update and browser JSON reopen/re-edit',
+  );
+
+  // Import the actual downloaded project into a fresh synthetic destination.
+  await load(liveFixture);
+  const beforeLiveImport = await snapshot();
+  const openLiveImport = async (file = liveFile) => {
+    const chooser = page.waitForEvent('filechooser');
+    await activateCommand(page, 'import-composition');
+    await (await chooser).setFiles(file);
+    await page.locator('dialog[open] [data-composition-choice]').waitFor();
+  };
+  await openLiveImport();
+  assert.match(await page.locator('dialog[open] output').textContent(), /full linked palette/);
+  assert.match(
+    await page.locator('dialog[open] output').textContent(),
+    /Older Nect versions cannot open/,
+  );
+  await page.screenshot({ path: resolve(output, 'linked-import-warning.png'), fullPage: true });
+  await page.setViewportSize({ width: 420, height: 820 });
+  const narrowImport = await page.locator('.composition-import-dialog').boundingBox();
+  assert.ok(narrowImport.x >= 0 && narrowImport.x + narrowImport.width <= 420);
+  await page.screenshot({ path: resolve(output, 'linked-import-narrow.png'), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.locator('dialog[open] button[value="import"]').click();
+  await page.waitForFunction(() => window.nect.projectSnapshot().compositions.length === 2);
+  const afterLiveImport = await snapshot();
+  const importedComposition = afterLiveImport.compositions.at(-1);
+  const importedFill = importedComposition.layers[0].nodes.find((entry) => entry.type === 'Fill');
+  const importedPacket = afterLiveImport.keyColorRecipe.committedSnapshot;
+  const importedDerivedId = importedPacket.intent.preset.slots[0].id;
+  assert.notEqual(importedPacket.paletteId, editedLive.keyColorRecipe.committedSnapshot.paletteId);
+  assert.equal(importedFill.params.color.colorSlotId, importedDerivedId);
+  assert.equal(afterLiveImport.colorSlots.length, 6); // Five linked plus the referenced legacy color.
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), beforeLiveImport);
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await snapshot(), afterLiveImport);
+  await page.locator(`[data-active-composition="${importedComposition.id}"]`).click();
+  await open();
+  await field('hex').fill('#c8447a');
+  await preview();
+  await page.locator('[data-key-color-apply]').click();
+  const updatedImport = await page.evaluate(() => window.nect.document);
+  const importedValue = updatedImport.colorSlots.find(
+    (slot) => slot.id === importedDerivedId,
+  ).value;
+  assert.notDeepEqual(
+    importedValue,
+    afterLiveImport.colorSlots.find((slot) => slot.id === importedDerivedId).value,
+  );
+  await page.waitForFunction(
+    (hex) =>
+      [...document.querySelectorAll('.shape')].some((shape) => shape.getAttribute('fill') === hex),
+    importedValue.hex,
+  );
+  const beforeConflict = await snapshot();
+  const withPlain = structuredClone(editedLive);
+  const plainComposition =
+    migrateLegacyDocumentToCompositionProject(blankDocument()).compositions[0];
+  plainComposition.id = 'unlinked-composition-probe';
+  plainComposition.name = 'No linked colors';
+  const extension = {
+    colorSlotId: liveDerived,
+    nested: { type: 'Color', colorSlotId: liveKey },
+  };
+  plainComposition.extension = structuredClone(extension);
+  plainComposition.layers[0].nodes[0].extension = structuredClone(extension);
+  withPlain.compositions.push(plainComposition);
+  await openLiveImport({
+    name: 'linked-and-plain.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(withPlain)),
+  });
+  assert.equal(await page.locator('dialog[open] button[value="import"]').isDisabled(), true);
+  assert.match(await page.locator('dialog[open] output').textContent(), /already has Key colors/);
+  await page.locator('dialog[open] [data-composition-choice]').selectOption(plainComposition.id);
+  assert.equal(await page.locator('dialog[open] button[value="import"]').isEnabled(), true);
+  assert.doesNotMatch(
+    await page.locator('dialog[open] output').textContent(),
+    /full linked palette/,
+  );
+  await page.locator('dialog[open] button[value="import"]').click();
+  await page.waitForFunction(
+    (count) => window.nect.projectSnapshot().compositions.length === count,
+    beforeConflict.compositions.length + 1,
+  );
+  const afterPlainImport = await snapshot();
+  const importedPlain = afterPlainImport.compositions.at(-1);
+  assert.deepEqual(importedPlain.extension, extension);
+  assert.deepEqual(importedPlain.layers[0].nodes[0].extension, extension);
+  assert.deepEqual(afterPlainImport.keyColorRecipe, beforeConflict.keyColorRecipe);
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), beforeConflict);
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await snapshot(), afterPlainImport);
+  assert.deepEqual(JSON.parse(await readFile(liveFile, 'utf8')), editedLive);
+  results.push(
+    'downloaded linked project import: warning, full palette, one Undo/Redo, re-edit, conflict refusal and unlinked metadata',
+  );
 
   const fixture = retainedRecipeFixture();
   await load(fixture);

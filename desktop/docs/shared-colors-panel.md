@@ -3,13 +3,16 @@
 This first UI slice exposes the schema 54 shared-color registry. It is not the
 automatic palette/AutoChroma design.
 
-- The right workspace bar opens Shared Colors above Inspector. Opening and
+- The left workspace bar opens Shared Colors. Opening and
   closing it changes view state only; the existing Assets portal remains mounted.
 - Add, name, HEX and alpha edits use typed Session commands. Each accepted edit
   is one Undo step. Empty or invalid values do not become authored data.
 - Each eligible Inspector Color field has its own stable-ID selector. Equal names
-  or equal visible colors do not merge references. Connected, expression-driven
-  and locked parameters are unavailable for binding.
+  or equal visible colors do not merge references; duplicate names receive a
+  distinguishing ID-derived suffix in the selector. The same applies when a
+  shared name would collide with “Local color”. Canonically equivalent Unicode
+  names are disambiguated for display without changing the saved spelling.
+  Connected, expression-driven and locked parameters are unavailable for binding.
 - A bound field displays its resolved value and disables local literal edits.
   Unlinking materializes the current shared value, not the old fallback value.
 - Controls carry their rendering Session identity and revision. Detached controls,
