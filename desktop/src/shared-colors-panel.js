@@ -581,6 +581,7 @@ export function createSharedColorsPanel({
       event.keyCode !== 229 &&
       !hasActiveComposition() &&
       !event.defaultPrevented &&
+      event.target.closest?.('[data-shared-color-copy-menu],[data-shared-color-copy-actions]') &&
       actions &&
       !actions.hidden
     ) {

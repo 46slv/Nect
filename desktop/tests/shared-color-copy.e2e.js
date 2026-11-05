@@ -119,6 +119,20 @@ try {
   assert.equal(await copyToggle().evaluate((el) => el === document.activeElement), true);
   await page.keyboard.press('Enter');
   await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  const hue = slot().locator('[data-shared-color-edit="hsl-h"]');
+  assert.equal(await hue.evaluate((el) => el === document.activeElement), true);
+  await hue.fill('190');
+  await page.waitForFunction(() => window.nect.colorPreviewSnapshot() !== null);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.evaluate(() => window.nect.colorPreviewSnapshot()), null);
+  assert.deepEqual(await snapshot(), beforeCopy);
+  assert.deepEqual(await state(), copyState);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await copyToggle().focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Tab');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() =>
     document.querySelector('.status .message')?.textContent.includes('Color value copied in Nect'),
