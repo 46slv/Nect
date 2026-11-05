@@ -355,6 +355,12 @@ try {
     migrateLegacyDocumentToCompositionProject(blankDocument()).compositions[0];
   plainComposition.id = 'unlinked-composition-probe';
   plainComposition.name = 'No linked colors';
+  const extension = {
+    colorSlotId: liveDerived,
+    nested: { type: 'Color', colorSlotId: liveKey },
+  };
+  plainComposition.extension = structuredClone(extension);
+  plainComposition.layers[0].nodes[0].extension = structuredClone(extension);
   withPlain.compositions.push(plainComposition);
   await openLiveImport({
     name: 'linked-and-plain.json',
@@ -369,11 +375,23 @@ try {
     await page.locator('dialog[open] output').textContent(),
     /full linked palette/,
   );
-  await page.locator('dialog[open] button[value="cancel"]').click();
+  await page.locator('dialog[open] button[value="import"]').click();
+  await page.waitForFunction(
+    (count) => window.nect.projectSnapshot().compositions.length === count,
+    beforeConflict.compositions.length + 1,
+  );
+  const afterPlainImport = await snapshot();
+  const importedPlain = afterPlainImport.compositions.at(-1);
+  assert.deepEqual(importedPlain.extension, extension);
+  assert.deepEqual(importedPlain.layers[0].nodes[0].extension, extension);
+  assert.deepEqual(afterPlainImport.keyColorRecipe, beforeConflict.keyColorRecipe);
+  await activateCommand(page, 'undo');
   assert.deepEqual(await snapshot(), beforeConflict);
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await snapshot(), afterPlainImport);
   assert.deepEqual(JSON.parse(await readFile(liveFile, 'utf8')), editedLive);
   results.push(
-    'downloaded linked project import: warning, full palette, one Undo/Redo, re-edit and conflict refusal',
+    'downloaded linked project import: warning, full palette, one Undo/Redo, re-edit, conflict refusal and unlinked metadata',
   );
 
   const fixture = retainedRecipeFixture();

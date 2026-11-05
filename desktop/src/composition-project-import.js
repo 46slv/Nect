@@ -30,7 +30,12 @@ export function prepareProjectCompositionsImport(current, sourceProject, composi
 
   const occupied = collectIds(current),
     compositions = sourceCompositions.map((item) => remapIds(item, collectIds(item), occupied));
-  const colors = importColorSlots(current, sourceProject, compositions, occupied);
+  const colors = importColorSlots(
+    current,
+    sourceProject,
+    compositions.flatMap((composition) => composition.layers),
+    occupied,
+  );
   const references = collectAssetReferences(compositions);
   const fonts = mergeAssetRegistry(
     references.fonts,

@@ -408,22 +408,21 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
 }
 
 // Import only referenced slots; never coalesce independent identities by value.
-// `copies` are already detached/remapped geometry. Neither input document mutates.
-function walkColorBindings(value, visit) {
-  if (!value || typeof value !== 'object') return;
-  if (Array.isArray(value)) {
-    for (const item of value) walkColorBindings(item, visit);
-    return;
-  }
-  if (value.colorSlotId !== undefined) visit(value);
-  for (const child of Object.values(value)) walkColorBindings(child, visit);
+// `layers` are already detached/remapped geometry. Neither input document mutates.
+function walkColorBindings(layers, visit) {
+  // Only graph parameters have binding semantics. Other JSON fields, including
+  // extensions nested inside a parameter, are authored metadata to preserve.
+  for (const layer of layers)
+    for (const node of layer.nodes)
+      for (const parameter of Object.values(node.params || {}))
+        if (parameter?.type === 'Color' && parameter.colorSlotId !== undefined) visit(parameter);
 }
 
-export function importsLiveKeyColors(source, compositions) {
+export function importsLiveKeyColors(source, layers) {
   const live = liveKeyColorSlotIds(source);
   let found = false;
   if (live.size)
-    walkColorBindings(compositions, (q) => {
+    walkColorBindings(layers, (q) => {
       if (live.has(q.colorSlotId)) found = true;
     });
   return found;
@@ -438,11 +437,11 @@ export function colorImportSchemaVersion(source, importedColors) {
     : source.schemaVersion;
 }
 
-export function importColorSlots(current, source, copies, occupied) {
+export function importColorSlots(current, source, layers, occupied) {
   const sourceSlots = validateColorSlots(source),
     refs = new Set();
-  walkColorBindings(copies, (q) => refs.add(q.colorSlotId));
-  const importingLive = importsLiveKeyColors(source, copies);
+  walkColorBindings(layers, (q) => refs.add(q.colorSlotId));
+  const importingLive = importsLiveKeyColors(source, layers);
   if (importingLive && Object.hasOwn(current, 'keyColorRecipe'))
     throw Object.assign(
       Error('This project already has Key colors. Unbind the source colors before import.'),
@@ -465,7 +464,7 @@ export function importColorSlots(current, source, copies, occupied) {
     mapping.set(id, next);
     result.push({ ...structuredClone(slot), id: next });
   }
-  walkColorBindings(copies, (q) => {
+  walkColorBindings(layers, (q) => {
     q.colorSlotId = mapping.get(q.colorSlotId);
   });
   if (result.length > 256) throw Error('Imported Color slot budget exceeded');

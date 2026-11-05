@@ -8701,7 +8701,10 @@ async function openCompositionImportDialog() {
       select.value === '__all__'
         ? source.compositions
         : source.compositions.filter((composition) => composition.id === select.value);
-    const linked = importsLiveKeyColors(source, selected);
+    const linked = importsLiveKeyColors(
+      source,
+      selected.flatMap((composition) => composition.layers),
+    );
     importButton.disabled = linked && destinationHasKeyColors;
     status.textContent = importButton.disabled
       ? 'This project already has Key colors. Choose a Composition without linked colors, or unbind them in the source.'

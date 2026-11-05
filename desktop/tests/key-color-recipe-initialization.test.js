@@ -20,6 +20,7 @@ import { createCompositionSessionOwner } from '../src/composition-session-owner-
 import { prepareKeyColorRecipeInitialization } from '../src/key-color-recipe-document.js';
 import { DEFAULT_HARMONY_WHEEL } from '../src/harmony-wheel.js';
 import { editKeyColorRecipe } from '../src/key-color-recipe.js';
+import { importsLiveKeyColors } from '../src/color-slots.js';
 
 const initialize = 'initialize-key-color-recipe';
 const keyValue = { hex: '#aBcD09', alpha: 0 };
@@ -859,7 +860,15 @@ for (const kind of ['document', 'composition']) {
   });
 
   test(`${kind}: import copies one complete linked relation with collision-safe IDs and one Undo`, () => {
-    const source = fixture('document', legacyDocument());
+    const sourceDocument = legacyDocument();
+    const metadata = {
+      colorSlotId: 'fresh-derived',
+      nested: { type: 'Color', colorSlotId: 'fresh-key' },
+    };
+    // A layer may retain an unrelated extension named like a Composition field.
+    sourceDocument.layers[0].layers = [];
+    sourceDocument.layers[0].nodes.find((n) => n.type === 'Color').extension = metadata;
+    const source = fixture('document', sourceDocument);
     const plan = request();
     Object.assign(plan.intent.preset.slots[0], {
       lightnessScale: 0.6,
@@ -903,7 +912,9 @@ for (const kind of ['document', 'composition']) {
       imported = target.session.snapshot();
     const importedCompositionId = target.session.activeCompositionId;
     const importedLayer = kind === 'document' ? imported.layers.at(-1) : imported.layers[0];
+    assert.deepEqual(importedLayer.layers, []);
     const importedColor = importedLayer.nodes.find((n) => n.type === 'Color');
+    assert.deepEqual(importedColor.extension, metadata);
     const snapshot = imported.keyColorRecipe.committedSnapshot;
     assert.equal(imported.keyColorRecipe.mode, 'live');
     assert.equal(snapshot.paletteId, 'fixture-only-palette-import-2');
@@ -1069,4 +1080,119 @@ for (const kind of ['document', 'composition']) {
         before.colorSlots.find((slot) => slot.id === id),
       );
   });
+}
+
+for (const kind of ['document', 'composition']) {
+  test(`${kind}: a layer extension named layers cannot silently retarget a linked Color`, () => {
+    const doc = legacyDocument();
+    doc.layers[0].layers = [];
+    const source = fixture('document', doc);
+    source.send('initialize-live-key-color-recipe', request());
+    const layer = source.session.snapshot().layers[0];
+    const color = layer.nodes.find((item) => item.type === 'Color');
+    source.send('bind-color-slot', {
+      layerId: layer.id,
+      nodeId: color.id,
+      key: 'value',
+      slotId: 'fresh-derived',
+    });
+    const sourceDoc = source.session.snapshot();
+    const targetDoc = legacyDocument();
+    targetDoc.colorSlots.push({
+      id: 'fresh-derived',
+      name: 'Existing independent color',
+      value: { hex: '#112233', alpha: 1 },
+    });
+    const target = fixture(kind, targetDoc);
+    if (kind === 'document')
+      target.send('import-composition', {
+        sourceText: serialize(sourceDoc),
+        compositionId: layer.id,
+      });
+    else {
+      const project = migrateLegacyDocumentToCompositionProject(sourceDoc);
+      target.send('import-project-compositions', {
+        sourceProject: project,
+        compositionIds: [project.compositions[0].id],
+      });
+    }
+    const imported = target.session.snapshot();
+    const importedLayer = kind === 'document' ? imported.layers.at(-1) : imported.layers[0];
+    const importedColor = importedLayer.nodes.find((item) => item.type === 'Color');
+    const importedId = imported.keyColorRecipe.committedSnapshot.intent.slots[0].id;
+    assert.notEqual(importedId, 'fresh-derived');
+    assert.equal(importedColor.params.value.colorSlotId, importedId);
+    assert.deepEqual(importedLayer.layers, []);
+    assert.deepEqual(imported.colorSlots.find((slot) => slot.id === 'fresh-derived').value, {
+      hex: '#112233',
+      alpha: 1,
+    });
+  });
+
+  for (const destination of ['empty', 'retained', 'live']) {
+    test(`${kind}: ${destination} destination ignores live IDs in extension metadata`, () => {
+      const source = fixture('document', legacyDocument());
+      source.send('initialize-live-key-color-recipe', request());
+      const sourceDoc = source.session.snapshot();
+      const layer = sourceDoc.layers[0];
+      const color = layer.nodes.find((item) => item.type === 'Color');
+      const metadata = {
+        colorSlotId: 'fresh-derived',
+        nested: { type: 'Color', colorSlotId: 'fresh-key' },
+      };
+      layer.extension = structuredClone(metadata);
+      color.extension = structuredClone(metadata);
+      color.params.value.extension = structuredClone(metadata);
+      const sourceText = serialize(sourceDoc);
+      const project = migrateLegacyDocumentToCompositionProject(sourceDoc);
+      const projectText = serializeCompositionProject(project);
+      const target = fixture(kind);
+      if (destination !== 'empty')
+        target.send(
+          destination === 'live'
+            ? 'initialize-live-key-color-recipe'
+            : 'initialize-key-color-recipe',
+          request(),
+        );
+      withRedo(target);
+      const before = captured(target.session);
+      if (kind === 'document')
+        target.send('import-composition', { sourceText, compositionId: layer.id });
+      else
+        target.send('import-project-compositions', {
+          sourceProject: project,
+          compositionIds: [project.compositions[0].id],
+        });
+      const imported = target.session.snapshot();
+      const importedId = target.session.activeCompositionId;
+      const importedLayer = kind === 'document' ? imported.layers.at(-1) : imported.layers[0];
+      const importedColor = importedLayer.nodes.find((item) => item.type === 'Color');
+      assert.deepEqual(importedLayer.extension, metadata);
+      assert.deepEqual(importedColor.extension, metadata);
+      assert.deepEqual(importedColor.params.value.extension, metadata);
+      assert.equal(importedColor.params.value.colorSlotId, 'legacy');
+      assert.equal(imported.schemaVersion, destination === 'live' ? 59 : 58);
+      if (destination === 'empty') assert.equal(Object.hasOwn(imported, 'keyColorRecipe'), false);
+      else assert.deepEqual(imported.keyColorRecipe, JSON.parse(before.document).keyColorRecipe);
+      assert.equal(importsLiveKeyColors(sourceDoc, sourceDoc.layers), false);
+      assert.equal(
+        importsLiveKeyColors(
+          project,
+          project.compositions.flatMap((composition) => composition.layers),
+        ),
+        false,
+      );
+      assert.equal(serialize(sourceDoc), sourceText);
+      assert.equal(serializeCompositionProject(project), projectText);
+      const after = captured(target.session);
+      target.send('undo');
+      assert.equal(captured(target.session).document, before.document);
+      assert.equal(captured(target.session).project, before.project);
+      target.send('redo');
+      if (kind === 'composition') target.session.switchComposition(importedId);
+      assert.equal(captured(target.session).document, after.document);
+      assert.equal(captured(target.session).project, after.project);
+      reopen(target.session);
+    });
+  }
 }
