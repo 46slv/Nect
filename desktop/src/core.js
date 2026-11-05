@@ -1,3 +1,4 @@
+import { builtinNodeRegistry, MATH_NODE } from './builtin-node-registry.js';
 import { KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION } from './key-color-recipe-document.js';
 import {
   COLOR_SLOTS_SCHEMA_VERSION,
@@ -448,7 +449,9 @@ export const definitions = {
     alignTangent: p('Boolean', false),
   },
   Value: { value: p('Scalar', 100) },
-  Math: { a: p('Scalar', 0), b: p('Scalar', 0), min: p('Scalar', 0), max: p('Scalar', 1) },
+  [MATH_NODE.declaration.typeId]: Object.fromEntries(
+    MATH_NODE.declaration.parameters.map(({ id, type, default: value }) => [id, p(type, value)]),
+  ),
   'Vector Math': { a: p('Vector2', [0, 0]), b: p('Vector2', [0, 0]), scale: p('Scalar', 1) },
   'Separate Vector': { vector: p('Vector2', [0, 0]) },
   'Combine Vector': { x: p('Scalar', 0), y: p('Scalar', 0) },
@@ -691,9 +694,11 @@ export function node(type, x = 40, y = 40) {
                   ? 'miter'
                   : type === 'Geometry Repeater'
                     ? 'linear'
-                    : ['Math', 'Vector Math'].includes(type)
-                      ? 'add'
-                      : 'subtract',
+                    : builtinNodeRegistry.get(type)
+                      ? builtinNodeRegistry.get(type).declaration.defaultOperation
+                      : type === 'Vector Math'
+                        ? 'add'
+                        : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -785,6 +790,12 @@ export function hasEmptyOutput(layer, output = layer.nodes?.find((n) => n.id ===
   );
 }
 export function outputPorts(n) {
+  const registered = builtinNodeRegistry.get(n.type);
+  if (registered)
+    return registered.declaration.outputs.map(({ id, label, legacyDefault }) => {
+      const port = legacyDefault ? undefined : id;
+      return { id: port, label, type: outputType(n, port) };
+    });
   return n.type === 'Separate Vector'
     ? [
         { id: 'x', label: 'X', type: 'Scalar' },
@@ -829,7 +840,9 @@ export function outputType(n, port) {
   )
     return 'Image';
   if (n.type === 'Mask') return 'PaintedPath';
-  return ['Value', 'Expression', 'Math'].includes(n.type)
+  const registered = builtinNodeRegistry.get(n.type);
+  if (registered) return registered.declaration.outputs[0].type;
+  return ['Value', 'Expression'].includes(n.type)
     ? 'Scalar'
     : ['Vector', 'Combine Vector', 'Null', 'Reference', 'Vector Transform'].includes(n.type)
       ? 'Vector2'
@@ -845,7 +858,7 @@ const bypassInputs = Object.freeze({
   Mask: 'path',
   Boolean: 'a',
   'Join Geometry': 'a',
-  Math: 'a',
+  [MATH_NODE.declaration.typeId]: MATH_NODE.declaration.bypassInput,
   'Vector Math': 'a',
   Transform: 'path',
   Mirror: 'path',
@@ -1402,7 +1415,7 @@ export const operationOptions = {
   'Resample Path': ['count', 'spacing'],
   'Line Screen': ['horizontal', 'vertical'],
   Boolean: ['union', 'subtract', 'intersect', 'difference'],
-  Math: ['add', 'subtract', 'multiply', 'divide', 'min', 'max', 'abs', 'clamp'],
+  [MATH_NODE.declaration.typeId]: MATH_NODE.declaration.operations.map(({ id }) => id),
   'Vector Math': [
     'add',
     'subtract',
@@ -1451,10 +1464,14 @@ export function activeParameters(n) {
         !n.params.uniformScale.expression))
   )
     return entries.filter(([key]) => key !== 'scaleWidth');
-  if (n.type !== 'Math') return entries;
-  const keys =
-    n.operation === 'abs' ? ['a'] : n.operation === 'clamp' ? ['a', 'min', 'max'] : ['a', 'b'];
-  return entries.filter(([key]) => keys.includes(key));
+  const registered = builtinNodeRegistry.get(n.type);
+  if (!registered) return entries;
+  const operation =
+    registered.declaration.operations.find(({ id }) => id === n.operation) ||
+    registered.declaration.operations.find(
+      ({ id }) => id === registered.declaration.defaultOperation,
+    );
+  return entries.filter(([key]) => operation.active.includes(key));
 }
 export function setOperation(layer, nodeId, operation) {
   const n = layer.nodes.find((n) => n.id === nodeId);
@@ -1476,26 +1493,6 @@ export function setOperation(layer, nodeId, operation) {
     )
       throw Error('Operation would break a Reference Vector2 output');
   n.operation = operation;
-}
-function mathValue(operation, read) {
-  if (!operationOptions.Math.includes(operation)) throw Error('Invalid Math operation');
-  const a = read('a');
-  if (operation === 'abs') return Math.abs(a);
-  if (operation === 'clamp') {
-    const min = read('min'),
-      max = read('max');
-    if (min > max) throw Error('Clamp minimum exceeds maximum');
-    return Math.min(max, Math.max(min, a));
-  }
-  const b = read('b');
-  return {
-    add: () => a + b,
-    subtract: () => a - b,
-    multiply: () => a * b,
-    divide: () => (b === 0 ? 0 : a / b),
-    min: () => Math.min(a, b),
-    max: () => Math.max(a, b),
-  }[operation]();
 }
 function vectorMathValue(operation, read) {
   if (!operationOptions['Vector Math'].includes(operation))
@@ -2961,9 +2958,9 @@ export function evaluate(
         result = vectorMathValue(n.operation, read);
         assertValue(outputType(n), result);
       } else if (n.type === 'Separate Vector') result = read('vector');
-      else if (n.type === 'Math') {
-        result = mathValue(n.operation, read);
-        assertValue('Scalar', result);
+      else if (builtinNodeRegistry.get(n.type)) {
+        result = builtinNodeRegistry.get(n.type).evaluate(n.operation, read);
+        assertValue(outputType(n), result);
       } else if (n.type === 'Combine Vector') {
         result = [read('x'), read('y')];
         assertValue('Vector2', result);

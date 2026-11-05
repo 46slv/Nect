@@ -1,3 +1,5 @@
+import { MATH_NODE } from './builtin-node-registry.js';
+
 // Editor-only metadata. Never serialized into a document or used as a node type ID.
 export const nodeCategories = [
   {
@@ -474,14 +476,7 @@ export const nodeCatalog = [
     description: '数値',
     creationRoute: 'add',
   },
-  {
-    typeId: 'Math',
-    categoryId: 'value',
-    labelJa: '計算',
-    aliases: ['計算'],
-    description: '計算',
-    creationRoute: 'add',
-  },
+  { typeId: MATH_NODE.declaration.typeId, ...MATH_NODE.declaration.catalog },
   {
     typeId: 'Vector',
     categoryId: 'value',
