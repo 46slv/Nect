@@ -33,12 +33,16 @@ export function createSharedColorsPanel({
     const active = app.ownerDocument.activeElement;
     return !!active && app.contains(active) && composingInputs.has(active);
   };
-  function keepCompositionFocused(event) {
+  function keepActiveEditFocused(event) {
+    const active = app.ownerDocument.activeElement;
+    const otherColorTarget =
+      event.target.closest?.('.shared-colors-panel') && event.target !== active;
     if (
-      !hasActiveComposition() ||
-      !event.target.closest?.(
-        '[data-workspace-panel],[data-shared-color-add],[data-shared-color-close],[data-shared-color-copy-menu],[data-shared-color-copy-actions],[data-shared-color-paste],[data-key-color-recipe-open],[data-viewer-mode="viewers"],[data-action="align-panel"],[data-action="asset-library"]',
-      )
+      (!hasActiveComposition() && activeColorPointer === null) ||
+      (!otherColorTarget &&
+        !event.target.closest?.(
+          '[data-workspace-panel],[data-shared-color-paste],[data-viewer-mode="viewers"],[data-action="align-panel"],[data-action="asset-library"]',
+        ))
     )
       return false;
     event.preventDefault();
@@ -281,7 +285,7 @@ export function createSharedColorsPanel({
   app.addEventListener(
     'pointerdown',
     (event) => {
-      if (keepCompositionFocused(event)) return;
+      if (keepActiveEditFocused(event)) return;
       // Opening the separate experimental draft must not finish a legacy live
       // gesture. Prevent native blur/change before it can commit the old field.
       if (event.target.closest?.('[data-key-color-recipe-open]')) {
@@ -336,7 +340,7 @@ export function createSharedColorsPanel({
     true,
   );
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
-    app.addEventListener(
+    app.ownerDocument.addEventListener(
       type,
       (event) => {
         if (event.pointerId === activeColorPointer) activeColorPointer = null;
@@ -398,7 +402,7 @@ export function createSharedColorsPanel({
       render();
     }
   }
-  app.addEventListener('click', keepCompositionFocused, true);
+  app.addEventListener('click', keepActiveEditFocused, true);
   function closeCopyMenu(row) {
     const actions = row?.querySelector('[data-shared-color-copy-actions]'),
       trigger = row?.querySelector('[data-shared-color-copy-toggle]');
@@ -590,6 +594,17 @@ export function createSharedColorsPanel({
     });
   });
   app.addEventListener('keydown', (event) => {
+    // Leave an active IME editor or pointer gesture in place if Tab was not
+    // consumed by the focused input's own keyboard handlers.
+    if (
+      event.key === 'Tab' &&
+      !event.defaultPrevented &&
+      (hasActiveComposition() || activeColorPointer !== null)
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
     const row = event.target.closest?.('[data-shared-color-row]');
     const actions = row?.querySelector('[data-shared-color-copy-actions]');
     if (
@@ -637,6 +652,9 @@ export function createSharedColorsPanel({
   const controller = {
     get composing() {
       return hasActiveComposition();
+    },
+    get canDeactivate() {
+      return !hasActiveComposition() && activeColorPointer === null;
     },
     get editing() {
       return chroma.editing;

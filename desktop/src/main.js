@@ -1166,7 +1166,7 @@ const workspacePanels = createWorkspacePanels({
     },
     onColors: () => coverageView.refresh(),
     createColorsView: () => sharedColors.createView(),
-    canDeactivateColors: () => !sharedColors.composing,
+    canDeactivateColors: () => sharedColors.canDeactivate,
     onAlign: () => {},
   }),
 });
