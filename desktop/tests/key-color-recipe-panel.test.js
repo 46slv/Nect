@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { blankDocument, CommandSession, serialize, deserialize } from '../src/core.js';
+import { blankDocument, CommandSession, serialize, deserialize, validate } from '../src/core.js';
 import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
 import {
   migrateLegacyDocumentToCompositionProject,
@@ -430,6 +430,53 @@ test('retained B artwork projection expires on composition change and never reba
   assert.equal(s.query('[data-key-color-preview]').disabled, true);
   assert.deepEqual(s.session.projectSnapshot(), before);
   assert.equal(s.calls.length, calls);
+});
+
+test('linked trial artwork preview is a valid detached projection and never authors history', (t) => {
+  const s = setup(t, 'project', blankDocument());
+  s.open();
+  assert.equal(s.query('[data-research-live-option]').hidden, true);
+  for (const [selector, value, event] of [
+    ['[data-research-hex]', '#3273c7', 'input'],
+    ['[data-research-alpha]', '1', 'input'],
+    ['[data-research-plan]', 'research-neutral-start', 'change'],
+  ]) {
+    s.query(selector).value = value;
+    s.fire(s.query(selector), event);
+  }
+  assert.equal(s.query('[data-research-live-option]').hidden, false);
+  s.query('[data-research-live]').checked = true;
+  s.fire(s.query('[data-research-live]'), 'change');
+  s.query('[data-research-plan]').value = 'research-triadic-offset';
+  s.fire(s.query('[data-research-plan]'), 'change');
+  assert.equal(s.query('[data-research-live-option]').hidden, true);
+  assert.equal(s.query('[data-research-live]').checked, false);
+  s.query('[data-research-plan]').value = 'research-neutral-start';
+  s.fire(s.query('[data-research-plan]'), 'change');
+  s.query('[data-research-live]').checked = true;
+  s.fire(s.query('[data-research-live]'), 'change');
+  s.click('[data-research-preview]');
+  const beforeGetter = s.captured();
+  assert.equal(s.panel.previewDocument, null);
+  assert.equal(s.query('[data-research-create]').disabled, false);
+  assert.ok(s.query('[data-research-row]'));
+  assert.deepEqual(s.captured(), beforeGetter);
+  s.click('[data-research-create]');
+  assert.equal(s.snapshot().keyColorRecipe.mode, 'live');
+  const before = s.captured();
+  s.open();
+  s.input('hex', '#e43f74');
+  s.click('[data-key-color-preview]');
+  s.click('[data-artwork-show]');
+  const projected = s.panel.previewDocument;
+  assert.ok(projected);
+  assert.doesNotThrow(() => validate(projected));
+  assert.doesNotThrow(() => deserialize(serialize(projected)));
+  assert.equal(projected.keyColorRecipe.committedSnapshot.intent.keyColor.value.hex, '#e43f74');
+  assert.deepEqual(s.captured(), before);
+  s.click('[data-artwork-restore]');
+  assert.equal(s.panel.previewDocument, null);
+  assert.deepEqual(s.captured(), before);
 });
 
 test('B status uses current coverage by stable ID and keeps proposed L separate from saved state', async (t) => {

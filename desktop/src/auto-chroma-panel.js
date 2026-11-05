@@ -5,6 +5,7 @@ import { createHarmonyWheelPanel } from './harmony-wheel-panel.js';
 import { createColorDraftScrub } from './color-draft-scrub.js';
 import { createLiveColorEdit } from './live-color-edit.js';
 import { createColorRangeEdit } from './color-range-edit.js';
+import { liveKeyColorSlotIds } from './key-color-recipe-document.js';
 const esc = (v) =>
   String(v).replace(
     /[&<>"']/g,
@@ -70,7 +71,11 @@ export function createAutoChromaPanel({
     advancedOpen = false,
     areaAware = true;
   const locked = new Set(),
-    slots = () => getDocument().colorSlots || [];
+    slots = () => getDocument().colorSlots || [],
+    editableSlots = () => {
+      const owned = liveKeyColorSlotIds(getDocument());
+      return slots().filter((slot) => !owned.has(slot.id));
+    };
   const harmony = createHarmonyWheelPanel({
     app,
     envelope,
@@ -170,7 +175,7 @@ export function createAutoChromaPanel({
   function buildProposal() {
     const recipe = harmony.design;
     const entries = new Map((recipe?.palette || []).map((item) => [item.id, item]));
-    const descriptors = slots().map((slot) => {
+    const descriptors = editableSlots().map((slot) => {
       const entry = entries.get(slot.id);
       if (entry) {
         const coordinates =
@@ -204,6 +209,39 @@ export function createAutoChromaPanel({
     const coverage = areaAware ? getCoverageSnapshot() : null;
     if (coverage && (typeof coverage.key !== 'string' || !coverage.key))
       throw Error('Invalid current coverage snapshot');
+    let weights = coverage?.value ?? null;
+    const owned = liveKeyColorSlotIds(getDocument());
+    if (owned.size && Array.isArray(weights?.slots)) {
+      const known = new Set(slots().map((slot) => slot.id)),
+        seen = new Set();
+      if (
+        !Number.isFinite(weights.other?.percent) ||
+        weights.other.percent < 0 ||
+        weights.other.percent > 100
+      )
+        throw Error('Invalid coverage input');
+      for (const row of weights.slots) {
+        if (
+          !row ||
+          !known.has(row.id) ||
+          seen.has(row.id) ||
+          !Number.isFinite(row.percent) ||
+          row.percent < 0 ||
+          row.percent > 100
+        )
+          throw Error('Invalid coverage row');
+        seen.add(row.id);
+      }
+      const excluded = weights.slots.filter((row) => owned.has(row.id));
+      weights = {
+        ...weights,
+        slots: weights.slots.filter((row) => !owned.has(row.id)),
+        other: {
+          ...weights.other,
+          percent: excluded.reduce((total, row) => total + row.percent, weights.other?.percent),
+        },
+      };
+    }
     return {
       key: key(),
       coverageKey: coverage?.key ?? null,
@@ -215,7 +253,7 @@ export function createAutoChromaPanel({
       rows: proposeAutoChroma(
         descriptors,
         { profile, colorfulness: strength, spread, areaAware },
-        coverage?.value ?? null,
+        weights,
       ),
     };
   }
@@ -223,15 +261,16 @@ export function createAutoChromaPanel({
     app,
     getSession,
     getDocument,
+    targetSlotIds: () => editableSlots().map((slot) => slot.id),
     notify,
     proposal: () => {
       if (!literalEdit && !draftChanged())
         return {
-          updates: slots().map((slot) => ({ slotId: slot.id, value: { ...slot.value } })),
+          updates: editableSlots().map((slot) => ({ slotId: slot.id, value: { ...slot.value } })),
         };
       if (literalEdit)
         return {
-          updates: slots().map((slot) => ({
+          updates: editableSlots().map((slot) => ({
             slotId: slot.id,
             value: { ...(slot.id === literalEdit.id ? literalEdit.value : slot.value) },
           })),
@@ -491,6 +530,7 @@ export function createAutoChromaPanel({
       if (details) advancedOpen = details.open;
       synchronize();
       if (!slots().length) return '';
+      if (!editableSlots().length) return savedColors;
       const names = new Map(slots().map((slot) => [slot.id, slot]));
       const displayedSlots = (liveEdit.document?.colorSlots || slots()).map((slot) => ({
         ...slot,
@@ -529,7 +569,7 @@ export function createAutoChromaPanel({
         preview: live ? liveEdit.active : !!preview,
       };
       const entries = harmony.html({ ...wheelOptions, section: 'entry' });
-      const locks = `<div class="chroma-locks">${slots()
+      const locks = `<div class="chroma-locks">${editableSlots()
         .map(
           (slot) =>
             `<label><input type="checkbox" data-chroma-lock="${esc(slot.id)}" ${locked.has(slot.id) ? 'checked' : ''}>Keep ${esc(slot.name)}</label>`,

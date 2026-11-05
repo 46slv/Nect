@@ -485,7 +485,9 @@ export class CompositionSessionOwner {
   }
 
   dispatch(command) {
-    if (command?.type === 'initialize-key-color-recipe') {
+    if (
+      ['initialize-key-color-recipe', 'initialize-live-key-color-recipe'].includes(command?.type)
+    ) {
       this.#assertCurrentCommand(command);
       this.#assertQuiescent();
       // Reject inactive-Composition ID collisions before inner Session commit.

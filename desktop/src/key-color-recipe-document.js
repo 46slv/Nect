@@ -4,12 +4,14 @@ import {
   KEY_COLOR_NEUTRAL_SOLVER_VERSION,
   KEY_COLOR_SEMANTICS_VERSION,
   createKeyColorRecipe,
+  editKeyColorRecipe,
   restoreKeyColorRecipe,
 } from './key-color-recipe.js';
 
-// Native receipts remain historical, never live palette ownership. An explicit
-// one-shot application may materialize values without enabling a UI or defaults.
+// The v1 native receipt remains historical. Live trial ownership has a distinct
+// explicit v2 packet and never changes that older meaning or product defaults.
 export const KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION = 58;
+export const LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION = 59;
 export const keyColorRecipeDocumentCommands = new Set([
   'retain-key-color-recipe-snapshot',
   'replace-key-color-recipe-snapshot',
@@ -87,6 +89,86 @@ function snapshotWithExistingSlots(value, slots) {
   for (const row of snapshot.resolved)
     if (!slots.has(row.id)) throw Error('Missing retained key-color slot reference');
   return snapshot;
+}
+
+export const isLiveKeyColorRecipe = (doc) =>
+  doc.keyColorRecipe?.version === 2 && doc.keyColorRecipe?.mode === 'live';
+
+function equalJson(a, b) {
+  return JSON.stringify(orderedJson(a)) === JSON.stringify(orderedJson(b));
+}
+
+// The last solved snapshot is persisted without re-running platform-dependent
+// floating-point functions on load. Its exact colors must match the projection;
+// creation and subsequent edits are the only paths that run the solver.
+function validateLiveSnapshot(doc, value, slots) {
+  // Reject accessors and other non-JSON input before inspecting even version.
+  assertJsonSnapshot(value);
+  if (value?.version !== KEY_COLOR_RECIPE_VERSION)
+    throw Error('Live key-color requires canonical active slots');
+  const snapshot = snapshotWithExistingSlots(value, slots);
+  if (snapshot.version !== KEY_COLOR_RECIPE_VERSION || snapshot.resolved.some((row) => !row.active))
+    throw Error('Live key-color requires canonical active slots');
+  const keyId = snapshot.intent.keyColor.id;
+  if (
+    snapshot.resolved.some((row) => row.id !== keyId && row.value.alpha !== 1) ||
+    snapshot.intent.preset.slots.some((plan) => plan.alpha !== undefined && plan.alpha !== 1)
+  )
+    throw Error('Live key-color derived colors must be opaque');
+  const owned = new Set(snapshot.resolved.map((row) => row.id));
+  if (
+    (doc.colorDesign?.lockedSlotIds || []).some((id) => owned.has(id)) ||
+    (doc.colorDesign?.palette || []).some((entry) => owned.has(entry.id))
+  )
+    throw Error('Live key-color slots cannot be owned by a legacy color design');
+  for (const row of snapshot.resolved) {
+    const current = slots.get(row.id).value;
+    if (current.hex !== row.value.hex || current.alpha !== row.value.alpha)
+      throw Error('Live key-color shared slot projection mismatch');
+  }
+  return snapshot;
+}
+
+export function liveKeyColorSlotIds(doc) {
+  return isLiveKeyColorRecipe(doc)
+    ? new Set(doc.keyColorRecipe.committedSnapshot.resolved.map((row) => row.id))
+    : new Set();
+}
+
+export function assertNoLiveKeyColorWrites(doc, slotIds) {
+  const owned = liveKeyColorSlotIds(doc);
+  if (slotIds.some((id) => owned.has(id))) throw Error('Edit live trial colors in Key color');
+}
+
+// Rebuild proposed intent from the current packet. This prevents callers from
+// changing the plan, IDs, solver or revision under the cover of an Apply.
+export function prepareLiveKeyColorRecipeApplication(doc, payload, slots) {
+  fields(payload, ['snapshot', 'expectedPaletteRevision']);
+  if (!isLiveKeyColorRecipe(doc)) throw Error('No live key-color recipe');
+  const previous = validateLiveSnapshot(doc, doc.keyColorRecipe.committedSnapshot, slots);
+  if (payload.expectedPaletteRevision !== previous.revision) throw Error('Stale palette revision');
+  const proposed = snapshotWithExistingSlots(payload.snapshot, slots);
+  let expected = previous;
+  if (!equalJson(proposed.intent.keyColor.value, previous.intent.keyColor.value))
+    expected = editKeyColorRecipe(expected, {
+      type: 'key-color',
+      expectedRevision: expected.revision,
+      value: proposed.intent.keyColor.value,
+    });
+  for (const slot of previous.intent.slots) {
+    const next = proposed.intent.slots.find((entry) => entry.id === slot.id);
+    if (!next) throw Error('Live key-color slot identity changed');
+    if (next.deltaL !== slot.deltaL || next.deltaRatioCmax !== slot.deltaRatioCmax)
+      expected = editKeyColorRecipe(expected, {
+        type: 'slot-delta',
+        expectedRevision: expected.revision,
+        slotId: slot.id,
+        deltaL: next.deltaL,
+        deltaRatioCmax: next.deltaRatioCmax,
+      });
+  }
+  if (!equalJson(proposed, expected)) throw Error('Invalid live key-color change');
+  return prepareApplication(doc, { snapshot: expected }, slots, false);
 }
 // Developer/test-fixture boundary only: no product plan, coefficients, roles,
 // generated count, names or allocation are selected here. Validate raw data
@@ -241,6 +323,11 @@ export function validateRetainedKeyColorRecipe(doc, slots) {
     throw Error('Retained key-color recipe requires schemaVersion 58');
   const packet = doc.keyColorRecipe;
   fields(packet, ['version', 'mode', 'committedSnapshot']);
+  if (packet.version === 2 && packet.mode === 'live') {
+    if (doc.schemaVersion < LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION)
+      throw Error('Live key-color recipe requires schemaVersion 59');
+    return validateLiveSnapshot(doc, packet.committedSnapshot, slots);
+  }
   if (packet.version !== 1 || packet.mode !== 'retained-only')
     throw Error('Unsupported retained key-color recipe version or mode');
   if (packet.committedSnapshot?.version !== KEY_COLOR_RECIPE_VERSION)
@@ -256,6 +343,8 @@ export function applyInitializedKeyColorRecipe(doc, snapshot, slots) {
 }
 function applyRetained(doc, type, payload, slots, initializing) {
   const present = Object.hasOwn(doc, 'keyColorRecipe');
+  if (isLiveKeyColorRecipe(doc))
+    throw Error('Live key-color recipe cannot be replaced as a receipt');
   if (type === 'clear-key-color-recipe-snapshot') {
     fields(payload, []);
     delete doc.keyColorRecipe;

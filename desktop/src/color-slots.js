@@ -7,6 +7,11 @@ import {
 import { MAX_CHROMA } from './auto-chroma.js';
 import {
   keyColorRecipeDocumentCommands,
+  LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION,
+  isLiveKeyColorRecipe,
+  assertNoLiveKeyColorWrites,
+  liveKeyColorSlotIds,
+  prepareLiveKeyColorRecipeApplication,
   validateRetainedKeyColorRecipe,
   applyRetainedKeyColorRecipeCommand,
   applyInitializedKeyColorRecipe,
@@ -34,6 +39,8 @@ export const colorSlotCommands = new Set([
   'set-color-slots',
   'apply-key-color-recipe-snapshot',
   'initialize-key-color-recipe',
+  'initialize-live-key-color-recipe',
+  'apply-live-key-color-recipe-snapshot',
   'bind-color-slot',
   'unbind-color-slot',
   ...keyColorRecipeDocumentCommands,
@@ -205,16 +212,39 @@ function prepareColorSlotUpdates(slots, updates) {
 }
 export function applyColorSlotCommand(doc, type, payload, makeId) {
   const slots = validateColorSlots(doc);
-  if (type === 'initialize-key-color-recipe') {
+  if (type === 'initialize-key-color-recipe' || type === 'initialize-live-key-color-recipe') {
     const prepared = prepareKeyColorRecipeInitialization(doc, payload, slots);
-    // One private candidate: fresh slots and the revision-zero historical
-    // receipt enter the same Session transaction, never chained public edits.
+    // Fresh slots and their versioned packet enter one private candidate,
+    // never a chain of public edits.
     doc.colorSlots = [...(doc.colorSlots || []), ...prepared.slots];
     for (const slot of prepared.slots) slots.set(slot.id, slot);
+    if (type === 'initialize-live-key-color-recipe') {
+      doc.schemaVersion = Math.max(doc.schemaVersion, LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION);
+      doc.keyColorRecipe = { version: 2, mode: 'live', committedSnapshot: prepared.snapshot };
+      validateColorSlots(doc);
+      return {
+        paletteId: prepared.snapshot.paletteId,
+        paletteRevision: prepared.snapshot.revision,
+        slotIds: prepared.slots.map((slot) => slot.id),
+      };
+    }
     const result = applyInitializedKeyColorRecipe(doc, prepared.snapshot, slots);
     return { ...result, slotIds: prepared.slots.map((slot) => slot.id) };
   }
+  if (type === 'apply-live-key-color-recipe-snapshot') {
+    const prepared = prepareLiveKeyColorRecipeApplication(doc, payload, slots);
+    const updates = prepareColorSlotUpdates(slots, prepared.updates);
+    for (const { slot, value } of updates) slot.value = value;
+    doc.keyColorRecipe.committedSnapshot = prepared.snapshot;
+    validateColorSlots(doc);
+    return {
+      paletteId: prepared.snapshot.paletteId,
+      paletteRevision: prepared.snapshot.revision,
+      slotIds: updates.map(({ slot }) => slot.id),
+    };
+  }
   if (type === 'apply-key-color-recipe-snapshot') {
+    if (isLiveKeyColorRecipe(doc)) throw Error('Use the live key-color command');
     const prepared = prepareKeyColorRecipeApplication(doc, payload, slots),
       updates = prepareColorSlotUpdates(slots, prepared.updates),
       result = applyRetainedKeyColorRecipeCommand(
@@ -313,6 +343,10 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
   }
   if (type === 'set-color-slots') {
     const updates = prepareColorSlotUpdates(slots, payload.updates);
+    assertNoLiveKeyColorWrites(
+      doc,
+      updates.map(({ slot }) => slot.id),
+    );
     let design;
     if (payload.design !== undefined) {
       design = structuredClone(payload.design);
@@ -350,6 +384,7 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
       name(payload.name);
       slot.name = payload.name;
     } else {
+      assertNoLiveKeyColorWrites(doc, [slot.id]);
       color(payload.value);
       slot.value = { ...payload.value };
     }
@@ -385,6 +420,16 @@ export function importColorSlots(current, source, copies, occupied) {
     for (const child of Object.values(value)) walk(child, visit);
   }
   walk(copies, (q) => refs.add(q.colorSlotId));
+  const live = liveKeyColorSlotIds(source);
+  if ([...refs].some((id) => live.has(id)))
+    throw Object.assign(
+      Error(
+        'Cannot import a Composition using linked Key colors. Unbind them in the source first.',
+      ),
+      {
+        code: 'LIVE_COLOR_IMPORT_UNSUPPORTED',
+      },
+    );
   const result = structuredClone(current.colorSlots || []),
     mapping = new Map();
   for (const id of refs) {

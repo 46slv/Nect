@@ -2,7 +2,7 @@
 
 `initialize-key-color-recipe` is a typed Session command for explicitly
 specified plans. The research panel permits only the explicitly selected B
-trial plan to use it after Preview; this is not an ordinary default palette or
+trial plan to use it or the linked variant after Preview; this is not an ordinary default palette or
 a generic preset factory, coefficient editor or JSON-import UX. The main
 dispatcher preserves its closed project-level payload without adding a layer ID.
 Product defaults and unresolved dark TonePlan/ChromaPlan coefficients remain
@@ -105,6 +105,45 @@ Existing slot order/names/values, locks, `colorDesign`, graph bindings and refer
 are untouched. New slots create no bindings. The receipt remains historical:
 manual edits do not regenerate or rewrite it, and native save/load validates
 without solving. Ordinary New/load still introduces no key-color recipe/default.
+
+## Explicit linked trial schema59
+
+The separate `initialize-live-key-color-recipe` command accepts the same closed,
+fully explicit request and fresh-ID preflight. Its schema59 root packet is
+`{version: 2, mode: 'live', committedSnapshot}`. Existing schema58 v1 receipts
+remain historical; neither loading nor a legacy command converts them. The
+experimental UI exposes linking only for an explicitly selected B trial after
+Preview. It is not a product default or an adoption of B's coefficients.
+
+All active IDs are owned by this packet. The C1 input and the explicit L/chroma
+offsets may be changed through `apply-live-key-color-recipe-snapshot` with the
+captured Session envelope and `{snapshot, expectedPaletteRevision}`. The command
+rebuilds permitted changes with the named solver from the current snapshot and
+rejects changed IDs, plan, policy or fabricated revision/result. It writes the
+resulting packet and exact shared-slot `{hex, alpha}` projection in one private
+candidate and one Undo. An equal candidate preserves History and pending Redo.
+Existing Fill and Color references use the same stable IDs and projected values;
+capture/unbind freezes the current literal. Slot names may change independently.
+Legacy single, batch and gesture writes targeting any owned ID reject atomically.
+The legacy UI excludes these IDs from its color edits and identifies them as linked.
+
+Loading checks supported versions, active identities, opaque derived alpha,
+absence of competing legacy ownership, and exact agreement between each saved
+resolved literal and its shared slot. It preserves the saved snapshot verbatim
+without re-solving platform-dependent floating-point calculations. The existing
+snapshot validator checks its documented structural and ratio constraints; it
+does not prove the complete mathematical equivalence of arbitrary externally
+fabricated intent and derived metadata. New creation and edits run the solver;
+load alone never rounds or rewrites the user's saved values. Cache dependencies
+include both slots and the live packet, including its identity, revision and
+contents, so equal revision numbers on different Undo branches do not alias.
+
+Old Document and Composition readers reject the new wrapper rather than silently
+discarding its meaning. Importing a Composition that references a source live slot
+is explicitly rejected until relationship-preserving import is supported; the
+source can explicitly unbind those references first. Other Composition imports
+remain unchanged. This trial does not supply final presets, a full-precision Field
+evaluator, palette migration or a general detach/convert command.
 
 ## Verification scope
 

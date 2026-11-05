@@ -2,6 +2,7 @@ import { createAutoChromaPanel } from './auto-chroma-panel.js';
 import { createColorDraftScrub } from './color-draft-scrub.js';
 import { renderHslFields, updateHexHsl } from './hsl-color-picker.js';
 import { displayColorLabels } from './color-display-labels.js';
+import { liveKeyColorSlotIds } from './key-color-recipe-document.js';
 // View state only; all authored edits go through the current typed Session.
 const esc = (v) =>
   String(v).replace(
@@ -556,13 +557,14 @@ export function createSharedColorsPanel({
     html() {
       if (!open) return '';
       const slots = (chroma.previewDocument || getDocument()).colorSlots || [];
+      const linked = liveKeyColorSlotIds(getDocument());
       const rows = slots
-        .map(
-          (slot) =>
-            `<div class="shared-color-row" data-shared-color-row="${esc(slot.id)}"><input type="text" data-shared-color-edit="name" data-shared-color-id="${esc(slot.id)}" maxlength="128" value="${esc(slot.name)}" aria-label="Shared color name">${renderHslFields(slot.value.hex, { mode: 'shared', name: slot.name, id: slot.id, scrub: live })}<input type="color" data-shared-color-edit="hex" data-shared-color-id="${esc(slot.id)}" value="${esc(slot.value.hex)}" aria-label="${esc(slot.name)} color"><output data-color-coverage-id="${esc(slot.id)}" aria-label="${esc(slot.name)} visible area">—</output><input type="number" data-color-scrub-step="0.01" title="Drag horizontally to adjust; click to type" data-shared-color-edit="alpha" data-shared-color-id="${esc(slot.id)}" min="0" max="1" step="0.01" value="${slot.value.alpha}" aria-label="${esc(slot.name)} alpha"></div>`,
-        )
+        .map((slot) => {
+          const owned = linked.has(slot.id);
+          return `<div class="shared-color-row" data-shared-color-row="${esc(slot.id)}"><input type="text" data-shared-color-edit="name" data-shared-color-id="${esc(slot.id)}" maxlength="128" value="${esc(slot.name)}" aria-label="Shared color name">${owned ? '<span data-live-color-note title="Edit in Key color" aria-label="Linked color. Edit in Key color">Linked</span>' : ''}${renderHslFields(slot.value.hex, { mode: 'shared', name: slot.name, id: slot.id, scrub: live, disabled: owned })}<input type="color" data-shared-color-edit="hex" data-shared-color-id="${esc(slot.id)}" value="${esc(slot.value.hex)}" aria-label="${esc(slot.name)} color" ${owned ? 'disabled' : ''}><output data-color-coverage-id="${esc(slot.id)}" aria-label="${esc(slot.name)} visible area">—</output><input type="number" data-color-scrub-step="0.01" title="Drag horizontally to adjust; click to type" data-shared-color-edit="alpha" data-shared-color-id="${esc(slot.id)}" min="0" max="1" step="0.01" value="${slot.value.alpha}" aria-label="${esc(slot.name)} alpha" ${owned ? 'disabled' : ''}></div>`;
+        })
         .join('');
-      const savedColors = `<div class="shared-color-list" aria-label="Saved shared colors"><h3 class="shared-colors-heading">${live && chroma.editing ? 'Live colors' : 'Saved colors'}</h3>${rows || '<p class="font-note">Add a color, then link a Color field.</p>'}</div>${getDocument().colorDesign?.version === 2 ? '' : '<p class="font-note" data-color-coverage-status role="status">Measuring visible area…</p>'}`;
+      const savedColors = `<div class="shared-color-list" aria-label="Saved shared colors"><h3 class="shared-colors-heading">${live && chroma.editing ? 'Live colors' : 'Saved colors'}</h3>${linked.size ? '<p class="font-note">Edit linked colors in Key color.</p>' : ''}${rows || '<p class="font-note">Add a color, then link a Color field.</p>'}</div>${getDocument().colorDesign?.version === 2 ? '' : '<p class="font-note" data-color-coverage-status role="status">Measuring visible area…</p>'}`;
       return `<section class="shared-colors-panel" aria-label="Shared colors" ${stamp()}><header><strong>Shared colors</strong>${!live || getDocument().colorDesign?.version !== 2 ? '<button type="button" data-harmony-create>Create palette</button>' : ''}<button type="button" data-shared-color-add aria-label="Add shared color">+</button><button type="button" data-shared-color-close aria-label="Close Shared colors">×</button></header><button type="button" class="key-color-recipe-launcher" data-key-color-recipe-open>Key color · Experimental</button>${live || getDocument().colorDesign?.version === 2 ? chroma.html({ savedColors }) : savedColors + chroma.html()}</section>`;
     },
     bindingControl(node, key, q, layerId) {

@@ -1,7 +1,7 @@
 import { MAX_CHROMA, proposeAutoChroma } from './auto-chroma.js';
 import { harmonyCells } from './harmony-wheel.js';
 
-// Isolated prototype: not a native schema, Session command or public editor API.
+// Pure experimental recipe model; native storage and Session policies are separate adapters.
 export const KEY_COLOR_RECIPE_VERSION = 2;
 export const KEY_COLOR_SOLVER_VERSION = 'experimental-affine-v1';
 export const KEY_COLOR_NEUTRAL_SOLVER_VERSION = 'experimental-affine-neutral-text-v1';

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
-import { serialize } from '../src/core.js';
+import { blankDocument, node, connect, serialize } from '../src/core.js';
 import { editKeyColorRecipe } from '../src/key-color-recipe.js';
 import { retainedRecipeFixture } from './helpers/key-color-recipe-fixture.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
@@ -72,6 +72,156 @@ try {
   await cancel();
   await unchanged(blank, blankState);
   results.push('blank research draft: no recipe/bootstrap/default/history change');
+
+  // Explicit linked B trial, with a separate legacy color and a real Fill.
+  const liveFixture = blankDocument();
+  const liveLayer = liveFixture.layers[0],
+    liveShape = node('Rectangle'),
+    liveFill = node('Fill');
+  const liveOutput = liveLayer.nodes[0];
+  liveLayer.nodes.push(liveShape, liveFill);
+  connect(liveLayer, liveShape.id, liveFill.id, 'path');
+  connect(liveLayer, liveFill.id, liveOutput.id, 'path');
+  await load(liveFixture);
+  await page.locator('[data-shared-color-add]').click();
+  const legacyId = (await page.evaluate(() => window.nect.document)).colorSlots[0].id;
+  await open();
+  await page.locator('[data-research-hex]').fill('#3273c7');
+  await page.locator('[data-research-alpha]').fill('1');
+  await page.locator('[data-research-plan]').selectOption('research-neutral-start');
+  await page.locator('[data-research-live]').check();
+  await page.locator('[data-research-preview]').click();
+  await page.screenshot({ path: resolve(output, 'linked-trial-preview.png'), fullPage: true });
+  await page.setViewportSize({ width: 420, height: 820 });
+  const narrowLive = await page.locator('dialog[data-key-color-recipe-panel]').boundingBox();
+  assert.ok(narrowLive.x >= 0 && narrowLive.x + narrowLive.width <= 420);
+  assert.equal(await page.locator('[data-research-create]').isEnabled(), true);
+  await page.screenshot({ path: resolve(output, 'linked-trial-narrow.png'), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  assert.equal(await page.locator('[data-research-create]').isEnabled(), true);
+  await page.locator('[data-research-create]').click();
+  let liveDoc = await page.evaluate(() => window.nect.document);
+  assert.equal(liveDoc.keyColorRecipe.mode, 'live');
+  const liveKey = liveDoc.keyColorRecipe.committedSnapshot.intent.keyColor.id;
+  const liveDerived = liveDoc.keyColorRecipe.committedSnapshot.intent.preset.slots[0].id;
+  const advancedLive = page.locator('[data-color-advanced]');
+  if (!(await advancedLive.evaluate((el) => el.open)))
+    await advancedLive.locator('summary').click();
+  await page
+    .locator(`[data-shared-color-row="${liveKey}"] [data-live-color-note]`)
+    .scrollIntoViewIfNeeded();
+  await page.screenshot({ path: resolve(output, 'linked-trial-mixed.png'), fullPage: true });
+  assert.equal(
+    await page
+      .locator(`[data-shared-color-row="${liveKey}"] [data-shared-color-edit="hex"]`)
+      .isDisabled(),
+    true,
+  );
+  assert.match(await page.locator(`[data-shared-color-row="${liveKey}"]`).textContent(), /Linked/);
+  const priorPacket = structuredClone(liveDoc.keyColorRecipe);
+  await page
+    .locator(`[data-shared-color-row="${legacyId}"] [data-shared-color-edit="hex"]`)
+    .fill('#456789');
+  liveDoc = await page.evaluate(() => window.nect.document);
+  assert.equal(liveDoc.colorSlots.find((slot) => slot.id === legacyId).value.hex, '#456789');
+  assert.deepEqual(liveDoc.keyColorRecipe, priorPacket);
+  const beforeLegacyChroma = await command();
+  await page.locator('[data-chroma-strength]').fill('0.37');
+  await page.locator('[data-chroma-strength]').press('Tab');
+  await page.waitForFunction(
+    (revision) => window.nect.commandState.expectedRevision > revision,
+    beforeLegacyChroma.expectedRevision,
+  );
+  assert.deepEqual((await page.evaluate(() => window.nect.document)).keyColorRecipe, priorPacket);
+  await ensureWorkspacePanel(page, 'layers');
+  await page.locator(`[data-select-layer="${liveLayer.id}"]`).click();
+  await page.locator(`.graph .node[data-id="${liveFill.id}"] .node-head strong`).click();
+  await ensureWorkspacePanel(page, 'inspector');
+  await page
+    .locator(
+      `.inspector-body .field[data-node="${liveFill.id}"][data-key="color"] [data-shared-color-binding]`,
+    )
+    .selectOption(liveDerived);
+  const boundLive = await snapshot();
+  const oldDerived = (await page.evaluate(() => window.nect.document)).colorSlots.find(
+    (slot) => slot.id === liveDerived,
+  ).value;
+  await page.waitForFunction(
+    (color) =>
+      [...document.querySelectorAll('.shape')].some(
+        (shape) => shape.getAttribute('fill') === color.hex,
+      ),
+    oldDerived,
+  );
+  await open();
+  assert.match(await page.locator('dialog').textContent(), /Linked trial palette/);
+  await field('hex').fill('#e43f74');
+  await preview();
+  const proposedHex = await page
+    .locator(`[data-key-color-compare="${liveDerived}"] [data-key-color-after] code`)
+    .textContent();
+  await page.locator('[data-artwork-show]').click();
+  await page.waitForFunction(
+    (hex) =>
+      [...document.querySelectorAll('.shape')].some((shape) => shape.getAttribute('fill') === hex),
+    proposedHex,
+  );
+  assert.deepEqual(await snapshot(), boundLive);
+  await page.locator('[data-artwork-restore]').click();
+  await page.waitForFunction(
+    (color) =>
+      [...document.querySelectorAll('.shape')].some(
+        (shape) => shape.getAttribute('fill') === color.hex,
+      ),
+    oldDerived,
+  );
+  assert.deepEqual(await snapshot(), boundLive);
+  await page.locator('[data-key-color-apply]').click();
+  const editedLive = await snapshot();
+  liveDoc = await page.evaluate(() => window.nect.document);
+  const newDerived = liveDoc.colorSlots.find((slot) => slot.id === liveDerived).value;
+  assert.notDeepEqual(newDerived, oldDerived);
+  await page.waitForFunction(
+    (color) =>
+      [...document.querySelectorAll('.shape')].some(
+        (shape) => shape.getAttribute('fill') === color.hex,
+      ),
+    newDerived,
+  );
+  assert.equal(
+    liveDoc.layers[0].nodes.find((n) => n.id === liveFill.id).params.color.colorSlotId,
+    liveDerived,
+  );
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), boundLive);
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await snapshot(), editedLive);
+  const liveDownload = page.waitForEvent('download');
+  await activateCommand(page, 'save');
+  const liveFile = resolve(output, 'saved-linked-trial.json');
+  await (await liveDownload).saveAs(liveFile);
+  assert.deepEqual(JSON.parse(await readFile(liveFile, 'utf8')), editedLive);
+  await page.reload();
+  await page.waitForFunction(() => window.nect);
+  const dirtyAfterLiveRestart = await page.evaluate(() => window.nect.fileState.dirty);
+  const liveChooser = page.waitForEvent('filechooser');
+  await activateCommand(page, 'open');
+  if (dirtyAfterLiveRestart) await page.locator('dialog[open] button[value="discard"]').click();
+  await (await liveChooser).setFiles(liveFile);
+  await page.waitForFunction(() => window.nect.document.keyColorRecipe?.mode === 'live');
+  assert.deepEqual(await snapshot(), editedLive);
+  await open();
+  await field('hex').fill('#3a9842');
+  await preview();
+  await page.locator('[data-key-color-apply]').click();
+  assert.equal(
+    (await page.evaluate(() => window.nect.document)).colorSlots.find((slot) => slot.id === liveKey)
+      .value.hex,
+    '#3a9842',
+  );
+  results.push(
+    'explicit linked trial: mixed legacy edit, visible Fill binding, one-Undo update and browser JSON reopen/re-edit',
+  );
 
   const fixture = retainedRecipeFixture();
   await load(fixture);

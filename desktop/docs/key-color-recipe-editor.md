@@ -1,13 +1,15 @@
-# Key color · Experimental — retained-recipe editor
+# Key color · Experimental — trial and retained-recipe editor
 
 Open **Shared colors → Key color · Experimental**. This is an opt-in editor for
-an **already retained** `keyColorRecipe.committedSnapshot`, not a new default
-palette. Without a receipt, the same launcher opens a research-only detached
+an existing retained or linked trial `keyColorRecipe.committedSnapshot`, not a
+new default palette. Without a recipe, the same launcher opens a research-only detached
 preview with initially blank HEX, alpha and candidate selection. The compared
 `research-triadic-offset` and `research-neutral-start` v1 coefficients are
 explicitly inspectable, not adopted defaults. Preview creates no shared slots,
 receipt or History entry. After an explicit B Preview, the user may add five
-trial shared colors and a receipt in one Undo; A remains Preview-only. B uses
+trial shared colors and a receipt in one Undo, or explicitly choose a linked
+trial; A remains Preview-only. The linked choice is not a default and does not
+convert any existing palette. B uses
 `experimental-affine-neutral-text-v1`, fresh draft-stable IDs and the same
 closed initialization preflight. Inputs, candidate
 changes and composing invalidate the preview; owner, revision or Composition

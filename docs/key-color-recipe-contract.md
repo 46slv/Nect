@@ -1,16 +1,18 @@
 # Key-color recipe core — bounded prototype, snapshot v2
 
-Status: **experimental pure generator, not an active editor palette or default**.
+Status: **experimental generator; no adopted product preset or default**.
 `desktop/src/key-color-recipe.js` also validates optional historical snapshots in
 the [schema58 retained-only adapter](../desktop/docs/key-color-recipe-retention.md).
 That adapter stores historical receipts and permits a separate explicit one-shot
 application of active HEX/alpha values to unlocked existing slots. Loading does
 not generate/apply colors. The [experimental editor](../desktop/docs/key-color-recipe-editor.md)
 can preview research candidates; only an explicit B trial Preview permits creating
-five fresh trial colors and a historical receipt. The separate
+five fresh trial colors and a historical receipt, or opt in to a distinct linked
+trial with a versioned live packet. The separate
 [initialization API](../desktop/docs/key-color-recipe-initialization.md) accepts
 fully explicit plans and fresh IDs. Neither path selects a product preset/default,
-adds a live Field evaluator or automatically converts the legacy palette.
+adds a live Field evaluator or automatically converts the legacy palette. The
+linked trial updates its shared-slot projection atomically when edited in Key color.
 
 ## Source and decision boundary
 
@@ -84,7 +86,8 @@ and length bound; the total budget is 256 including C1. Role labels are explicit
 - `editKeyColorRecipe` requires the exact `expectedRevision` and returns a detached
   candidate with one revision increment only on success. The caller must replace
   the committed snapshot atomically; exceptions never modify the input. This is
-  ready for one future Session/Undo transaction, **not** an implemented Undo path.
+  detached pure operation; the separate explicit live trial commits its resulting
+  intent and shared-slot projection in one Session/Undo transaction.
 - Explicit `key-color`, `preset` and `recompute` edits solve all active mapped
   derived slots and retain their deviations. `slot-delta` edits solve only the
   selected active stable ID and preserve every other slot's resolved data.

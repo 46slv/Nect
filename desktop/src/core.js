@@ -7,7 +7,11 @@ import { builtinNodeRegistry, registeredNodes } from './builtin-node-registry.js
 import { placeRegistered } from './registered-node-projections.js';
 import { isVector2 } from './node-value-validation.js';
 import { nectOutputPort } from './nect-node-host.js';
-import { KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION } from './key-color-recipe-document.js';
+import {
+  KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION,
+  LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION,
+  isLiveKeyColorRecipe,
+} from './key-color-recipe-document.js';
 import {
   COLOR_SLOTS_SCHEMA_VERSION,
   COLOR_DESIGN_SCHEMA_VERSION,
@@ -2786,10 +2790,16 @@ export function evaluate(
       const imageAsset = n.type === 'Image' ? imageAssets[n.asset] : undefined,
         cacheKey = JSON.stringify(
           positionOutput
-            ? [inputs, dependencyVersions, documentContext?.colorSlots]
+            ? [
+                inputs,
+                dependencyVersions,
+                documentContext?.colorSlots,
+                isLiveKeyColorRecipe(documentContext || {}) ? documentContext.keyColorRecipe : null,
+              ]
             : [
                 n.type,
                 documentContext?.colorSlots,
+                isLiveKeyColorRecipe(documentContext || {}) ? documentContext.keyColorRecipe : null,
                 !!n.bypassed,
                 n.reference,
                 n.compositionReference,
@@ -4611,7 +4621,8 @@ export function validate(doc) {
       doc.schemaVersion !== COLOR_DESIGN_SCHEMA_VERSION &&
       doc.schemaVersion !== HARMONY_DESIGN_SCHEMA_VERSION &&
       doc.schemaVersion !== CHROMA_OVERRIDE_SCHEMA_VERSION &&
-      doc.schemaVersion !== KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION)
+      doc.schemaVersion !== KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION &&
+      doc.schemaVersion !== LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   const colorSlots = validateColorSlots(doc);

@@ -8,6 +8,8 @@ import {
 import {
   prepareKeyColorRecipeApplication,
   prepareKeyColorRecipeInitialization,
+  prepareLiveKeyColorRecipeApplication,
+  isLiveKeyColorRecipe,
 } from './key-color-recipe-document.js';
 import { uid } from './core.js';
 import { createKeyColorC1Draft } from './key-color-c1-draft.js';
@@ -224,11 +226,14 @@ export function createKeyColorRecipePanel({
 
   function prepare(snapshot) {
     const doc = getDocument();
-    return prepareKeyColorRecipeApplication(
-      doc,
-      { snapshot },
-      new Map((doc.colorSlots || []).map((slot) => [slot.id, slot])),
-    );
+    const slots = new Map((doc.colorSlots || []).map((slot) => [slot.id, slot]));
+    return isLiveKeyColorRecipe(doc)
+      ? prepareLiveKeyColorRecipeApplication(
+          doc,
+          { snapshot, expectedPaletteRevision: base.revision },
+          slots,
+        )
+      : prepareKeyColorRecipeApplication(doc, { snapshot }, slots);
   }
 
   function status(message, error = false) {
@@ -420,6 +425,8 @@ export function createKeyColorRecipePanel({
       projected.colorSlots = projected.colorSlots.map((slot) =>
         updates.has(slot.id) ? { ...slot, value: structuredClone(updates.get(slot.id)) } : slot,
       );
+      if (isLiveKeyColorRecipe(projected))
+        projected.keyColorRecipe.committedSnapshot = structuredClone(prepared.snapshot);
       artworkProjection = projected;
       dialog.querySelector('[data-artwork-show]').setAttribute('aria-pressed', 'true');
       onArtworkPreview();
@@ -519,6 +526,9 @@ export function createKeyColorRecipePanel({
     const selected = researchPlans.find(
       (item) => item.id === dialog.querySelector('[data-research-plan]').value,
     );
+    const linkOption = dialog.querySelector('[data-research-live-option]');
+    linkOption.hidden = !selected || !trialB(selected.id, selected.version);
+    if (linkOption.hidden) dialog.querySelector('[data-research-live]').checked = false;
     dialog.querySelector('[data-research-details]').textContent = selected
       ? JSON.stringify(
           {
@@ -597,10 +607,15 @@ export function createKeyColorRecipePanel({
         throw Error('The trial plan changed. Preview again.');
       prepareTrial(payload);
       applying = true;
-      const result = dispatch('initialize-key-color-recipe', payload, { ...envelope });
+      const linked = dialog.querySelector('[data-research-live]').checked;
+      const result = dispatch(
+        linked ? 'initialize-live-key-color-recipe' : 'initialize-key-color-recipe',
+        payload,
+        { ...envelope },
+      );
       if (result == null || result === false) throw Error('Trial colors were not created.');
       close();
-      notify('Five trial colors added');
+      notify(linked ? 'Linked trial colors added' : 'Five trial colors added');
     } catch (error) {
       if (dialog) {
         researchInvalidate();
@@ -707,7 +722,11 @@ export function createKeyColorRecipePanel({
         refreshTrialUsage();
       }
       dialog.querySelector('[data-key-color-apply]').disabled = false;
-      status('Preview ready. Apply writes these shared literals and the receipt together.');
+      status(
+        isLiveKeyColorRecipe(getDocument())
+          ? 'Preview ready. Apply updates the linked trial colors.'
+          : 'Preview ready. Apply writes these shared literals and the receipt together.',
+      );
       // Preview is an explicit review step: bring its actual before/after
       // literals into the bounded scrollport, not only a below-the-fold heading.
       dialog.querySelector('[data-key-color-comparison]').scrollIntoView?.({ block: 'start' });
@@ -728,7 +747,12 @@ export function createKeyColorRecipePanel({
       // Same preflight as the Session; no unlock, skipped row or alpha coercion.
       const { snapshot } = prepare(preview.snapshot);
       applying = true;
-      const result = dispatch('apply-key-color-recipe-snapshot', { snapshot }, { ...envelope });
+      const linked = isLiveKeyColorRecipe(getDocument());
+      const result = dispatch(
+        linked ? 'apply-live-key-color-recipe-snapshot' : 'apply-key-color-recipe-snapshot',
+        linked ? { snapshot, expectedPaletteRevision: base.revision } : { snapshot },
+        { ...envelope },
+      );
       if (result == null || result === false)
         throw Error('Key color Apply was not accepted. No success was recorded.');
       close();
@@ -791,9 +815,11 @@ export function createKeyColorRecipePanel({
         return `<fieldset><legend>${esc(label(slot))}</legend><label>ΔL<input type="number" step="any" data-key-color-input="deltaL" data-key-color-slot="${esc(slot.id)}" value="${slot.deltaL}" aria-label="${esc(isB ? label(slot) : slot.id)} ΔL"></label>${reset}${deltaR}${alpha}</fieldset>`;
       })
       .join('');
-    const saved = isB
-      ? `<p>Saved recipe · revision ${base.revision}. Later shared-color edits do not update this snapshot.</p>`
-      : `<p>Palette <code>${esc(base.paletteId)}</code> · retained revision ${base.revision}. This receipt is historical, not a live driver.</p>`;
+    const saved = isLiveKeyColorRecipe(getDocument())
+      ? '<p>Linked trial palette. Edit its colors here.</p>'
+      : isB
+        ? `<p>Saved recipe · revision ${base.revision}. Later shared-color edits do not update this snapshot.</p>`
+        : `<p>Palette <code>${esc(base.paletteId)}</code> · retained revision ${base.revision}. This receipt is historical, not a live driver.</p>`;
     const details = isB
       ? {
           paletteId: base.paletteId,
@@ -830,7 +856,7 @@ export function createKeyColorRecipePanel({
     const controls = base
       ? retainedControls()
       : research
-        ? `<p data-key-color-empty>Research candidates. B adds five trial colors without changing existing colors, in one Undo. Coverage and readability are not evaluated; colors may coincide.</p><fieldset><legend>C1</legend><div data-key-color-c1></div></fieldset><label>Research candidate <select data-research-plan><option value="">Choose a candidate</option><option value="research-triadic-offset">A · chromatic comparison</option><option value="research-neutral-start">B · neutral start</option></select></label><details><summary>Candidate roles and coefficients</summary><pre data-research-details></pre></details><p data-key-color-status role="status" aria-live="polite">Enter C1 and choose a candidate.</p><section data-research-results aria-label="Research color preview"></section>`
+        ? `<p data-key-color-empty>Research candidates. B adds five trial colors without changing existing colors, in one Undo. Coverage and readability are not evaluated; colors may coincide.</p><fieldset><legend>C1</legend><div data-key-color-c1></div></fieldset><label>Research candidate <select data-research-plan><option value="">Choose a candidate</option><option value="research-triadic-offset">A · chromatic comparison</option><option value="research-neutral-start">B · neutral start</option></select></label><label data-research-live-option hidden><input type="checkbox" data-research-live>Link trial colors to C1</label><details><summary>Candidate roles and coefficients</summary><pre data-research-details></pre></details><p data-key-color-status role="status" aria-live="polite">Enter C1 and choose a candidate.</p><section data-research-results aria-label="Research color preview"></section>`
         : `<p data-key-color-empty>${esc(error || 'The retained recipe is unavailable.')}</p>`;
     const isB =
       base &&
@@ -965,7 +991,7 @@ export function createKeyColorRecipePanel({
     close,
     reconcile,
     get previewDocument() {
-      if (!preview || !dialog) return null;
+      if (!preview || !dialog || research) return null;
       try {
         current();
         if (

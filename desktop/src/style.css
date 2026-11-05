@@ -3011,6 +3011,17 @@ input[data-scrub-step].scrubbing {
   width: 130px;
   max-width: 100%;
 }
+.key-color-recipe-dialog input[type='checkbox'] {
+  width: auto;
+}
+.key-color-recipe-dialog [hidden] {
+  display: none;
+}
+.shared-color-row [data-live-color-note] {
+  grid-column: 1 / -1;
+  color: var(--muted, #52616f);
+  font-size: 10px;
+}
 .key-color-recipe-dialog input[aria-invalid='true'] {
   outline: 2px solid #b03030;
 }

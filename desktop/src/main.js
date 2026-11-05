@@ -1901,6 +1901,8 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
         type === 'create-harmony-palette' ||
         type === 'add-harmony-color' ||
         type === 'initialize-key-color-recipe' ||
+        type === 'initialize-live-key-color-recipe' ||
+        type === 'apply-live-key-color-recipe-snapshot' ||
         type === 'apply-key-color-recipe-snapshot'
           ? payload
           : { layerId: current().id, ...payload },

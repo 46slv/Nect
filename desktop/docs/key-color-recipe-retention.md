@@ -11,8 +11,9 @@ its experimental affine coefficients and pure editing/alpha policies are unchang
 See [the prototype contract](../../docs/key-color-recipe-contract.md).
 The separate [developer/test-fixture initialization API](key-color-recipe-initialization.md)
 can atomically allocate explicitly specified fresh slots and a revision-zero
-receipt. The B trial uses it only after explicit Preview; it adds no product
-preset/default or live ownership.
+receipt. The B trial uses it only after explicit Preview; its ordinary path adds
+no live ownership. A separate opt-in [linked trial](key-color-recipe-initialization.md#explicit-linked-trial-schema59)
+uses a distinct versioned packet and never converts this historical format.
 
 ## Separate, versioned storage
 
