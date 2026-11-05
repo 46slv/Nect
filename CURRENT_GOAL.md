@@ -17,9 +17,9 @@ Coarse route: document lifetime → common command Session migration → represe
 ## ACTIVE CHECKPOINT — 2026-11-05 Node Foundation M2e
 
 Goal: derive registered consumers from one trusted manifest and verify an isolated developer-only Scalar fixture through the same host runtime without product exposure.
-Current phase: projection checkpoint A local; isolated fixture checkpoint B in progress; unpublished REQ-42 / #185-dependent stack. #185 is not claimed merged.
+Current phase: projection checkpoint A and isolated fixture checkpoint B locally implemented; exact-source validation and independent review pending on unpublished REQ-42 / #185-dependent stack. #185 is not claimed merged.
 Proven: passive prior/candidate projection oracle and focused checkpoint evidence are in `nect-node-foundation-developer-node-evidence` beside this checkout; older M2d evidence remains separate.
-Next task: prove isolated private fixture uses the same registered module snapshot for headless, Session, codec and synthetic Inspector while normal production rejects and hides it; complete exact-source focused tests/build and independent review.
+Next task: review exact-source projection equivalence, isolated same-snapshot fixture and production exclusion evidence; complete any remaining validation without claiming M3 or product completion.
 Approach: immutable manifest and generic anchored projections; scratch-only test composition root; no global mutable registry or product registration API.
 Done for next: exact projection equivalence, private production exclusion, same-host fixture acceptance, tests/build and independent review; real browser/native/CI and publication remain separate.
 State: base 4472283a09f20573a5c9b1012d3a8463cffe6429, tree 907d4140492feb1cb3b5817217fabf0a724b04eb; local branch `codex/nect-developer-node-m2e-20261105`; stops and unpublished refs retained.
