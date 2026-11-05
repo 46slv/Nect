@@ -958,6 +958,7 @@ export function createKeyColorRecipePanel({
         base ? base.intent.keyColor.value : null,
         {
           allowEmpty: research,
+          onActivityChange: updateUnlink,
           blocked: () => composing.size > 0 || !!deltaScrub?.active,
           valid: () => {
             try {
@@ -975,6 +976,7 @@ export function createKeyColorRecipePanel({
       }
       if (base)
         deltaScrub = createKeyColorDeltaScrub(dialog, {
+          onActivityChange: updateUnlink,
           blocked: () => composing.size > 0 || !!c1Draft?.active,
           valid: () => {
             try {
@@ -1034,13 +1036,6 @@ export function createKeyColorRecipePanel({
     )?.focus({ preventScroll: true });
     return dialog;
   }
-
-  // Pointer scrubs can start or finish without an input event. Observe the
-  // bubbling event after their handlers; the command also rechecks on click.
-  for (const type of ['pointerdown', 'pointerup', 'pointercancel', 'lostpointercapture'])
-    document.addEventListener(type, () => {
-      if (dialog) updateUnlink();
-    });
 
   // Register before the app's document shortcut handlers. Native text editing
   // and Tab stay native; graph/Undo/save shortcuts cannot author through a modal.

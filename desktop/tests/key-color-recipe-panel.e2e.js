@@ -396,6 +396,49 @@ try {
   await open();
   const unlink = page.locator('[data-key-color-unlink]');
   assert.equal(await unlink.isEnabled(), true);
+  const unlinkDelta = page.locator('[data-key-color-input="deltaL"]').first();
+  await unlinkDelta.scrollIntoViewIfNeeded();
+  const deltaBounds = await unlinkDelta.boundingBox();
+  await page.mouse.move(deltaBounds.x + 8, deltaBounds.y + deltaBounds.height / 2);
+  await page.mouse.down();
+  assert.equal(await unlink.isDisabled(), true);
+  await page.keyboard.press('Escape');
+  assert.equal(await unlink.isEnabled(), true);
+  await page.mouse.up();
+  await page.mouse.move(deltaBounds.x + 8, deltaBounds.y + deltaBounds.height / 2);
+  await page.mouse.down();
+  assert.equal(await unlink.isDisabled(), true);
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  assert.equal(await unlink.isEnabled(), true);
+  await page.mouse.up();
+  const unlinkHue = page.locator('[data-key-color-hue]');
+  await unlinkHue.scrollIntoViewIfNeeded();
+  const hueBounds = await unlinkHue.boundingBox();
+  const hueValue = Number(await unlinkHue.inputValue());
+  await page.mouse.move(
+    hueBounds.x + 13.5 + ((hueBounds.width - 27) * hueValue) / 360,
+    hueBounds.y + hueBounds.height / 2,
+  );
+  await page.mouse.down();
+  assert.equal(
+    Number(await unlinkHue.inputValue()),
+    hueValue,
+    'hold the existing thumb without changing it',
+  );
+  assert.equal(await unlink.isDisabled(), true);
+  await unlink.dispatchEvent('click');
+  assert.deepEqual(await snapshot(), beforeUnlink);
+  await page.mouse.up();
+  assert.equal(await unlink.isEnabled(), true);
+  await page.mouse.move(
+    hueBounds.x + 13.5 + ((hueBounds.width - 27) * hueValue) / 360,
+    hueBounds.y + hueBounds.height / 2,
+  );
+  await page.mouse.down();
+  assert.equal(await unlink.isDisabled(), true);
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  assert.equal(await unlink.isEnabled(), true);
+  await page.mouse.up();
   await field('alpha').scrollIntoViewIfNeeded();
   const alphaBounds = await field('alpha').boundingBox();
   await page.mouse.move(alphaBounds.x + 8, alphaBounds.y + alphaBounds.height / 2);

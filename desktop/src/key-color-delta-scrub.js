@@ -1,7 +1,7 @@
 import { createNumericControlBehavior } from './numeric-control-behavior.js';
 
 // Detached recipe inputs keep their existing Preview/Apply and Session owner.
-export function createKeyColorDeltaScrub(dialog, { valid, blocked }) {
+export function createKeyColorDeltaScrub(dialog, { valid, blocked, onActivityChange = () => {} }) {
   const document = dialog.ownerDocument;
   let scrub = null,
     internalInput = false;
@@ -16,6 +16,7 @@ export function createKeyColorDeltaScrub(dialog, { valid, blocked }) {
     document.defaultView?.removeEventListener('blur', blur);
     if (commit) old.behavior.finish();
     else old.behavior.cancel();
+    onActivityChange();
     return true;
   }
   function blur() {
@@ -115,6 +116,7 @@ export function createKeyColorDeltaScrub(dialog, { valid, blocked }) {
       },
     });
     scrub = { behavior, input, id: event.pointerId, x: event.clientX };
+    onActivityChange();
     document.addEventListener('pointermove', move, true);
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
       document.addEventListener(type, end, true);
