@@ -2,9 +2,21 @@ export const WORKSPACE_SURFACES = Object.freeze(
   [
     { id: 'assets', side: 'left', label: 'Toggle Assets panel', kind: 'portal' },
     { id: 'colors', side: 'left', label: 'Toggle Shared Colors panel' },
-    { id: 'layers', side: 'right', label: 'Focus Layers', selector: '.layers' },
+    {
+      id: 'layers',
+      side: 'right',
+      label: 'Focus Layers',
+      selector: '.layers',
+      coVisible: 'editing',
+    },
     { id: 'align', side: 'right', label: 'Toggle Alignment panel', selector: '.alignment-panel' },
-    { id: 'inspector', side: 'right', label: 'Focus Inspector', selector: '.inspector' },
+    {
+      id: 'inspector',
+      side: 'right',
+      label: 'Focus Inspector',
+      selector: '.inspector',
+      coVisible: 'editing',
+    },
   ].map(Object.freeze),
 );
 
@@ -153,7 +165,11 @@ export function resolveWorkspaceSurfaces(declarations, adapters) {
       typeof item.label !== 'string' ||
       !item.label ||
       (item.selector !== undefined &&
-        (typeof item.selector !== 'string' || !/^\.[a-z][a-z0-9-]*$/.test(item.selector)))
+        (typeof item.selector !== 'string' || !/^\.[a-z][a-z0-9-]*$/.test(item.selector))) ||
+      (item.coVisible !== undefined &&
+        (typeof item.coVisible !== 'string' ||
+          !/^[a-z][a-z0-9-]*$/.test(item.coVisible) ||
+          !item.selector))
     )
       throw Error('Invalid workspace surface declaration');
     ids.add(item.id);
@@ -191,5 +207,14 @@ export function resolveWorkspaceSurfaces(declarations, adapters) {
   });
   if (Object.keys(adapters).some((id) => !ids.has(id)))
     throw Error('Unknown workspace surface adapter');
+  for (const entry of resolved.filter((item) => item.coVisible)) {
+    const group = resolved.filter((item) => item.coVisible === entry.coVisible);
+    if (
+      group.length < 2 ||
+      new Set(group.map((item) => item.selector)).size !== group.length ||
+      group.some((item) => item.side !== entry.side)
+    )
+      throw Error('Invalid co-visible workspace group');
+  }
   return Object.freeze(resolved);
 }

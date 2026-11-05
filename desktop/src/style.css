@@ -4364,6 +4364,20 @@ input[data-color-scrub-step] {
   padding: 0;
   right: var(--stage-right, 0px);
 }
+/* The approved right-drawer prototype keeps these independent scrollports
+   co-visible. Adjustable split height is a later slice. */
+.workspace-drawer[data-drawer-side='right'][data-visible-group='editing'] {
+  overflow: hidden;
+}
+.workspace-drawer[data-visible-group='editing'] > .layers {
+  flex: 0 0 38%;
+  height: auto;
+  border-bottom: 1px solid var(--line);
+}
+.workspace-drawer[data-visible-group='editing'] > .inspector {
+  flex: 1 1 0;
+  height: auto;
+}
 .workspace-drawer-left {
   left: var(--stage-left, 48px);
   right: auto;

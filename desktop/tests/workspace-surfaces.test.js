@@ -27,6 +27,26 @@ test('invalid registration fails before DOM and preference mutation', () => {
     [WORKSPACE_SURFACES, { ...adapters, assets: { ...adapters.assets, canRetreat: 'yes' } }],
     [WORKSPACE_SURFACES, { ...adapters, colors: { ...adapters.colors, canDeactivate: true } }],
     [WORKSPACE_SURFACES, { ...adapters, unknown: adapters.layers }],
+    [
+      WORKSPACE_SURFACES.map((entry) =>
+        entry.id === 'inspector' ? { ...entry, coVisible: 'other' } : entry,
+      ),
+      adapters,
+    ],
+    [
+      WORKSPACE_SURFACES.map((entry) =>
+        entry.id === 'inspector' ? { ...entry, selector: '.layers' } : entry,
+      ),
+      adapters,
+    ],
+    [
+      WORKSPACE_SURFACES.map((entry) =>
+        entry.id === 'colors'
+          ? { ...entry, selector: '.shared-colors-panel', coVisible: 'editing' }
+          : entry,
+      ),
+      adapters,
+    ],
     [[...WORKSPACE_SURFACES, { id: 'unknown', side: 'left', label: 'Unknown' }], adapters],
     [
       WORKSPACE_SURFACES.map((entry) =>

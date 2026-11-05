@@ -13,7 +13,11 @@ export function openDOMPanel(document, id) {
   const selector = `[data-workspace-panel="${id}"]`;
   const toggle = document.querySelector(selector);
   if (!toggle) throw Error(`Missing workspace panel: ${id}`);
-  if (toggle.getAttribute('aria-expanded') !== 'true') toggle.click();
+  if (
+    toggle.getAttribute('aria-expanded') !== 'true' ||
+    (['layers', 'inspector'].includes(id) && toggle.getAttribute('aria-pressed') !== 'true')
+  )
+    toggle.click();
   const current = document.querySelector(selector);
   const host = document.getElementById(current?.getAttribute('aria-controls'));
   if (current?.getAttribute('aria-expanded') !== 'true' || !host || host.hidden || host.inert)

@@ -12,8 +12,11 @@ viewport, and the lower graph occupies the workspace width.
 `workspace-panels.js` owns only drawer selection, focus, portal geometry and
 view preferences. Its small panel definition list binds existing owners: Assets
 and project Shared Colors on the left; Layers, Alignment and Inspector on the
-right. One drawer is active across both sides. Selecting the same trigger closes it;
-selecting another switches the active drawer. This routing is a reversible trial.
+right. One side is active at a time. Layers and Inspector share a right-hand stack
+with independent scrollports; each rail focuses its section, and pressing the
+active rail again closes the stack. Alignment remains a separate right-hand
+selection. The first split is fixed; adjustable Layers height remains a later
+approved slice. This routing is a reversible trial.
 
 The document and Session own artwork, selection targets, commands, validation,
 preview and history. Moving, showing, hiding or restoring a panel is not an edit.
@@ -31,7 +34,7 @@ close, and IME composition is protected. From a non-editing surface Escape
 dismisses the appropriate transient panel or drawer. A closed panel must not
 expose interactive hit surfaces.
 In Viewers mode the left Assets/Color overlay is temporarily hidden and inert,
-while the right Inspector remains available for viewer assignment; returning
+while the right editing stack remains available for viewer assignment; returning
 to Artwork restores the retained left panel if no other drawer replaced it. A minimum upper-pane height keeps
 the edge controls usable at a short split while preserving the graph below.
 
@@ -46,7 +49,7 @@ motion. Narrow windows constrain secondary overlays rather than changing the
 Artboard/graph layout; reduced motion does not remove state feedback.
 
 Verify both fit and manual canvas transforms, unchanged graph geometry,
-exclusive side switching and dismissal, native asset drag/cancel and stale
+exclusive side switching, stacked editing-panel focus and dismissal, native asset drag/cancel and stale
 requests, focus/IME and modal Escape, and same-condition rendered states. A
 passing browser test is not Windows native GUI or commercial-font acceptance.
 

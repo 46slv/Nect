@@ -10,9 +10,13 @@ import {
 } from './helpers/boundary-controls.js';
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
+  executablePath:
+    process.env.CHROMIUM_PATH ||
+    (process.platform === 'win32'
+      ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+      : '/usr/bin/chromium'),
   headless: true,
-  args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  chromiumSandbox: true,
 });
 const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
 const errors = [];

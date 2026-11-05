@@ -22,6 +22,7 @@ export function workspaceRailGeometry(height, count) {
 
 export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFACES, adapters }) {
   const ITEMS = resolveWorkspaceSurfaces(declarations, adapters);
+  const composing = new WeakSet();
   let root,
     view,
     observer,
@@ -67,8 +68,65 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     }
   }
   const item = (id) => ITEMS.find((entry) => entry.id === id);
+  const shareVisibleGroup = (first, second) => {
+    const a = item(first),
+      b = item(second);
+    return !!a?.coVisible && a.coVisible === b?.coVisible && a.side === b.side;
+  };
   const trigger = (id) => root?.querySelector(`[data-workspace-panel="${id}"]`);
-  const canDeactivate = (id) => item(id)?.adapter.canDeactivate?.({ root }) !== false;
+  const composingInRightDrawer = () => {
+    const focused = root?.ownerDocument.activeElement;
+    return !!focused && composing.has(focused) && !!focused.closest?.('[data-drawer-side="right"]');
+  };
+  const canDeactivate = (id) =>
+    !composingInRightDrawer() && item(id)?.adapter.canDeactivate?.({ root }) !== false;
+  function onCompositionStart(event) {
+    if (event.target.closest?.('[data-drawer-side="right"]') && root?.contains(event.target))
+      composing.add(event.target);
+  }
+  function onCompositionEnd(event) {
+    composing.delete(event.target);
+  }
+  function blocksComposingTransition(event) {
+    if (!composingInRightDrawer()) return false;
+    if (
+      event.target.closest?.(
+        '[data-workspace-panel], [data-action="align-panel"], [data-viewer-mode]',
+      )
+    )
+      return true;
+    const focused = root.ownerDocument.activeElement;
+    const focusedEntry = ITEMS.find(
+      (entry) => entry.selector && root.querySelector(entry.selector)?.contains(focused),
+    );
+    const targetEntry = ITEMS.find(
+      (entry) => entry.selector && root.querySelector(entry.selector)?.contains(event.target),
+    );
+    return (
+      !!focusedEntry &&
+      !!targetEntry &&
+      focusedEntry !== targetEntry &&
+      shareVisibleGroup(focusedEntry.id, targetEntry.id)
+    );
+  }
+  function onGuardedClick(event) {
+    if (!blocksComposingTransition(event)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+  function onFocusIn(event) {
+    const entry = ITEMS.find(
+      (candidate) =>
+        candidate.selector &&
+        shareVisibleGroup(active[candidate.side], candidate.id) &&
+        root.querySelector(candidate.selector)?.contains(event.target),
+    );
+    if (!entry || entry.id === active[entry.side]) return;
+    active[entry.side] = entry.id;
+    lastSide = entry.side;
+    save();
+    refresh();
+  }
   function setMotion(side, enabled) {
     const host = root?.querySelector(`[data-drawer-side="${side}"]`);
     if (host) host.dataset.motionEnabled = String(enabled);
@@ -122,6 +180,11 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     schedulePeek();
   }
   function onPointerDown(event) {
+    if (blocksComposingTransition(event)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
     if (event.isPrimary === false || !root?.contains(event.target)) return;
     if (event.pointerType === 'touch') {
       lastPointer = null;
@@ -174,6 +237,9 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     doc?.[method]('pointerup', onPointerEnd, true);
     doc?.[method]('pointercancel', onPointerEnd, true);
     doc?.[method]('pointerout', onPointerOut, true);
+    doc?.[method]('compositionstart', onCompositionStart, true);
+    doc?.[method]('compositionend', onCompositionEnd, true);
+    doc?.[method]('click', onGuardedClick, true);
     view?.[method]('blur', onWindowBlur);
   }
   function refresh() {
@@ -242,18 +308,25 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
       }
       if (selected) displayed[side] = selected.id;
       host.dataset.activePanel = selected?.id || displayed[side] || '';
+      host.dataset.visibleGroup = item(displayed[side])?.coVisible || '';
       host.dataset.motionSuppressed = String(side === 'left' && (retreated || viewerMode));
       host.hidden = !shown;
       host.inert = !shown;
     }
     for (const entry of ITEMS) {
       const button = trigger(entry.id);
-      const shown = active[entry.side] === entry.id && !(viewerMode && entry.side === 'left');
+      const selected = active[entry.side] === entry.id;
+      const shown =
+        (selected || shareVisibleGroup(entry.id, active[entry.side])) &&
+        !(viewerMode && entry.side === 'left');
       button?.setAttribute('aria-expanded', String(shown));
-      button?.setAttribute('aria-pressed', String(shown));
+      button?.setAttribute('aria-pressed', String(selected && shown));
       if (entry.selector) {
         const panel = wrap.querySelector(entry.selector);
-        if (panel) panel.hidden = displayed[entry.side] !== entry.id;
+        if (panel)
+          panel.hidden =
+            displayed[entry.side] !== entry.id &&
+            !shareVisibleGroup(entry.id, displayed[entry.side]);
       }
     }
     // Synchronize panel visibility before the fixed portal measures its slot.
@@ -278,6 +351,14 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
       [active[entry.side], active[other]].some((activeId) => activeId && !canDeactivate(activeId))
     )
       return;
+    if (shareVisibleGroup(active[entry.side], id)) {
+      active[entry.side] = id;
+      lastSide = entry.side;
+      save();
+      refresh();
+      if (focus) entry.adapter.focus({ root })?.focus({ preventScroll: true });
+      return;
+    }
     if (active[other]) {
       const oldHost = root?.querySelector(`[data-drawer-side="${other}"]`);
       const focused = root?.ownerDocument.activeElement;
@@ -335,8 +416,10 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     peekFrame = 0;
     bindPointerEvents(root?.ownerDocument, false);
     root?.ownerDocument.removeEventListener('keydown', onKeydown);
+    root?.removeEventListener('focusin', onFocusIn);
     root = nextRoot;
     view = root.ownerDocument.defaultView;
+    root.addEventListener('focusin', onFocusIn);
     if (wrap.querySelector('.workspace-panel-bar')) {
       view?.addEventListener('resize', refresh);
       root.ownerDocument.addEventListener('keydown', onKeydown);
@@ -381,7 +464,9 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
         button.innerHTML = workspaceIcon(entry.id);
         button.title = entry.label;
         button.setAttribute('aria-label', entry.label);
-        button.setAttribute('aria-controls', `workspace-drawer-${side}`);
+        const panel = entry.coVisible && root.querySelector(entry.selector);
+        if (panel && !panel.id) panel.id = `workspace-panel-${entry.id}`;
+        button.setAttribute('aria-controls', panel?.id || `workspace-drawer-${side}`);
         button.addEventListener('click', (event) => {
           event.stopPropagation();
           select(entry.id);
