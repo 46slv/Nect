@@ -1,11 +1,27 @@
 // Curve point keys are embedded in the existing, deliberately restricted ref grammar.
 export const CURVE_POINT_REFERENCE_SCHEMA_VERSION = 60;
+export const CURVE_HANDLE_REFERENCE_SCHEMA_VERSION = 61;
+export const MAX_DOCUMENT_SCHEMA_VERSION = CURVE_HANDLE_REFERENCE_SCHEMA_VERSION;
 export const CURVE_POINT_COMPOSITION_SCHEMA_VERSION = 2;
 
-const pointKey = /^([a-zA-Z0-9][a-zA-Z0-9:_-]{0,180})\.position$/;
+const pointKey = /^([a-zA-Z0-9][a-zA-Z0-9:_-]{0,180})\.(position|handleA|handleB)$/;
 const refArguments = /\bref\s*\(\s*"([a-zA-Z0-9:_-]+)"(\s*,\s*)"([a-zA-Z0-9:_.-]+)"/g;
 const pointRefArguments =
-  /\bref\s*\(\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_.-]+)"\s*,\s*"(?:x|y)"\s*\)/g;
+  /\bref\s*\(\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_.-]+)"\s*,\s*"(x|y|length)"\s*\)/g;
+
+export function curvePointReference(key, component) {
+  const match = pointKey.exec(key);
+  if (!match || !['x', 'y', ...(match[2] === 'position' ? [] : ['length'])].includes(component))
+    return null;
+  return {
+    id: match[1],
+    field: match[2],
+    schemaVersion:
+      match[2] === 'position'
+        ? CURVE_POINT_REFERENCE_SCHEMA_VERSION
+        : CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
+  };
+}
 
 export function curvePointId(key) {
   return pointKey.exec(key)?.[1] ?? null;
@@ -24,32 +40,65 @@ export function expressionParameters(node) {
   );
 }
 
+export function expressionCurvePointReferenceVersion(source) {
+  let version = 0;
+  for (const match of source.matchAll(pointRefArguments))
+    version = Math.max(version, curvePointReference(match[2], match[3])?.schemaVersion || 0);
+  return version;
+}
+
 export function expressionHasCurvePointReference(source) {
-  return [...source.matchAll(pointRefArguments)].some((match) => curvePointId(match[2]));
+  return expressionCurvePointReferenceVersion(source) > 0;
 }
 
-export function nodesHaveCurvePointReferences(nodes) {
-  return nodes.some((node) =>
-    expressionParameters(node).some((q) => expressionHasCurvePointReference(q.expression)),
-  );
+export function nodesCurvePointReferenceVersion(
+  nodes,
+  sourceSchemaVersion = MAX_DOCUMENT_SCHEMA_VERSION,
+) {
+  let version = 0;
+  for (const node of nodes)
+    for (const q of expressionParameters(node))
+      for (const match of q.expression.matchAll(pointRefArguments)) {
+        const required = curvePointReference(match[2], match[3])?.schemaVersion || 0;
+        if (required <= sourceSchemaVersion) version = Math.max(version, required);
+      }
+  return version;
 }
 
-// Before schema 60, a reference to a deleted node could use any parameter key.
-// Only a Curve that is actually present proves this spelling has the new meaning.
-export function nodesHaveKnownCurvePointReferences(nodes) {
+// Preserve the schema 60 codec's pre-existing position-key check. Handle-shaped
+// keys were accepted as opaque unresolved text by that codec, even where the
+// stricter Document Session rejected them. Only the Session can interpret them.
+export function nodesKnownCurvePointReferenceVersion(nodes) {
+  const owners = new Map(nodes.map((node) => [node.id, node]));
+  for (const node of nodes)
+    for (const q of expressionParameters(node))
+      for (const match of q.expression.matchAll(refArguments))
+        if (owners.get(match[1])?.type === 'Curve' && pointKey.exec(match[3])?.[2] === 'position')
+          return CURVE_POINT_REFERENCE_SCHEMA_VERSION;
+  return 0;
+}
+
+// A pre-61 wrapped source can carry handle-shaped text that its old codec never
+// interpreted. Importing it into a schema 61 Document would change its meaning.
+export function nodesHaveLegacyCurveHandleReference(nodes) {
   const owners = new Map(nodes.map((node) => [node.id, node]));
   return nodes.some((node) =>
     expressionParameters(node).some((q) =>
-      [...q.expression.matchAll(refArguments)].some(
-        (match) => curvePointId(match[3]) && owners.get(match[1])?.type === 'Curve',
-      ),
+      [...q.expression.matchAll(pointRefArguments)].some((match) => {
+        const ref = curvePointReference(match[2], match[3]);
+        return owners.get(match[1])?.type === 'Curve' && ref?.field !== 'position' && !!ref;
+      }),
     ),
   );
 }
 
 // Source and copy are paired before any expression is rewritten. A point key
 // changes only when that exact point belongs to the referenced copied Curve.
-export function remapExpressionReferences(sourceNodes, copiedNodes) {
+export function remapExpressionReferences(
+  sourceNodes,
+  copiedNodes,
+  sourceSchemaVersion = MAX_DOCUMENT_SCHEMA_VERSION,
+) {
   const owners = new Map();
   sourceNodes.forEach((source, index) => {
     const copy = copiedNodes[index],
@@ -60,12 +109,17 @@ export function remapExpressionReferences(sourceNodes, copiedNodes) {
   });
   for (const node of copiedNodes)
     for (const q of expressionParameters(node))
-      q.expression = q.expression.replace(refArguments, (match, id, comma, key) => {
+      q.expression = q.expression.replace(refArguments, (match, id, comma, key, offset, source) => {
         const owner = owners.get(id);
         if (!owner) return match;
-        const point = curvePointId(key),
+        const component = /^\s*,\s*"(x|y|length)"\s*\)/.exec(
+            source.slice(offset + match.length),
+          )?.[1],
+          point = curvePointReference(key, component),
           replacement =
-            point && owner.points.has(point) ? `${owner.points.get(point)}.position` : key;
+            point && point.schemaVersion <= sourceSchemaVersion && owner.points.has(point.id)
+              ? `${owner.points.get(point.id)}.${point.field}`
+              : key;
         return match.replace(`"${id}"${comma}"${key}"`, `"${owner.id}"${comma}"${replacement}"`);
       });
 }
@@ -95,8 +149,8 @@ function pointReferences(nodes) {
   for (const node of nodes)
     for (const q of expressionParameters(node))
       for (const match of q.expression.matchAll(pointRefArguments)) {
-        const point = curvePointId(match[2]);
-        if (point) refs.set(`${match[1]}\0${point}`, { owner: match[1], point });
+        const point = curvePointReference(match[2], match[3]);
+        if (point) refs.set(`${match[1]}\0${point.id}`, { owner: match[1], point: point.id });
       }
   return refs;
 }

@@ -64,8 +64,8 @@ try {
   await picker.locator('.picker-option').first().waitFor();
   const openMs = Date.now() - start;
   const initialCount = await picker.locator('.picker-option').count();
-  assert.equal(initialCount, Math.min(100, pointCount * 2 + 4));
-  if (pointCount * 2 > 100)
+  assert.equal(initialCount, Math.min(100, pointCount * 8 + 4));
+  if (pointCount * 8 > 100)
     assert.match(await picker.locator('.picker-status').textContent(), /^1–100 of /);
   await page.screenshot({ path: resolve(output, 'large-picker.png') });
   await page.setViewportSize({ width: 900, height: 640 });
@@ -167,7 +167,7 @@ try {
   const duplicateSearch = picker.getByRole('combobox', { name: 'Parameter references search' });
   await duplicateSearch.fill('Point 1');
   const sameNames = await picker.locator('.picker-option').allTextContents();
-  assert.equal(sameNames.length, 4);
+  assert.equal(sameNames.length, 16);
   assert.ok(sameNames.some((text) => text.includes('picker-curve-b')));
   await page.screenshot({ path: resolve(output, 'duplicate-curves.png') });
   await picker.getByRole('option', { name: 'Contour · Point 1 · Y · picker-curve-b' }).click();
@@ -209,33 +209,30 @@ try {
     next = picker.locator('[aria-label="Next results"]');
   await manySearch.fill('Contour Point 1 curve');
   assert.equal(await picker.locator('.picker-option').count(), 100);
-  assert.match(await picker.locator('.picker-status').textContent(), /^1–100 of 204$/);
+  assert.match(await picker.locator('.picker-status').textContent(), /^1–100 of 816$/);
   for (let i = 0; i < 3 && !(await next.evaluate((el) => el === document.activeElement)); i++)
     await page.keyboard.press('Tab');
   assert.equal(await next.evaluate((el) => el === document.activeElement), true);
   await page.keyboard.press('Enter');
-  assert.match(await picker.locator('.picker-status').textContent(), /^101–200 of 204$/);
+  assert.match(await picker.locator('.picker-status').textContent(), /^101–200 of 816$/);
   assert.equal(await next.evaluate((el) => el === document.activeElement), true);
-  await manySearch.fill('Contour Point 1 curve-1');
+  await manySearch.fill('Contour Point 1 anchor-101');
   assert.equal(await previous.isDisabled(), true);
   assert.equal(await previous.isHidden(), true);
   await manySearch.fill('Contour Point 1 curve');
-  assert.match(await picker.locator('.picker-status').textContent(), /^1–100 of 204$/);
+  assert.match(await picker.locator('.picker-status').textContent(), /^1–100 of 816$/);
   for (let i = 0; i < 3 && !(await next.evaluate((el) => el === document.activeElement)); i++)
     await page.keyboard.press('Tab');
   assert.equal(await next.evaluate((el) => el === document.activeElement), true);
-  await page.keyboard.press('Enter');
-  await page.keyboard.press('Enter');
-  assert.match(await picker.locator('.picker-status').textContent(), /^201–204 of 204$/);
+  for (let i = 0; i < 8; i++) await page.keyboard.press('Enter');
+  assert.match(await picker.locator('.picker-status').textContent(), /^801–816 of 816$/);
   assert.equal(await previous.evaluate((el) => el === document.activeElement), true);
   assert.equal(await next.isDisabled(), true);
   await page.screenshot({ path: resolve(output, 'paged-curves.png') });
-  await page.keyboard.press('Enter');
-  await page.keyboard.press('Enter');
-  assert.match(await picker.locator('.picker-status').textContent(), /^1–100 of 204$/);
+  for (let i = 0; i < 8; i++) await page.keyboard.press('Enter');
+  assert.match(await picker.locator('.picker-status').textContent(), /^1–100 of 816$/);
   assert.equal(await next.evaluate((el) => el === document.activeElement), true);
-  await page.keyboard.press('Enter');
-  await page.keyboard.press('Enter');
+  for (let i = 0; i < 8; i++) await page.keyboard.press('Enter');
   const target = picker.getByRole('option', { name: 'Contour · Point 1 · X · curve', exact: true });
   assert.equal(await target.count(), 1);
   const targetIndex = await target.evaluate((el) => [...el.parentElement.children].indexOf(el));

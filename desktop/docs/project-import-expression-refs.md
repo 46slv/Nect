@@ -8,6 +8,10 @@ Only supported Scalar/Vector2/Color expression descriptors in node params, owned
 
 Curve anchor references require desktop Document schema 60. A Composition project containing them uses outer `compositionSchemaVersion: 2`, so earlier Document readers reject schema 60 and earlier wrapped-project readers reject the new outer version. New readers retain version 1 for older projects. Applying a new expression resolves the Curve, point, position and component strictly; a previously valid reference whose point or owner was deleted remains authored and is diagnosed as missing. Version numbers remain at their promoted values after clearing an expression, except when Undo restores an earlier snapshot.
 
+Curve incoming and outgoing handle references use `point-id.handleA` and `point-id.handleB` with `x`, `y`, or `length` as the third argument. They require Document schema 61 and retain wrapper version 2. A reader whose embedded Document limit is 60 must reject the wrapper instead of accepting the unknown semantics. Imports remap a handle point only with its owning copied Curve, retain the field and projection, and promote according to selected references. A schema 60 source's dangling handle-shaped x/y expression and a two-argument Color reference keep their original unresolved state and do not themselves promote an import.
+
+The schema 60 wrapper codec historically accepted opaque handle-shaped expressions even when their Curve owner was present; the Document Session rejected those expressions. The wrapper still round-trips that text, and the Document Session still refuses to interpret it under schema 60. If such a selected legacy Composition is imported into an existing schema 61 project, import rejects atomically rather than assigning the old text a new meaning. A legacy reference whose owner is missing remains importable and missing. Legacy handle-shaped keys are not point-remapped during import.
+
 Older projects could retain an arbitrary parameter key after deleting its target node, including a key ending in `.position`. That legacy missing-node state remains readable; the key alone cannot prove that the deleted owner was a Curve. A present Curve with a point-position key requires schema 60. When importing a schema 60 source with a missing owner and an `x`/`y` point-shaped reference, the ambiguity is preserved conservatively with schema 60. The Composition codec rejects unknown future Document versions instead of accepting them as version 2.
 
 Applying a detached node preset or pasting copied nodes rejects atomically if a previously missing point-shaped reference would acquire a matching Curve and point in the destination. A known external Curve reference copied within its original layer remains on that source; a still-missing reference remains missing. Preset and clipboard source data are retained on refusal.
@@ -20,6 +24,7 @@ From desktop:
 
 ```sh
 node --test tests/project-import-expression-refs.test.js tests/composition-project-import.test.js tests/project-composition-import.test.js tests/parameter-reference-expressions.test.js tests/composition-session-owner.test.js
+node tests/curve-handle-legacy-reader-check.mjs
 node --test tests/*.test.js
 node node_modules/prettier/bin/prettier.cjs --check .
 node scripts/check-native-build-config.mjs
