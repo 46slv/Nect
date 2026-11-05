@@ -1,9 +1,10 @@
-import { revealDOMBoundary } from './helpers/dom-workspace-controls.js';
+import { openDOMPanel, revealDOMBoundary } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
-import { document as newDocument } from '../src/core.js';
+import { document as newDocument, blankDocument } from '../src/core.js';
+import { appendArtwork } from '../src/artwork-creation.js';
 
 test('Artwork gap shared numeric behavior preserves auto, local state and document history', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
@@ -31,6 +32,8 @@ test('Artwork gap shared numeric behavior preserves auto, local state and docume
       (_, p) => `from '${new URL('../src/' + p.slice(2), import.meta.url)}'`,
     );
   source += '\nwindow.artworkGapRender = () => render();';
+  source +=
+    '\nwindow.artworkGapSelection = () => ({ target: artworkTarget, ids: [...artworkSelection], layer: activeLayer });';
   source +=
     '\nwindow.artworkGapTest = () => ({ spacing: alignmentPreferences.spacing, revision: session.state.expectedRevision, past: history.past.length, future: history.future.length });';
   source = source.replace(
@@ -186,5 +189,98 @@ test('Artwork gap shared numeric behavior preserves auto, local state and docume
   assert.equal(win.artworkGapTest().spacing, null);
   assert.deepEqual(history(), before);
   assert.equal(JSON.stringify(win.nect.document), beforeDoc);
+
+  // Exercise the layer selection click handler with a synthetic document.
+  const multiDoc = blankDocument();
+  const artworkIds = [100, 280, 650].map(
+    (x) => appendArtwork(multiDoc, 'Rectangle', { at: [x, 100] }).layerId,
+  );
+  multiDoc.layers.shift();
+  win.nect.load(JSON.stringify(multiDoc));
+  document.querySelector('[data-action="grid-panel"]').click();
+  const nextGrid = document.querySelector('[data-guide-setting="gridSize"]');
+  nextGrid.value = '43';
+  nextGrid.dispatchEvent(new win.Event('change', { bubbles: true }));
+  document.querySelector('[data-action="undo"]').click();
+  assert.equal(document.querySelector('[data-action="redo"]').disabled, false);
+  if (!field()) document.querySelector('[data-action="align-panel"]').click();
+  const selectLayer = (id, shiftKey = false) => {
+    const button = document.querySelector(`[data-select-layer="${id}"]`);
+    assert.ok(button, 'layer selection control exists');
+    button.dispatchEvent(new win.MouseEvent('click', { bubbles: true, shiftKey }));
+  };
+  openDOMPanel(document, 'layers');
+  selectLayer(artworkIds[0]);
+  selectLayer(artworkIds[1], true);
+  assert.equal(
+    document.querySelectorAll('[data-select-layer][aria-pressed="true"]').length,
+    2,
+    JSON.stringify(win.artworkGapSelection()),
+  );
+  openDOMPanel(document, 'align');
+  const gapButtons = () => [...document.querySelectorAll('[data-distribute-gap]')];
+  const checkGap = (spacing, eligible, title, busy = false) => {
+    assert.equal(gapButtons().length, 2);
+    for (const button of gapButtons()) {
+      assert.equal(button.dataset.distributeSpacing, spacing);
+      assert.equal(button.dataset.eligible, String(eligible));
+      assert.equal(button.disabled, !eligible || busy);
+      assert.match(button.title, title);
+    }
+  };
+  const multiBefore = history(),
+    multiDocument = JSON.stringify(win.nect.document);
+  edit('0');
+  checkGap('0', true, /Fixed gap 0 px/);
+  edit('-7');
+  checkGap('-7', true, /Fixed gap -7 px/);
+  const explicitStorage = storage();
+  el = field();
+  el.focus();
+  pointer(el, 'pointerdown');
+  pointer(document, 'pointermove', 114);
+  checkGap('3', true, /Fixed gap 3 px/, true);
+  pointer(document, 'pointercancel', 114);
+  checkGap('-7', true, /Fixed gap -7 px/);
+  assert.equal(storage(), explicitStorage, 'cancel restores explicit preference');
+  edit('');
+  checkGap('', false, /Equal gaps/);
+  openDOMPanel(document, 'layers');
+  selectLayer(artworkIds[2], true);
+  openDOMPanel(document, 'align');
+  assert.equal(document.querySelectorAll('[data-select-layer][aria-pressed="true"]').length, 3);
+  checkGap('', true, /Equal gaps/);
+  const multiStorage = storage();
+  el = field();
+  el.focus();
+  pointer(el, 'pointerdown');
+  pointer(document, 'pointermove', 114);
+  checkGap('10', true, /Fixed gap 10 px/, true);
+  pointer(document, 'pointermove', 100);
+  pointer(document, 'pointerup', 100);
+  checkGap('', true, /Equal gaps/);
+  assert.equal(storage(), multiStorage, 'origin restores exact local storage');
+  edit('-7');
+  const beforeSelectionChange = storage();
+  el = field();
+  el.focus();
+  pointer(el, 'pointerdown');
+  pointer(document, 'pointermove', 114);
+  openDOMPanel(document, 'layers');
+  selectLayer(artworkIds[2], true);
+  openDOMPanel(document, 'align');
+  pointer(document, 'pointerup', 114);
+  el.blur();
+  assert.equal(win.artworkGapTest().spacing, -7, 'selection change cancels preview');
+  assert.equal(storage(), beforeSelectionChange);
+  checkGap('-7', true, /Fixed gap -7 px/);
+  el = field();
+  el.focus();
+  pointer(el, 'pointerdown');
+  pointer(document, 'pointermove', 114);
+  pointer(document, 'pointerup', 114);
+  checkGap('3', true, /Fixed gap 3 px/);
+  assert.deepEqual(history(), multiBefore);
+  assert.equal(JSON.stringify(win.nect.document), multiDocument);
   await win.happyDOM.close();
 });
