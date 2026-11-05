@@ -54,6 +54,13 @@ test('real main.js routes the experimental editor through closed Apply, not a la
     const end = source.indexOf('// Refresh actual disabled state', start);
     assert.ok(start >= 0 && end > start);
     source = source.slice(0, start) + source.slice(end);
+    // Observe the actual main-injected callback while still calling the real coverage view.
+    const coverageCallback = 'getCoverageSnapshot: () => coverageView.snapshot(),';
+    assert.equal(source.split(coverageCallback).length - 1, 2);
+    source = source.replace(
+      coverageCallback,
+      'getCoverageSnapshot: () => { window.coverageReadCount = (window.coverageReadCount || 0) + 1; return coverageView.snapshot(); },',
+    );
     source = resolveMainRelativeImports(source.replace("import './style.css';", ''));
     source +=
       '\nwindow.keyColorAppTest = () => ({ past: history.past.length, future: history.future.length, message, error, initializeFixture: (payload, envelope) => commandChange("initialize-key-color-recipe", payload, undefined, false, envelope) });';
@@ -180,6 +187,8 @@ test('real main.js routes the experimental editor through closed Apply, not a la
         s.win.nect.load(serializeCompositionProject(after));
         assert.deepEqual(s.snapshot(), after);
         s.open();
+        assert.ok(s.win.coverageReadCount > 0);
+        assert.match(s.query('[data-trial-usage]').textContent, /unavailable/i);
         for (const id of ids.slice(1)) {
           assert.ok(s.query(`[data-key-color-input="deltaL"][data-key-color-slot="${id}"]`));
           assert.equal(

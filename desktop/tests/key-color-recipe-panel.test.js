@@ -9,10 +9,17 @@ import {
   deserializeCompositionProject,
 } from '../src/composition-project-model.js';
 import { createKeyColorRecipePanel } from '../src/key-color-recipe-panel.js';
+import { createColorCoverageView } from '../src/color-coverage-view.js';
+import { researchPlans } from '../src/key-color-research-plans.js';
 import { editKeyColorRecipe } from '../src/key-color-recipe.js';
 import { retainedRecipeFixture } from './helpers/key-color-recipe-fixture.js';
 
-function setup(t, kind = 'document', doc = retainedRecipeFixture()) {
+function setup(
+  t,
+  kind = 'document',
+  doc = retainedRecipeFixture(),
+  getCoverageSnapshot = () => null,
+) {
   const win = new Window();
   t.after(() => win.happyDOM.abort());
   const document = win.document;
@@ -28,6 +35,7 @@ function setup(t, kind = 'document', doc = retainedRecipeFixture()) {
     document,
     getSession: () => session,
     getDocument: () => session.historyView.doc,
+    getCoverageSnapshot,
     dispatch: (type, payload, envelope) => {
       calls.push({ type, payload: structuredClone(payload), envelope: { ...envelope } });
       if (dispatchResult !== 'real') return dispatchResult;
@@ -379,9 +387,102 @@ test('research preview and cancel preserve document revision and redo', (t) => {
   }
   s.click('[data-research-preview]');
   assert.equal(s.document.querySelectorAll('[data-research-row]').length, 5);
+  assert.match(s.query('[data-trial-status]').textContent, /Not created; usage not measured/);
+  assert.match(s.query('[data-trial-status]').textContent, /Readability not evaluated/);
   s.click('[data-key-color-cancel]');
   assert.deepEqual(s.captured(), before);
   assert.deepEqual(s.calls, []);
+});
+
+test('B status uses current coverage by stable ID and keeps proposed L separate from saved state', async (t) => {
+  let coverage,
+    key = 'current',
+    open = true;
+  const s = setup(t, 'document', blankDocument(), () => coverage.snapshot());
+  const plan = structuredClone(researchPlans.find((item) => item.id === 'research-neutral-start'));
+  const payload = {
+    version: 1,
+    modelVersion: 2,
+    solverVersion: 'experimental-affine-neutral-text-v1',
+    colorSemanticsVersion: 'linear-srgb-straight-v1',
+    paletteId: 'test-palette',
+    intent: {
+      keyColor: { id: 'key', role: 'Identity', value: { hex: '#EbEbEb', alpha: 0 }, hueHint: 0 },
+      preset: plan,
+      slots: plan.slots.map(({ id, role }) => ({ id, role, deltaL: 0, deltaRatioCmax: 0 })),
+      settings: { areaAware: true },
+    },
+    allocations: [
+      { slotId: 'key', name: 'C1' },
+      ...plan.slots.map(({ id, role }) => ({ slotId: id, name: role })),
+    ],
+  };
+  s.send('initialize-key-color-recipe', payload);
+  s.send('set-document-settings', { key: 'width', value: 1001 });
+  s.send('undo');
+  const before = s.captured();
+  coverage = createColorCoverageView({
+    app: s.document.body,
+    getKey: () => key,
+    isOpen: () => open,
+    measure: async () => ({
+      slots: [
+        { id: 'key', percent: 37 },
+        { id: 'neutral', percent: 0 },
+      ],
+      sampleSize: { width: 32, height: 32 },
+      other: { percent: 63 },
+    }),
+  });
+  s.open();
+  assert.match(s.query('[data-trial-usage="key"]').textContent, /unavailable/);
+  coverage.refresh();
+  await new Promise((resolve) => setImmediate(resolve));
+  s.click('[data-trial-refresh]');
+  assert.match(s.query('[data-trial-usage="key"]').textContent, /37%/);
+  assert.match(s.query('[data-trial-usage="neutral"]').textContent, /0%/);
+  assert.match(s.query('[data-trial-usage="accent"]').textContent, /unavailable/);
+  assert.doesNotMatch(s.query('[data-trial-row="key"]').textContent, /Same literal/); // RGB matches Neutral but alpha differs.
+  assert.match(s.query('[data-trial-row="key"]').textContent, /Readability not evaluated/);
+  s.input('deltaL', 2);
+  s.click('[data-key-color-preview]');
+  const comparison = s.query('[data-key-color-comparison]');
+  assert.match(comparison.textContent, /Proposed colors · not applied/);
+  assert.match(
+    comparison.querySelector('[data-trial-row="assort"]').textContent,
+    /ΔL 2.*L range limited/,
+  );
+  for (const id of ['key', 'accent', 'neutral', 'text']) {
+    const row = comparison.querySelector(`[data-key-color-compare="${id}"]`);
+    assert.equal(
+      row.querySelector('[data-key-color-before] code').textContent,
+      row.querySelector('[data-key-color-after] code').textContent,
+    );
+  }
+  const changed = comparison.querySelector('[data-key-color-compare="assort"]');
+  assert.notEqual(
+    changed.querySelector('[data-key-color-before] code').textContent,
+    changed.querySelector('[data-key-color-after] code').textContent,
+  );
+  assert.deepEqual(s.captured(), before);
+  key = 'new-key';
+  s.click('[data-trial-refresh]');
+  assert.match(s.query('[data-trial-usage="key"]').textContent, /unavailable/);
+  assert.doesNotMatch(s.query('[data-trial-usage="key"]').textContent, /0%/);
+  open = false;
+  s.click('[data-trial-refresh]');
+  assert.match(s.query('[data-trial-usage="neutral"]').textContent, /unavailable/);
+  s.click('[data-key-color-cancel]');
+  assert.deepEqual(s.captured(), before);
+  const matching = setup(t, 'document', blankDocument());
+  const sameAlpha = structuredClone(payload);
+  sameAlpha.intent.keyColor.value.alpha = 1;
+  matching.send('initialize-key-color-recipe', sameAlpha);
+  matching.open();
+  assert.match(
+    matching.query('[data-trial-row="key"]').textContent,
+    /Same literal and alpha as Neutral/,
+  );
 });
 
 test('B trial preview rejects shared color budget before enabling Create', (t) => {

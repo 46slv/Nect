@@ -29,7 +29,14 @@ const hideDelta = (snapshot, slot) =>
 
 // An opt-in, detached view draft, not another authored palette owner. The
 // historical receipt is read once; only one explicit Session Apply can write.
-export function createKeyColorRecipePanel({ document, getSession, getDocument, dispatch, notify }) {
+export function createKeyColorRecipePanel({
+  document,
+  getSession,
+  getDocument,
+  getCoverageSnapshot = () => null,
+  dispatch,
+  notify,
+}) {
   let dialog = null,
     trigger = null,
     owner = null,
@@ -170,6 +177,67 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
     output.dataset.error = String(error);
   }
 
+  function trialStatus(snapshot, title, created) {
+    const slots = new Map(snapshot.intent.slots.map((slot) => [slot.id, slot]));
+    const rows = snapshot.resolved
+      .map((row) => {
+        const intent = slots.get(row.id);
+        const equal = snapshot.resolved
+          .filter(
+            (other) =>
+              other.id !== row.id &&
+              other.value.hex.toLowerCase() === row.value.hex.toLowerCase() &&
+              other.value.alpha === row.value.alpha,
+          )
+          .map((other) => other.role);
+        const details = [
+          row.active ? 'Active' : 'Dormant',
+          intent
+            ? `ΔL ${intent.deltaL}; base OKLCH L ${row.baseL}; effective L ${row.L}`
+            : `C1 OKLCH L ${row.L}; no ΔL`,
+          row.diagnostics.includes('lightness-clamped') ? 'L range limited' : 'L range not limited',
+          row.diagnostics.includes('support-chroma-intent-unapplied')
+            ? 'Stored Δr not applied'
+            : '',
+          row.diagnostics.length ? `Diagnostics ${row.diagnostics.join(', ')}` : '',
+          equal.length ? `Same literal and alpha as ${equal.join(', ')}` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        const usage = created
+          ? `<span data-trial-usage="${esc(row.id)}">Usage unavailable</span>`
+          : 'Not created; usage not measured';
+        return `<tr data-trial-row="${esc(row.id)}" ${created ? '' : `data-research-row="${esc(row.id)}" data-research-role="${esc(row.role)}"`}><th>${esc(row.role)}</th><td>${literal(row.value)}</td><td>${usage}</td><td>${esc(details)}</td><td>Readability not evaluated · procedure not evaluated</td></tr>`;
+      })
+      .join('');
+    return `<section data-trial-status="${esc(title)}"><h3>${esc(title)}</h3><table><thead><tr><th>Role</th><th>Color</th><th>Current visible paint share</th><th>OKLCH adjustment</th><th>Checks</th></tr></thead><tbody>${rows}</tbody></table><p>${esc(snapshot.diagnostics.join(', '))}</p></section>`;
+  }
+
+  function refreshTrialUsage() {
+    if (!dialog) return;
+    let snapshot = null;
+    try {
+      current();
+      snapshot = getCoverageSnapshot();
+    } catch {
+      /* unavailable or stale */
+    }
+    if (stale && base) {
+      clearPreview();
+      dialog.querySelector('[data-key-color-preview]').disabled = true;
+    }
+    for (const output of dialog.querySelectorAll('[data-trial-usage]')) {
+      const rows = snapshot?.value?.slots;
+      const row = Array.isArray(rows)
+        ? rows.find((slot) => slot.id === output.dataset.trialUsage)
+        : null;
+      output.textContent =
+        Number.isFinite(row?.percent) && row.percent >= 0 && row.percent <= 100
+          ? `Current visible paint share ≈ ${row.percent}%`
+          : 'Usage unavailable';
+    }
+  }
+
   function clearPreview() {
     preview = null;
     dialog.querySelector('[data-key-color-comparison]').innerHTML = '';
@@ -303,8 +371,9 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
             slots: plan.slots.map(({ id, role }) => ({ id, role, deltaL: 0, deltaRatioCmax: 0 })),
             settings: { areaAware: true },
           });
-      dialog.querySelector('[data-research-results]').innerHTML =
-        `<table><thead><tr><th>Role</th><th>Preview</th><th>Diagnostics</th></tr></thead><tbody>${result.resolved.map((row) => `<tr data-research-row="${esc(row.id)}" data-research-role="${esc(row.role)}"><th>${esc(row.role)}</th><td>${literal(row.value)}</td><td>${esc(row.diagnostics.join(', ') || '—')}</td></tr>`).join('')}</tbody></table><p>${esc(result.diagnostics.join(', '))}</p>`;
+      dialog.querySelector('[data-research-results]').innerHTML = payload
+        ? trialStatus(result, 'Trial preview · not created', false)
+        : `<table><thead><tr><th>Role</th><th>Preview</th><th>Diagnostics</th></tr></thead><tbody>${result.resolved.map((row) => `<tr data-research-row="${esc(row.id)}" data-research-role="${esc(row.role)}"><th>${esc(row.role)}</th><td>${literal(row.value)}</td><td>${esc(row.diagnostics.join(', ') || '—')}</td></tr>`).join('')}</tbody></table><p>${esc(result.diagnostics.join(', '))}</p>`;
       if (payload) {
         preview = {
           key: inputs.key,
@@ -383,6 +452,18 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
       preview = { snapshot: prepared.snapshot, key: inputs.key };
       dialog.querySelector('[data-key-color-comparison]').innerHTML =
         `<h3>Shared literals · before → after</h3><p>Only active rows below will change. No artwork changes until Apply.</p><table><thead><tr><th>Stable slot</th><th>Current shared literal</th><th>Proposed shared literal</th></tr></thead><tbody>${prepared.updates.map(({ slotId, value }) => `<tr data-key-color-compare="${esc(slotId)}"><th scope="row">${esc(slots.get(slotId).name)}<br><code>${esc(slotId)}</code></th><td data-key-color-before>${literal(slots.get(slotId).value)}</td><td data-key-color-after>${literal(value)}</td></tr>`).join('')}</tbody></table>`;
+      if (
+        trialB(prepared.snapshot.intent.preset.id, prepared.snapshot.intent.preset.version) &&
+        prepared.snapshot.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION
+      ) {
+        dialog
+          .querySelector('[data-key-color-comparison]')
+          .insertAdjacentHTML(
+            'beforeend',
+            trialStatus(prepared.snapshot, 'Proposed colors · not applied', true),
+          );
+        refreshTrialUsage();
+      }
       dialog.querySelector('[data-key-color-apply]').disabled = false;
       status('Preview ready. Apply writes these shared literals and the receipt together.');
       // Preview is an explicit review step: bring its actual before/after
@@ -434,6 +515,7 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
     }
     if (!dialog || !base || applying) return;
     validateDraft();
+    refreshTrialUsage();
   }
 
   function open(anchor = null) {
@@ -466,6 +548,20 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
         ? `<p data-key-color-empty>Research candidates. B adds five trial colors without changing existing colors, in one Undo. Coverage and readability are not evaluated; colors may coincide.</p><fieldset><legend>C1</legend><div data-key-color-c1></div></fieldset><label>Research candidate <select data-research-plan><option value="">Choose a candidate</option><option value="research-triadic-offset">A · chromatic comparison</option><option value="research-neutral-start">B · neutral start</option></select></label><details><summary>Candidate roles and coefficients</summary><pre data-research-details></pre></details><p data-key-color-status role="status" aria-live="polite">Enter C1 and choose a candidate.</p><section data-research-results aria-label="Research color preview"></section>`
         : `<p data-key-color-empty>${esc(error || 'The retained recipe is unavailable.')}</p>`;
     dialog.innerHTML = `<header><h2 id="key-color-recipe-title">Key color · Experimental</h2><button type="button" data-key-color-cancel aria-label="Close Key color">×</button></header>${base ? '<p>Opt-in one-shot Apply. The existing legacy wheel and product defaults are unchanged. Dark TonePlan coefficients remain unresolved.</p>' : ''}<div class="key-color-recipe-body">${controls}</div><footer><button type="button" data-key-color-cancel>Cancel</button>${base ? '<button type="button" data-key-color-preview>Preview</button><button type="button" data-key-color-apply disabled>Apply · 1 Undo</button>' : research ? '<button type="button" data-research-preview disabled>Preview</button><button type="button" data-research-create disabled>Add 5 trial colors · 1 Undo</button>' : ''}</footer>${base ? '<p class="key-color-undo-note">A changed Apply is one Undo. Equal literals and receipt are a no-op. Cancel and Escape discard the draft.</p>' : ''}`;
+    if (
+      base &&
+      trialB(base.intent.preset.id, base.intent.preset.version) &&
+      base.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION
+    ) {
+      dialog
+        .querySelector('.key-color-recipe-body')
+        .insertAdjacentHTML(
+          'beforeend',
+          trialStatus(base, 'Saved recipe', true) +
+            '<button type="button" data-trial-refresh>Refresh usage</button>',
+        );
+      refreshTrialUsage();
+    }
     if (base || research) {
       const compositionId = owner.activeCompositionId;
       c1Draft = createKeyColorC1Draft(
@@ -515,6 +611,7 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
     });
     dialog.addEventListener('click', (event) => {
       if (event.target.closest('[data-key-color-cancel]')) close();
+      else if (event.target.closest('[data-trial-refresh]')) refreshTrialUsage();
       else if (event.target.closest('[data-research-preview]')) showResearchPreview();
       else if (event.target.closest('[data-research-create]')) createTrial();
       else if (event.target.closest('[data-key-color-preview]')) showPreview();

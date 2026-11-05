@@ -18,6 +18,12 @@ does not automatically bootstrap a palette or convert the legacy wheel. On
 reopening a B trial receipt, derived Δr remains stored but its editing controls
 are hidden; other profiles and legacy receipts keep their existing controls.
 
+B trial status lists saved and proposed OKLCH L and ΔL separately. Visible paint
+share comes only from the existing current coverage snapshot matched by stable
+slot ID; the refresh button rereads it. Missing, stale or unavailable results are
+not converted to zero. Before creation, usage is not measured. Readability and
+procedure checks are not evaluated here, and literal equality includes alpha.
+
 The research C1 uses the same draft-only HSL picker as the retained editor.
 Until a valid six-digit HEX is entered, HSL controls and the plane cannot edit a
 color; no seed color is used for Preview. HEX spelling and alpha zero remain

@@ -963,6 +963,7 @@ const keyColorRecipePanel = createKeyColorRecipePanel({
   document,
   getSession: () => session,
   getDocument: () => history.doc,
+  getCoverageSnapshot: () => coverageView.snapshot(),
   dispatch: (type, payload, envelope) => commandChange(type, payload, undefined, false, envelope),
   notify: (message, error) => notify(message, error),
 });
