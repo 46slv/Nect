@@ -175,9 +175,9 @@ export function createNodeRegistry(declarations, bindings, host) {
         if (operationIds && !operationIds.has(operation)) throw Error('Invalid operation');
         return interfaces.get(operationIds ? operation : undefined);
       },
-      evaluate(operation, read) {
+      evaluate(operation, read, context) {
         if (operationIds && !operationIds.has(operation)) throw Error('Invalid operation');
-        return evaluate(operation, read);
+        return evaluate(operation, read, context);
       },
       project(output, value) {
         if (!outputIds.has(output)) throw Error('Invalid output');

@@ -1,4 +1,4 @@
-import { MATH_NODE, SEPARATE_VECTOR, VECTOR_MATH } from './builtin-node-registry.js';
+import { MATH_NODE, SEPARATE_VECTOR, VECTOR_MATH, REVERSE_PATH } from './builtin-node-registry.js';
 
 // Editor-only metadata. Never serialized into a document or used as a node type ID.
 export const nodeCategories = [
@@ -228,14 +228,7 @@ export const nodeCatalog = [
     description: '開閉 閉じる',
     creationRoute: 'add',
   },
-  {
-    typeId: 'Reverse Path',
-    categoryId: 'path',
-    labelJa: '反転',
-    aliases: ['反転', '方向'],
-    description: '反転 方向',
-    creationRoute: 'add',
-  },
+  { typeId: REVERSE_PATH.declaration.typeId, ...REVERSE_PATH.declaration.catalog },
   {
     typeId: 'Subdivide Path',
     categoryId: 'path',

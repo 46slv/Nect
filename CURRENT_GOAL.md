@@ -14,16 +14,16 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-11-05 Node Foundation M2b
+## ACTIVE CHECKPOINT — 2026-11-05 Node Foundation M2c
 
-Goal: migrate existing Vector Math dynamic operation inputs and output types to the data-only declaration and trusted binding without changing Session or authored compatibility.
+Goal: migrate existing Reverse Path to the closed built-in data declaration and trusted binding while preserving geometry, identities, routing, Session and codec behavior.
 Current phase: focused local implementation and validation complete; independent review pending on the unpublished REQ-42 / #185-dependent stack. #185 is not claimed merged.
-Proven: Math M1, host boundary and Separate Vector M2a evidence is retained in the corresponding `nect-node-foundation-*` evidence directories beside this checkout. Separate Vector synthetic UI/cache test-only checkpoint is 283e5924; prior results are not this candidate's test results.
-Next task: review the exact Vector Math candidate and its source-bound focused evidence in `nect-node-foundation-vector-math-evidence`; M2b does not complete M2, M3 or the product.
-Approach: preserve operation/port identity, lazy reads, output type, atomic Session validation and existing document encoding, deriving interfaces from the registered declaration.
-Done for next: focused source-bound tests/build and review; browser/native/CI and publication remain separate.
-State: base 283e5924ebf89f7b0b20b807de7fb0a933b02158, tree 50ea9303ab43635b66cf8d9c0bd1d2319988d2d2; local branch `codex/nect-vector-math-m2b-20261105`; existing stops and unpublished candidate refs retained.
-Authority: bounded parent delegation for M2b; public/remote HOLD; no network, denied-operation retry, native, font/image fixture, or stopped Mask/Keyer/Image/FindNode/AddNode work.
+Proven: Reverse Path packet and pure geometry baseline are in `nect-node-foundation-reverse-path-packet-evidence`; M2b evidence is in `nect-node-foundation-vector-math-evidence`. Prior results are not this candidate's test results.
+Next task: review this exact candidate, baseline/candidate oracle and focused source-bound evidence in `nect-node-foundation-reverse-path-evidence`; M2c does not complete M2, M3 or the product.
+Approach: use Path-null authored default and operation-specific runtime validation; keep frozen stable node-ID context, existing Session, output identity, geometry metadata and cache.
+Done for next: focused tests/build and independent review; real font Text, browser/native/CI and publication remain separate.
+State: base 508135a9bb9656e9dc733856147871375cc72dfb, tree 8071a6e57f3d0788bdb1363768aeaf0d35860b44; local branch `codex/nect-reverse-path-m2c-20261105`; existing stops and unpublished refs retained.
+Authority: bounded parent delegation for M2c; public/remote HOLD; no network, denied-operation retry, native, font/image fixture or stopped Mask/Keyer/Image/FindNode/AddNode work.
 Handoff: CONTINUE_CURRENT_TASK; parent retains Mission ownership.
 
 ## Prior checkpoint — 2026-11-01 explicit key-color initialization infrastructure

@@ -8,6 +8,10 @@ const scalar = Object.freeze({
 export const nectNodeHost = Object.freeze({
   types: new Map([
     ['Scalar', scalar],
+    [
+      'Path',
+      Object.freeze({ validateDefault: (value) => value === null, validateOutput: () => true }),
+    ],
     ['Vector2', Object.freeze({ validateDefault: isVector2, validateOutput: () => true })],
   ]),
   validateOutputs: (outputs) =>

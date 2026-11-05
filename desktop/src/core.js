@@ -1,8 +1,11 @@
+import { signature } from './path-signature.js';
+export { signature } from './path-signature.js';
 import {
   builtinNodeRegistry,
   MATH_NODE,
   SEPARATE_VECTOR,
   VECTOR_MATH,
+  REVERSE_PATH,
 } from './builtin-node-registry.js';
 import { isVector2 } from './node-value-validation.js';
 import { nectOutputPort } from './nect-node-host.js';
@@ -128,7 +131,6 @@ import {
   hasRepeaterStrokeAuthorship,
   assertRepeaterRoute,
 } from './repeater.js';
-import { reversePathGeometry } from './reverse-path-geometry.js';
 import { setClosureGeometry } from './set-closure-geometry.js';
 import { instancePointsGeometry } from './instance-points-geometry.js';
 import { sampleLuminanceGrid } from './luminance-field.js';
@@ -373,7 +375,9 @@ export const definitions = {
     inverse: p('Boolean', false),
   },
   'Auto Handles': { path: p('Path', null), strength: p('Scalar', 1) },
-  'Reverse Path': { path: p('Path', null) },
+  [REVERSE_PATH.declaration.typeId]: Object.fromEntries(
+    REVERSE_PATH.declaration.parameters.map(({ id, type, default: value }) => [id, p(type, value)]),
+  ),
   'Wave Points': {
     path: p('Path', null),
     amplitude: p('Scalar', 20),
@@ -873,7 +877,7 @@ const bypassInputs = Object.freeze({
   'Resample Path': 'path',
   Roughen: 'path',
   'Smooth Path': 'path',
-  'Reverse Path': 'path',
+  [REVERSE_PATH.declaration.typeId]: REVERSE_PATH.declaration.bypassInput,
   'Trim Path': 'path',
   'Set Path Start': 'path',
   'Set Closure': 'path',
@@ -2502,18 +2506,6 @@ export function parsePath(data, prefix = 'imported') {
     item.remove();
   }
 }
-export function signature(path) {
-  return JSON.stringify(
-    path.contours.map((c) => [
-      c.closed,
-      c.points.map((p) => [p.position, p.handleA, p.handleB]),
-      ...(c.group === undefined ? [] : [c.group]),
-      ...(c.repeaterOpacity === undefined ? [] : [c.repeaterOpacity]),
-      ...(c.repeaterFill === undefined ? [] : [c.repeaterFill]),
-      ...(c.repeaterStroke === undefined ? [] : [c.repeaterStroke]),
-    ]),
-  );
-}
 export function pathData(path, precision) {
   const obj = toPaper(path);
   try {
@@ -2913,7 +2905,7 @@ export function evaluate(
         result = transformVector(transformValues(n, read), read('vector'));
       else if (builtinNodeRegistry.get(n.type)) {
         const registered = builtinNodeRegistry.get(n.type);
-        result = registered.evaluate(n.operation, read);
+        result = registered.evaluate(n.operation, read, Object.freeze({ nodeId: n.id }));
         assertValue(registered.interface(n.operation).resultType, result);
       } else if (n.type === 'Combine Vector') {
         result = [read('x'), read('y')];
@@ -3282,17 +3274,6 @@ export function evaluate(
           evaluatedFingerprint(source, currentEra) || signature(source),
           signature(result),
         ]);
-      } else if (n.type === 'Reverse Path') {
-        const source = read('path');
-        result = reversePathGeometry(source, { prefix: fingerprint(n.id) });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Reverse Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Taper') {
         const source = read('path');
         result = taperGeometry(source, {
