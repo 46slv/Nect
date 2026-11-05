@@ -59,6 +59,51 @@ try {
   await visibleStack();
   const before = await snapshot();
   const beforeCommand = await command();
+  const separator = page.locator('[data-workspace-split="editing"]');
+  assert.equal(await separator.getAttribute('role'), 'separator');
+  assert.equal(await separator.getAttribute('aria-controls'), await layers.getAttribute('id'));
+  const initialHeight = (await layers.boundingBox()).height;
+  await separator.focus();
+  await page.keyboard.press('ArrowDown');
+  assert.ok((await layers.boundingBox()).height > initialHeight);
+  const keyboardSize = Number(await separator.getAttribute('aria-valuenow'));
+  const beforeCancelPreference = await page.evaluate(() =>
+    localStorage.getItem('nect.workspace-drawers.v1'),
+  );
+  let splitBox = await separator.boundingBox();
+  await page.mouse.move(splitBox.x + splitBox.width / 2, splitBox.y + splitBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(splitBox.x + splitBox.width / 2, splitBox.y + splitBox.height / 2 + 45);
+  assert.notEqual(Number(await separator.getAttribute('aria-valuenow')), keyboardSize);
+  await page.keyboard.press('Escape');
+  assert.equal(Number(await separator.getAttribute('aria-valuenow')), keyboardSize);
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem('nect.workspace-drawers.v1')),
+    beforeCancelPreference,
+  );
+  await page.mouse.up();
+  splitBox = await separator.boundingBox();
+  await page.mouse.move(splitBox.x + splitBox.width / 2, splitBox.y + splitBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(splitBox.x + splitBox.width / 2, splitBox.y + splitBox.height / 2 + 35);
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  assert.equal(Number(await separator.getAttribute('aria-valuenow')), keyboardSize);
+  await page.mouse.up();
+  splitBox = await separator.boundingBox();
+  await page.mouse.move(splitBox.x + splitBox.width / 2, splitBox.y + splitBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(splitBox.x + splitBox.width / 2, splitBox.y + splitBox.height / 2 + 35);
+  await page.mouse.up();
+  let pointerSize = Number(await separator.getAttribute('aria-valuenow'));
+  assert.ok(pointerSize > keyboardSize);
+  assert.equal(
+    await page.evaluate(
+      () => JSON.parse(localStorage.getItem('nect.workspace-drawers.v1')).splits.editing,
+    ),
+    pointerSize,
+  );
+  assert.deepEqual(await snapshot(), before);
+  assert.deepEqual(await command(), beforeCommand);
   assert.equal(await layersRail.getAttribute('aria-pressed'), 'true');
   assert.equal(await inspectorRail.getAttribute('aria-pressed'), 'false');
   assert.equal(await layersRail.getAttribute('aria-controls'), await layers.getAttribute('id'));
@@ -109,6 +154,22 @@ try {
     await visibleStack();
     await page.screenshot({ path: resolve(output, `${name}.png`), animations: 'disabled' });
   }
+  await separator.focus();
+  await page.keyboard.press('Home');
+  assert.equal(
+    await separator.getAttribute('aria-valuenow'),
+    await separator.getAttribute('aria-valuemin'),
+  );
+  assert.ok((await layers.boundingBox()).height >= 79);
+  assert.ok((await inspector.boundingBox()).height >= 79);
+  await page.keyboard.press('End');
+  assert.equal(
+    await separator.getAttribute('aria-valuenow'),
+    await separator.getAttribute('aria-valuemax'),
+  );
+  assert.ok((await layers.boundingBox()).height >= 79);
+  assert.ok((await inspector.boundingBox()).height >= 79);
+  pointerSize = Number(await separator.getAttribute('aria-valuenow'));
   const viewerOutput = inspector.locator('select[aria-label="Viewer public output"]');
   const viewerDetails = viewerOutput.locator('xpath=ancestor::details[1]');
   if (!(await viewerDetails.evaluate((element) => element.open)))
@@ -119,6 +180,14 @@ try {
   ]) {
     await port.hover();
     await page.mouse.wheel(0, 10000);
+    await page.waitForTimeout(100);
+    const firstRect = await control.boundingBox();
+    const portRect = await port.boundingBox();
+    await port.hover();
+    await page.mouse.wheel(
+      0,
+      firstRect.y + firstRect.height / 2 - (portRect.y + portRect.height / 2),
+    );
     await page.waitForTimeout(100);
     const rect = await control.boundingBox();
     assert.equal(
@@ -140,6 +209,24 @@ try {
   assert.deepEqual(await snapshot(), before);
   assert.deepEqual(await command(), beforeCommand);
   await page.setViewportSize({ width: 1440, height: 960 });
+  await layers.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  const layerRevision = (await command()).expectedRevision;
+  await layers.locator('[data-visible]').first().click();
+  assert.equal((await command()).expectedRevision, layerRevision + 1);
+  assert.notDeepEqual(await snapshot(), before);
+  await page.locator('[data-action="undo"]').click();
+  assert.deepEqual(await snapshot(), before);
+  assert.equal(Number(await separator.getAttribute('aria-valuenow')), pointerSize);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  const pendingRedoState = await command();
+  await separator.focus();
+  await page.keyboard.press('ArrowUp');
+  pointerSize = Number(await separator.getAttribute('aria-valuenow'));
+  assert.deepEqual(await command(), pendingRedoState);
+  assert.deepEqual(await snapshot(), before);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
   await alignRail.click();
   assert.equal(await page.locator('.alignment-panel').isVisible(), true);
   assert.equal(await layers.isVisible(), false);
@@ -167,7 +254,7 @@ try {
     assert.deepEqual(await command(), beforeIme);
     assert.deepEqual(await snapshot(), before);
   }
-  for (const target of [layersRail, addLayer, alignRail, viewers]) {
+  for (const target of [layersRail, addLayer, separator, alignRail, viewers]) {
     await target.click();
     await target.evaluate((element) => element.click());
     assert.equal(await textInput.evaluate((element) => element === document.activeElement), true);
@@ -216,6 +303,34 @@ try {
   assert.deepEqual(await snapshot(), numericBefore);
   await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'redo' }));
   assert.deepEqual(await snapshot(), numericAfter);
+  const beforeReattachPreference = await page.evaluate(() =>
+    localStorage.getItem('nect.workspace-drawers.v1'),
+  );
+  splitBox = await separator.boundingBox();
+  await separator.evaluate((element) => {
+    window.oldWorkspaceSeparator = element;
+  });
+  await page.mouse.move(splitBox.x + splitBox.width / 2, splitBox.y + splitBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(splitBox.x + splitBox.width / 2, splitBox.y + splitBox.height / 2 + 30);
+  await page.evaluate(() =>
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: window.nect.document.width + 1 },
+    }),
+  );
+  assert.equal(await page.evaluate(() => window.oldWorkspaceSeparator.isConnected), false);
+  assert.equal(Number(await separator.getAttribute('aria-valuenow')), pointerSize);
+  await page.mouse.move(splitBox.x + splitBox.width / 2, splitBox.y + splitBox.height / 2 + 60);
+  await page.mouse.up();
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem('nect.workspace-drawers.v1')),
+    beforeReattachPreference,
+  );
+  assert.equal(Number(await separator.getAttribute('aria-valuenow')), pointerSize);
+  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'undo' }));
+  assert.deepEqual(await snapshot(), numericAfter);
   await inspectorRail.click();
   await inspector.focus();
   await page.keyboard.press('ControlOrMeta+z');
@@ -231,6 +346,7 @@ try {
   await page.waitForFunction(() => window.nect);
   await visibleStack();
   assert.equal(await inspectorRail.getAttribute('aria-pressed'), 'true');
+  assert.equal(Number(await separator.getAttribute('aria-valuenow')), pointerSize);
   assert.deepEqual(errors, []);
   console.log(
     'Workspace stack: focus, scrolling, preferences, synthetic IME and one Undo/Redo passed',

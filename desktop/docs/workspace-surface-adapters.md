@@ -15,6 +15,11 @@ section transitions before pointer blur; after composition ends the normal input
 owner remains responsible for its existing commit behavior. Physical IME and native
 WebView2 still require separate verification.
 
+The same fixed group declares its primary Layers split. The host provides the
+separator and stores only its view preference; it never writes the Session. A
+cancelled gesture or replaced host discards the preview, while a committed size
+is bounded by the available viewport and restored after structural render.
+
 Production supplies the Shared Colors controller's view factory to its fixed adapter. The controller's existing HTML projection creates the view for each structural render; the adapter mounts it after the Assets slot inside the app. The controller retains its delegated events and Session ownership. This does not make the view persistent or movable.
 
 This is a fixed-placement adapter, not relocation, a profile system, independent left/right drawers, or a new feature controller. Existing cross-side exclusivity, preference format and workspace geometry remain in force. Actual browser/native, active IME and in-flight asset integration remain separate acceptance work.

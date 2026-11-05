@@ -337,6 +337,10 @@ test('Inspector composition blocks rail pointer blur and semantic switching unti
   const down = new f.window.PointerEvent('pointerdown', { bubbles: true, cancelable: true });
   layersButton.dispatchEvent(down);
   assert.equal(down.defaultPrevented, true);
+  const separator = f.root.querySelector('[data-workspace-split]');
+  const splitDown = new f.window.PointerEvent('pointerdown', { bubbles: true, cancelable: true });
+  separator.dispatchEvent(splitDown);
+  assert.equal(splitDown.defaultPrevented, true);
   const layerAction = f.window.document.createElement('button');
   let activations = 0;
   layerAction.addEventListener('click', () => activations++);
@@ -360,6 +364,93 @@ test('Inspector composition blocks rail pointer blur and semantic switching unti
   assert.equal(f.root.querySelector('.inspector').hidden, false);
   assert.equal(input.value, '編集中');
   f.window.happyDOM.abort();
+});
+
+test('editing split keyboard and interrupted pointer gestures stay view-only and restore preferences', async () => {
+  const win = new Window();
+  const root = win.document.createElement('div');
+  root.innerHTML = markup;
+  win.document.body.append(root);
+  const values = new Map([
+    [DRAWER_PREFERENCES_KEY, JSON.stringify({ left: null, right: 'layers', lastSide: 'right' })],
+  ]);
+  const storage = {
+    getItem: (key) => values.get(key),
+    setItem: (key, value) => values.set(key, value),
+  };
+  const controller = createTestWorkspacePanels({
+    storage,
+    getAssetPanel: () => null,
+    onAssets() {},
+    onAlign() {},
+    onColors() {},
+  });
+  controller.attach(root);
+  await Promise.resolve();
+  const host = root.querySelector('[data-drawer-side="right"]');
+  Object.defineProperty(host, 'clientHeight', { configurable: true, value: 400 });
+  host.getBoundingClientRect = () => ({ top: 100, height: 400 });
+  controller.refresh();
+  let split = root.querySelector('[data-workspace-split]');
+  assert.equal(split.getAttribute('role'), 'separator');
+  assert.equal(split.getAttribute('aria-orientation'), 'horizontal');
+  assert.equal(split.getAttribute('aria-controls'), root.querySelector('.layers').id);
+  assert.equal(Number(split.getAttribute('aria-valuenow')), 38);
+  split.focus();
+  split.dispatchEvent(
+    new win.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+  );
+  const adjusted = Number(split.getAttribute('aria-valuenow'));
+  assert.ok(adjusted > 38);
+  assert.equal(JSON.parse(values.get(DRAWER_PREFERENCES_KEY)).splits.editing, adjusted);
+  const stored = values.get(DRAWER_PREFERENCES_KEY);
+  Object.defineProperty(host, 'clientHeight', { configurable: true, value: 120 });
+  controller.refresh();
+  assert.notEqual(Number(split.getAttribute('aria-valuenow')), adjusted);
+  assert.equal(values.get(DRAWER_PREFERENCES_KEY), stored);
+  Object.defineProperty(host, 'clientHeight', { configurable: true, value: 400 });
+  controller.refresh();
+  assert.equal(Number(split.getAttribute('aria-valuenow')), adjusted);
+  split.dispatchEvent(
+    new win.PointerEvent('pointerdown', {
+      pointerId: 7,
+      button: 0,
+      isPrimary: true,
+      bubbles: true,
+      clientY: 250,
+    }),
+  );
+  win.document.dispatchEvent(
+    new win.PointerEvent('pointermove', { pointerId: 7, bubbles: true, clientY: 290, buttons: 1 }),
+  );
+  assert.notEqual(Number(split.getAttribute('aria-valuenow')), adjusted);
+  win.document.dispatchEvent(
+    new win.PointerEvent('pointercancel', { pointerId: 7, bubbles: true }),
+  );
+  assert.equal(Number(split.getAttribute('aria-valuenow')), adjusted);
+  assert.equal(values.get(DRAWER_PREFERENCES_KEY), stored);
+  split.dispatchEvent(
+    new win.PointerEvent('pointerdown', {
+      pointerId: 8,
+      button: 0,
+      isPrimary: true,
+      bubbles: true,
+      clientY: 250,
+    }),
+  );
+  win.document.dispatchEvent(
+    new win.PointerEvent('pointermove', { pointerId: 8, bubbles: true, clientY: 290, buttons: 1 }),
+  );
+  root.innerHTML = markup;
+  controller.attach(root);
+  split = root.querySelector('[data-workspace-split]');
+  win.document.dispatchEvent(
+    new win.PointerEvent('pointermove', { pointerId: 8, bubbles: true, clientY: 320, buttons: 1 }),
+  );
+  win.document.dispatchEvent(new win.PointerEvent('pointerup', { pointerId: 8, bubbles: true }));
+  assert.equal(values.get(DRAWER_PREFERENCES_KEY), stored);
+  assert.equal(Number(split.getAttribute('aria-valuenow')), adjusted);
+  win.happyDOM.abort();
 });
 
 test('asset portal uses the stable slot origin and retreats without motion', () => {

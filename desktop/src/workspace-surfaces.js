@@ -8,6 +8,7 @@ export const WORKSPACE_SURFACES = Object.freeze(
       label: 'Focus Layers',
       selector: '.layers',
       coVisible: 'editing',
+      split: Object.freeze({ defaultPercent: 38, minPixels: 80, label: 'Layers' }),
     },
     { id: 'align', side: 'right', label: 'Toggle Alignment panel', selector: '.alignment-panel' },
     {
@@ -169,7 +170,19 @@ export function resolveWorkspaceSurfaces(declarations, adapters) {
       (item.coVisible !== undefined &&
         (typeof item.coVisible !== 'string' ||
           !/^[a-z][a-z0-9-]*$/.test(item.coVisible) ||
-          !item.selector))
+          !item.selector)) ||
+      (item.split !== undefined &&
+        (!item.coVisible ||
+          !item.split ||
+          typeof item.split !== 'object' ||
+          Array.isArray(item.split) ||
+          !Number.isFinite(item.split.defaultPercent) ||
+          item.split.defaultPercent <= 0 ||
+          item.split.defaultPercent >= 100 ||
+          !Number.isFinite(item.split.minPixels) ||
+          item.split.minPixels <= 0 ||
+          typeof item.split.label !== 'string' ||
+          !item.split.label))
     )
       throw Error('Invalid workspace surface declaration');
     ids.add(item.id);
@@ -211,6 +224,8 @@ export function resolveWorkspaceSurfaces(declarations, adapters) {
     const group = resolved.filter((item) => item.coVisible === entry.coVisible);
     if (
       group.length < 2 ||
+      group.filter((item) => item.split).length > 1 ||
+      (entry.split && group.length !== 2) ||
       new Set(group.map((item) => item.selector)).size !== group.length ||
       group.some((item) => item.side !== entry.side)
     )

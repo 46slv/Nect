@@ -23,12 +23,14 @@ export function workspaceRailGeometry(height, count) {
 export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFACES, adapters }) {
   const ITEMS = resolveWorkspaceSurfaces(declarations, adapters);
   const composing = new WeakSet();
+  const splitPreferences = new Map();
   let root,
     view,
     observer,
     active = { left: null, right: null },
     lastSide = null,
-    retreated = false;
+    retreated = false,
+    splitDrag = null;
   let attachVersion = 0,
     restorePending = true,
     peekFrame = 0,
@@ -51,6 +53,11 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
           active[side] = saved[side];
       }
       lastSide = saved.lastSide === 'left' || saved.lastSide === 'right' ? saved.lastSide : null;
+      for (const entry of ITEMS.filter((item) => item.split)) {
+        const value = saved.splits?.[entry.coVisible];
+        if (Number.isFinite(value) && value > 0 && value < 100)
+          splitPreferences.set(entry.coVisible, value);
+      }
       if (active.left && active.right) {
         const keep = lastSide || 'right';
         active[keep === 'left' ? 'right' : 'left'] = null;
@@ -62,7 +69,14 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
   }
   function save() {
     try {
-      storage?.setItem(DRAWER_PREFERENCES_KEY, JSON.stringify({ ...active, lastSide }));
+      storage?.setItem(
+        DRAWER_PREFERENCES_KEY,
+        JSON.stringify({
+          ...active,
+          lastSide,
+          ...(splitPreferences.size ? { splits: Object.fromEntries(splitPreferences) } : {}),
+        }),
+      );
     } catch {
       /* View preferences are optional. */
     }
@@ -91,7 +105,7 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     if (!composingInRightDrawer()) return false;
     if (
       event.target.closest?.(
-        '[data-workspace-panel], [data-action="align-panel"], [data-viewer-mode]',
+        '[data-workspace-panel], [data-workspace-split], [data-action="align-panel"], [data-viewer-mode]',
       )
     )
       return true;
@@ -127,6 +141,50 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     save();
     refresh();
   }
+  const rounded = (number) => Math.round(number * 10) / 10;
+  function splitBounds(entry, host) {
+    const height = host.clientHeight || host.getBoundingClientRect().height;
+    if (!(height > 0)) return { min: 0, max: 100, height: 0 };
+    const available = Math.max(0, height - 8);
+    const minimum = Math.min(entry.split.minPixels, available / 2);
+    return {
+      min: rounded((minimum / height) * 100),
+      max: rounded(((available - minimum) / height) * 100),
+      height,
+    };
+  }
+  function updateSplit(entry, host) {
+    const separator = host.querySelector(`[data-workspace-split="${entry.coVisible}"]`);
+    if (!separator) return;
+    separator.hidden = !shareVisibleGroup(entry.id, active[entry.side]);
+    const bounds = splitBounds(entry, host);
+    const wanted =
+      splitDrag?.entry === entry
+        ? splitDrag.preview
+        : (splitPreferences.get(entry.coVisible) ?? entry.split.defaultPercent);
+    const value = rounded(Math.max(bounds.min, Math.min(bounds.max, wanted)));
+    host.style.setProperty('--workspace-split-size', `${value}%`);
+    separator.setAttribute('aria-valuemin', String(bounds.min));
+    separator.setAttribute('aria-valuemax', String(bounds.max));
+    separator.setAttribute('aria-valuenow', String(value));
+  }
+  function finishSplit(commit, shouldRefresh = true) {
+    if (!splitDrag) return false;
+    const previous = splitDrag;
+    splitDrag = null;
+    try {
+      if (previous.separator.hasPointerCapture?.(previous.pointerId))
+        previous.separator.releasePointerCapture(previous.pointerId);
+    } catch {
+      /* Capture may already have been released by the browser. */
+    }
+    if (commit) {
+      splitPreferences.set(previous.entry.coVisible, previous.preview);
+      save();
+    }
+    if (shouldRefresh) refresh();
+    return true;
+  }
   function setMotion(side, enabled) {
     const host = root?.querySelector(`[data-drawer-side="${side}"]`);
     if (host) host.dataset.motionEnabled = String(enabled);
@@ -158,6 +216,17 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     });
   }
   function onPointerMove(event) {
+    if (splitDrag && event.pointerId === splitDrag.pointerId) {
+      const bounds = splitBounds(splitDrag.entry, splitDrag.host);
+      if (bounds.height > 0) {
+        const wanted =
+          splitDrag.startValue + ((event.clientY - splitDrag.startY) / bounds.height) * 100;
+        splitDrag.preview = rounded(Math.max(bounds.min, Math.min(bounds.max, wanted)));
+        updateSplit(splitDrag.entry, splitDrag.host);
+      }
+      event.preventDefault();
+      return;
+    }
     if (event.buttons && pointerDown) {
       if (
         !pointerDragging &&
@@ -198,6 +267,8 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     setRailFlag('dragging', retreated);
   }
   function onPointerEnd(event) {
+    if (splitDrag && (!event || event.pointerId === splitDrag.pointerId))
+      finishSplit(event?.type === 'pointerup');
     pointerDown = false;
     pointerDragging = false;
     pointerStart = null;
@@ -228,6 +299,7 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     clearPeek();
   }
   function onWindowBlur() {
+    finishSplit(false);
     clearPeek();
   }
   function bindPointerEvents(doc, bind) {
@@ -236,6 +308,7 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     doc?.[method]('pointerdown', onPointerDown, true);
     doc?.[method]('pointerup', onPointerEnd, true);
     doc?.[method]('pointercancel', onPointerEnd, true);
+    doc?.[method]('lostpointercapture', onPointerEnd, true);
     doc?.[method]('pointerout', onPointerOut, true);
     doc?.[method]('compositionstart', onCompositionStart, true);
     doc?.[method]('compositionend', onCompositionEnd, true);
@@ -312,6 +385,8 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
       host.dataset.motionSuppressed = String(side === 'left' && (retreated || viewerMode));
       host.hidden = !shown;
       host.inert = !shown;
+      for (const entry of ITEMS.filter((candidate) => candidate.side === side && candidate.split))
+        updateSplit(entry, host);
     }
     for (const entry of ITEMS) {
       const button = trigger(entry.id);
@@ -410,6 +485,7 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     const right = nextRoot.querySelector('.right');
     const tools = nextRoot.querySelector('.tools');
     if (!wrap || !right || !tools) return;
+    finishSplit(false, false);
     observer?.disconnect();
     view?.removeEventListener('resize', refresh);
     if (peekFrame) view?.cancelAnimationFrame(peekFrame);
@@ -448,6 +524,72 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     for (const entry of ITEMS.filter((entry) => entry.side === 'left'))
       entry.adapter.attach?.(left, { right });
     wrap.append(left);
+    for (const entry of ITEMS.filter((candidate) => candidate.split)) {
+      const host = entry.side === 'right' ? right : left;
+      const panel = host.querySelector(entry.selector);
+      if (!panel) continue;
+      if (!panel.id) panel.id = `workspace-panel-${entry.id}`;
+      const separator = root.ownerDocument.createElement('div');
+      separator.className = 'workspace-split-handle';
+      separator.dataset.workspaceSplit = entry.coVisible;
+      separator.tabIndex = 0;
+      separator.setAttribute('role', 'separator');
+      separator.setAttribute('aria-label', entry.split.label);
+      separator.setAttribute('aria-orientation', 'horizontal');
+      separator.setAttribute('aria-controls', panel.id);
+      separator.title = `Resize ${entry.split.label} with drag or Up/Down`;
+      separator.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0 || event.isPrimary === false || separator.hidden || splitDrag)
+          return;
+        const bounds = splitBounds(entry, host);
+        if (!bounds.height) return;
+        event.preventDefault();
+        separator.focus({ preventScroll: true });
+        if (!separator.isConnected) return;
+        const startValue = Number(separator.getAttribute('aria-valuenow'));
+        splitDrag = {
+          entry,
+          host,
+          separator,
+          pointerId: event.pointerId,
+          startY: event.clientY,
+          startValue,
+          preview: startValue,
+        };
+        try {
+          separator.setPointerCapture(event.pointerId);
+        } catch {
+          /* Document pointer listeners still finish the gesture. */
+        }
+      });
+      separator.addEventListener('keydown', (event) => {
+        if (
+          !['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) ||
+          splitDrag ||
+          separator.hidden ||
+          !separator.isConnected ||
+          composingInRightDrawer()
+        )
+          return;
+        const bounds = splitBounds(entry, host);
+        const current = Number(separator.getAttribute('aria-valuenow'));
+        const wanted =
+          event.key === 'Home'
+            ? bounds.min
+            : event.key === 'End'
+              ? bounds.max
+              : current + (event.key === 'ArrowUp' ? -2 : 2);
+        splitPreferences.set(
+          entry.coVisible,
+          rounded(Math.max(bounds.min, Math.min(bounds.max, wanted))),
+        );
+        save();
+        updateSplit(entry, host);
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      panel.after(separator);
+    }
     for (const side of ['left', 'right']) {
       const bar = root.ownerDocument.createElement('nav');
       bar.className = `workspace-panel-bar workspace-panel-bar-${side}`;
@@ -503,6 +645,11 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
       });
   }
   function onKeydown(event) {
+    if (event.key === 'Escape' && splitDrag) {
+      event.preventDefault();
+      finishSplit(false);
+      return;
+    }
     // Let the focused editor/IME consume the key first. If Tab is still
     // unhandled, do not move DOM focus away during an active composition.
     if (event.key === 'Tab' && !event.defaultPrevented && composingInRightDrawer()) {

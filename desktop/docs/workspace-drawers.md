@@ -15,8 +15,13 @@ and project Shared Colors on the left; Layers, Alignment and Inspector on the
 right. One side is active at a time. Layers and Inspector share a right-hand stack
 with independent scrollports; each rail focuses its section, and pressing the
 active rail again closes the stack. Alignment remains a separate right-hand
-selection. The first split is fixed; adjustable Layers height remains a later
-approved slice. This routing is a reversible trial.
+selection. The separator adjusts Layers height by pointer or Up/Down, Home and
+End; both sections retain a minimum visible area. Pointer cancellation, Escape
+or window blur restores the previous split. The optional split preference is
+view-only and older drawer preferences use the 38% default. Window resizing
+temporarily clamps the layout without overwriting the saved proportion. The
+[WAI window splitter guidance](https://www.w3.org/WAI/ARIA/apg/patterns/windowsplitter/)
+informs its separator semantics. This routing is a reversible trial.
 
 The document and Session own artwork, selection targets, commands, validation,
 preview and history. Moving, showing, hiding or restoring a panel is not an edit.

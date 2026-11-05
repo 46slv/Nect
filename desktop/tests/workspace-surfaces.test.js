@@ -41,6 +41,20 @@ test('invalid registration fails before DOM and preference mutation', () => {
     ],
     [
       WORKSPACE_SURFACES.map((entry) =>
+        entry.id === 'layers' ? { ...entry, split: { ...entry.split, minPixels: 0 } } : entry,
+      ),
+      adapters,
+    ],
+    [
+      WORKSPACE_SURFACES.map((entry) =>
+        entry.id === 'inspector'
+          ? { ...entry, split: { defaultPercent: 38, minPixels: 80, label: 'Inspector' } }
+          : entry,
+      ),
+      adapters,
+    ],
+    [
+      WORKSPACE_SURFACES.map((entry) =>
         entry.id === 'colors'
           ? { ...entry, selector: '.shared-colors-panel', coVisible: 'editing' }
           : entry,
