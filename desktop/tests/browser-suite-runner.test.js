@@ -138,9 +138,10 @@ test('browser runner preserves all 55 original scripts, arguments, order, and CS
     'tests/shared-color-paints.e2e.js',
     'tests/project-composition-import.e2e.js',
     'tests/composition-import-selection.e2e.js',
+    'tests/shared-color-uses.e2e.js',
   ]);
-  assert.equal(browserTestFiles.length, 97);
-  assert.equal(new Set(browserTestFiles).size, 97);
+  assert.equal(browserTestFiles.length, 98);
+  assert.equal(new Set(browserTestFiles).size, 98);
   assert.ok(Object.isFrozen(browserTestFiles));
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(

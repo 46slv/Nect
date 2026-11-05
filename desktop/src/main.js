@@ -897,6 +897,7 @@ import {
   validateCompositionProject,
 } from './composition-project-model.js';
 import { importsLiveKeyColors } from './color-slots.js';
+import { directSharedColorUses } from './shared-color-uses.js';
 import { createCompositionSessionOwner } from './composition-session-owner-core.js';
 import {
   blankDocument,
@@ -1033,6 +1034,7 @@ const sharedColors = createSharedColorsPanel({
   render: () => render(),
   notify: (message, error) => notify(message, error),
   onClose: () => workspacePanels.close('colors'),
+  onFindUses: (slotId, anchor) => openDirectColorUses(slotId, anchor),
   onOpenKeyColorRecipe: (anchor) => {
     hslPicker.close();
     keyColorRecipePanel.open(anchor);
@@ -7673,7 +7675,7 @@ function sameSourceRoot(a, b) {
     a.port === b.port
   );
 }
-function sourceNavigationBusy() {
+function sourceNavigationBusy(allowedDialog = null) {
   // Conservatively require leaving an editor control explicitly, even for a clean value.
   // This runs on pointerdown, BEFORE a button could blur/commit that control.
   return !!(
@@ -7687,10 +7689,158 @@ function sourceNavigationBusy() {
     session.hasTextComposition ||
     layoutDraft ||
     gridOpacityDraft ||
-    document.querySelector('dialog[open]') ||
-    editingControl(document.activeElement) ||
+    [...document.querySelectorAll('dialog[open]')].some((dialog) => dialog !== allowedDialog) ||
+    (editingControl(document.activeElement) && !allowedDialog?.contains(document.activeElement)) ||
     [...textDrafts.values()].some((draft) => draft.state.changed)
   );
+}
+
+function colorUseNavigationBusy(allowedDialog = null) {
+  return !!(
+    sourceNavigationBusy(allowedDialog) ||
+    documents.hasDraft() ||
+    sharedColors.editing ||
+    session.hasTextDrafts ||
+    [...remapBatches.values()].some((batch) => batch.selected.size)
+  );
+}
+
+function openDirectColorUses(slotId, anchor) {
+  if (colorUseNavigationBusy())
+    throw Error('Finish or cancel the current edit before finding color uses');
+  const owner = session,
+    envelope = session.state,
+    revision = session.projectRevision,
+    generation = documents.generation,
+    project = session.projectSnapshot(),
+    slot = project.colorSlots?.find((entry) => entry.id === slotId),
+    uses = directSharedColorUses(project, slotId);
+  const dialog = document.createElement('dialog');
+  dialog.className = 'shared-color-uses-dialog';
+  dialog.setAttribute('aria-labelledby', 'shared-color-uses-heading');
+  dialog.innerHTML =
+    '<h2 id="shared-color-uses-heading"></h2><ul data-color-uses-list></ul><output role="status" data-color-uses-status></output><div class="shared-color-uses-paging"><button type="button" data-color-uses-previous>Previous</button><span data-color-uses-page></span><button type="button" data-color-uses-next>Next</button></div><footer><button type="button" data-color-uses-close>Close</button></footer>';
+  dialog.querySelector('h2').textContent = `Direct uses · ${slot.name}`;
+  const list = dialog.querySelector('[data-color-uses-list]'),
+    status = dialog.querySelector('[data-color-uses-status]'),
+    previous = dialog.querySelector('[data-color-uses-previous]'),
+    next = dialog.querySelector('[data-color-uses-next]'),
+    pageLabel = dialog.querySelector('[data-color-uses-page]'),
+    paging = dialog.querySelector('.shared-color-uses-paging');
+  let page = 0,
+    navigating = false;
+  const pageSize = 100;
+  function goTo(use) {
+    try {
+      if (
+        session !== owner ||
+        documents.generation !== generation ||
+        session.projectRevision !== revision ||
+        session.state.sessionId !== envelope.sessionId ||
+        session.state.expectedRevision !== envelope.expectedRevision ||
+        colorUseNavigationBusy(dialog)
+      )
+        throw Error('The project or current edit changed. Close and find uses again.');
+      const currentProject = session.projectSnapshot(),
+        composition = currentProject.compositions.find((entry) => entry.id === use.compositionId),
+        layer = composition?.layers.find((entry) => entry.id === use.layerId),
+        node = layer?.nodes.find((entry) => entry.id === use.nodeId),
+        parameter = node?.params?.[use.key];
+      if (
+        !currentProject.colorSlots?.some((entry) => entry.id === slotId) ||
+        parameter?.type !== 'Color' ||
+        parameter.colorSlotId !== slotId
+      )
+        throw Error('This direct use is no longer available. Close and find uses again.');
+      navigating = true;
+      dialog.close('selected');
+      if (session.activeCompositionId !== composition.id) switchActiveComposition(composition.id);
+      activeLayer = layer.id;
+      selected = node.id;
+      selection = new Set([node.id]);
+      artworkTarget = null;
+      artworkSelection = new Set();
+      sourcePicker = null;
+      sourceReturn = null;
+      clearSourceEditSelection();
+      render();
+      if (workspacePanels.active.right !== 'inspector')
+        workspacePanels.select('inspector', { focus: false });
+      revealNode(node.id);
+      requestAnimationFrame(() => {
+        if (
+          session !== owner ||
+          session.projectRevision !== revision ||
+          session.activeCompositionId !== composition.id ||
+          selected !== node.id
+        )
+          return;
+        const field = [...app.querySelectorAll('.inspector .field[data-node][data-key]')].find(
+          (entry) => entry.dataset.node === node.id && entry.dataset.key === use.key,
+        );
+        if (!field) {
+          app.querySelector('.inspector')?.focus({ preventScroll: true });
+          notify('This color input is inactive in the current node mode.');
+          return;
+        }
+        field.scrollIntoView({ block: 'nearest' });
+        const binding = field.querySelector('[data-shared-color-binding]');
+        const focusTarget =
+          binding && !binding.disabled
+            ? binding
+            : field.querySelector('button[data-lock]:not(:disabled),button:not(:disabled)');
+        if (!focusTarget) {
+          field.tabIndex = -1;
+          field.setAttribute('role', 'group');
+          field.setAttribute('aria-label', `${node.name} ${use.key}`);
+        }
+        (focusTarget || field).focus({ preventScroll: true });
+      });
+    } catch (error) {
+      if (dialog.open) status.textContent = error.message;
+      else notify(error.message, true);
+    }
+  }
+  function drawPage() {
+    list.replaceChildren();
+    const start = page * pageSize;
+    for (const use of uses.slice(start, start + pageSize)) {
+      const item = document.createElement('li'),
+        button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = use.label;
+      button.addEventListener('click', () => goTo(use));
+      item.append(button);
+      list.append(item);
+    }
+    status.textContent = uses.length ? '' : 'No direct uses.';
+    paging.hidden = uses.length <= pageSize;
+    previous.disabled = page === 0;
+    next.disabled = start + pageSize >= uses.length;
+    pageLabel.textContent = `${start + 1}–${Math.min(start + pageSize, uses.length)} / ${uses.length}`;
+    list.scrollTop = 0;
+  }
+  previous.addEventListener('click', () => {
+    if (previous.disabled) return;
+    page--;
+    drawPage();
+    (previous.disabled ? next : previous).focus();
+  });
+  next.addEventListener('click', () => {
+    if (next.disabled) return;
+    page++;
+    drawPage();
+    (next.disabled ? previous : next).focus();
+  });
+  dialog
+    .querySelector('[data-color-uses-close]')
+    .addEventListener('click', () => dialog.close('cancel'));
+  dialog.addEventListener('close', () => {
+    if (!navigating && anchor?.isConnected) anchor.focus({ preventScroll: true });
+  });
+  drawPage();
+  showEditorDialog(dialog);
+  (list.querySelector('button') || dialog.querySelector('[data-color-uses-close]')).focus();
 }
 function sourceNavigationPanel() {
   const root = sourceRoot();
@@ -7885,8 +8035,12 @@ function sourceNavigationAction(button) {
 app.addEventListener(
   'pointerdown',
   (event) => {
-    if (!event.target.closest?.('[data-source-nav]')) return;
-    if (sourceNavigationBusy()) {
+    if (!event.target.closest?.('[data-source-nav],[data-shared-color-uses]')) return;
+    if (
+      event.target.closest?.('[data-shared-color-uses]')
+        ? colorUseNavigationBusy()
+        : sourceNavigationBusy()
+    ) {
       event.preventDefault();
       event.stopImmediatePropagation();
       notify(
@@ -7894,6 +8048,22 @@ app.addEventListener(
         true,
       );
     }
+  },
+  true,
+);
+
+// A prevented pointerdown can still be followed by click. Do not let that
+// click redraw away the field whose draft blocked navigation.
+app.addEventListener(
+  'click',
+  (event) => {
+    if (!event.target.closest?.('[data-shared-color-uses]') || !colorUseNavigationBusy()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    notify(
+      'Finish or cancel the current field edit or interaction before source navigation.',
+      true,
+    );
   },
   true,
 );

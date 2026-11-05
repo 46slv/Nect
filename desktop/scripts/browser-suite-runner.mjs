@@ -100,6 +100,7 @@ export const browserTestFiles = Object.freeze([
   'tests/shared-color-paints.e2e.js',
   'tests/project-composition-import.e2e.js',
   'tests/composition-import-selection.e2e.js',
+  'tests/shared-color-uses.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };

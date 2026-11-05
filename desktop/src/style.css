@@ -3021,6 +3021,41 @@ input[data-scrub-step].scrubbing {
   max-width: 100%;
   min-width: 0;
 }
+.shared-color-uses-dialog {
+  box-sizing: border-box;
+  width: min(560px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+}
+.shared-color-uses-dialog h2 {
+  margin: 0;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.shared-color-uses-dialog ul {
+  display: grid;
+  gap: 4px;
+  max-height: 50dvh;
+  overflow: auto;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+.shared-color-uses-dialog li button {
+  width: 100%;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.shared-color-uses-paging,
+.shared-color-uses-dialog footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+.shared-color-uses-paging[hidden] {
+  display: none;
+}
 
 .key-color-recipe-launcher {
   align-self: flex-start;

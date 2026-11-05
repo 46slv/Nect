@@ -22,6 +22,7 @@ export function createSharedColorsPanel({
   onPreview = () => {},
   onClose = () => {},
   onOpenKeyColorRecipe = () => {},
+  onFindUses = () => {},
   externalVisibility = false,
 }) {
   let copiedColor = null,
@@ -289,6 +290,12 @@ export function createSharedColorsPanel({
         controller.cancelEdit();
         return;
       }
+      if (event.target.closest?.('[data-shared-color-uses]') && chroma.editing) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        notify('Finish or cancel the color edit before finding uses', true);
+        return;
+      }
       if (activeColorPointer !== null) {
         if (event.pointerId !== activeColorPointer) {
           event.preventDefault();
@@ -409,7 +416,7 @@ export function createSharedColorsPanel({
   );
   app.addEventListener('click', (event) => {
     const button = event.target.closest?.(
-      '[data-shared-color-add],[data-shared-color-close],[data-key-color-recipe-open],[data-shared-color-copy-toggle],[data-shared-color-copy],[data-shared-color-paste]',
+      '[data-shared-color-add],[data-shared-color-close],[data-key-color-recipe-open],[data-shared-color-copy-toggle],[data-shared-color-copy],[data-shared-color-paste],[data-shared-color-uses]',
     );
     if (!button) return;
     event.stopImmediatePropagation();
@@ -444,6 +451,16 @@ export function createSharedColorsPanel({
           ?.querySelector('[data-shared-color-copy-toggle]')
           ?.focus({ preventScroll: true });
         notify(kind === 'value' ? 'Color value copied in Nect' : 'Color reference copied in Nect');
+      });
+    }
+    if (button.hasAttribute('data-shared-color-uses')) {
+      return perform(() => {
+        envelope(button);
+        if (chroma.editing || hasActiveComposition()) throw Error('Finish the color edit first');
+        const slotId = button.closest('[data-shared-color-row]')?.dataset.sharedColorRow;
+        if (!getDocument().colorSlots?.some((entry) => entry.id === slotId))
+          throw Error('Shared color is no longer available');
+        onFindUses(slotId, button);
       });
     }
     if (button.hasAttribute('data-shared-color-paste')) {
@@ -621,6 +638,9 @@ export function createSharedColorsPanel({
     get composing() {
       return hasActiveComposition();
     },
+    get editing() {
+      return chroma.editing;
+    },
     captureViewState() {
       chroma.captureViewState();
     },
@@ -667,7 +687,7 @@ export function createSharedColorsPanel({
             label === slot.name
               ? ''
               : `<span class="shared-color-identity">${esc(label.slice(slot.name.length))}</span>`;
-          return `<div class="shared-color-row" data-shared-color-row="${esc(slot.id)}"><input type="text" data-shared-color-edit="name" data-shared-color-id="${esc(slot.id)}" maxlength="128" value="${esc(slot.name)}" aria-label="Shared color name"><div class="shared-color-copy" data-shared-color-copy-menu="${esc(slot.id)}"><button type="button" data-shared-color-copy-toggle aria-label="Copy ${esc(label)} in Nect" aria-expanded="false">Copy…</button></div><div class="shared-color-copy-actions" data-shared-color-copy-actions role="group" aria-label="Copy ${esc(label)} in Nect" hidden><button type="button" data-shared-color-copy="value">Copy value in Nect</button><button type="button" data-shared-color-copy="reference">Copy reference in Nect</button></div>${identity}${owned ? '<span data-live-color-note title="Edit in Key color" aria-label="Linked color. Edit in Key color">Linked</span>' : ''}${renderHslFields(slot.value.hex, { mode: 'shared', name: slot.name, id: slot.id, scrub: live, disabled: owned })}<input type="color" data-shared-color-edit="hex" data-shared-color-id="${esc(slot.id)}" value="${esc(slot.value.hex)}" aria-label="${esc(slot.name)} color" ${owned ? 'disabled' : ''}><output data-color-coverage-id="${esc(slot.id)}" aria-label="${esc(slot.name)} visible area">—</output><input type="number" data-color-scrub-step="0.01" title="Drag horizontally to adjust; click to type" data-shared-color-edit="alpha" data-shared-color-id="${esc(slot.id)}" min="0" max="1" step="0.01" value="${slot.value.alpha}" aria-label="${esc(slot.name)} alpha" ${owned ? 'disabled' : ''}></div>`;
+          return `<div class="shared-color-row" data-shared-color-row="${esc(slot.id)}"><input type="text" data-shared-color-edit="name" data-shared-color-id="${esc(slot.id)}" maxlength="128" value="${esc(slot.name)}" aria-label="Shared color name"><div class="shared-color-copy" data-shared-color-copy-menu="${esc(slot.id)}"><button type="button" data-shared-color-copy-toggle aria-label="Color actions for ${esc(label)}" aria-expanded="false">Actions…</button></div><div class="shared-color-copy-actions" data-shared-color-copy-actions role="group" aria-label="Color actions for ${esc(label)}" hidden><button type="button" data-shared-color-copy="value">Copy value in Nect</button><button type="button" data-shared-color-copy="reference">Copy reference in Nect</button><button type="button" data-shared-color-uses>Find direct uses</button></div>${identity}${owned ? '<span data-live-color-note title="Edit in Key color" aria-label="Linked color. Edit in Key color">Linked</span>' : ''}${renderHslFields(slot.value.hex, { mode: 'shared', name: slot.name, id: slot.id, scrub: live, disabled: owned })}<input type="color" data-shared-color-edit="hex" data-shared-color-id="${esc(slot.id)}" value="${esc(slot.value.hex)}" aria-label="${esc(slot.name)} color" ${owned ? 'disabled' : ''}><output data-color-coverage-id="${esc(slot.id)}" aria-label="${esc(slot.name)} visible area">—</output><input type="number" data-color-scrub-step="0.01" title="Drag horizontally to adjust; click to type" data-shared-color-edit="alpha" data-shared-color-id="${esc(slot.id)}" min="0" max="1" step="0.01" value="${slot.value.alpha}" aria-label="${esc(slot.name)} alpha" ${owned ? 'disabled' : ''}></div>`;
         })
         .join('');
       const savedColors = `<div class="shared-color-list" aria-label="Saved shared colors"><h3 class="shared-colors-heading">${live && chroma.editing ? 'Live colors' : 'Saved colors'}</h3>${linked.size ? '<p class="font-note">Edit linked colors in Key color.</p>' : ''}${rows || '<p class="font-note">Add a color, then link a Color field.</p>'}</div>${getDocument().colorDesign?.version === 2 ? '' : '<p class="font-note" data-color-coverage-status role="status">Measuring visible area…</p>'}`;
