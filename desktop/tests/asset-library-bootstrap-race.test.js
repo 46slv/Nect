@@ -28,7 +28,10 @@ async function waitFor(predicate) {
   assert.ok(predicate(), 'expected IPC/UI transition');
 }
 const listing = (id) => ({ root: { id, name: id }, generation: 'test', items: [], warnings: [] });
-function fixture(t) {
+function fixture(
+  t,
+  { registerResult = { roots: [{ id: 'new', name: 'new' }], selectedRootId: 'new' } } = {},
+) {
   const initial = deferred(),
     refresh = deferred(),
     calls = [];
@@ -38,7 +41,7 @@ function fixture(t) {
       case 'list_asset_folders':
         return initial.promise;
       case 'register_asset_folder':
-        return { roots: [{ id: 'new', name: 'new' }], selectedRootId: 'new' };
+        return registerResult;
       case 'refresh_asset_folder':
         if (args.rootId === 'new') return refresh.promise;
         throw Error('Unexpected refresh ' + args.rootId);
@@ -128,6 +131,106 @@ test('normal nonempty initial catalog can be selected and refreshed', async (t) 
   f.refresh.resolve(listing('new'));
   await waitFor(() => f.status.textContent.includes('0 assets'));
   assert.equal(f.root.value, 'new');
+});
+
+test('search while folder bootstrap is pending keeps the registered folders', async (t) => {
+  const f = fixture(t);
+  const search = f.panel.querySelector('[data-asset-search]');
+  search.value = 'demo';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  f.initial.resolve([{ id: 'new', name: 'new' }]);
+  await tick();
+  await tick();
+  assert.deepEqual(
+    [...f.root.options].map((option) => option.value),
+    ['new'],
+  );
+  assert.equal(search.value, 'demo');
+  await waitFor(() => f.calls.some((entry) => entry.cmd === 'refresh_asset_folder'));
+  f.refresh.resolve({
+    ...listing('new'),
+    items: [
+      { relativePath: 'demo.svg', bytes: 20 },
+      { relativePath: 'other.svg', bytes: 20 },
+    ],
+  });
+  await waitFor(() => f.status.textContent.includes('1 assets'));
+  assert.deepEqual(
+    [...f.panel.querySelectorAll('[data-path]')].map((item) => item.dataset.path),
+    ['demo.svg'],
+  );
+});
+
+for (const listFirst of [false, true])
+  test(`cancelled folder picker preserves pending bootstrap (list first: ${listFirst})`, async (t) => {
+    const registration = deferred();
+    const f = fixture(t, { registerResult: registration.promise });
+    f.add.click();
+    await waitFor(() => f.calls.some((entry) => entry.cmd === 'register_asset_folder'));
+    if (listFirst) {
+      f.initial.resolve([{ id: 'new', name: 'new' }]);
+      await tick();
+    }
+    registration.resolve(null);
+    await tick();
+    if (!listFirst) f.initial.resolve([{ id: 'new', name: 'new' }]);
+    await tick();
+    await tick();
+    assert.deepEqual(
+      [...f.root.options].map((option) => option.value),
+      ['new'],
+    );
+    await waitFor(() => f.calls.some((entry) => entry.cmd === 'refresh_asset_folder'));
+    f.refresh.resolve(listing('new'));
+    await waitFor(() => f.status.textContent.includes('0 assets'));
+    assert.equal(f.add.disabled, false);
+  });
+
+test('bootstrap received during a picker cannot overwrite a later successful folder choice', async (t) => {
+  const registration = deferred();
+  const f = fixture(t, { registerResult: registration.promise });
+  f.add.click();
+  await waitFor(() => f.calls.some((entry) => entry.cmd === 'register_asset_folder'));
+  f.initial.resolve([{ id: 'old', name: 'old' }]);
+  await tick();
+  registration.resolve({ roots: [{ id: 'new', name: 'new' }], selectedRootId: 'new' });
+  await waitFor(() => f.calls.some((entry) => entry.cmd === 'refresh_asset_folder'));
+  f.refresh.resolve(listing('new'));
+  await waitFor(() => f.status.textContent.includes('0 assets'));
+  assert.deepEqual(
+    [...f.root.options].map((option) => option.value),
+    ['new'],
+  );
+  assert.equal(f.root.value, 'new');
+});
+
+test('closing during folder discovery prevents late bootstrap from refreshing', async (t) => {
+  const f = fixture(t);
+  closeAssetLibrary();
+  f.initial.resolve([{ id: 'new', name: 'new' }]);
+  await tick();
+  await tick();
+  assert.equal(f.panel.isConnected, false);
+  assert.deepEqual(
+    f.calls.map((entry) => entry.cmd),
+    ['list_asset_folders'],
+  );
+});
+
+test('invalid buffered folder response is reported after picker cancellation', async (t) => {
+  const registration = deferred();
+  const f = fixture(t, { registerResult: registration.promise });
+  f.add.click();
+  f.initial.resolve(null);
+  await tick();
+  registration.resolve(null);
+  await waitFor(() => f.status.textContent === 'Invalid asset folder list');
+  assert.equal(f.status.dataset.error, 'true');
+  assert.equal(f.add.disabled, false);
+  assert.equal(
+    f.calls.some((entry) => entry.cmd === 'refresh_asset_folder'),
+    false,
+  );
 });
 
 test.after(() => {

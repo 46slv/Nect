@@ -81,6 +81,9 @@ export function mountAssetLibrary({
   mounted = panel;
   let alive = true,
     epoch = 0,
+    folderEpoch = 0,
+    folderPickerPending = false,
+    pendingBootstrap = null,
     roots = [],
     listing = null,
     selected = null,
@@ -205,7 +208,8 @@ export function mountAssetLibrary({
   function drawRoots(id = rootSelect.value) {
     rootSelect.replaceChildren();
     for (const r of roots) rootSelect.append(element('option', r.name, { value: r.id }));
-    if (roots.some((r) => r.id === id)) rootSelect.value = id;
+    const selectedId = roots.some((r) => r.id === id) ? id : roots[0]?.id;
+    if (selectedId !== undefined) rootSelect.value = selectedId;
     buttons();
   }
   async function open(item) {
@@ -262,6 +266,10 @@ export function mountAssetLibrary({
     detail.hidden = true;
     buttons();
     grid.replaceChildren();
+    if (!listing) {
+      more.hidden = true;
+      return;
+    }
     const query = search.value.trim().toLocaleLowerCase();
     const items = (listing?.items || []).filter(
       (i) =>
@@ -410,6 +418,7 @@ export function mountAssetLibrary({
     }
     busy = true;
     buttons();
+    folderPickerPending = true;
     const token = ++epoch;
     try {
       const result = await invoke('register_asset_folder');
@@ -423,14 +432,24 @@ export function mountAssetLibrary({
         !result.roots.some((root) => root.id === result.selectedRootId)
       )
         throw Error('Selected folder is unavailable');
+      folderEpoch++;
+      pendingBootstrap = null;
       roots = result.roots;
       drawRoots(result.selectedRootId);
       await refreshRoot();
     } catch (error) {
       if (alive) message(String(error.message || error), true);
     } finally {
+      folderPickerPending = false;
       busy = false;
-      if (alive) buttons();
+      if (alive) {
+        buttons();
+        if (pendingBootstrap) {
+          const pending = pendingBootstrap;
+          pendingBootstrap = null;
+          settleBootstrap(pending);
+        }
+      }
     }
   }
   picker.onchange = async () => {
@@ -596,19 +615,38 @@ export function mountAssetLibrary({
   }
   place.onclick = () => void placeAsset('layer');
   graph.onclick = () => void placeAsset('graph');
+  function settleBootstrap(result) {
+    if (!alive || result.version !== folderEpoch) return;
+    if (result.error) {
+      message(String(result.error.message || result.error), true);
+      return;
+    }
+    if (!Array.isArray(result.roots)) {
+      message('Invalid asset folder list', true);
+      return;
+    }
+    roots = result.roots;
+    drawRoots();
+    void refreshRoot();
+  }
+  message('Reading folders…');
   void (async () => {
-    // A newer folder intent or close owns the UI after this request starts.
-    const token = epoch;
+    // Item redraws do not supersede folder discovery. A successful folder
+    // registration does; while the picker is pending, retain this result.
+    const version = folderEpoch;
     try {
       const initialRoots = desktop
         ? await invoke('list_asset_folders')
         : [...browserRoots.values()];
-      if (!alive || token !== epoch) return;
-      roots = initialRoots;
-      drawRoots();
-      await refreshRoot();
+      if (!alive || version !== folderEpoch) return;
+      const result = { version, roots: initialRoots };
+      if (folderPickerPending) pendingBootstrap = result;
+      else settleBootstrap(result);
     } catch (error) {
-      if (alive && token === epoch) message(String(error.message || error), true);
+      if (!alive || version !== folderEpoch) return;
+      const result = { version, error };
+      if (folderPickerPending) pendingBootstrap = result;
+      else settleBootstrap(result);
     }
   })();
   buttons();
