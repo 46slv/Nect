@@ -70,11 +70,17 @@ literal until an explicit HSL change, and a hue-only edit on gray preserves HEX.
 - **Preview** explicitly computes a detached candidate using the existing
   `restoreKeyColorRecipe` / `editKeyColorRecipe` APIs. The comparison shows
   **current shared literals → proposed shared literals**, including alpha, for
-  active targets only. It does not modify Canvas, authored data or History.
+  active targets only. Preview alone does not change Canvas, authored data or History.
+- For a retained B trial, **Show proposal on artwork** temporarily displays the
+  proposal through existing shared-color bindings. **Show saved artwork** restores
+  the authored view while retaining the valid detached preview. Neither action
+  changes the document or History; an expired preview restores the authored view.
 - Any input/change invalidates that preview. Blank, malformed, nonfinite or
   out-of-range alpha anywhere disables Preview/Apply and removes the old
   comparison. Apply also rechecks every input and the exact preview fingerprint,
-  so a silent/unobserved input change cannot dispatch the old valid result.
+  so a silent/unobserved input change cannot dispatch the old valid result. A
+  subsequent display-document read also expires the detached comparison and
+  artwork projection if the fingerprint has changed.
 - **Apply · 1 Undo** calls `prepareKeyColorRecipeApplication` again, then sends
   exactly `apply-key-color-recipe-snapshot` with the closed `{ snapshot }`
   payload through the real app dispatcher and common Session. It does not inject
@@ -118,6 +124,7 @@ Run from `desktop/`:
 ```sh
 node --test tests/key-color-recipe-panel.test.js tests/key-color-recipe-app-dispatch-dom.test.js
 BASE_URL=http://127.0.0.1:5173 node tests/key-color-recipe-panel.e2e.js
+BASE_URL=http://127.0.0.1:5173 node tests/key-color-artwork-status.e2e.js
 ```
 
 The DOM tests use both real Session kinds, native serializers, real `main.js`
@@ -139,6 +146,10 @@ save/reopen and narrow layout. The earlier Linux sandbox startup refusal was not
 retested by this change. Windows Tauri dialogs, WebView2/native exit/restart,
 human comfort, final presets/dark coefficients and ColorF32/Field rendering remain
 separate acceptance limits.
+
+The focused artwork-status acceptance uses an independent sandboxed Chrome and
+a synthetic B trial to check explicit projection, restoring the authored view,
+and expiration after an unobserved input change and browser resize.
 
 See [retention and Apply contract](key-color-recipe-retention.md) and
 [pure model contract](../../docs/key-color-recipe-contract.md).

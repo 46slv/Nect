@@ -964,7 +964,7 @@ const keyColorRecipePanel = createKeyColorRecipePanel({
   getSession: () => session,
   getDocument: () => history.doc,
   getCoverageSnapshot: () => coverageView.snapshot(),
-  onArtworkPreview: () => updateCanvas(true),
+  onArtworkPreview: (immediate = true) => updateCanvas(immediate),
   dispatch: (type, payload, envelope) => commandChange(type, payload, undefined, false, envelope),
   notify: (message, error) => notify(message, error),
 });

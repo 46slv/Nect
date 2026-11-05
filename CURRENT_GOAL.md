@@ -10,40 +10,19 @@ Must: coherent Canvas/Graph/Inspector and direct generator edits; practical shap
 
 Done: actual production artwork → edit → Undo/Redo → save → exit → restart → re-edit → SVG/PNG, adopted Musts verified, major actual-use defects repaired. A first vertical is not product completion. Performance budgets follow measurements. Dashboard: NOT_CONNECTED; this checkpoint is the current reference.
 
-Authority: user's current formal takeover/development instruction. Edits/tests/development branches/commits/non-force push/Draft PR permitted; mainline merge, release, force/history rewrite, credentials/permission/billing changes excluded.
+Authority: the current user directs Terra to continue development, prioritizing panels and color. Edits, tests, coherent commits and non-force development-branch pushes are authorized. Mainline integration requires its own exact-stack checks and review; release, force/history rewrite, credential or billing changes and bypass of safety denials are excluded. Product decisions remain in [Confirmed requirements](https://app.notion.com/p/01b2ff7802fc410ab4cdb8fd26264495); [REQ-211](https://app.notion.com/p/3fbfd279a6f381a9a7c9c36f5089fba1) governs color and the current [Workspace action](https://app.notion.com/p/40ffd279a6f38132856ce92091df60ea) governs the approved staged panel work. Research plans are not adopted product presets.
 
-Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
+Coarse route: panels and color → remaining adopted Session, document, shape and text requirements chosen from live dependencies → measured native stabilization and Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-11-05 Node Foundation M2e
+## ACTIVE CHECKPOINT — panel editing continuity
 
-Goal: derive registered consumers from one trusted manifest and verify an isolated developer-only Scalar fixture through the same host runtime without product exposure.
-Current phase: projection checkpoint A and isolated fixture checkpoint B locally implemented; exact-source validation and independent review pending on unpublished REQ-42 / #185-dependent stack. #185 is not claimed merged.
-Proven: passive prior/candidate projection oracle and focused checkpoint evidence are in `nect-node-foundation-developer-node-evidence` beside this checkout; older M2d evidence remains separate.
-Next task: review exact-source projection equivalence, isolated same-snapshot fixture and production exclusion evidence; complete any remaining validation without claiming M3 or product completion.
-Approach: immutable manifest and generic anchored projections; scratch-only test composition root; no global mutable registry or product registration API.
-Done for next: exact projection equivalence, private production exclusion, same-host fixture acceptance, tests/build and independent review; real browser/native/CI and publication remain separate.
-State: base 4472283a09f20573a5c9b1012d3a8463cffe6429, tree 907d4140492feb1cb3b5817217fabf0a724b04eb; local branch `codex/nect-developer-node-m2e-20261105`; stops and unpublished refs retained.
-Authority: bounded parent delegation for M2e; public/remote HOLD; no network, denied-operation retry, native, font/image fixture or stopped Mask/Keyer/Image/FindNode/AddNode work.
-Handoff: CONTINUE_CURRENT_TASK; parent retains Mission ownership.
-
-## Prior checkpoint — 2026-11-01 explicit key-color initialization infrastructure
-
-Historical infrastructure checkpoint, superseded as the active task by P1 above.
-
-Goal: Add developer/test-fixture-only atomic initialization from fully explicit supported versioned intent and exact fresh stable-ID/name allocation. Do not treat this as ordinary-user creation or approved product coefficients.
-
-Current phase: Sole source lane on `feat/keycolor-atomic-initialization`, isolated worktree `/tmp/nect-keycolor-atomic-initialization-20261101`, exact base `e462c1aab68c9e531e5e64d887889b308811d548`. Independent review is read-only.
-
-Proven: 21 new real Document/Composition tests pass, and the combined initialization/retention/Apply regression is 70/70 PASS. Exact C1 HEX/alpha0 and IDs/names; revision-zero receipt and one Undo/Redo/native round trip; legacy preservation; receipt-present refusal; fresh-only/global collisions including inactive Composition/Layer/Node/Point/Guide/Node-group; allocation/version/mapping/raw JSON/alpha/budget rejection with exact Session envelope and pending Redo; detached preparation, stale request and unchanged blank defaults. Independent read-only review found and verified repair of an inherited Array/proxy allocation-method atomicity hole: nonordinary arrays reject and the whole guarded request is detached before consumption. No remaining actionable review findings; independent focused regression 70/70 PASS and diff-check PASS. Existing prototype/retention/Apply/editor semantics are unchanged.
-
-Approach: Closed v1 initialization request pins model2, experimental-affine-v1 and linear-srgb-straight-v1. Reuse raw lossless-JSON guard before whole-request detachment and pure createKeyColorRecipe. Append new slots and schema58 retained-only receipt in one private Session candidate. Composition proposed-ID preflight runs before inner Session commit, not the generic post-validation rebuild fallback.
-
-Next task: Complete aggregate format/unit/build checks, independent source review, source-bound receipt and authorized development-branch/Draft PR publication; follow normal CI to a terminal result for the exact candidate tree. Repair bounded findings within this lane.
-
-Done for next: Independent review has no unresolved actionable finding, local checks and exact-tree CI evidence are reconciled, source-bound receipt and Draft PR are available. This packet completes infrastructure only; ordinary-user creation still needs an accepted versioned initial plan/role-count mapping, especially dark-role lightness ordering, or explicit approval of a particular experimental plan.
-
-State: Local candidate based on main after #153/#154 completion. No creation button/preset factory/coefficient editor/JSON import UX/main wiring; no sticky ownership/load solve/default change. Browser/native acceptance is not claimed; known local browser sandbox failures are not retried or bypassed. No font bytes, user documents, native app launches or denied/session paths are accessed.
-
-Authority: Current explicit bounded implementation request permits Nect code/tests/docs, coherent commit, development-branch publication and Draft PR. Do not mark Ready, merge, release, force-push, rewrite history or submit approval reviews. Do not change authentication, permissions or billing.
-
-Handoff: CONTINUE_CURRENT_TASK. Parent retains overall Mission ownership; this isolated lane owns only initialization implementation/verification/publication.
+Goal: preserve a Shared Colors name draft and its focus while IME composition is active when the user attempts to switch or close its workspace panel.
+Current phase: bounded candidate selected from real-main DOM reproduction; inspect the owner, pointer/blur ordering and existing tests before deciding the smallest repair.
+Proven: the preceding Artwork Status checkpoint fixed Restore status and invalidates stale detached comparison, pair result, Apply and artwork projection on a display read. Its real-main DOM/Session regression and an independent sandboxed Windows Chrome run exercised an explicit B trial, Restore, silent-input expiration on resize and authored-state preservation; Chrome screenshots are under `desktop/test-results/key-color-artwork-status/`. These are automated browser results, not native WebView2, physical IME or subjective acceptance. Existing Node Foundation M2e and earlier key-color checkpoint details remain in Git history and their existing evidence directories.
+Next task: reproduce and repair the Shared Colors composition/panel transition if the current owner contract supports it; retain non-composition commit, panel/Viewer behavior, focus, Undo/Redo and saved state.
+Approach: check current Workspace approval and actual code/tests; enforce the transition at the relevant owner boundary without changing left/right placement policy or broadening into Assets drag. Follow Interface Method for a bounded desktop Operate/refine patch and preserve same-condition runtime evidence. Afterwards consider reducing repeated explanatory copy and excess numeric precision in the experimental color dialog without changing semantic values, stable IDs, diagnostics, coefficients or product defaults.
+Done for next: composition-active switch and close cannot hide or blur the editing owner; after composition ends, normal transitions and existing commit behavior work. Proportionate DOM/browser checks cover the affected owner and history. Any physical IME/native acceptance remains separately stated.
+State: worktree `D:/Documents/Codex/2026-11-02/task/Nect-pr178-combination`, branch `codex/key-color-artwork-status-20261105`; parent before the Artwork Status checkpoint `4302330014ac3e6661e008ef0f765c4a5205fa9c`. The checkpoint commit containing this file is the source pointer; read local and remote HEAD before further work. The branch includes a dependent stack; mainline and exact-stack CI are not claimed complete. Effective permission profile observed `:danger-full-access`; requested Terra Max runtime model/effort is not independently observable from this shell. Cargo is not on PATH.
+Authority: current user instruction delegates this worktree to one Terra writer and authorizes coherent commits and non-force development-branch push. No release, history rewrite, credential/billing changes, other workers' edits or safety-denial bypass. User-reviewed appearance and physical/native interactions are not inferred from DOM tests.
+Method: `mission-checkpoint-rollover` and its Nect handoff route maintain one active checkpoint; `execution-orchestration` uses one writer and a bounded result; `interface-method` / `stop-describing-ui` apply the desktop Operate/refine contract, preserve required state and accessibility, and distinguish rendered evidence from native acceptance.
+Handoff: CONTINUE_CURRENT_TASK.

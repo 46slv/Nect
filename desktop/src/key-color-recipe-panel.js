@@ -378,6 +378,12 @@ export function createKeyColorRecipePanel({
     onArtworkPreview();
   }
 
+  function restoreArtwork() {
+    if (!artworkProjection) return;
+    clearArtworkProjection();
+    if (preview) status('Artwork preview off.');
+  }
+
   function showArtworkProjection() {
     try {
       current();
@@ -403,8 +409,8 @@ export function createKeyColorRecipePanel({
       onArtworkPreview();
       status('Artwork preview. Apply to save.');
     } catch (error) {
-      clearArtworkProjection();
-      status(error.message, true);
+      clearPreview();
+      if (validateDraft()) status(error.message, true);
     }
   }
 
@@ -836,7 +842,7 @@ export function createKeyColorRecipePanel({
       else if (event.target.closest('[data-key-color-reset-delta-l]'))
         resetDeltaL(event.target.closest('[data-key-color-reset-delta-l]'));
       else if (event.target.closest('[data-artwork-show]')) showArtworkProjection();
-      else if (event.target.closest('[data-artwork-restore]')) clearArtworkProjection();
+      else if (event.target.closest('[data-artwork-restore]')) restoreArtwork();
       else if (event.target.closest('[data-pair-run]')) checkPair();
       else if (event.target.closest('[data-trial-refresh]')) refreshTrialUsage();
       else if (event.target.closest('[data-research-preview]')) showResearchPreview();
@@ -886,20 +892,26 @@ export function createKeyColorRecipePanel({
     close,
     reconcile,
     get previewDocument() {
-      if (!artworkProjection || !preview || !dialog) return null;
+      if (!preview || !dialog) return null;
       try {
         current();
         if (
-          owner.activeCompositionId !== artworkComposition ||
-          c1Draft?.active ||
-          deltaScrub?.active ||
+          (artworkProjection &&
+            (owner.activeCompositionId !== artworkComposition ||
+              c1Draft?.active ||
+              deltaScrub?.active)) ||
           readInputs().key !== preview.key
         )
           throw Error('Artwork preview expired');
         return artworkProjection;
       } catch {
+        const hadArtwork = !!artworkProjection;
+        // This getter is also read outside drawing; expire everything first,
+        // then queue a redraw if a projection had been displayed.
         artworkProjection = null;
         dialog.querySelector('[data-artwork-show]')?.setAttribute('aria-pressed', 'false');
+        invalidate();
+        if (hadArtwork) onArtworkPreview(false);
         return null;
       }
     },
