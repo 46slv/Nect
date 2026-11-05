@@ -212,11 +212,21 @@ test('real main.js routes the experimental editor through closed Apply, not a la
         assert.deepEqual(s.snapshot(), after);
         s.click('[data-action="redo"]');
         assert.deepEqual(s.snapshot(), colored);
+        // Reopen the real project format; load starts a new history.
+        s.win.nect.load(serializeCompositionProject(colored));
+        assert.deepEqual(s.snapshot(), colored);
+        assert.equal(
+          s.snapshot().keyColorRecipe.committedSnapshot.intent.slots[0].deltaRatioCmax,
+          0.25,
+        );
+        assert.equal(s.ui().past, 0);
+        assert.equal(s.ui().future, 0);
         s.open();
         const pendingChroma = s.query(
           `[data-key-color-input="deltaRatioCmax"][data-key-color-slot="${ids[1]}"]`,
         );
         const c1 = s.query('[data-key-color-input="hex"]');
+        assert.equal(Number(pendingChroma.value), 0.25);
         pendingChroma.value = '0.35';
         s.fire(pendingChroma, 'input');
         c1.value = '#808080';
