@@ -1,3 +1,6 @@
+import { JOIN_SLOT_LIMIT, validJoinSlotOrder } from './join-slots-protocol.js';
+export { JOIN_SLOT_LIMIT } from './join-slots-protocol.js';
+import { contourGroups } from './path-groups.js';
 import { signature } from './path-signature.js';
 export { signature } from './path-signature.js';
 import {
@@ -6,6 +9,7 @@ import {
   SEPARATE_VECTOR,
   VECTOR_MATH,
   REVERSE_PATH,
+  JOIN_GEOMETRY,
 } from './builtin-node-registry.js';
 import { isVector2 } from './node-value-validation.js';
 import { nectOutputPort } from './nect-node-host.js';
@@ -311,7 +315,12 @@ export const definitions = {
   Curve: { closed: p('Boolean', true) },
   'Multi Path': {},
   Boolean: { a: p('Path', null), b: p('Path', null) },
-  'Join Geometry': { a: p('Path', null), b: p('Path', null) },
+  [JOIN_GEOMETRY.declaration.typeId]: Object.fromEntries(
+    JOIN_GEOMETRY.declaration.parameters.map(({ id, type, default: value }) => [
+      id,
+      p(type, value),
+    ]),
+  ),
   'Convert to Path': { path: p('Path', null) },
   'Closed Path Offset': {
     path: p('Path', null),
@@ -689,12 +698,12 @@ export function node(type, x = 40, y = 40) {
   return {
     id: uid('node'),
     type,
-    name: type === 'Join Geometry' ? 'Join Paths' : type,
+    name: builtinNodeRegistry.get(type)?.declaration.factoryName ?? type,
     position: [x, y],
     width: 264,
     collapsed: false,
     params: clone(definitions[type]),
-    ...(type === 'Join Geometry' ? { joinInputOrder: ['a', 'b'] } : {}),
+    ...(builtinNodeRegistry.get(type)?.initialFields() ?? {}),
     points: type === 'Curve' ? [point(250, 150), point(450, 150), point(350, 350)] : [],
     operation: isDither(type)
       ? 'square'
@@ -825,7 +834,7 @@ export function outputType(n, port) {
   const registered = builtinNodeRegistry.get(n.type);
   if (registered)
     return registered
-      .interface(n.operation)
+      .interface(n.operation, registered.hasShape ? registered.snapshot(n) : undefined)
       .outputs.find((output) => nectOutputPort(output) === port)?.type;
   if (n.type === 'Text' && port === 'position') return 'Vector2';
   if (port !== undefined) return undefined;
@@ -868,7 +877,7 @@ const bypassInputs = Object.freeze({
   'Error Diffusion Dither Image': 'path',
   Mask: 'path',
   Boolean: 'a',
-  'Join Geometry': 'a',
+  [JOIN_GEOMETRY.declaration.typeId]: JOIN_GEOMETRY.declaration.bypassInput,
   [MATH_NODE.declaration.typeId]: MATH_NODE.declaration.bypassInput,
   [VECTOR_MATH.declaration.typeId]: VECTOR_MATH.declaration.bypassInput,
   Transform: 'path',
@@ -1335,7 +1344,6 @@ function hasImageMask(layer) {
   const byId = new Map(layer.nodes.map((n) => [n.id, n]));
   return layer.nodes.some((n) => isImageMask(n, byId));
 }
-export const JOIN_SLOT_LIMIT = 1024;
 export const joinInputKeys = (n) => n.joinInputOrder ?? ['a', 'b'];
 export const booleanInputKeys = (n) => n.booleanInputOrder ?? ['a', 'b'];
 // Only command/migration paths call these; reads never allocate or renumber sockets.
@@ -1392,12 +1400,14 @@ function normalizeBooleanInputs(n, compact = false) {
   } else n.booleanInputOrder = keys;
 }
 export function parameters(n) {
-  const entries =
-    n.type === 'Join Geometry'
-      ? joinInputKeys(n).map((key) => [key, n.params[key]])
-      : n.type === 'Boolean'
-        ? booleanInputKeys(n).map((key) => [key, n.params[key]])
-        : Object.entries(n.params);
+  const entries = builtinNodeRegistry.get(n.type)?.hasShape
+    ? builtinNodeRegistry
+        .get(n.type)
+        .snapshot(n)
+        .slots.map(({ id }) => [id, n.params[id]])
+    : n.type === 'Boolean'
+      ? booleanInputKeys(n).map((key) => [key, n.params[key]])
+      : Object.entries(n.params);
   if (n.type === 'Mask' && !Object.hasOwn(n.params, 'feather'))
     entries.push(['feather', p('Scalar', 0)]);
   if (n.type === 'Mask' && !Object.hasOwn(n.params, 'luminance'))
@@ -1892,15 +1902,6 @@ function toPaper(path) {
     compound.addChild(child);
   }
   return compound;
-}
-function contourGroups(path) {
-  const groups = new Map();
-  for (const c of path.contours) {
-    const key = c.group ?? '';
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(c);
-  }
-  return [...groups.values()];
 }
 function booleanOperand(path) {
   if (!path.contours.some((c) => c.group !== undefined)) return toPaper(path);
@@ -2905,8 +2906,21 @@ export function evaluate(
         result = transformVector(transformValues(n, read), read('vector'));
       else if (builtinNodeRegistry.get(n.type)) {
         const registered = builtinNodeRegistry.get(n.type);
-        result = registered.evaluate(n.operation, read, Object.freeze({ nodeId: n.id }));
-        assertValue(registered.interface(n.operation).resultType, result);
+        const nodeId = n.id;
+        const shape = registered.hasShape ? registered.snapshot(n) : undefined;
+        const context = shape
+          ? Object.freeze({
+              nodeId,
+              shape,
+              paintedGroup: (inputs) => {
+                const painted = evaluatedPaintedGroup(inputs, { prefix: nodeId });
+                setEvaluationFingerprint(painted, () => [nodeId, inputs]);
+                return painted;
+              },
+            })
+          : Object.freeze({ nodeId });
+        result = registered.evaluate(n.operation, read, context);
+        assertValue(registered.interface(n.operation, shape).resultType, result);
       } else if (n.type === 'Combine Vector') {
         result = [read('x'), read('y')];
         assertValue('Vector2', result);
@@ -3135,13 +3149,6 @@ export function evaluate(
         result.unstable = true;
         result.fingerprint = signature(result);
         item.remove();
-      } else if (n.type === 'Join Geometry' && n.paintMode) {
-        const inputs = joinInputKeys(n)
-          .filter((key) => n.params[key].source)
-          .map((key) => read(key));
-        if (!inputs.length) throw Error('Connect a path to Join Geometry');
-        result = evaluatedPaintedGroup(inputs, { prefix: n.id });
-        setEvaluationFingerprint(result, (currentEra) => [n.id, inputs]);
       } else if (n.type === 'Transform' && n.paintMode) {
         const source = read('path');
         if (!source) throw Error('Connect a PaintedPath input');
@@ -3150,43 +3157,6 @@ export function evaluate(
           prefix: n.id,
         });
         setEvaluationFingerprint(result, (currentEra) => [n.id, source, result.matrix]);
-      } else if (n.type === 'Join Geometry') {
-        const inputs = joinInputKeys(n)
-          .filter((key) => n.params[key].source)
-          .map((key) => [key, read(key)]);
-        if (!inputs.length) throw Error('Connect a path to Join Geometry');
-        let contourCount = 0,
-          pointCount = 0;
-        const groups = [];
-        for (const [, path] of inputs) {
-          contourCount += path.contours.length;
-          for (const contour of path.contours) pointCount += contour.points.length;
-          if (contourCount > 10000 || pointCount > 100000)
-            throw Error('Join exceeds geometry budget');
-          const inputGroups = contourGroups(path);
-          if (groups.length + inputGroups.length > 256)
-            throw Error('Join exceeds 256 independent groups');
-          groups.push(...inputGroups);
-        }
-        const prefix = fingerprint(n.id);
-        result = {
-          contours: groups.flatMap((group, gi) =>
-            group.map((c, ci) => ({
-              ...clone(c),
-              id: `${prefix}:g${gi}:c${ci}`,
-              group: `${prefix}:g${gi}`,
-              points: c.points.map((pt, pi) => ({
-                ...clone(pt),
-                id: `${prefix}:g${gi}:c${ci}:p${pi}`,
-              })),
-            })),
-          ),
-        };
-        result.characterOccurrences = inputs.flatMap(([key, path]) =>
-          routeCharacters(path, `${n.id}:${key}`),
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Dash Path') {
         const source = read('path');
         result = dashPathGeometry(source, {
@@ -4922,22 +4892,7 @@ export function validate(doc) {
           normalizeJoinInputs(n, false, true);
         }
         const keys = n.joinInputOrder;
-        if (
-          !Array.isArray(keys) ||
-          keys.length < 2 ||
-          keys.length > JOIN_SLOT_LIMIT ||
-          keys[0] !== 'a' ||
-          keys[1] !== 'b' ||
-          new Set(keys).size !== keys.length ||
-          Object.keys(n.params).length !== keys.length ||
-          keys.some(
-            (key, index) =>
-              typeof key !== 'string' ||
-              (index > 1 && !/^input_[A-Za-z0-9_-]{1,100}$/.test(key)) ||
-              !Object.hasOwn(n.params, key),
-          )
-        )
-          throw Error('Invalid Join input order');
+        if (!validJoinSlotOrder(keys, n.params)) throw Error('Invalid Join input order');
         for (const key of keys) {
           const q = n.params[key];
           param(q, n.paintMode ? 'PaintedPath' : 'Path');

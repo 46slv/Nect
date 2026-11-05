@@ -79,6 +79,29 @@ export function createNodeRegistry(declarations, bindings, host) {
     if (!Number.isSafeInteger(declaration.revision) || declaration.revision < 1)
       throw Error('Invalid declaration revision');
     const implementationId = requiredString(declaration.implementationId, 'implementation id');
+    const shapeProtocol =
+      declaration.shape === undefined
+        ? undefined
+        : host.shapeProtocols?.get(declaration.shape.protocol);
+    if (
+      declaration.shape !== undefined &&
+      (!shapeProtocol ||
+        typeof shapeProtocol.validateDeclaration !== 'function' ||
+        !shapeProtocol.validateDeclaration(declaration.shape) ||
+        typeof shapeProtocol.snapshot !== 'function' ||
+        typeof shapeProtocol.resolve !== 'function' ||
+        typeof shapeProtocol.initialFields !== 'function')
+    )
+      throw Error('Unsupported shape protocol');
+    const snapshot = shapeProtocol?.snapshot,
+      resolveShape = shapeProtocol?.resolve,
+      initialFields = shapeProtocol?.initialFields;
+    const shapeOutputsValidator = host.validateOutputs;
+    const shapeTypeValidators = new Map(
+      [...host.types].map(([id, adapter]) => [id, adapter?.validateOutput]),
+    );
+    if (declaration.factoryName !== undefined)
+      requiredString(declaration.factoryName, 'factory name');
     if (!Array.isArray(declaration.capabilities) || declaration.capabilities.length)
       throw Error('Unsupported semantic capability');
     const parameterIds = uniqueIds(declaration.parameters, 'parameter');
@@ -171,9 +194,33 @@ export function createNodeRegistry(declarations, bindings, host) {
     const outputIds = new Set(declaration.outputs.map(({ id }) => id));
     const resolved = Object.freeze({
       declaration,
-      interface(operation) {
+      hasShape: !!shapeProtocol,
+      initialFields() {
+        return initialFields ? initialFields() : {};
+      },
+      snapshot(node) {
+        if (!snapshot) throw Error('Unsupported shape');
+        return snapshot(node);
+      },
+      interface(operation, shape) {
         if (operationIds && !operationIds.has(operation)) throw Error('Invalid operation');
-        return interfaces.get(operationIds ? operation : undefined);
+        const base = interfaces.get(operationIds ? operation : undefined);
+        if (!resolveShape) {
+          if (shape !== undefined) throw Error('Unsupported shape');
+          return base;
+        }
+        const derived = resolveShape(shape, base.outputs);
+        if (
+          typeof shapeTypeValidators.get(derived.resultType) !== 'function' ||
+          derived.outputs.some(
+            (output) =>
+              typeof shapeTypeValidators.get(output.type) !== 'function' ||
+              shapeTypeValidators.get(output.type)(output) !== true,
+          ) ||
+          shapeOutputsValidator(derived.outputs) !== true
+        )
+          throw Error('Unsupported shape output');
+        return derived;
       },
       evaluate(operation, read, context) {
         if (operationIds && !operationIds.has(operation)) throw Error('Invalid operation');

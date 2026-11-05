@@ -1,4 +1,10 @@
-import { MATH_NODE, SEPARATE_VECTOR, VECTOR_MATH, REVERSE_PATH } from './builtin-node-registry.js';
+import {
+  MATH_NODE,
+  SEPARATE_VECTOR,
+  VECTOR_MATH,
+  REVERSE_PATH,
+  JOIN_GEOMETRY,
+} from './builtin-node-registry.js';
 
 // Editor-only metadata. Never serialized into a document or used as a node type ID.
 export const nodeCategories = [
@@ -341,14 +347,7 @@ export const nodeCatalog = [
     description: '輪郭を演算して合成する',
     creationRoute: 'add',
   },
-  {
-    typeId: 'Join Geometry',
-    categoryId: 'combine',
-    labelJa: '結合',
-    aliases: ['結合', '独立パス'],
-    description: '独立したパスを束ねる / independent path groups',
-    creationRoute: 'add',
-  },
+  { typeId: JOIN_GEOMETRY.declaration.typeId, ...JOIN_GEOMETRY.declaration.catalog },
   {
     typeId: 'Geometry Repeater',
     categoryId: 'repeat',

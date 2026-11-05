@@ -7,13 +7,22 @@ import { vectorMathDeclaration } from './vector-math-declaration.js';
 import { evaluateVectorMath } from './vector-math-binding.js';
 import { reversePathDeclaration } from './reverse-path-declaration.js';
 import { evaluateReversePath } from './reverse-path-binding.js';
+import { joinGeometryDeclaration } from './join-geometry-declaration.js';
+import { evaluateJoinGeometry } from './join-geometry-binding.js';
 import { nectNodeHost } from './nect-node-host.js';
 
 // Builtins are explicitly registered by trusted host code, never loaded from a declaration.
 export const builtinNodeRegistry = createNodeRegistry(
-  [mathDeclaration, separateVectorDeclaration, vectorMathDeclaration, reversePathDeclaration],
+  [
+    mathDeclaration,
+    separateVectorDeclaration,
+    vectorMathDeclaration,
+    reversePathDeclaration,
+    joinGeometryDeclaration,
+  ],
   new Map([
     ['builtin.math.v1', Object.freeze({ evaluate: evaluateMath })],
+    ['builtin.join-geometry.v1', Object.freeze({ evaluate: evaluateJoinGeometry })],
     ['builtin.reverse-path.v1', Object.freeze({ evaluate: evaluateReversePath })],
     ['builtin.vector-math.v1', Object.freeze({ evaluate: evaluateVectorMath })],
     [
@@ -30,3 +39,5 @@ export const SEPARATE_VECTOR = builtinNodeRegistry.get('Separate Vector');
 export const VECTOR_MATH = builtinNodeRegistry.get('Vector Math');
 
 export const REVERSE_PATH = builtinNodeRegistry.get('Reverse Path');
+
+export const JOIN_GEOMETRY = builtinNodeRegistry.get('Join Geometry');

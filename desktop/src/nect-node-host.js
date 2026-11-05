@@ -1,3 +1,4 @@
+import { joinSlotsProtocol } from './join-slots-protocol.js';
 import { isVector2 } from './node-value-validation.js';
 
 // Trusted host adapters: declaration structure is separate from authored Document validation.
@@ -6,8 +7,13 @@ const scalar = Object.freeze({
   validateOutput: () => true,
 });
 export const nectNodeHost = Object.freeze({
+  shapeProtocols: new Map([['nect.join-slots', joinSlotsProtocol]]),
   types: new Map([
     ['Scalar', scalar],
+    [
+      'PaintedPath',
+      Object.freeze({ validateDefault: (value) => value === null, validateOutput: () => true }),
+    ],
     [
       'Path',
       Object.freeze({ validateDefault: (value) => value === null, validateOutput: () => true }),

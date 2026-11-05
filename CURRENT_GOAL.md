@@ -14,16 +14,16 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-11-05 Node Foundation M2c
+## ACTIVE CHECKPOINT — 2026-11-05 Node Foundation M2d
 
-Goal: migrate existing Reverse Path to the closed built-in data declaration and trusted binding while preserving geometry, identities, routing, Session and codec behavior.
+Goal: migrate existing Join Geometry dynamic input slots and Path/PaintedPath evaluation to a bounded data declaration and trusted binding while preserving Session, identity and codec behavior.
 Current phase: focused local implementation and validation complete; independent review pending on the unpublished REQ-42 / #185-dependent stack. #185 is not claimed merged.
-Proven: Reverse Path packet and pure geometry baseline are in `nect-node-foundation-reverse-path-packet-evidence`; M2b evidence is in `nect-node-foundation-vector-math-evidence`. Prior results are not this candidate's test results.
-Next task: review this exact candidate, baseline/candidate oracle and focused source-bound evidence in `nect-node-foundation-reverse-path-evidence`; M2c does not complete M2, M3 or the product.
-Approach: use Path-null authored default and operation-specific runtime validation; keep frozen stable node-ID context, existing Session, output identity, geometry metadata and cache.
-Done for next: focused tests/build and independent review; real font Text, browser/native/CI and publication remain separate.
-State: base 508135a9bb9656e9dc733856147871375cc72dfb, tree 8071a6e57f3d0788bdb1363768aeaf0d35860b44; local branch `codex/nect-reverse-path-m2c-20261105`; existing stops and unpublished refs retained.
-Authority: bounded parent delegation for M2c; public/remote HOLD; no network, denied-operation retry, native, font/image fixture or stopped Mask/Keyer/Image/FindNode/AddNode work.
+Proven: prior Reverse Path and Join read-only packet evidence are in `nect-node-foundation-reverse-path-evidence` and `nect-node-foundation-join-geometry-packet-evidence` beside this checkout. Prior results are not this candidate's test results.
+Next task: independent review of this exact Join candidate, baseline/candidate oracle and focused evidence in `nect-node-foundation-join-geometry-evidence`; M2d does not complete M2, M3 or the product.
+Approach: frozen bounded stable-slot shape snapshot; existing Session owns mutation; trusted evaluator helper preserves painted identity; Path and PaintedPath general validation remains outside this bounded migration.
+Done for next: source-bound focused tests/build and review; actual Text/font, browser/native/CI and publication remain separate.
+State: base 942ec19187e4684867499acb31393ca64b4775e7, tree 586a41b52de1be75c1939451324142252d54e719; local branch `codex/nect-join-geometry-m2d-20261105`; existing stops and unpublished refs retained.
+Authority: bounded parent delegation for M2d; public/remote HOLD; no network, denied-operation retry, native, font/image fixture or stopped Mask/Keyer/Image/FindNode/AddNode work.
 Handoff: CONTINUE_CURRENT_TASK; parent retains Mission ownership.
 
 ## Prior checkpoint — 2026-11-01 explicit key-color initialization infrastructure
