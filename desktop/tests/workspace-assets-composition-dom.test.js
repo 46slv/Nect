@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { serialize } from '../src/core.js';
-import { openDOMPanel } from './helpers/dom-workspace-controls.js';
+import { openDOMPanel, revealDOMBoundary } from './helpers/dom-workspace-controls.js';
 
 test('main composition keeps Assets portal on hide and disposes only on panel close', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
@@ -62,6 +62,45 @@ test('main composition keeps Assets portal on hide and disposes only on panel cl
   assert.equal(panel.querySelector('[data-asset-search]'), input);
   assert.equal(input.value, 'synthetic search');
   assert.equal(serialize(win.nect.document), before);
+  openDOMPanel(document, 'layers');
+  assert.equal(panel.hidden, true);
+  assert.equal(panel.inert, true);
+  assert.equal(panel.parentNode, document.body);
+  assert.equal(serialize(win.nect.document), before);
+  assert.equal(document.querySelector('[data-action="redo"]').disabled, false);
+  toggle().click();
+  assert.equal(document.querySelector('[data-asset-library]'), panel);
+  assert.equal(panel.querySelector('[data-asset-search]'), input);
+  assert.equal(input.value, 'synthetic search');
+  revealDOMBoundary(document, 'canvas');
+  const oldWrap = document.querySelector('.canvas-wrap');
+  const gridButton = document.querySelector('[data-action="grid-panel"]');
+  assert.equal(gridButton.closest('[hidden], [inert]'), null);
+  gridButton.click();
+  assert.notEqual(document.querySelector('.canvas-wrap'), oldWrap);
+  assert.equal(document.querySelector('[data-asset-library]'), panel);
+  assert.equal(panel.parentNode, document.body);
+  assert.equal(panel.hidden, false);
+  assert.equal(panel.querySelector('[data-asset-search]'), input);
+  assert.equal(input.value, 'synthetic search');
+  assert.equal(serialize(win.nect.document), before);
+  assert.equal(document.querySelector('[data-action="redo"]').disabled, false);
+  const escape = new win.KeyboardEvent('keydown', {
+    key: 'Escape',
+    bubbles: true,
+    cancelable: true,
+  });
+  input.dispatchEvent(escape);
+  assert.equal(escape.defaultPrevented, true);
+  assert.equal(panel.isConnected, false);
+  assert.equal(document.querySelector('[data-asset-library]'), null);
+  assert.equal(serialize(win.nect.document), before);
+  assert.equal(document.querySelector('[data-action="redo"]').disabled, false);
+  toggle().click();
+  const afterEscape = document.querySelector('[data-asset-library]');
+  assert.ok(afterEscape);
+  assert.notEqual(afterEscape, panel);
+  panel = afterEscape;
   panel.querySelector('[aria-label="Close assets"]').click();
   assert.equal(panel.isConnected, false);
   toggle().click();
