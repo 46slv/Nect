@@ -3837,7 +3837,7 @@ function remapIndividualNumericBinding(input) {
     owner.activeCompositionId === compositionId &&
     current().id === layerId &&
     sourceEpoch === epoch &&
-    state()?.signature === signature &&
+    current().nodes.find((node) => node.id === nodeId)?.params?.path?.source === sourceId &&
     input.isConnected &&
     input.dataset.remap === pointId &&
     input.dataset.node === nodeId &&

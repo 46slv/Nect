@@ -34,6 +34,19 @@ test('raw remap fields share numeric behavior and retain sparse Session edits', 
     'const binding = numericBehaviorBinding(numeric),',
     'const binding = numericBehaviorBinding(numeric), __record = (globalThis.__remapBinding = !!binding),',
   );
+  // Override only the adapter's evaluated path in this synthetic guard test.
+  const adapterStart = source.indexOf('function remapIndividualNumericBinding(input) {');
+  const adapterEnd = source.indexOf('// Remap batch deltas are local drafts;', adapterStart);
+  let adapterSource = source.slice(adapterStart, adapterEnd);
+  assert.ok(adapterStart >= 0 && adapterEnd > adapterStart);
+  assert.ok(adapterSource.includes('const path = evaluate('));
+  adapterSource = adapterSource.replace('const path = evaluate(', 'const basePath = evaluate(');
+  adapterSource = adapterSource.replace(
+    ').run(sourceId),\n        edit =',
+    ').run(sourceId),\n        path = window.remapPathOverride ? window.remapPathOverride(basePath) : basePath,\n        edit =',
+  );
+  assert.ok(adapterSource.includes('window.remapPathOverride(basePath)'));
+  source = source.slice(0, adapterStart) + adapterSource + source.slice(adapterEnd);
   source += '\nwindow.remapTestSelection = (ids) => { selection = new Set(ids); };';
   source +=
     "\nwindow.remapTestDisconnect = (id) => commandChange('disconnect', { nodeId: id, key: 'path' });";
@@ -231,6 +244,42 @@ test('raw remap fields share numeric behavior and retain sparse Session edits', 
   move(100);
   end(100);
   assert.equal(saved(), preciseBefore, 'origin preserves exact high-precision authored value');
+  for (const kind of ['topology', 'missing', 'fingerprint']) {
+    const guardedBefore = saved(),
+      guardedHistory = hist(),
+      guardedInput = field();
+    start(guardedInput);
+    move();
+    win.remapPathOverride = (path) => {
+      const contours = path.contours.map((contour) => ({
+        ...contour,
+        points: [...contour.points],
+      }));
+      if (kind === 'topology') contours[0].closed = !contours[0].closed;
+      if (kind === 'missing')
+        for (const contour of contours)
+          contour.points = contour.points.filter((point) => point.id !== pointId);
+      return {
+        ...path,
+        contours,
+        ...(kind === 'fingerprint'
+          ? { unstable: true, fingerprint: 'mismatched-test-fingerprint' }
+          : {}),
+      };
+    };
+    move(124);
+    end(124);
+    guardedInput.blur();
+    assert.equal(saved(), guardedBefore, `${kind}: old pointer cannot write`);
+    assert.deepEqual(hist(), guardedHistory, `${kind}: history and redo preserved`);
+    win.remapPathOverride = null;
+    const next = field();
+    start(next);
+    move();
+    pointer(document, 'pointercancel', 114);
+    assert.equal(saved(), guardedBefore, `${kind}: current field still cancels`);
+    assert.deepEqual(hist(), guardedHistory);
+  }
   const enable = document.querySelector(`.graph [data-enable-remap="${pointId}"]`);
   assert.ok(enable);
   enable.click();
