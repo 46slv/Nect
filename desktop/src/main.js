@@ -6080,6 +6080,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     artworkTarget ? artworkSelection : l.id,
     pathBounds,
   );
+  sharedColors.captureViewState();
   app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button>${
     session.projectSnapshot().compositions.length > 1
       ? `<label>Composition <select data-active-composition aria-label="Composition">${session

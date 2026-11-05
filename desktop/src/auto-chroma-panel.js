@@ -337,6 +337,10 @@ export function createAutoChromaPanel({
     const details = app.querySelector('.shared-colors-panel [data-color-advanced]');
     return details?.isConnected && app.contains(details) ? details : null;
   }
+  function captureViewState() {
+    const details = currentAdvanced();
+    if (details) advancedOpen = details.open;
+  }
   app.addEventListener(
     'toggle',
     (event) => {
@@ -505,6 +509,7 @@ export function createAutoChromaPanel({
   });
   return {
     reset,
+    captureViewState,
     finishEdit() {
       if (live) liveEdit.commit();
     },
@@ -526,8 +531,7 @@ export function createAutoChromaPanel({
     html({ savedColors = '' } = {}) {
       // Native toggle is queued. Preserve the actual view before a synchronous
       // color edit replaces the panel or builds an incremental preview template.
-      const details = currentAdvanced();
-      if (details) advancedOpen = details.open;
+      captureViewState();
       synchronize();
       if (!slots().length) return '';
       if (!editableSlots().length) return savedColors;

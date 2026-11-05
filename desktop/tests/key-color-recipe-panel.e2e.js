@@ -1253,6 +1253,58 @@ try {
     'Save download → app reload → native JSON file-input Open → retained recipe re-edit verified',
   );
 
+  // A native details toggle is queued. Force the timing in which a color
+  // command redraws the panel before the opening toggle event is delivered.
+  await load(fixture);
+  const quickAdvanced = page.locator('[data-color-advanced]');
+  await quickAdvanced.evaluate(
+    (details) =>
+      new Promise((resolve) => {
+        const close = () => {
+          details.addEventListener('toggle', resolve, { once: true });
+          details.open = false;
+        };
+        if (details.open) close();
+        else {
+          details.addEventListener('toggle', close, { once: true });
+          details.open = true;
+        }
+      }),
+  );
+  const quickBefore = await command(),
+    quickProject = await snapshot();
+  const quickResult = await page.evaluate(() => {
+    const details = document.querySelector('[data-color-advanced]'),
+      mode = document.querySelector('[data-wheel-chroma-mode]');
+    details.open = true;
+    mode.value = 'override';
+    mode.dispatchEvent(new Event('change', { bubbles: true }));
+    return {
+      open: document.querySelector('[data-color-advanced]')?.open,
+      input: !!document.querySelector('[data-wheel-chroma]'),
+    };
+  });
+  assert.deepEqual(quickResult, { open: true, input: true });
+  assert.equal(await page.locator('[data-wheel-chroma]').isVisible(), true);
+  assert.deepEqual(await command(), quickBefore);
+  assert.deepEqual(await snapshot(), quickProject);
+  const quickClosed = await page.evaluate(() => {
+    const details = document.querySelector('[data-color-advanced]'),
+      mode = document.querySelector('[data-wheel-chroma-mode]');
+    details.open = false;
+    mode.value = 'auto';
+    mode.dispatchEvent(new Event('change', { bubbles: true }));
+    return document.querySelector('[data-color-advanced]')?.open;
+  });
+  assert.equal(quickClosed, false);
+  const autoProject = await snapshot();
+  assert.notDeepEqual(autoProject, quickProject);
+  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'undo' }));
+  assert.deepEqual(await snapshot(), quickProject);
+  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'redo' }));
+  assert.deepEqual(await snapshot(), autoProject);
+  results.push('queued Advanced toggle retains its open state across a color command');
+
   await load(fixture);
   const advanced = page.locator('[data-color-advanced]');
   if (!(await advanced.evaluate((el) => el.open))) await advanced.locator('summary').click();
