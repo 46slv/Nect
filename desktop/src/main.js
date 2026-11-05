@@ -8708,7 +8708,8 @@ async function openCompositionImportDialog() {
   if (variableAction) throw Error('Finish or cancel variable font preparation first');
   if (documents.hasDraft()) throw Error('Finish or cancel the active edit first');
   const owner = session,
-    revision = session.state.expectedRevision,
+    envelope = session.state,
+    projectRevision = session.projectRevision,
     generation = documents.generation;
   const opened = desktop
     ? await openFile()
@@ -8746,50 +8747,67 @@ async function openCompositionImportDialog() {
   const dialog = document.createElement('dialog');
   dialog.className = 'composition-import-dialog';
   dialog.innerHTML =
-    '<form method="dialog"><h3>Project compositions</h3><label>Compositions to add <select data-composition-choice></select></label><output role="status"></output><footer><button value="cancel">Cancel</button><button value="import">Import</button></footer></form>';
-  const select = dialog.querySelector('[data-composition-choice]');
+    '<form method="dialog"><h3>Project compositions</h3><fieldset><legend>Compositions to add</legend><div class="composition-import-choices" data-composition-choice></div><div class="composition-import-selection"><button type="button" data-composition-select-all>Select all</button><button type="button" data-composition-select-none>Clear</button></div></fieldset><output role="status"></output><footer><button type="button" value="cancel">Cancel</button><button value="import">Import</button></footer></form>';
+  const choices = dialog.querySelector('[data-composition-choice]');
   const status = dialog.querySelector('output');
   const importButton = dialog.querySelector('button[value="import"]');
   const destinationHasKeyColors = Object.hasOwn(session.projectSnapshot(), 'keyColorRecipe');
-  const allOption = document.createElement('option');
-  allOption.value = '__all__';
-  allOption.textContent = 'All Compositions (' + source.compositions.length + ')';
-  select.append(allOption);
-  for (const composition of source.compositions) {
-    const option = document.createElement('option');
-    option.value = composition.id;
-    option.textContent = composition.name + ' - ' + composition.width + ' x ' + composition.height;
-    select.append(option);
+  dialog
+    .querySelector('button[value="cancel"]')
+    .addEventListener('click', () => dialog.close('cancel'));
+  for (const [index, composition] of source.compositions.entries()) {
+    const label = document.createElement('label'),
+      input = document.createElement('input'),
+      text = document.createElement('span');
+    input.type = 'checkbox';
+    input.value = composition.id;
+    input.checked = true;
+    text.textContent = `${index + 1}. ${composition.name} · ${composition.width} × ${composition.height}`;
+    label.append(input, text);
+    choices.append(label);
   }
+  const selectedCompositions = () => {
+    const selectedIds = new Set(
+      [...choices.querySelectorAll('input:checked')].map((input) => input.value),
+    );
+    return source.compositions.filter((composition) => selectedIds.has(composition.id));
+  };
   function updateImportStatus() {
-    const selected =
-      select.value === '__all__'
-        ? source.compositions
-        : source.compositions.filter((composition) => composition.id === select.value);
+    const selected = selectedCompositions();
     const linked = importsLiveKeyColors(
       source,
       selected.flatMap((composition) => composition.layers),
     );
-    importButton.disabled = linked && destinationHasKeyColors;
-    status.textContent = importButton.disabled
-      ? 'This project already has Key colors. Choose a Composition without linked colors, or unbind them in the source.'
-      : linked
-        ? 'Adds the full linked palette. Older Nect versions cannot open the result.'
-        : source.compositions.length +
-          ' Compositions in ' +
-          source.name +
-          '; All adds the project set in one Undo step; choose one to add only that Composition.';
+    importButton.disabled = !selected.length || (linked && destinationHasKeyColors);
+    status.textContent = !selected.length
+      ? 'Choose at least one Composition.'
+      : linked && destinationHasKeyColors
+        ? 'This project already has Key colors. Choose Compositions without linked colors, or unbind them in the source.'
+        : linked
+          ? 'Adds the full linked palette. Older Nect versions cannot open the result.'
+          : '';
   }
-  select.addEventListener('change', updateImportStatus);
+  choices.addEventListener('change', updateImportStatus);
+  for (const [selector, checked] of [
+    ['[data-composition-select-all]', true],
+    ['[data-composition-select-none]', false],
+  ])
+    dialog.querySelector(selector).addEventListener('click', () => {
+      for (const input of choices.querySelectorAll('input')) input.checked = checked;
+      updateImportStatus();
+    });
   updateImportStatus();
   dialog.addEventListener('close', () => {
-    const value = dialog.returnValue;
+    const value = dialog.returnValue,
+      selected = selectedCompositions();
     dialog.remove();
-    if (value !== 'import' || !select.value) return;
+    if (value !== 'import' || !selected.length) return;
     try {
       if (
         session !== owner ||
-        session.state.expectedRevision !== revision ||
+        session.state.sessionId !== envelope.sessionId ||
+        session.state.expectedRevision !== envelope.expectedRevision ||
+        session.projectRevision !== projectRevision ||
         documents.generation !== generation ||
         documents.hasDraft() ||
         variableAction
@@ -8801,7 +8819,7 @@ async function openCompositionImportDialog() {
         type: 'import-project-compositions',
         payload: {
           sourceProject: source,
-          compositionIds: select.value === '__all__' ? undefined : [select.value],
+          compositionIds: selected.map((composition) => composition.id),
         },
       });
       resetTransient();
@@ -8811,14 +8829,14 @@ async function openCompositionImportDialog() {
       const graphScroll = restoreCompositionViewState();
       render(false, null, graphScroll);
       updateDocumentStatus();
-      notify(select.value === '__all__' ? 'Compositions imported' : 'Composition imported');
+      notify(selected.length === 1 ? 'Composition imported' : 'Compositions imported');
     } catch (error) {
       notify('Composition import rejected; current document preserved: ' + error.message, true);
     }
   });
   document.body.append(dialog);
   dialog.showModal();
-  select.focus();
+  choices.querySelector('input')?.focus();
 }
 function openAssetLibrary(focus = true) {
   mountAssetLibrary({
