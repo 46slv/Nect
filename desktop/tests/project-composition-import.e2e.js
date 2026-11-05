@@ -10,16 +10,19 @@ import {
 
 const browser = await chromium.launch({
   executablePath:
-    process.env.CHROMIUM_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    process.env.CHROMIUM_PATH ||
+    (process.platform === 'win32'
+      ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+      : '/usr/bin/chromium'),
   headless: true,
-  args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  chromiumSandbox: true,
 });
 const page = await browser.newPage({ viewport: { width: 900, height: 620 } });
 const result = { steps: [], errors: [] };
 page.on('pageerror', (error) => result.errors.push(error.message));
 const record = (name, pass, detail = '') => result.steps.push({ name, pass, detail });
 try {
-  await page.goto(process.env.BASE_URL || 'http://127.0.0.1:4173');
+  await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForSelector('.node');
   const wide = migrateLegacyDocumentToCompositionProject(blankDocument()),
     tall = migrateLegacyDocumentToCompositionProject(blankDocument());
@@ -89,10 +92,10 @@ try {
   };
 
   await openImportDialog();
-  const choices = await page.locator('dialog[open] [data-composition-choice] option').count(),
-    defaultChoice = await page.locator('dialog[open] [data-composition-choice]').inputValue();
-  assert.equal(choices, 3);
-  assert.equal(defaultChoice, '__all__');
+  const choices = page.locator('dialog[open] [data-composition-choice] input');
+  assert.equal(await choices.count(), 2);
+  assert.equal(await choices.nth(0).isChecked(), true);
+  assert.equal(await choices.nth(1).isChecked(), true);
   await page.locator('dialog[open] button[value="import"]').click();
   await page.waitForFunction(() => window.nect.projectSnapshot().compositions.length === 3);
   const first = await page.evaluate(() => ({

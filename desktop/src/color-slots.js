@@ -13,6 +13,7 @@ import {
   assertNoLiveKeyColorWrites,
   liveKeyColorSlotIds,
   prepareLiveKeyColorRecipeApplication,
+  prepareLiveKeyColorRecipeEdit,
   detachLiveKeyColorRecipe,
   validateRetainedKeyColorRecipe,
   applyRetainedKeyColorRecipeCommand,
@@ -43,6 +44,7 @@ export const colorSlotCommands = new Set([
   'initialize-key-color-recipe',
   'initialize-live-key-color-recipe',
   'apply-live-key-color-recipe-snapshot',
+  'edit-live-key-color-recipe',
   'detach-live-key-color-recipe',
   'bind-color-slot',
   'unbind-color-slot',
@@ -237,8 +239,11 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
     const result = applyInitializedKeyColorRecipe(doc, prepared.snapshot, slots);
     return { ...result, slotIds: prepared.slots.map((slot) => slot.id) };
   }
-  if (type === 'apply-live-key-color-recipe-snapshot') {
-    const prepared = prepareLiveKeyColorRecipeApplication(doc, payload, slots);
+  if (type === 'apply-live-key-color-recipe-snapshot' || type === 'edit-live-key-color-recipe') {
+    const prepared =
+      type === 'edit-live-key-color-recipe'
+        ? prepareLiveKeyColorRecipeEdit(doc, payload, slots)
+        : prepareLiveKeyColorRecipeApplication(doc, payload, slots);
     const updates = prepareColorSlotUpdates(slots, prepared.updates);
     for (const { slot, value } of updates)
       if (slot.value.hex !== value.hex || slot.value.alpha !== value.alpha) slot.value = value;

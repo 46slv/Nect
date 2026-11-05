@@ -1,0 +1,193 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { directSharedColorUses } from '../src/shared-color-uses.js';
+
+test('direct uses follow typed slot IDs across Compositions without inferring same values', () => {
+  const project = {
+    colorSlots: [
+      { id: 'a', value: { hex: '#112233', alpha: 1 } },
+      { id: 'b', value: { hex: '#112233', alpha: 1 } },
+    ],
+    compositions: [
+      {
+        id: 'c1',
+        name: 'First',
+        layers: [
+          {
+            id: 'l1',
+            name: 'Artwork',
+            nodes: [
+              {
+                id: 'n1',
+                name: 'Fill',
+                params: { color: { type: 'Color', colorSlotId: 'a' } },
+                extension: { colorSlotId: 'a' },
+              },
+              {
+                id: 'n2',
+                name: 'Fill',
+                params: {
+                  color: { type: 'Color', colorSlotId: 'b' },
+                  misc: { type: 'Scalar', colorSlotId: 'a' },
+                },
+              },
+              {
+                id: 'n3',
+                name: 'Fill',
+                params: { color: { type: 'Color', value: { hex: '#112233', alpha: 1 } } },
+              },
+            ],
+          },
+        ],
+      },
+      {
+        id: 'c2',
+        name: 'Second',
+        layers: [
+          {
+            id: 'l2',
+            name: 'Artwork',
+            nodes: [
+              {
+                id: 'n4',
+                name: 'Gradient',
+                params: {
+                  startColor: { type: 'Color', colorSlotId: 'a' },
+                  endColor: { type: 'Color', colorSlotId: 'a' },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const before = structuredClone(project),
+    uses = directSharedColorUses(project, 'a');
+  assert.deepEqual(
+    uses.map(({ compositionId, layerId, nodeId, key }) => ({
+      compositionId,
+      layerId,
+      nodeId,
+      key,
+    })),
+    [
+      { compositionId: 'c1', layerId: 'l1', nodeId: 'n1', key: 'color' },
+      { compositionId: 'c2', layerId: 'l2', nodeId: 'n4', key: 'startColor' },
+      { compositionId: 'c2', layerId: 'l2', nodeId: 'n4', key: 'endColor' },
+    ],
+  );
+  assert.deepEqual(project, before);
+  assert.throws(() => directSharedColorUses(project, 'missing'), /no longer available/);
+});
+
+test('duplicate and visually equivalent names receive distinct labels without retargeting', () => {
+  const node = (id, name) => ({ id, name, params: { color: { type: 'Color', colorSlotId: 'a' } } });
+  const project = {
+    colorSlots: [{ id: 'a' }],
+    compositions: [
+      {
+        id: 'c',
+        name: 'C',
+        layers: [
+          {
+            id: 'l',
+            name: 'L',
+            nodes: [node('n1', 'が'), node('n2', 'か\u3099'), node('n3', 'が / color · 1')],
+          },
+        ],
+      },
+    ],
+  };
+  const uses = directSharedColorUses(project, 'a');
+  assert.equal(new Set(uses.map((use) => use.label.normalize('NFC'))).size, uses.length);
+  assert.deepEqual(
+    uses.map((use) => use.nodeId),
+    ['n1', 'n2', 'n3'],
+  );
+});
+
+test('long shared prefixes remain bounded and distinguishable while full names are retained', () => {
+  const prefix = '😀'.repeat(64),
+    names = [prefix + ' first', prefix + ' second', prefix + '…'];
+  const nodes = names.map((name, index) => ({
+    id: `n${index}`,
+    name,
+    params: {
+      [index === 2 ? 'value · 1' : 'value']: { type: 'Color', colorSlotId: 'a' },
+    },
+  }));
+  const project = {
+    colorSlots: [{ id: 'a' }],
+    compositions: [{ id: 'c', name: 'C', layers: [{ id: 'l', name: 'L', nodes }] }],
+  };
+  const before = structuredClone(project),
+    uses = directSharedColorUses(project, 'a');
+  assert.equal(new Set(uses.map((use) => use.label.normalize('NFC'))).size, 3);
+  assert.deepEqual(
+    uses.map((use) => use.nodeId),
+    ['n0', 'n1', 'n2'],
+  );
+  assert.deepEqual(
+    uses.map((use) => use.fullNames[2]),
+    names,
+  );
+  assert.ok(uses.every((use) => use.label.length < 170 && !use.label.includes('\uFFFD')));
+  assert.deepEqual(project, before);
+});
+
+test('truncation does not display part of a combining or emoji grapheme', () => {
+  const names = [
+    'あ'.repeat(31) + 'か\u3099' + 'tail',
+    'a'.repeat(31) + '👩‍💻' + 'tail',
+    'x' + '\u0301'.repeat(99999),
+  ];
+  const nodes = names.map((name, index) => ({
+    id: `n${index}`,
+    name,
+    params: { value: { type: 'Color', colorSlotId: 'a' } },
+  }));
+  const project = {
+    colorSlots: [{ id: 'a' }],
+    compositions: [{ id: 'c', name: 'C', layers: [{ id: 'l', name: 'L', nodes }] }],
+  };
+  const uses = directSharedColorUses(project, 'a');
+  assert.ok(uses[0].label.includes('あ'.repeat(31) + '… / value'));
+  assert.ok(uses[1].label.includes('a'.repeat(31) + '… / value'));
+  assert.ok(uses[2].label.includes(' / … / value'));
+  assert.deepEqual(
+    uses.map((use) => use.fullNames[2]),
+    names,
+  );
+});
+
+test('without a grapheme segmenter, long names remain available without partial clusters', async () => {
+  const original = Intl.Segmenter;
+  let fallback;
+  try {
+    Intl.Segmenter = undefined;
+    fallback = await import('../src/shared-color-uses.js?without-segmenter');
+  } finally {
+    Intl.Segmenter = original;
+  }
+  const name = 'あ'.repeat(31) + 'か\u3099' + 'tail';
+  const project = {
+    colorSlots: [{ id: 'a' }],
+    compositions: [
+      {
+        id: 'c',
+        name: 'C',
+        layers: [
+          {
+            id: 'l',
+            name: 'L',
+            nodes: [{ id: 'n', name, params: { value: { type: 'Color', colorSlotId: 'a' } } }],
+          },
+        ],
+      },
+    ],
+  };
+  const [use] = fallback.directSharedColorUses(project, 'a');
+  assert.equal(use.label, 'C / L / … / value');
+  assert.equal(use.fullNames[2], name);
+});

@@ -6,7 +6,7 @@ import {
 } from './curve-point-reference.js';
 const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,180}$/;
 const MAX_DIMENSION = 100000;
-const MAX_COMPOSITIONS = 100;
+export const MAX_COMPOSITIONS = 100;
 const MAX_LAYERS = 100;
 const MAX_NODES_PER_LAYER = 2000;
 const MAX_TEXT_LENGTH = 100000;

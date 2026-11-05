@@ -103,7 +103,7 @@ These official Adobe pages document useful task details. They are references for
 
 ### P1 — design studies only
 
-- **Independently sized Compositions:** [staged design](composition-size-design.md) defines per-Composition canonical-pixel frames and compatibility boundaries. A dependency-free model, JSON round-trip, and active-Composition bridge exist, but they are not connected to project Open/Save, UI, import, or export; independent sizes remain P1 and are not operational application scope. Outer-Composition references are deferred; existing Layer-graph references retain their current meaning.
+- **Independently sized Compositions:** [staged design](composition-size-design.md) defines per-Composition canonical-pixel frames and compatibility boundaries. The model and active-Composition bridge are connected to project Open/Save, UI, selected-set import and active-Composition export; this implementation status does not itself change the study's product priority or establish full acceptance. Outer-Composition references are deferred; existing Layer-graph references retain their current meaning.
 - **Feature-specific alignment semantics:** select only if the representative task needs object/key-object/artboard reference modes or even-spacing behavior; write the Nect rule and test fixture before implementation.
 
 These P1 items remain outside the current active REQ-23 checkpoint except where a later explicit user instruction authorizes a bounded implementation. The official Adobe references inform this traceability update; they do not establish Nect parity, and no external consultation was needed to record the user-selected goals against local sources.

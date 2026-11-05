@@ -116,11 +116,20 @@ remain historical; neither loading nor a legacy command converts them. The
 experimental UI exposes linking only for an explicitly selected B trial after
 Preview. It is not a product default or an adoption of B's coefficients.
 
-All active IDs are owned by this packet. The C1 input and the explicit L/chroma
-offsets may be changed through `apply-live-key-color-recipe-snapshot` with the
-captured Session envelope and `{snapshot, expectedPaletteRevision}`. The command
-rebuilds permitted changes with the named solver from the current snapshot and
-rejects changed IDs, plan, policy or fabricated revision/result. It writes the
+All active IDs are owned by this packet. `edit-live-key-color-recipe` takes the
+captured Session envelope and a closed payload with `expectedPaletteRevision`,
+an optional exact C1 `keyColor` literal, and optional `slotDeltas` entries
+`{slotId, deltaL, deltaRatioCmax}`. It rejects unknown or duplicate IDs, invalid
+values and extra fields, then solves in the receiving Session using the saved
+solver and stable IDs. Request order does not change the authored result.
+An unchanged request leaves History and pending Redo intact.
+
+The existing `apply-live-key-color-recipe-snapshot` command remains available
+with `{snapshot, expectedPaletteRevision}`. It rebuilds permitted changes with
+the named solver from the current snapshot and rejects changed IDs, plan,
+policy or fabricated revision/result. Because its comparison is exact, a
+snapshot solved independently in another JS engine can be rejected for tiny
+floating-point differences; use the intent-only command across runtimes. Both write the
 resulting packet and exact shared-slot `{hex, alpha}` projection in one private
 candidate and one Undo. An equal candidate preserves History and pending Redo.
 Existing Fill and Color references use the same stable IDs and projected values;

@@ -889,6 +889,7 @@ import {
   MAX_PROJECT_BYTES,
 } from './fonts.js';
 import {
+  MAX_COMPOSITIONS,
   activeCompositionDocument,
   deserializeCompositionProject,
   migrateLegacyDocumentToCompositionProject,
@@ -896,6 +897,7 @@ import {
   validateCompositionProject,
 } from './composition-project-model.js';
 import { importsLiveKeyColors } from './color-slots.js';
+import { directSharedColorUses } from './shared-color-uses.js';
 import { createCompositionSessionOwner } from './composition-session-owner-core.js';
 import {
   blankDocument,
@@ -1032,6 +1034,7 @@ const sharedColors = createSharedColorsPanel({
   render: () => render(),
   notify: (message, error) => notify(message, error),
   onClose: () => workspacePanels.close('colors'),
+  onFindUses: (slotId, anchor) => openDirectColorUses(slotId, anchor),
   onOpenKeyColorRecipe: (anchor) => {
     hslPicker.close();
     keyColorRecipePanel.open(anchor);
@@ -1951,6 +1954,7 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
         type === 'initialize-key-color-recipe' ||
         type === 'initialize-live-key-color-recipe' ||
         type === 'apply-live-key-color-recipe-snapshot' ||
+        type === 'edit-live-key-color-recipe' ||
         type === 'detach-live-key-color-recipe' ||
         type === 'apply-key-color-recipe-snapshot'
           ? payload
@@ -7671,7 +7675,7 @@ function sameSourceRoot(a, b) {
     a.port === b.port
   );
 }
-function sourceNavigationBusy() {
+function sourceNavigationBusy(allowedDialog = null) {
   // Conservatively require leaving an editor control explicitly, even for a clean value.
   // This runs on pointerdown, BEFORE a button could blur/commit that control.
   return !!(
@@ -7685,10 +7689,187 @@ function sourceNavigationBusy() {
     session.hasTextComposition ||
     layoutDraft ||
     gridOpacityDraft ||
-    document.querySelector('dialog[open]') ||
-    editingControl(document.activeElement) ||
+    [...document.querySelectorAll('dialog[open]')].some((dialog) => dialog !== allowedDialog) ||
+    (editingControl(document.activeElement) && !allowedDialog?.contains(document.activeElement)) ||
     [...textDrafts.values()].some((draft) => draft.state.changed)
   );
+}
+
+function colorUseNavigationBusy(allowedDialog = null) {
+  const pendingRemaps = new Set(
+    [...remapBatches].filter(([, batch]) => batch.selected.size).map(([id]) => id),
+  );
+  const hasOwnedRemap =
+    pendingRemaps.size > 0 &&
+    history.doc.layers.some((layer) =>
+      layer.nodes.some((node) => node.type === 'Path Remap' && pendingRemaps.has(node.id)),
+    );
+  return !!(
+    sourceNavigationBusy(allowedDialog) ||
+    documents.hasDraft() ||
+    sharedColors.editing ||
+    session.hasTextDrafts ||
+    hasOwnedRemap
+  );
+}
+
+function openDirectColorUses(slotId, anchor) {
+  if (colorUseNavigationBusy())
+    throw Error('Finish or cancel the current edit before finding color uses');
+  const owner = session,
+    envelope = session.state,
+    revision = session.projectRevision,
+    generation = documents.generation,
+    project = session.projectSnapshot(),
+    slot = project.colorSlots?.find((entry) => entry.id === slotId),
+    uses = directSharedColorUses(project, slotId);
+  const dialog = document.createElement('dialog');
+  dialog.className = 'shared-color-uses-dialog';
+  dialog.setAttribute('aria-labelledby', 'shared-color-uses-heading');
+  dialog.innerHTML =
+    '<h2 id="shared-color-uses-heading"></h2><ul data-color-uses-list></ul><output role="status" data-color-uses-status></output><div class="shared-color-uses-paging"><button type="button" data-color-uses-previous>Previous</button><span data-color-uses-page></span><button type="button" data-color-uses-next>Next</button></div><footer><button type="button" data-color-uses-close>Close</button></footer>';
+  dialog.querySelector('h2').textContent = `Direct uses · ${slot.name}`;
+  const list = dialog.querySelector('[data-color-uses-list]'),
+    status = dialog.querySelector('[data-color-uses-status]'),
+    previous = dialog.querySelector('[data-color-uses-previous]'),
+    next = dialog.querySelector('[data-color-uses-next]'),
+    pageLabel = dialog.querySelector('[data-color-uses-page]'),
+    paging = dialog.querySelector('.shared-color-uses-paging');
+  let page = 0,
+    navigating = false;
+  const pageSize = 100;
+  function goTo(use) {
+    try {
+      if (
+        session !== owner ||
+        documents.generation !== generation ||
+        session.projectRevision !== revision ||
+        session.state.sessionId !== envelope.sessionId ||
+        session.state.expectedRevision !== envelope.expectedRevision ||
+        colorUseNavigationBusy(dialog)
+      )
+        throw Error('The project or current edit changed. Close and find uses again.');
+      const currentProject = session.projectSnapshot(),
+        composition = currentProject.compositions.find((entry) => entry.id === use.compositionId),
+        layer = composition?.layers.find((entry) => entry.id === use.layerId),
+        node = layer?.nodes.find((entry) => entry.id === use.nodeId),
+        parameter = node?.params?.[use.key];
+      if (
+        !currentProject.colorSlots?.some((entry) => entry.id === slotId) ||
+        parameter?.type !== 'Color' ||
+        parameter.colorSlotId !== slotId
+      )
+        throw Error('This direct use is no longer available. Close and find uses again.');
+      navigating = true;
+      dialog.close('selected');
+      if (session.activeCompositionId !== composition.id) switchActiveComposition(composition.id);
+      activeLayer = layer.id;
+      selected = node.id;
+      selection = new Set([node.id]);
+      artworkTarget = null;
+      artworkSelection = new Set();
+      sourcePicker = null;
+      sourceReturn = null;
+      clearSourceEditSelection();
+      render();
+      if (workspacePanels.active.right !== 'inspector')
+        workspacePanels.select('inspector', { focus: false });
+      revealNode(node.id);
+      requestAnimationFrame(() => {
+        if (
+          session !== owner ||
+          session.projectRevision !== revision ||
+          session.activeCompositionId !== composition.id ||
+          selected !== node.id
+        )
+          return;
+        const field = [...app.querySelectorAll('.inspector .field[data-node][data-key]')].find(
+          (entry) => entry.dataset.node === node.id && entry.dataset.key === use.key,
+        );
+        if (!field) {
+          app.querySelector('.inspector')?.focus({ preventScroll: true });
+          notify('This color input is inactive in the current node mode.');
+          return;
+        }
+        field.scrollIntoView({ block: 'nearest' });
+        const binding = field.querySelector('[data-shared-color-binding]');
+        const focusTarget =
+          binding && !binding.disabled
+            ? binding
+            : field.querySelector('button[data-lock]:not(:disabled),button:not(:disabled)');
+        if (!focusTarget) {
+          field.tabIndex = -1;
+          field.setAttribute('role', 'group');
+          field.setAttribute('aria-label', `${node.name} ${use.key}`);
+        }
+        (focusTarget || field).focus({ preventScroll: true });
+      });
+    } catch (error) {
+      if (dialog.open) status.textContent = error.message;
+      else notify(error.message, true);
+    }
+  }
+  function drawPage() {
+    list.replaceChildren();
+    const start = page * pageSize;
+    for (const use of uses.slice(start, start + pageSize)) {
+      const item = document.createElement('li'),
+        button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = use.label;
+      button.addEventListener('click', () => goTo(use));
+      item.append(button);
+      if (use.fullNames) {
+        const details = document.createElement('details'),
+          summary = document.createElement('summary');
+        summary.textContent = 'Full names';
+        summary.setAttribute('aria-label', `Full names for ${use.label}`);
+        details.append(summary);
+        details.addEventListener('toggle', () => {
+          if (!details.open || details.querySelector('.shared-color-use-full-names')) return;
+          const content = document.createElement('div');
+          content.className = 'shared-color-use-full-names';
+          for (const [index, name] of use.fullNames.entries()) {
+            const line = document.createElement('p'),
+              heading = document.createElement('strong');
+            heading.textContent = ['Composition', 'Layer', 'Node', 'Parameter'][index] + ': ';
+            line.append(heading, document.createTextNode(name));
+            content.append(line);
+          }
+          details.append(content);
+        });
+        item.append(details);
+      }
+      list.append(item);
+    }
+    status.textContent = uses.length ? '' : 'No direct uses.';
+    paging.hidden = uses.length <= pageSize;
+    previous.disabled = page === 0;
+    next.disabled = start + pageSize >= uses.length;
+    pageLabel.textContent = `${start + 1}–${Math.min(start + pageSize, uses.length)} / ${uses.length}`;
+    list.scrollTop = 0;
+  }
+  previous.addEventListener('click', () => {
+    if (previous.disabled) return;
+    page--;
+    drawPage();
+    (previous.disabled ? next : previous).focus();
+  });
+  next.addEventListener('click', () => {
+    if (next.disabled) return;
+    page++;
+    drawPage();
+    (next.disabled ? previous : next).focus();
+  });
+  dialog
+    .querySelector('[data-color-uses-close]')
+    .addEventListener('click', () => dialog.close('cancel'));
+  dialog.addEventListener('close', () => {
+    if (!navigating && anchor?.isConnected) anchor.focus({ preventScroll: true });
+  });
+  drawPage();
+  showEditorDialog(dialog);
+  (list.querySelector('button') || dialog.querySelector('[data-color-uses-close]')).focus();
 }
 function sourceNavigationPanel() {
   const root = sourceRoot();
@@ -7883,8 +8064,12 @@ function sourceNavigationAction(button) {
 app.addEventListener(
   'pointerdown',
   (event) => {
-    if (!event.target.closest?.('[data-source-nav]')) return;
-    if (sourceNavigationBusy()) {
+    if (!event.target.closest?.('[data-source-nav],[data-shared-color-uses]')) return;
+    if (
+      event.target.closest?.('[data-shared-color-uses]')
+        ? colorUseNavigationBusy()
+        : sourceNavigationBusy()
+    ) {
       event.preventDefault();
       event.stopImmediatePropagation();
       notify(
@@ -7892,6 +8077,22 @@ app.addEventListener(
         true,
       );
     }
+  },
+  true,
+);
+
+// A prevented pointerdown can still be followed by click. Do not let that
+// click redraw away the field whose draft blocked navigation.
+app.addEventListener(
+  'click',
+  (event) => {
+    if (!event.target.closest?.('[data-shared-color-uses]') || !colorUseNavigationBusy()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    notify(
+      'Finish or cancel the current field edit or interaction before source navigation.',
+      true,
+    );
   },
   true,
 );
@@ -8708,7 +8909,8 @@ async function openCompositionImportDialog() {
   if (variableAction) throw Error('Finish or cancel variable font preparation first');
   if (documents.hasDraft()) throw Error('Finish or cancel the active edit first');
   const owner = session,
-    revision = session.state.expectedRevision,
+    envelope = session.state,
+    projectRevision = session.projectRevision,
     generation = documents.generation;
   const opened = desktop
     ? await openFile()
@@ -8746,50 +8948,75 @@ async function openCompositionImportDialog() {
   const dialog = document.createElement('dialog');
   dialog.className = 'composition-import-dialog';
   dialog.innerHTML =
-    '<form method="dialog"><h3>Project compositions</h3><label>Compositions to add <select data-composition-choice></select></label><output role="status"></output><footer><button value="cancel">Cancel</button><button value="import">Import</button></footer></form>';
-  const select = dialog.querySelector('[data-composition-choice]');
+    '<form method="dialog"><h3>Project compositions</h3><fieldset><legend>Compositions to add</legend><div class="composition-import-choices" data-composition-choice></div><div class="composition-import-selection"><button type="button" data-composition-select-all>Select all</button><button type="button" data-composition-select-none>Clear</button></div></fieldset><output role="status"></output><footer><button type="button" value="cancel">Cancel</button><button value="import">Import</button></footer></form>';
+  const choices = dialog.querySelector('[data-composition-choice]');
   const status = dialog.querySelector('output');
   const importButton = dialog.querySelector('button[value="import"]');
-  const destinationHasKeyColors = Object.hasOwn(session.projectSnapshot(), 'keyColorRecipe');
-  const allOption = document.createElement('option');
-  allOption.value = '__all__';
-  allOption.textContent = 'All Compositions (' + source.compositions.length + ')';
-  select.append(allOption);
-  for (const composition of source.compositions) {
-    const option = document.createElement('option');
-    option.value = composition.id;
-    option.textContent = composition.name + ' - ' + composition.width + ' x ' + composition.height;
-    select.append(option);
+  const destination = session.projectSnapshot(),
+    destinationHasKeyColors = Object.hasOwn(destination, 'keyColorRecipe'),
+    remaining = MAX_COMPOSITIONS - destination.compositions.length;
+  dialog
+    .querySelector('button[value="cancel"]')
+    .addEventListener('click', () => dialog.close('cancel'));
+  for (const [index, composition] of source.compositions.entries()) {
+    const label = document.createElement('label'),
+      input = document.createElement('input'),
+      text = document.createElement('span');
+    input.type = 'checkbox';
+    input.value = composition.id;
+    input.checked = true;
+    text.textContent = `${index + 1}. ${composition.name} · ${composition.width} × ${composition.height}`;
+    label.append(input, text);
+    choices.append(label);
   }
+  const selectedCompositions = () => {
+    const selectedIds = new Set(
+      [...choices.querySelectorAll('input:checked')].map((input) => input.value),
+    );
+    return source.compositions.filter((composition) => selectedIds.has(composition.id));
+  };
   function updateImportStatus() {
-    const selected =
-      select.value === '__all__'
-        ? source.compositions
-        : source.compositions.filter((composition) => composition.id === select.value);
+    const selected = selectedCompositions();
     const linked = importsLiveKeyColors(
       source,
       selected.flatMap((composition) => composition.layers),
     );
-    importButton.disabled = linked && destinationHasKeyColors;
-    status.textContent = importButton.disabled
-      ? 'This project already has Key colors. Choose a Composition without linked colors, or unbind them in the source.'
-      : linked
-        ? 'Adds the full linked palette. Older Nect versions cannot open the result.'
-        : source.compositions.length +
-          ' Compositions in ' +
-          source.name +
-          '; All adds the project set in one Undo step; choose one to add only that Composition.';
+    importButton.disabled =
+      !selected.length || selected.length > remaining || (linked && destinationHasKeyColors);
+    status.textContent =
+      remaining === 0
+        ? `This project has the maximum of ${MAX_COMPOSITIONS} Compositions.`
+        : !selected.length
+          ? 'Choose at least one Composition.'
+          : selected.length > remaining
+            ? `Choose at most ${remaining} ${remaining === 1 ? 'Composition' : 'Compositions'}.`
+            : linked && destinationHasKeyColors
+              ? 'This project already has Key colors. Choose Compositions without linked colors, or unbind them in the source.'
+              : linked
+                ? 'Adds the full linked palette. Older Nect versions cannot open the result.'
+                : '';
   }
-  select.addEventListener('change', updateImportStatus);
+  choices.addEventListener('change', updateImportStatus);
+  for (const [selector, checked] of [
+    ['[data-composition-select-all]', true],
+    ['[data-composition-select-none]', false],
+  ])
+    dialog.querySelector(selector).addEventListener('click', () => {
+      for (const input of choices.querySelectorAll('input')) input.checked = checked;
+      updateImportStatus();
+    });
   updateImportStatus();
   dialog.addEventListener('close', () => {
-    const value = dialog.returnValue;
+    const value = dialog.returnValue,
+      selected = selectedCompositions();
     dialog.remove();
-    if (value !== 'import' || !select.value) return;
+    if (value !== 'import' || !selected.length) return;
     try {
       if (
         session !== owner ||
-        session.state.expectedRevision !== revision ||
+        session.state.sessionId !== envelope.sessionId ||
+        session.state.expectedRevision !== envelope.expectedRevision ||
+        session.projectRevision !== projectRevision ||
         documents.generation !== generation ||
         documents.hasDraft() ||
         variableAction
@@ -8801,7 +9028,7 @@ async function openCompositionImportDialog() {
         type: 'import-project-compositions',
         payload: {
           sourceProject: source,
-          compositionIds: select.value === '__all__' ? undefined : [select.value],
+          compositionIds: selected.map((composition) => composition.id),
         },
       });
       resetTransient();
@@ -8811,14 +9038,14 @@ async function openCompositionImportDialog() {
       const graphScroll = restoreCompositionViewState();
       render(false, null, graphScroll);
       updateDocumentStatus();
-      notify(select.value === '__all__' ? 'Compositions imported' : 'Composition imported');
+      notify(selected.length === 1 ? 'Composition imported' : 'Compositions imported');
     } catch (error) {
       notify('Composition import rejected; current document preserved: ' + error.message, true);
     }
   });
   document.body.append(dialog);
   dialog.showModal();
-  select.focus();
+  choices.querySelector('input')?.focus();
 }
 function openAssetLibrary(focus = true) {
   mountAssetLibrary({
