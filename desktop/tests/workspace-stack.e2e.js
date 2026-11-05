@@ -160,6 +160,13 @@ try {
     element.scrollTop = 0;
   });
   const viewers = page.locator('.viewer-tabs [data-viewer-mode="viewers"]');
+  for (const key of ['Tab', 'Shift+Tab']) {
+    await page.keyboard.press(key);
+    assert.equal(await textInput.evaluate((element) => element === document.activeElement), true);
+    assert.equal(await textInput.inputValue(), '編集中');
+    assert.deepEqual(await command(), beforeIme);
+    assert.deepEqual(await snapshot(), before);
+  }
   for (const target of [layersRail, addLayer, alignRail, viewers]) {
     await target.click();
     await target.evaluate((element) => element.click());
@@ -211,6 +218,9 @@ try {
   assert.deepEqual(await snapshot(), numericAfter);
   await inspectorRail.click();
   await inspector.focus();
+  await page.keyboard.press('ControlOrMeta+z');
+  assert.deepEqual(await snapshot(), numericBefore);
+  assert.equal(await inspector.evaluate((element) => element === document.activeElement), true);
   await page.keyboard.press('Escape');
   assert.equal(await inspectorRail.getAttribute('aria-expanded'), 'false');
   assert.equal(await layersRail.getAttribute('aria-expanded'), 'false');

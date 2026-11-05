@@ -465,7 +465,11 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
         button.title = entry.label;
         button.setAttribute('aria-label', entry.label);
         const panel = entry.coVisible && root.querySelector(entry.selector);
-        if (panel && !panel.id) panel.id = `workspace-panel-${entry.id}`;
+        if (panel) {
+          if (!panel.id) panel.id = `workspace-panel-${entry.id}`;
+          panel.dataset.workspaceFocusTarget = entry.id;
+          panel.tabIndex = -1;
+        }
         button.setAttribute('aria-controls', panel?.id || `workspace-drawer-${side}`);
         button.addEventListener('click', (event) => {
           event.stopPropagation();
@@ -499,6 +503,12 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
       });
   }
   function onKeydown(event) {
+    // Let the focused editor/IME consume the key first. If Tab is still
+    // unhandled, do not move DOM focus away during an active composition.
+    if (event.key === 'Tab' && !event.defaultPrevented && composingInRightDrawer()) {
+      event.preventDefault();
+      return;
+    }
     if (
       event.key !== 'Escape' ||
       event.defaultPrevented ||
