@@ -15,8 +15,12 @@ changes make the draft stale until it is closed. The neutral-start candidate
 keeps C1 exactly and starts all derived colors with zero chroma; no derived
 chroma controls are provided. Coverage and contrast are not evaluated. This
 does not automatically bootstrap a palette or convert the legacy wheel. On
-reopening a B trial receipt, derived Δr remains stored but its editing controls
-are hidden; other profiles and legacy receipts keep their existing controls.
+reopening a B trial receipt, Assort and Accent expose draft Δr. Exact gray C1
+requires active chroma intent to be zero before Preview or Apply; pending
+values are preserved. This also checks hidden active custom-role chroma intent
+and nonzero chroma offsets. Near-gray hue is not evaluated. Neutral/Text and other B
+roles keep Δr hidden, dormant rows remain unchanged, and legacy controls keep
+their existing behavior.
 Each active B derived color can reset its draft ΔL to zero; this invalidates
 Preview and changes the document only after a new Preview and Apply.
 

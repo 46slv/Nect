@@ -512,6 +512,71 @@ test('B trial preview rejects shared color budget before enabling Create', (t) =
   assert.deepEqual(s.calls, []);
 });
 
+test('B policy exposes Δr only for Assort and Accent, including with a custom role', (t) => {
+  const s = setup(t, 'document', blankDocument());
+  const plan = structuredClone(researchPlans.find((item) => item.id === 'research-neutral-start'));
+  plan.slots.push({
+    id: 'custom',
+    role: 'Custom role',
+    position: 0,
+    lightnessScale: 1,
+    lightnessOffset: 0,
+    chromaScale: 0,
+    chromaOffset: 0,
+    alpha: 1,
+  });
+  const slots = plan.slots.map(({ id, role }) => ({
+    id,
+    role,
+    deltaL: 0,
+    deltaRatioCmax: id === 'custom' ? 0.2 : 0,
+  }));
+  const request = {
+    version: 1,
+    modelVersion: 2,
+    solverVersion: 'experimental-affine-neutral-text-v1',
+    colorSemanticsVersion: 'linear-srgb-straight-v1',
+    paletteId: 'custom-fixture',
+    intent: {
+      keyColor: { id: 'key', role: 'Identity', value: { hex: '#3273c7', alpha: 1 }, hueHint: 0 },
+      preset: plan,
+      slots,
+      settings: { areaAware: true },
+    },
+    allocations: [
+      { slotId: 'key', name: 'C1' },
+      ...slots.map(({ id, role }) => ({ slotId: id, name: role })),
+    ],
+  };
+  s.send('initialize-key-color-recipe', request);
+  const before = s.captured();
+  s.open();
+  for (const id of ['assort', 'accent'])
+    assert.ok(s.query(`[data-key-color-input="deltaRatioCmax"][data-key-color-slot="${id}"]`));
+  for (const id of ['neutral', 'text', 'custom'])
+    assert.equal(
+      s.query(`[data-key-color-input="deltaRatioCmax"][data-key-color-slot="${id}"]`),
+      null,
+    );
+  assert.ok(s.query('[data-key-color-input="deltaL"][data-key-color-slot="custom"]'));
+  s.input('hex', '#aAaAaA');
+  assert.equal(s.query('[data-key-color-preview]').disabled, true);
+  assert.match(s.query('[data-key-color-status]').textContent, /gray.*no defined hue/i);
+  s.click('[data-key-color-cancel]');
+  assert.deepEqual(s.captured(), before);
+  const offsetCase = setup(t, 'document', blankDocument());
+  const offsetRequest = structuredClone(request);
+  offsetRequest.intent.slots.find((slot) => slot.id === 'custom').deltaRatioCmax = 0;
+  offsetRequest.intent.preset.slots.find((slot) => slot.id === 'custom').chromaOffset = 0.1;
+  offsetCase.send('initialize-key-color-recipe', offsetRequest);
+  const offsetBefore = offsetCase.captured();
+  offsetCase.open();
+  offsetCase.input('hex', '#808080');
+  assert.equal(offsetCase.query('[data-key-color-preview]').disabled, true);
+  offsetCase.click('[data-key-color-cancel]');
+  assert.deepEqual(offsetCase.captured(), offsetBefore);
+});
+
 test('invalid input anywhere revokes an old preview, and unobserved edits cannot apply it', (t) => {
   const s = setup(t),
     before = s.captured();

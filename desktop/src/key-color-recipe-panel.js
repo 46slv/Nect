@@ -25,7 +25,15 @@ const trialB = (preset, version) => preset === 'research-neutral-start' && versi
 const hideDelta = (snapshot, slot) =>
   isNeutralTextPolicySlot(snapshot.solverVersion, slot.role) ||
   (snapshot.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION &&
-    trialB(snapshot.intent.preset.id, snapshot.intent.preset.version));
+    trialB(snapshot.intent.preset.id, snapshot.intent.preset.version) &&
+    !['Assort', 'Accent'].includes(slot.role));
+
+// Exact encoded gray follows the existing solver's achromatic branch. No
+// threshold or perceptual claim is implied for colors close to gray.
+const isExactGray = (hex) => {
+  const rgb = hex.slice(1).toLowerCase();
+  return rgb.slice(0, 2) === rgb.slice(2, 4) && rgb.slice(2, 4) === rgb.slice(4, 6);
+};
 
 // An opt-in, detached view draft, not another authored palette owner. The
 // historical receipt is read once; only one explicit Session Apply can write.
@@ -120,6 +128,25 @@ export function createKeyColorRecipePanel({
       return { kind, slotId: input.dataset.keyColorSlot, raw, value };
     });
     if (error) throw Error(error);
+    if (
+      base &&
+      base.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION &&
+      trialB(base.intent.preset.id, base.intent.preset.version) &&
+      isExactGray(values.find((input) => input.kind === 'hex').value)
+    ) {
+      const hasChromaIntent = base.intent.preset.slots.some((plan) => {
+        if (isNeutralTextPolicySlot(base.solverVersion, plan.role)) return false;
+        const stored = base.intent.slots.find((slot) => slot.id === plan.id);
+        const input = values.find(
+          (item) => item.kind === 'deltaRatioCmax' && item.slotId === plan.id,
+        );
+        return (input?.value ?? stored.deltaRatioCmax) !== 0 || plan.chromaOffset !== 0;
+      });
+      if (hasChromaIntent)
+        throw Error(
+          'C1 is gray and has no defined hue. Restore a colored C1 or clear active chroma intent before Preview.',
+        );
+    }
     return {
       values,
       key: JSON.stringify([
@@ -585,6 +612,10 @@ export function createKeyColorRecipePanel({
       trialB(base.intent.preset.id, base.intent.preset.version) &&
       base.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION
     ) {
+      const hueNote = document.createElement('p');
+      hueNote.textContent =
+        'Exact gray requires zero active chroma intent. Near-gray hue is not evaluated.';
+      dialog.querySelector('.key-color-recipe-body').prepend(hueNote);
       dialog
         .querySelector('.key-color-recipe-body')
         .insertAdjacentHTML(

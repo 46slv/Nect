@@ -7,6 +7,7 @@ import { serializeCompositionProject } from '../src/composition-project-model.js
 import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import { retainedRecipeFixture } from './helpers/key-color-recipe-fixture.js';
+import { editKeyColorRecipe } from '../src/key-color-recipe.js';
 
 test('real main.js routes the experimental editor through closed Apply, not a layer edit', async (t) => {
   const keys = [
@@ -191,11 +192,75 @@ test('real main.js routes the experimental editor through closed Apply, not a la
         assert.match(s.query('[data-trial-usage]').textContent, /unavailable/i);
         for (const id of ids.slice(1)) {
           assert.ok(s.query(`[data-key-color-input="deltaL"][data-key-color-slot="${id}"]`));
-          assert.equal(
-            s.query(`[data-key-color-input="deltaRatioCmax"][data-key-color-slot="${id}"]`),
-            null,
+          const chroma = s.query(
+            `[data-key-color-input="deltaRatioCmax"][data-key-color-slot="${id}"]`,
           );
+          if (ids.slice(1, 3).includes(id)) assert.ok(chroma);
+          else assert.equal(chroma, null);
         }
+        const chroma = s.query(
+          `[data-key-color-input="deltaRatioCmax"][data-key-color-slot="${ids[1]}"]`,
+        );
+        chroma.value = '0.25';
+        s.fire(chroma, 'input');
+        s.click('[data-key-color-preview]');
+        s.click('[data-key-color-apply]');
+        const colored = s.snapshot();
+        assert.equal(colored.keyColorRecipe.committedSnapshot.intent.slots[0].deltaRatioCmax, 0.25);
+        assert.ok(colored.keyColorRecipe.committedSnapshot.resolved[1].C > 0);
+        s.click('[data-action="undo"]');
+        assert.deepEqual(s.snapshot(), after);
+        s.click('[data-action="redo"]');
+        assert.deepEqual(s.snapshot(), colored);
+        s.open();
+        const pendingChroma = s.query(
+          `[data-key-color-input="deltaRatioCmax"][data-key-color-slot="${ids[1]}"]`,
+        );
+        const c1 = s.query('[data-key-color-input="hex"]');
+        pendingChroma.value = '0.35';
+        s.fire(pendingChroma, 'input');
+        c1.value = '#808080';
+        s.fire(c1, 'input');
+        assert.equal(pendingChroma.value, '0.35');
+        assert.equal(s.query('[data-key-color-preview]').disabled, true);
+        assert.equal(s.query('[data-key-color-apply]').disabled, true);
+        assert.match(s.query('[data-key-color-status]').textContent, /gray.*no defined hue/i);
+        assert.deepEqual(s.snapshot(), colored);
+        pendingChroma.value = '-0.1';
+        s.fire(pendingChroma, 'input');
+        assert.equal(s.query('[data-key-color-preview]').disabled, true);
+        assert.equal(pendingChroma.value, '-0.1');
+        pendingChroma.value = '0.35';
+        s.fire(pendingChroma, 'input');
+        c1.value = '#808081';
+        s.fire(c1, 'input');
+        assert.equal(s.query('[data-key-color-preview]').disabled, false);
+        assert.match(s.query('dialog').textContent, /Near-gray hue is not evaluated/);
+        c1.value = '#aBcD09';
+        s.fire(c1, 'input');
+        s.click('[data-key-color-preview]');
+        assert.equal(s.query('[data-key-color-apply]').disabled, false);
+        c1.value = '#808080'; // Silent DOM change cannot bypass Apply validation.
+        s.click('[data-key-color-apply]');
+        assert.deepEqual(s.snapshot(), colored);
+        assert.equal(pendingChroma.value, '0.35');
+        assert.equal(s.query('[data-key-color-apply]').disabled, true);
+        pendingChroma.value = '0';
+        s.fire(pendingChroma, 'input');
+        s.click('[data-key-color-preview]');
+        s.click('[data-key-color-apply]');
+        const gray = s.snapshot();
+        assert.equal(gray.keyColorRecipe.committedSnapshot.intent.keyColor.value.hex, '#808080');
+        assert.ok(
+          gray.keyColorRecipe.committedSnapshot.resolved.slice(1).every((row) => row.C === 0),
+        );
+        s.click('[data-action="undo"]');
+        assert.deepEqual(s.snapshot(), colored);
+        s.click('[data-action="redo"]');
+        assert.deepEqual(s.snapshot(), gray);
+        s.click('[data-action="undo"]');
+        assert.deepEqual(s.snapshot(), colored);
+        s.open();
         const delta = s.query(`[data-key-color-input="deltaL"][data-key-color-slot="${ids[1]}"]`);
         delta.value = '0.25';
         s.fire(delta, 'input');
@@ -287,10 +352,59 @@ test('real main.js routes the experimental editor through closed Apply, not a la
         staleReset.click();
         assert.match(s.query('[data-key-color-status]').textContent, /stale/i);
         assert.equal(s.query('[data-key-color-apply]').disabled, true);
+        const staleChroma = s.query(
+          `[data-key-color-input="deltaRatioCmax"][data-key-color-slot="${ids[1]}"]`,
+        );
+        staleChroma.value = '0.6';
+        s.fire(staleChroma, 'input');
+        assert.equal(s.query('[data-key-color-preview]').disabled, true);
         assert.deepEqual(s.snapshot(), external);
         assert.deepEqual(s.win.nect.commandState, staleState);
         s.click('[data-key-color-cancel]');
         assert.deepEqual(s.snapshot(), external);
+        // Fixture preparation uses the real snapshot API; the gray edit below is through the UI.
+        s.win.nect.load(serializeCompositionProject(after));
+        let dormant = editKeyColorRecipe(after.keyColorRecipe.committedSnapshot, {
+          type: 'slot-delta',
+          expectedRevision: after.keyColorRecipe.committedSnapshot.revision,
+          slotId: ids[2],
+          deltaRatioCmax: 0.2,
+        });
+        dormant = editKeyColorRecipe(dormant, {
+          type: 'preset',
+          expectedRevision: dormant.revision,
+          preset: {
+            ...dormant.intent.preset,
+            slots: dormant.intent.preset.slots.filter((slot) => slot.id !== ids[2]),
+          },
+        });
+        s.win.nect.dispatch({
+          ...s.win.nect.commandState,
+          type: 'apply-key-color-recipe-snapshot',
+          payload: { snapshot: dormant },
+        });
+        const dormantBefore = s.snapshot();
+        s.open();
+        assert.ok(s.query(`[data-key-color-dormant="${ids[2]}"]`));
+        assert.equal(
+          s.query(`[data-key-color-input="deltaRatioCmax"][data-key-color-slot="${ids[2]}"]`),
+          null,
+        );
+        s.input('hex', '#808080');
+        assert.equal(s.query('[data-key-color-preview]').disabled, false);
+        s.click('[data-key-color-preview]');
+        s.click('[data-key-color-apply]');
+        const dormantAfter = s.snapshot().keyColorRecipe.committedSnapshot;
+        assert.equal(
+          dormantAfter.intent.slots.find((slot) => slot.id === ids[2]).deltaRatioCmax,
+          0.2,
+        );
+        assert.deepEqual(
+          dormantAfter.resolved.find((row) => row.id === ids[2]),
+          dormant.resolved.find((row) => row.id === ids[2]),
+        );
+        s.click('[data-action="undo"]');
+        assert.deepEqual(s.snapshot(), dormantBefore);
       } finally {
         await s.win.happyDOM.abort();
       }
