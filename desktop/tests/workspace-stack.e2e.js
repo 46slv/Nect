@@ -377,6 +377,15 @@ try {
   await page.keyboard.press('End');
   const preferredWide = Number(await separator.getAttribute('aria-valuenow'));
   await page.setViewportSize({ width: 1200, height: 620 });
+  await page.waitForFunction((expected) => {
+    const split = document.querySelector('[data-workspace-split="editing"]');
+    return (
+      innerWidth === 1200 &&
+      innerHeight === 620 &&
+      Number(split.getAttribute('aria-valuemax')) < expected &&
+      Number(split.getAttribute('aria-valuenow')) === Number(split.getAttribute('aria-valuemax'))
+    );
+  }, preferredWide);
   const constrained = Number(await separator.getAttribute('aria-valuenow'));
   assert.ok(constrained < preferredWide);
   await separator.click();
