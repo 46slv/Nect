@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { blankDocument, CommandSession, connect, node, serialize } from '../src/core.js';
 import {
+  MAX_COMPOSITIONS,
   migrateLegacyDocumentToCompositionProject,
   serializeCompositionProject,
 } from '../src/composition-project-model.js';
@@ -327,6 +328,92 @@ try {
   await page.keyboard.press('Escape');
   await dialog.waitFor({ state: 'detached' });
   assert.deepEqual(await snapshot(), finalProject);
+  const nearCapacity = migrateLegacyDocumentToCompositionProject(blankDocument());
+  nearCapacity.compositions[0].id = 'capacity-0';
+  for (let index = 1; index < MAX_COMPOSITIONS - 1; index++) {
+    const composition = migrateLegacyDocumentToCompositionProject(blankDocument()).compositions[0];
+    composition.id = `capacity-${index}`;
+    nearCapacity.compositions.push(composition);
+  }
+  await page.setViewportSize({ width: 900, height: 620 });
+  await page.evaluate((text) => window.nect.load(text), serializeCompositionProject(nearCapacity));
+  await page.evaluate(() =>
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: 1001 },
+    }),
+  );
+  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'undo' }));
+  const capacityBefore = await snapshot(),
+    capacityState = await state();
+  await openImport();
+  assert.equal(await dialog.locator('button[value="import"]').isDisabled(), true);
+  assert.match(await dialog.locator('output').textContent(), /Choose at most 1 Composition/);
+  for (let index = 0; index < 3; index++)
+    assert.equal(await choices().nth(index).isChecked(), true);
+  await page.setViewportSize({ width: 420, height: 520 });
+  await page.screenshot({ path: resolve(output, 'capacity.png') });
+  await choices().first().press('Enter');
+  assert.equal(await dialog.isVisible(), true);
+  assert.deepEqual(await snapshot(), capacityBefore);
+  assert.deepEqual(await state(), capacityState);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await dialog.locator('[data-composition-select-none]').click();
+  assert.match(await dialog.locator('output').textContent(), /Choose at least one Composition/);
+  await dialog.locator('[data-composition-select-all]').click();
+  assert.equal(await dialog.locator('button[value="import"]').isDisabled(), true);
+  assert.match(await dialog.locator('output').textContent(), /Choose at most 1 Composition/);
+  await choices().nth(1).uncheck();
+  await choices().nth(2).uncheck();
+  assert.equal(await dialog.locator('button[value="import"]').isEnabled(), true);
+  assert.match(await dialog.locator('output').textContent(), /full linked palette/);
+  await dialog.locator('button[value="import"]').click();
+  await dialog.waitFor({ state: 'detached' });
+  await page.waitForFunction(
+    (limit) => window.nect.projectSnapshot().compositions.length === limit,
+    MAX_COMPOSITIONS,
+  );
+  const full = await snapshot();
+  assert.equal(full.compositions.at(-1).name, 'First linked');
+  await page.screenshot({ path: resolve(output, 'narrow-many-tabs.png') });
+  await page.locator('.canvas-stage').focus();
+  await page.keyboard.press('Control+z');
+  await page.waitForFunction(
+    (limit) => window.nect.projectSnapshot().compositions.length === limit - 1,
+    MAX_COMPOSITIONS,
+  );
+  assert.deepEqual(await snapshot(), capacityBefore);
+  await page.keyboard.press('Control+Shift+z');
+  await page.waitForFunction(
+    (limit) => window.nect.projectSnapshot().compositions.length === limit,
+    MAX_COMPOSITIONS,
+  );
+  assert.deepEqual(await snapshot(), full);
+  await page.setViewportSize({ width: 1000, height: 650 });
+  const undoHit = await page.locator('[data-action="undo"]').evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return hit === element || element.contains(hit);
+  });
+  assert.equal(undoHit, true);
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), capacityBefore);
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await snapshot(), full);
+  const fullState = await state();
+  await openImport();
+  assert.equal(await dialog.locator('button[value="import"]').isDisabled(), true);
+  assert.match(
+    await dialog.locator('output').textContent(),
+    new RegExp(`maximum of ${MAX_COMPOSITIONS} Compositions`),
+  );
+  await dialog.locator('[data-composition-select-none]').click();
+  assert.equal(await dialog.locator('button[value="import"]').isDisabled(), true);
+  assert.match(await dialog.locator('output').textContent(), /maximum/);
+  await dialog.locator('button[value="cancel"]').click();
+  assert.deepEqual(await snapshot(), full);
+  assert.deepEqual(await state(), fullState);
   assert.equal(serializeCompositionProject(source), sourceText);
   assert.deepEqual(errors, []);
   console.log(

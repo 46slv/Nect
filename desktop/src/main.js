@@ -889,6 +889,7 @@ import {
   MAX_PROJECT_BYTES,
 } from './fonts.js';
 import {
+  MAX_COMPOSITIONS,
   activeCompositionDocument,
   deserializeCompositionProject,
   migrateLegacyDocumentToCompositionProject,
@@ -8752,7 +8753,9 @@ async function openCompositionImportDialog() {
   const choices = dialog.querySelector('[data-composition-choice]');
   const status = dialog.querySelector('output');
   const importButton = dialog.querySelector('button[value="import"]');
-  const destinationHasKeyColors = Object.hasOwn(session.projectSnapshot(), 'keyColorRecipe');
+  const destination = session.projectSnapshot(),
+    destinationHasKeyColors = Object.hasOwn(destination, 'keyColorRecipe'),
+    remaining = MAX_COMPOSITIONS - destination.compositions.length;
   dialog
     .querySelector('button[value="cancel"]')
     .addEventListener('click', () => dialog.close('cancel'));
@@ -8779,14 +8782,20 @@ async function openCompositionImportDialog() {
       source,
       selected.flatMap((composition) => composition.layers),
     );
-    importButton.disabled = !selected.length || (linked && destinationHasKeyColors);
-    status.textContent = !selected.length
-      ? 'Choose at least one Composition.'
-      : linked && destinationHasKeyColors
-        ? 'This project already has Key colors. Choose Compositions without linked colors, or unbind them in the source.'
-        : linked
-          ? 'Adds the full linked palette. Older Nect versions cannot open the result.'
-          : '';
+    importButton.disabled =
+      !selected.length || selected.length > remaining || (linked && destinationHasKeyColors);
+    status.textContent =
+      remaining === 0
+        ? `This project has the maximum of ${MAX_COMPOSITIONS} Compositions.`
+        : !selected.length
+          ? 'Choose at least one Composition.'
+          : selected.length > remaining
+            ? `Choose at most ${remaining} ${remaining === 1 ? 'Composition' : 'Compositions'}.`
+            : linked && destinationHasKeyColors
+              ? 'This project already has Key colors. Choose Compositions without linked colors, or unbind them in the source.'
+              : linked
+                ? 'Adds the full linked palette. Older Nect versions cannot open the result.'
+                : '';
   }
   choices.addEventListener('change', updateImportStatus);
   for (const [selector, checked] of [
