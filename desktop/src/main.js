@@ -24,6 +24,7 @@ import { createKeyColorRecipePanel } from './key-color-recipe-panel.js';
 import { createHslColorPicker } from './hsl-color-popover.js';
 import { mountAssetLibrary, getAssetLibraryPanel, closeAssetLibrary } from './asset-library.js';
 import { createWorkspacePanels } from './workspace-panels.js';
+import { createWorkspaceSurfaceAdapters } from './workspace-surfaces.js';
 import { createUiSoundSettings } from './ui-sound-settings.js';
 import { installLayerReorder } from './layer-reorder.js';
 import { createGraphPanJoystick, joystickOverviewLayout } from './graph-pan-joystick.js';
@@ -1096,17 +1097,19 @@ const coverageView = createColorCoverageView({
   },
 });
 const workspacePanels = createWorkspacePanels({
-  getAssetPanel: getAssetLibraryPanel,
   storage: {
     getItem: (key) => localStorage.getItem(key),
     setItem: (key, value) => localStorage.setItem(key, value),
   },
-  onAssets: (focus = true) => {
-    if (getAssetLibraryPanel()) closeAssetLibrary();
-    else openAssetLibrary(focus);
-  },
-  onColors: () => coverageView.refresh(),
-  onAlign: () => {},
+  adapters: createWorkspaceSurfaceAdapters({
+    getAssetPanel: getAssetLibraryPanel,
+    onAssets: (focus = true) => {
+      if (getAssetLibraryPanel()) closeAssetLibrary();
+      else openAssetLibrary(focus);
+    },
+    onColors: () => coverageView.refresh(),
+    onAlign: () => {},
+  }),
 });
 function readAlignmentPreferences() {
   try {

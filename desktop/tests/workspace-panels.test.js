@@ -6,6 +6,11 @@ import {
   DRAWER_PREFERENCES_KEY,
   workspaceRailGeometry,
 } from '../src/workspace-panels.js';
+import { createWorkspaceSurfaceAdapters } from '../src/workspace-surfaces.js';
+
+function createTestWorkspacePanels({ storage, ...bindings }) {
+  return createWorkspacePanels({ storage, adapters: createWorkspaceSurfaceAdapters(bindings) });
+}
 
 const markup = `<div class="workspace"><nav class="tools"></nav><main class="middle"><div class="canvas-wrap"><div class="canvas-stage"></div><div class="node-viewers"></div></div><section class="graph-panel"></section></main><aside class="right"><section class="layers"><div class="panel-head">Layers</div></section><section class="alignment-panel">Align</section><section class="shared-colors-panel">Colors</section><section class="inspector">Inspector</section></aside></div>`;
 function fixture() {
@@ -14,7 +19,7 @@ function fixture() {
   root.innerHTML = markup;
   window.document.body.append(root);
   let panel = null;
-  const controller = createWorkspacePanels({
+  const controller = createTestWorkspacePanels({
     getAssetPanel: () => panel,
     onAssets: () => {
       panel = window.document.createElement('aside');
@@ -144,7 +149,7 @@ test('drawer preferences restore real owners and ignore invalid or legacy data',
     setItem: (key, value) => values.set(key, value),
   };
   const create = () =>
-    createWorkspacePanels({
+    createTestWorkspacePanels({
       storage,
       getAssetPanel: () => panel,
       onAssets: (focus) => {
@@ -365,7 +370,7 @@ test('synchronous Assets mount refresh sees the original motion request', () => 
   root.innerHTML = markup;
   window.document.body.append(root);
   let panel, controller, observed;
-  controller = createWorkspacePanels({
+  controller = createTestWorkspacePanels({
     getAssetPanel: () => panel,
     onAssets: () => {
       panel = window.document.createElement('aside');
@@ -434,7 +439,7 @@ test('saved last side wins an old both-open preference without losing either own
     [DRAWER_PREFERENCES_KEY, JSON.stringify({ left: 'assets', right: 'layers', lastSide: 'left' })],
   ]);
   let panel;
-  const controller = createWorkspacePanels({
+  const controller = createTestWorkspacePanels({
     storage: { getItem: (key) => values.get(key), setItem: (key, value) => values.set(key, value) },
     getAssetPanel: () => panel,
     onAssets: () => {

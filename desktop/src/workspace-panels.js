@@ -1,21 +1,9 @@
 import { workspaceIcon } from './ui-icons.js';
+import { WORKSPACE_SURFACES, resolveWorkspaceSurfaces } from './workspace-surfaces.js';
 
 // Workspace controls are view state only. The real panels and commands keep their owners.
 export const DRAWER_PREFERENCES_KEY = 'nect.workspace-drawers.v1';
 
-// Definitions are deliberately small: each item binds an existing panel owner, not document state.
-const ITEMS = [
-  { id: 'assets', side: 'left', label: 'Toggle Assets panel' },
-  { id: 'colors', side: 'left', label: 'Toggle Shared Colors panel' },
-  { id: 'layers', side: 'right', label: 'Focus Layers', selector: '.layers' },
-  {
-    id: 'align',
-    side: 'right',
-    label: 'Toggle Alignment panel',
-    selector: '.alignment-panel',
-  },
-  { id: 'inspector', side: 'right', label: 'Focus Inspector', selector: '.inspector' },
-];
 // Rounded-tab E reference: concave corner, short tangent, convex corner.
 // Optical proportions keep a 26px face and focus ring inside the surface.
 // The filled strip joins the bar to its panel; the curved edge stays one path.
@@ -32,7 +20,8 @@ export function workspaceRailGeometry(height, count) {
   return { height: h, fill: `${edge} H6 Z`, edge };
 }
 
-export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColors, storage }) {
+export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFACES, adapters }) {
+  const ITEMS = resolveWorkspaceSurfaces(declarations, adapters);
   let root,
     view,
     observer,
@@ -82,10 +71,8 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
   function setMotion(side, enabled) {
     const host = root?.querySelector(`[data-drawer-side="${side}"]`);
     if (host) host.dataset.motionEnabled = String(enabled);
-    if (side === 'left') {
-      const panel = getAssetPanel();
-      if (panel) panel.dataset.motionEnabled = String(enabled);
-    }
+    for (const entry of ITEMS.filter((entry) => entry.side === side))
+      entry.adapter.setMotion?.(enabled);
   }
   function setRailFlag(name, value) {
     root?.querySelectorAll('.workspace-panel-bar').forEach((bar) => {
@@ -273,35 +260,16 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
       ?.setAttribute('aria-pressed', String(active.right === 'align'));
     const colors = wrap.querySelector('.shared-colors-panel');
     if (colors) colors.hidden = displayed.left !== 'colors';
-    const slot = wrap.querySelector('[data-workspace-asset-slot]');
-    const panel = getAssetPanel();
-    if (slot) slot.hidden = displayed.left !== 'assets';
-    if (panel) {
-      const visible = active.left === 'assets' && !viewerMode && slot && !slot.hidden;
-      if (viewerMode && panel.contains(root.ownerDocument.activeElement))
-        wrap
-          .querySelector('.viewer-tabs [data-viewer-mode="viewers"]')
-          ?.focus({ preventScroll: true });
-      panel.dataset.motionSuppressed = String(retreated || viewerMode);
-      panel.inert = !visible;
-      panel.style.opacity = retreated ? '0' : '';
-      panel.style.pointerEvents = retreated ? 'none' : '';
-      // Keep the last valid portal rectangle while the ancestor is hidden during native drag.
-      if (visible && !retreated) {
-        const rect = slot.getBoundingClientRect();
-        // The live drawer and portal stay fixed; only the painted shell moves.
-        panel.classList.add('asset-library-docked');
-        Object.assign(panel.style, {
-          left: `${rect.left}px`,
-          top: `${rect.top}px`,
-          width: `${rect.width}px`,
-          height: `${rect.height}px`,
-          right: 'auto',
-          bottom: 'auto',
-        });
-      }
-      panel.hidden = !visible;
-    }
+    for (const entry of ITEMS)
+      entry.adapter.refresh?.({
+        root,
+        wrap,
+        active: active[entry.side],
+        displayed: displayed[entry.side],
+        viewerMode,
+        retreated,
+        id: entry.id,
+      });
     schedulePeek();
   }
   function select(id, { focus = true } = {}) {
@@ -311,9 +279,8 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     const other = entry.side === 'left' ? 'right' : 'left';
     if (active[other]) {
       const oldHost = root?.querySelector(`[data-drawer-side="${other}"]`);
-      const oldPortal = other === 'left' ? getAssetPanel() : null;
       const focused = root?.ownerDocument.activeElement;
-      if (oldHost?.contains(focused) || oldPortal?.contains(focused))
+      if (oldHost?.contains(focused) || item(active[other])?.adapter.contains?.(focused))
         trigger(id)?.focus({ preventScroll: true });
       active[other] = null;
       setMotion(other, true);
@@ -328,23 +295,15 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     motionIntent[entry.side] = true;
     setMotion(entry.side, true);
     try {
-      if (id === 'assets' && !getAssetPanel()) onAssets();
-      if (id === 'align') onAlign();
-      if (id === 'colors') onColors?.();
+      entry.adapter.open({ root });
       setMotion(entry.side, true);
       refresh();
     } finally {
       motionIntent[entry.side] = false;
     }
     if (focus) {
-      const target =
-        id === 'assets'
-          ? getAssetPanel()?.querySelector('[data-asset-search]')
-          : root.querySelector(entry.selector || '.shared-colors-panel');
-      if (target) {
-        if (id !== 'assets') target.tabIndex = -1;
-        target.focus({ preventScroll: true });
-      }
+      const target = entry.adapter.focus({ root });
+      target?.focus({ preventScroll: true });
     }
   }
   function close(id, focus = true, { animate = true } = {}) {
@@ -353,7 +312,7 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     active[entry.side] = null;
     save();
     if (entry.side === 'left') retreated = false;
-    // Preserve the Assets DOM and in-flight work across panel switches/close.
+    // A hidden surface retains its owner and in-flight work.
     setMotion(entry.side, animate);
     refresh();
     if (focus) trigger(id)?.focus({ preventScroll: true });
@@ -396,10 +355,8 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     left.dataset.drawerSide = 'left';
     left.id = 'workspace-drawer-left';
     left.setAttribute('aria-label', 'Assets and colors');
-    const slot = root.ownerDocument.createElement('div');
-    slot.dataset.workspaceAssetSlot = '';
-    slot.className = 'workspace-asset-slot';
-    left.append(slot);
+    for (const entry of ITEMS.filter((entry) => entry.side === 'left'))
+      entry.adapter.attach?.(left);
     const colors = right.querySelector('.shared-colors-panel');
     if (colors) left.append(colors);
     wrap.append(left);
@@ -447,9 +404,7 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
       queueMicrotask(() => {
         if (version !== attachVersion || !restorePending) return;
         restorePending = false;
-        if (active.left === 'assets' && !getAssetPanel()) onAssets(false);
-        if (active.left === 'colors' && !root.querySelector('.shared-colors-panel')) onColors?.();
-        if (active.right === 'align') onAlign();
+        for (const side of ['left', 'right']) item(active[side])?.adapter.restore({ root });
         refresh();
       });
   }
@@ -478,7 +433,7 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     if (peekFrame) view?.cancelAnimationFrame(peekFrame);
     peekFrame = 0;
     setRailFlag('near', false);
-    retreated = !!value && active.left === 'assets';
+    retreated = !!value && item(active.left)?.adapter.canRetreat === true;
     setRailFlag('dragging', pointerDragging || retreated);
     refresh();
   }
