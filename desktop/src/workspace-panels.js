@@ -314,6 +314,16 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     if (focus) trigger(id)?.focus({ preventScroll: true });
   }
   function attach(nextRoot) {
+    if (
+      !nextRoot ||
+      typeof nextRoot.querySelector !== 'function' ||
+      !nextRoot.ownerDocument?.defaultView
+    )
+      return;
+    const wrap = nextRoot.querySelector('.canvas-wrap');
+    const right = nextRoot.querySelector('.right');
+    const tools = nextRoot.querySelector('.tools');
+    if (!wrap || !right || !tools) return;
     observer?.disconnect();
     view?.removeEventListener('resize', refresh);
     if (peekFrame) view?.cancelAnimationFrame(peekFrame);
@@ -322,10 +332,6 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     root?.ownerDocument.removeEventListener('keydown', onKeydown);
     root = nextRoot;
     view = root.ownerDocument.defaultView;
-    const wrap = root.querySelector('.canvas-wrap');
-    const right = root.querySelector('.right');
-    const tools = root.querySelector('.tools');
-    if (!wrap || !right || !tools) return;
     if (wrap.querySelector('.workspace-panel-bar')) {
       view?.addEventListener('resize', refresh);
       root.ownerDocument.addEventListener('keydown', onKeydown);

@@ -537,3 +537,130 @@ test('legacy adapters retain DOM order, focus and sync visibility before portal 
   );
   win.happyDOM.abort();
 });
+
+test('incomplete attach target preserves the old portal and its Escape listener', () => {
+  const win = new Window(),
+    root = win.document.createElement('div');
+  root.innerHTML = markup;
+  win.document.body.append(root);
+  let panel = null,
+    opens = 0,
+    writes = 0;
+  const values = new Map(),
+    storage = {
+      getItem: (key) => values.get(key),
+      setItem: (key, value) => {
+        writes++;
+        values.set(key, value);
+      },
+    };
+  const controller = createTestWorkspacePanels({
+    storage,
+    getAssetPanel: () => panel,
+    onAssets: () => {
+      opens++;
+      panel = win.document.createElement('aside');
+      panel.innerHTML = '<input data-asset-search>';
+      win.document.body.append(panel);
+    },
+    onAlign() {},
+  });
+  controller.attach(root);
+  controller.select('assets');
+  const original = panel,
+    input = panel.querySelector('input');
+  input.value = 'unsaved search';
+  input.focus();
+  const html = root.innerHTML,
+    preferences = JSON.stringify([...values]),
+    active = JSON.stringify(controller.active),
+    beforeWrites = writes;
+  const incomplete = win.document.createElement('div');
+  incomplete.innerHTML = '<div class="canvas-wrap"></div>';
+  win.document.body.append(incomplete);
+  controller.attach(incomplete);
+  assert.equal(root.innerHTML, html);
+  assert.equal(panel, original);
+  assert.equal(panel.parentNode, win.document.body);
+  assert.equal(input.value, 'unsaved search');
+  assert.equal(win.document.activeElement, input);
+  assert.equal(JSON.stringify(controller.active), active);
+  assert.equal(JSON.stringify([...values]), preferences);
+  assert.equal(writes, beforeWrites);
+  assert.equal(opens, 1);
+  const trigger = root.querySelector('[data-workspace-panel="assets"]');
+  trigger.focus();
+  const escape = new win.KeyboardEvent('keydown', {
+    key: 'Escape',
+    bubbles: true,
+    cancelable: true,
+  });
+  trigger.dispatchEvent(escape);
+  assert.equal(escape.defaultPrevented, true);
+  assert.equal(controller.active.left, null);
+  assert.equal(panel.hidden, true);
+  assert.equal(panel, input.parentNode);
+  assert.equal(input.value, 'unsaved search');
+  win.happyDOM.abort();
+});
+
+test('invalid roots and missing required descendants preserve queued restoration and observer', async () => {
+  const win = new Window(),
+    root = win.document.createElement('div');
+  root.innerHTML = markup;
+  win.document.body.append(root);
+  let observed = 0,
+    disconnected = 0,
+    panel = null;
+  const focusArgs = [];
+  win.ResizeObserver = class {
+    observe() {
+      observed++;
+    }
+    disconnect() {
+      disconnected++;
+    }
+  };
+  const saved = JSON.stringify({ left: 'assets', right: null, lastSide: 'left' });
+  const storage = {
+    getItem: () => saved,
+    setItem: () => {
+      throw Error('unexpected write');
+    },
+  };
+  const controller = createTestWorkspacePanels({
+    storage,
+    getAssetPanel: () => panel,
+    onAssets: (focus) => {
+      focusArgs.push(focus);
+      panel = win.document.createElement('aside');
+      win.document.body.append(panel);
+    },
+    onAlign() {},
+  });
+  controller.attach(root);
+  const before = root.innerHTML;
+  for (const target of [
+    null,
+    {},
+    ...['canvas-wrap', 'right', 'tools'].map((missing) => {
+      const el = win.document.createElement('div');
+      el.innerHTML = markup;
+      el.querySelector('.' + missing).remove();
+      return el;
+    }),
+  ]) {
+    assert.doesNotThrow(() => controller.attach(target));
+    assert.equal(root.innerHTML, before);
+    assert.equal(disconnected, 0);
+    assert.equal(observed, 1);
+    assert.equal(panel, null);
+  }
+  await Promise.resolve();
+  assert.deepEqual(focusArgs, [false]);
+  assert.ok(panel);
+  assert.equal(controller.active.left, 'assets');
+  assert.equal(panel.parentNode, win.document.body);
+  assert.equal(disconnected, 0);
+  win.happyDOM.abort();
+});
