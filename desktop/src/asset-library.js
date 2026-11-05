@@ -84,6 +84,7 @@ export function mountAssetLibrary({
     folderEpoch = 0,
     folderPickerPending = false,
     pendingBootstrap = null,
+    folderRegistrationError = null,
     roots = [],
     listing = null,
     selected = null,
@@ -158,6 +159,12 @@ export function mountAssetLibrary({
   panel.append(header, folders, filters, status, warnings, grid, more, detail, picker);
   document.body.append(panel);
   function message(text, error = false) {
+    // Automatic bootstrap/refresh must not erase a failed registration. A
+    // subsequent explicit interaction clears it and can report its own state.
+    if (folderRegistrationError && text !== folderRegistrationError) {
+      text = error ? `${folderRegistrationError} · ${text}` : folderRegistrationError;
+      error = true;
+    }
     status.textContent = text;
     status.dataset.error = String(error);
   }
@@ -241,6 +248,7 @@ export function mountAssetLibrary({
     return promise;
   }
   async function choose(item, token) {
+    folderRegistrationError = null;
     const choice = ++choiceSequence;
     selected = null;
     detail.hidden = true;
@@ -438,7 +446,10 @@ export function mountAssetLibrary({
       drawRoots(result.selectedRootId);
       await refreshRoot();
     } catch (error) {
-      if (alive) message(String(error.message || error), true);
+      if (alive) {
+        folderRegistrationError = String(error.message || error);
+        message(folderRegistrationError, true);
+      }
     } finally {
       folderPickerPending = false;
       busy = false;
@@ -505,8 +516,12 @@ export function mountAssetLibrary({
         refreshing ? 'Catalog unchanged. Remove folder to clear.' : 'Folder selection unchanged',
       );
   });
-  add.onclick = () => void addFolder();
+  add.onclick = () => {
+    folderRegistrationError = null;
+    void addFolder();
+  };
   refresh.onclick = () => {
+    folderRegistrationError = null;
     if (desktop) void refreshRoot();
     else {
       folderPickIntent = { mode: 'refresh', rootId: rootSelect.value };
@@ -515,6 +530,7 @@ export function mountAssetLibrary({
     }
   };
   remove.onclick = async () => {
+    folderRegistrationError = null;
     busy = true;
     buttons();
     try {
@@ -533,16 +549,22 @@ export function mountAssetLibrary({
       if (alive) buttons();
     }
   };
-  rootSelect.onchange = () => void refreshRoot();
+  rootSelect.onchange = () => {
+    folderRegistrationError = null;
+    void refreshRoot();
+  };
   search.oninput = () => {
+    folderRegistrationError = null;
     shown = 48;
     drawItems();
   };
   hierarchy.onchange = () => {
+    folderRegistrationError = null;
     shown = 48;
     drawItems();
   };
   more.onclick = () => {
+    folderRegistrationError = null;
     shown += 48;
     drawItems();
   };

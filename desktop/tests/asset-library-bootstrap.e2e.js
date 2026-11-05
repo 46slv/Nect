@@ -16,7 +16,13 @@ const browser = await chromium.launch({
 const output = resolve('test-results/asset-bootstrap');
 await mkdir(output, { recursive: true });
 try {
-  for (const mode of ['search', 'cancel-first', 'list-first']) {
+  for (const mode of [
+    'search',
+    'cancel-first',
+    'list-first',
+    'reject-first',
+    'reject-list-first',
+  ]) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
@@ -27,8 +33,9 @@ try {
       const bootstrap = new Promise((resolve) => {
         window.resolveAssetBootstrap = resolve;
       });
-      const picker = new Promise((resolve) => {
+      const picker = new Promise((resolve, reject) => {
         window.resolveAssetPicker = resolve;
+        window.rejectAssetPicker = reject;
       });
       window.__TAURI_INTERNALS__ = {
         transformCallback: () => 1,
@@ -83,24 +90,38 @@ try {
         window.assetCalls.some((item) => item.command === 'register_asset_folder'),
       );
     }
-    if (mode !== 'cancel-first')
+    if (!['cancel-first', 'reject-first'].includes(mode))
       await page.evaluate(() =>
         window.resolveAssetBootstrap([{ id: 'synthetic', name: 'Synthetic' }]),
       );
-    if (mode !== 'search') await page.evaluate(() => window.resolveAssetPicker(null));
-    if (mode === 'cancel-first')
+    if (mode.startsWith('reject'))
+      await page.evaluate(() => window.rejectAssetPicker(Error('Could not add folder')));
+    else if (mode !== 'search') await page.evaluate(() => window.resolveAssetPicker(null));
+    if (['cancel-first', 'reject-first'].includes(mode))
       await page.evaluate(() =>
         window.resolveAssetBootstrap([{ id: 'synthetic', name: 'Synthetic' }]),
       );
     await page.waitForFunction(
       () => document.querySelector('[aria-label="Asset folder"]')?.value === 'synthetic',
     );
+    await panel.locator('[data-path="demo.svg"] img[src]').waitFor();
+    if (mode.startsWith('reject')) {
+      assert.equal(
+        await panel.locator('[data-asset-status]').textContent(),
+        'Could not add folder',
+      );
+      assert.equal(await panel.locator('[data-asset-status]').getAttribute('data-error'), 'true');
+      await page.screenshot({
+        path: resolve(output, 'picker-failure-restored.png'),
+        fullPage: true,
+      });
+      await panel.getByRole('button', { name: 'Refresh', exact: true }).click();
+    }
     await page.waitForFunction(
       (count) =>
         document.querySelector('[data-asset-status]')?.textContent.includes(`${count} assets`),
       mode === 'search' ? 1 : 2,
     );
-    await panel.locator('[data-path="demo.svg"] img[src]').waitFor();
     assert.equal(await panel.getByLabel('Asset folder', { exact: true }).isEnabled(), true);
     assert.equal(
       await panel.getByRole('button', { name: 'Refresh', exact: true }).isEnabled(),
@@ -132,7 +153,7 @@ try {
     await page.close();
   }
   console.log(
-    'Assets bootstrap: search and both picker-cancel orderings passed in sandboxed Chrome',
+    'Assets bootstrap: search, picker cancellation and failure orderings passed in sandboxed Chrome',
   );
 } finally {
   await browser.close();

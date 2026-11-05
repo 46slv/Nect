@@ -186,6 +186,33 @@ for (const listFirst of [false, true])
     assert.equal(f.add.disabled, false);
   });
 
+for (const listFirst of [false, true])
+  test(`failed folder picker remains visible after bootstrap (list first: ${listFirst})`, async (t) => {
+    const registration = deferred();
+    const f = fixture(t, { registerResult: registration.promise });
+    f.add.click();
+    await waitFor(() => f.calls.some((entry) => entry.cmd === 'register_asset_folder'));
+    if (listFirst) {
+      f.initial.resolve([{ id: 'new', name: 'new' }]);
+      await tick();
+    }
+    registration.reject(Error('Could not add folder'));
+    await tick();
+    if (!listFirst) f.initial.resolve([{ id: 'new', name: 'new' }]);
+    await waitFor(() => f.calls.some((entry) => entry.cmd === 'refresh_asset_folder'));
+    f.refresh.resolve(listing('new'));
+    await waitFor(() => !f.add.disabled);
+    assert.equal(f.root.value, 'new');
+    assert.equal(f.status.textContent, 'Could not add folder');
+    assert.equal(f.status.dataset.error, 'true');
+    const refresh = [...f.panel.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Refresh',
+    );
+    refresh.click();
+    await waitFor(() => f.status.textContent.includes('0 assets'));
+    assert.equal(f.status.dataset.error, 'false');
+  });
+
 test('bootstrap received during a picker cannot overwrite a later successful folder choice', async (t) => {
   const registration = deferred();
   const f = fixture(t, { registerResult: registration.promise });
@@ -231,6 +258,18 @@ test('invalid buffered folder response is reported after picker cancellation', a
     f.calls.some((entry) => entry.cmd === 'refresh_asset_folder'),
     false,
   );
+});
+
+test('bootstrap failure does not hide a concurrent folder registration failure', async (t) => {
+  const registration = deferred();
+  const f = fixture(t, { registerResult: registration.promise });
+  f.add.click();
+  f.initial.reject(Error('Could not read folders'));
+  await tick();
+  registration.reject(Error('Could not add folder'));
+  await waitFor(() => f.status.textContent.includes('Could not read folders'));
+  assert.match(f.status.textContent, /Could not add folder/);
+  assert.equal(f.status.dataset.error, 'true');
 });
 
 test.after(() => {
