@@ -1,4 +1,13 @@
 import { JOIN_SLOT_LIMIT, validJoinSlotOrder } from './join-slots-protocol.js';
+import {
+  CURVE_POINT_REFERENCE_SCHEMA_VERSION,
+  assertNoAccidentalCurvePointRebind,
+  assertNoExternalPointReferenceRebind,
+  curvePointId,
+  curvePointReferenceOwners,
+  danglingExpressionIds,
+  remapExpressionReferences,
+} from './curve-point-reference.js';
 export { JOIN_SLOT_LIMIT } from './join-slots-protocol.js';
 import { contourGroups } from './path-groups.js';
 import { signature } from './path-signature.js';
@@ -1032,7 +1041,36 @@ export function insertionRemapDependents(layer, nodeId) {
   );
 }
 function isMissingReferenceTarget(error) {
-  return ['REFERENCE_TARGET_UNSET', 'REFERENCE_TARGET_MISSING'].includes(error.code);
+  return [
+    'REFERENCE_TARGET_UNSET',
+    'REFERENCE_TARGET_MISSING',
+    'EXPRESSION_REFERENCE_MISSING',
+  ].includes(error.code);
+}
+function assertTransformControls(evaluation, n) {
+  try {
+    evaluation.transformValues(n.id);
+    return;
+  } catch (error) {
+    if (!isMissingReferenceTarget(error)) throw error;
+  }
+  // A missing reference prevents matrix construction. Still validate each
+  // independently resolved control rather than blocking edits to other fields.
+  const read = (key) => {
+    try {
+      return evaluation.parameterValue(n.id, key);
+    } catch (error) {
+      if (!isMissingReferenceTarget(error)) throw error;
+      return undefined;
+    }
+  };
+  for (const key of ['anchor', 'scale', 'offset', 'rotation', 'position', 'skewAxis'])
+    if (n.params[key]) read(key);
+  const uniform = n.params.uniformScale ? read('uniformScale') : true;
+  if (uniform === false && n.params.scaleWidth) read('scaleWidth');
+  const skew = n.params.skew ? read('skew') : 0;
+  if (skew !== undefined && Math.abs(skew) >= 89.9)
+    throw Error('Skew must be between -89.9 and 89.9 degrees');
 }
 export function referenceTarget(layer, n) {
   if (n?.type !== 'Reference') throw Error('Select a Reference node');
@@ -1120,13 +1158,23 @@ export function duplicateNodes(layer, ids, { append = true } = {}) {
     throw Error(
       'Cannot duplicate an edited Path Remap with its source; duplicate it individually to retain point bindings',
     );
-  const remap = new Map(originals.map((n) => [n.id, uid('node')]));
+  const occupied = new Set([
+    ...layer.nodes.flatMap((n) => [n.id, ...n.points.map((pt) => pt.id)]),
+    ...danglingExpressionIds(layer.nodes),
+  ]);
+  const fresh = (prefix) => {
+    const id = uid(prefix);
+    if (occupied.has(id)) throw Error('Duplicate node or point ID collision');
+    occupied.add(id);
+    return id;
+  };
+  const remap = new Map(originals.map((n) => [n.id, fresh('node')]));
   const copies = originals.map((original) => {
     const copy = clone(original);
     copy.id = remap.get(original.id);
     copy.name += ' copy';
     copy.position = copy.position.map((v) => v + 30);
-    const pointIds = new Map(copy.points.map((pt) => [pt.id, uid('point')]));
+    const pointIds = new Map(copy.points.map((pt) => [pt.id, fresh('point')]));
     for (const pt of copy.points) pt.id = pointIds.get(pt.id);
     if (copy.type === 'Multi Path') {
       const contourIds = new Map(copy.contours.map((c, i) => [c.id, `${copy.id}:c${i}`]));
@@ -1142,10 +1190,6 @@ export function duplicateNodes(layer, ids, { append = true } = {}) {
     }
     for (const [, q] of parameters(copy)) {
       if (remap.has(q.source)) q.source = remap.get(q.source);
-      if (q.expression)
-        q.expression = q.expression.replace(/\bref\s*\(\s*"([a-zA-Z0-9:_-]+)"/g, (match, id) =>
-          remap.has(id) ? match.replace(`"${id}"`, `"${remap.get(id)}"`) : match,
-        );
     }
     if (copy.pathAttachment && remap.has(copy.pathAttachment.nodeId)) {
       // Only remap a contour when the entire selected reference route reaches a
@@ -1186,6 +1230,7 @@ export function duplicateNodes(layer, ids, { append = true } = {}) {
       copy.reference.nodeId = remap.get(copy.reference.nodeId);
     return copy;
   });
+  remapExpressionReferences(originals, copies);
   if (append) layer.nodes.push(...copies);
   return copies;
 }
@@ -1266,6 +1311,14 @@ function captureNodePreset(doc, layer, nodeIds, name, id) {
   )
     throw Error('Select distinct nodes in this composition');
   const nodes = clone(layer.nodes.filter((n) => nodeIds.includes(n.id)));
+  const selected = new Set(nodeIds);
+  if (
+    curvePointReferenceOwners(nodes).some(
+      (id) =>
+        !selected.has(id) && layer.nodes.some((node) => node.id === id && node.type === 'Curve'),
+    )
+  )
+    throw Error('Preset has an external node reference; select its sources too');
   const fonts = new Set(
     nodes
       .filter((n) => n.type === 'Text')
@@ -1798,8 +1851,11 @@ export function previewColorExpression(
     : clone(parameterBaseValue(draft, n, key, q));
 }
 // IDs are deliberately restricted: no JavaScript, object access, or string evaluation.
+function parameterReferenceText(nodeId, key, component) {
+  return `ref(${JSON.stringify(nodeId)}, ${JSON.stringify(key)}${component ? `, ${JSON.stringify(component)}` : ''})`;
+}
 export function parameterReferenceExpression(nodeId, key, component) {
-  const text = `ref(${JSON.stringify(nodeId)}, ${JSON.stringify(key)}${component ? `, ${JSON.stringify(component)}` : ''})`;
+  const text = parameterReferenceText(nodeId, key, component);
   expression(text, () => 0, true);
   return text;
 }
@@ -1824,7 +1880,22 @@ export function expressionReferences(source) {
 }
 function referenceParameter(layer, ref, type = 'Scalar') {
   const target = layer.nodes.find((n) => n.id === ref.nodeId);
-  if (!target) throw Error(`Expression reference target is missing: ${ref.nodeId}`);
+  if (!target)
+    throw Object.assign(Error(`Expression reference target is missing: ${ref.nodeId}`), {
+      code: 'EXPRESSION_REFERENCE_MISSING',
+    });
+  const pointId = curvePointId(ref.key);
+  if (pointId && target.type === 'Curve') {
+    if (type !== 'Scalar' || !['x', 'y'].includes(ref.component))
+      throw Error('Curve point reference requires an x or y Scalar component');
+    const point = target.points.find((item) => item.id === pointId);
+    if (!point)
+      throw Object.assign(Error(`Expression reference point is missing: ${pointId}`), {
+        code: 'EXPRESSION_REFERENCE_MISSING',
+      });
+    if (point.position?.type !== 'Vector2') throw Error('Invalid Curve point position');
+    return target;
+  }
   const q = Object.hasOwn(target.params, ref.key)
     ? target.params[ref.key]
     : transformParameter(target, ref.key);
@@ -1848,7 +1919,12 @@ export function expressionReferenceTargets(layer, nodeId, type = 'Scalar') {
   return layer.nodes
     .filter((n) => !reaches(n.id))
     .flatMap((n) =>
-      Object.entries(n.params).flatMap(([key, q]) =>
+      [
+        ...Object.entries(n.params).map(([key, q]) => [key, q, false]),
+        ...(n.type === 'Curve' && type !== 'Color'
+          ? n.points.map((pt) => [`${pt.id}.position`, pt.position, true])
+          : []),
+      ].flatMap(([key, q, point]) =>
         (type === 'Color'
           ? q.type === 'Color'
             ? [undefined]
@@ -1865,7 +1941,10 @@ export function expressionReferenceTargets(layer, nodeId, type = 'Scalar') {
           component,
           type: type === 'Color' ? 'Color' : 'Scalar',
           label: `${n.name} · ${key}${component ? `.${component}` : ''}`,
-          expression: parameterReferenceExpression(n.id, key, component),
+          expression:
+            point && nodeIdPattern.test(n.id) && curvePointId(key)
+              ? parameterReferenceText(n.id, key, component)
+              : parameterReferenceExpression(n.id, key, component),
         })),
       ),
     );
@@ -4622,7 +4701,8 @@ export function validate(doc) {
       doc.schemaVersion !== HARMONY_DESIGN_SCHEMA_VERSION &&
       doc.schemaVersion !== CHROMA_OVERRIDE_SCHEMA_VERSION &&
       doc.schemaVersion !== KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION &&
-      doc.schemaVersion !== LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION)
+      doc.schemaVersion !== LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION &&
+      doc.schemaVersion !== CURVE_POINT_REFERENCE_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   const colorSlots = validateColorSlots(doc);
@@ -5231,6 +5311,7 @@ export function validate(doc) {
   // loadable as diagnosed dangling targets rather than silently losing the link.
   const owners = new Map(doc.layers.flatMap((l) => l.nodes.map((n) => [n.id, l.id])));
   for (const l of doc.layers) {
+    const localNodes = new Map(l.nodes.map((item) => [item.id, item]));
     for (const n of l.nodes)
       if (n.type === 'Reference' && n.reference) {
         const owner = owners.get(n.reference.nodeId);
@@ -5250,7 +5331,22 @@ export function validate(doc) {
           for (const ref of parameterExpressionUses(q)) {
             if (owners.has(ref.nodeId) && owners.get(ref.nodeId) !== l.id)
               throw Error('Expression reference target must be in the same layer');
-            if (owners.has(ref.nodeId)) referenceParameter(l, ref, ref.type);
+            const owner = localNodes.get(ref.nodeId);
+            if (
+              owner?.type === 'Curve' &&
+              curvePointId(ref.key) &&
+              sourceSchemaVersion < CURVE_POINT_REFERENCE_SCHEMA_VERSION
+            )
+              throw Error(
+                `Curve point references require schemaVersion ${CURVE_POINT_REFERENCE_SCHEMA_VERSION}`,
+              );
+            if (owner) {
+              try {
+                referenceParameter(l, ref, ref.type);
+              } catch (error) {
+                if (error.code !== 'EXPRESSION_REFERENCE_MISSING') throw error;
+              }
+            }
           }
         }
     assertAcyclic(l);
@@ -6335,6 +6431,7 @@ export class CommandSession {
           draft.base,
         );
       } else appendPenArtwork(candidate, layer);
+      assertNoAccidentalCurvePointRebind(draft.base, candidate, this.#nodeClipboard);
       const encoded = serialize(candidate);
       if (encoded === serialize(draft.base)) {
         this.#gesture = null;
@@ -6389,6 +6486,7 @@ export class CommandSession {
     if (draft.resuming)
       candidate.layers[candidate.layers.findIndex((l) => l.id === layer.id)] = layer;
     else candidate.layers.push(layer);
+    assertNoAccidentalCurvePointRebind(draft.base, candidate, this.#nodeClipboard);
     validate(candidate);
     if (draft.resuming)
       assertClosedOffsetChange(
@@ -6506,10 +6604,12 @@ export class CommandSession {
     );
     const revision = this.#history.revision;
     if (p.type === 'undo' || p.type === 'redo') this.#history[p.type]();
-    else if (!sameDocument(this.#history.doc, p.candidate))
+    else if (!sameDocument(this.#history.doc, p.candidate)) {
+      assertNoAccidentalCurvePointRebind(this.#history.doc, p.candidate, this.#nodeClipboard);
       this.#history.apply(() => {
         this.#history.doc = p.candidate;
       });
+    }
     p.bridge.activate(p.ticket);
     if (p.type === 'import-svg') this.#nodeClipboard = null;
     this.#prepared = null;
@@ -6554,6 +6654,7 @@ export class CommandSession {
         payload.sourceText,
         payload.compositionId,
       );
+      assertNoAccidentalCurvePointRebind(this.#history.doc, imported, this.#nodeClipboard);
       this.#history.apply((candidate) => {
         this.#history.doc = imported;
       });
@@ -6706,6 +6807,7 @@ export class CommandSession {
       if (draft.update && draft.target.kind !== 'text-font')
         draft.candidate = this.#gestureCandidate(draft.base, draft.target, draft.update);
       validate(draft.candidate);
+      assertNoAccidentalCurvePointRebind(draft.base, draft.candidate, this.#nodeClipboard);
       assertVariableDocumentReady(draft.candidate, resolveFonts(draft.candidate, this.#fonts()));
       const revision = this.#history.revision;
       if (!sameDocument(this.#history.doc, draft.candidate))
@@ -6789,9 +6891,12 @@ export class CommandSession {
       const ids = new Set(nodes.map((n) => n.id)),
         externalNodeIds = [
           ...new Set(
-            nodes
-              .flatMap((n) => nodeDependencies(n).map((d) => d.source))
-              .filter((id) => !ids.has(id)),
+            [
+              ...nodes.flatMap((n) => nodeDependencies(n).map((d) => d.source)),
+              ...curvePointReferenceOwners(nodes).filter((id) =>
+                layer.nodes.some((node) => node.id === id && node.type === 'Curve'),
+              ),
+            ].filter((id) => !ids.has(id)),
           ),
         ];
       const fontIds = new Set(
@@ -6854,6 +6959,7 @@ export class CommandSession {
       commandBase,
     );
     assertVariableDocumentReady(candidate, resolveFonts(candidate, this.#fonts()));
+    assertNoAccidentalCurvePointRebind(this.#history.doc, candidate, this.#nodeClipboard);
     const revision = this.#history.revision;
     if (!sameDocument(this.#history.doc, candidate))
       this.#history.apply(() => {
@@ -7391,7 +7497,7 @@ export class CommandSession {
           resolveFonts(base, this.#fonts()),
           base.imageAssets,
           base,
-        ).transformValues(n.id)[payload.key];
+        ).parameterValue(n.id, payload.key);
       const unchanged =
         !q.source &&
         !q.expression &&
@@ -7404,7 +7510,7 @@ export class CommandSession {
           resolveFonts(base, this.#fonts()),
           base.imageAssets,
           base,
-        ).transformValues(n.id).anchor;
+        ).parameterValue(n.id, 'anchor');
         n.params.position = { ...clone(transformExtensions.position), value: clone(anchor) };
         base.schemaVersion = Math.max(base.schemaVersion, 11);
       }
@@ -7815,7 +7921,7 @@ export class CommandSession {
             resolveFonts(candidate, this.#fonts()),
             candidate.imageAssets,
             candidate,
-          ).transformValues(transformNode.id)[payload.key],
+          ).parameterValue(transformNode.id, payload.key),
         );
       if (
         (type === 'set-parameter-lock' && payload.locked === virtual.locked) ||
@@ -7851,6 +7957,7 @@ export class CommandSession {
       const preset = candidate.nodePresets?.find((p) => p.id === payload.presetId);
       if (!preset) throw Error('Missing preset');
       validateNodePreset(candidate, preset);
+      assertNoExternalPointReferenceRebind(preset.nodes, target.nodes);
       const offset = payload.offset ?? [30, 30];
       if (!Array.isArray(offset) || offset.length !== 2 || !offset.every(Number.isFinite))
         throw Error('Invalid preset offset');
@@ -7907,6 +8014,11 @@ export class CommandSession {
         throw Error(
           `Paste needs ${clipboard.externalNodeIds.length} unselected input/reference node(s) in the original Composition. Copy those sources too`,
         );
+      assertNoExternalPointReferenceRebind(
+        clipboard.nodes,
+        target.nodes,
+        clipboard.sourceLayerId === target.id ? new Set(clipboard.externalNodeIds) : new Set(),
+      );
       for (const [id, asset] of Object.entries(clipboard.fonts))
         if (!asset || candidate.fontAssets?.[id]?.data !== asset.data)
           throw Error('Copied font is no longer present unchanged in this Document; copy again');
@@ -8554,6 +8666,11 @@ export class CommandSession {
           )
             throw Error('Expected a Scalar, Vector2 or Color expression');
           q.expression = payload.expression;
+          if (q.expression && parameterExpressionUses(q).some((ref) => curvePointId(ref.key)))
+            candidate.schemaVersion = Math.max(
+              candidate.schemaVersion,
+              CURVE_POINT_REFERENCE_SCHEMA_VERSION,
+            );
           if (q.type === 'Color' && q.expression)
             candidate.schemaVersion = Math.max(
               candidate.schemaVersion,
@@ -8601,7 +8718,7 @@ export class CommandSession {
               resolveFonts(candidate, this.#fonts()),
               candidate.imageAssets,
               candidate,
-            ).transformValues(node.id).scaleWidth;
+            ).parameterValue(node.id, 'scaleWidth');
             node.params.scaleWidth = { ...clone(transformExtensions.scaleWidth), value: width };
           }
           if (payload.axis !== undefined) {
@@ -8729,12 +8846,10 @@ export class CommandSession {
     }
     if (deferVariable) return { candidate, result, committingDraft };
     if (isTransform(transformNode))
-      evaluate(
-        target,
-        resolveFonts(candidate, this.#fonts()),
-        candidate.imageAssets,
-        candidate,
-      ).transformValues(transformNode.id);
+      assertTransformControls(
+        evaluate(target, resolveFonts(candidate, this.#fonts()), candidate.imageAssets, candidate),
+        transformNode,
+      );
     assertClosedOffsetChange(
       target,
       before.layers.find((layer) => layer.id === target.id),

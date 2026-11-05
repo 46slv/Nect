@@ -1,4 +1,9 @@
 import { validateColorSlots, validateColorSlotBinding } from './color-slots.js';
+import {
+  CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
+  CURVE_POINT_REFERENCE_SCHEMA_VERSION,
+  nodesHaveKnownCurvePointReferences,
+} from './curve-point-reference.js';
 const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,180}$/;
 const MAX_DIMENSION = 100000;
 const MAX_COMPOSITIONS = 100;
@@ -83,9 +88,14 @@ function assertDimensions(width, height) {
 function assertDocumentEnvelope(project) {
   if (!isRecord(project)) throw Error('Invalid Composition project');
   if (
-    project.compositionSchemaVersion !== COMPOSITION_SCHEMA_VERSION ||
+    ![COMPOSITION_SCHEMA_VERSION, CURVE_POINT_COMPOSITION_SCHEMA_VERSION].includes(
+      project.compositionSchemaVersion,
+    ) ||
     !Number.isInteger(project.schemaVersion) ||
-    project.schemaVersion < 1
+    project.schemaVersion < 1 ||
+    project.schemaVersion > CURVE_POINT_REFERENCE_SCHEMA_VERSION ||
+    project.schemaVersion >= CURVE_POINT_REFERENCE_SCHEMA_VERSION !==
+      (project.compositionSchemaVersion === CURVE_POINT_COMPOSITION_SCHEMA_VERSION)
   )
     throw Error('Unsupported Composition project version');
   assertText(project.name, 'project name');
@@ -155,6 +165,19 @@ export function assertFreshCompositionEntityIds(project, proposedIds) {
 
 function assertCompositionProjectFields(project) {
   assertDocumentEnvelope(project);
+  const hasPointReferences =
+    project.compositions.some((composition) =>
+      (composition.layers || []).some((layer) =>
+        nodesHaveKnownCurvePointReferences(layer.nodes || []),
+      ),
+    ) ||
+    (project.nodePresets || []).some((preset) =>
+      nodesHaveKnownCurvePointReferences(preset.nodes || []),
+    );
+  if (hasPointReferences && project.schemaVersion < CURVE_POINT_REFERENCE_SCHEMA_VERSION)
+    throw Error(
+      `Curve point references require schemaVersion ${CURVE_POINT_REFERENCE_SCHEMA_VERSION}`,
+    );
   for (const composition of project.compositions) {
     assertText(composition.name, 'Composition name');
     assertDimensions(composition.width, composition.height);
@@ -250,7 +273,11 @@ function assertLegacyDocument(document) {
     Object.hasOwn(document, 'compositions')
   )
     throw Error('Refusing to migrate a Composition project more than once');
-  if (!Number.isInteger(document.schemaVersion) || document.schemaVersion < 1)
+  if (
+    !Number.isInteger(document.schemaVersion) ||
+    document.schemaVersion < 1 ||
+    document.schemaVersion > CURVE_POINT_REFERENCE_SCHEMA_VERSION
+  )
     throw Error('Unsupported legacy Document version');
   assertText(document.name, 'project name');
   assertDimensions(document.width, document.height);
@@ -281,7 +308,10 @@ export function migrateLegacyDocumentToCompositionProject(document) {
   const compositionId = nextCompositionId(ids);
   const migrated = {
     ...project,
-    compositionSchemaVersion: COMPOSITION_SCHEMA_VERSION,
+    compositionSchemaVersion:
+      copy.schemaVersion >= CURVE_POINT_REFERENCE_SCHEMA_VERSION
+        ? CURVE_POINT_COMPOSITION_SCHEMA_VERSION
+        : COMPOSITION_SCHEMA_VERSION,
     compositions: [
       {
         id: compositionId,
@@ -323,6 +353,7 @@ export function applyActiveCompositionDocument(project, compositionId, editedDoc
   delete projectFields.compositionSchemaVersion;
   delete projectFields.compositions;
   Object.assign(projectFields, editedProjectFields);
+  projectFields.schemaVersion = Math.max(base.schemaVersion, edited.schemaVersion);
   // This optional project-global packet can be explicitly cleared through the
   // active Document projection. Do not resurrect it from the base globals.
   if (!Object.hasOwn(editedProjectFields, 'keyColorRecipe')) delete projectFields.keyColorRecipe;
@@ -335,7 +366,10 @@ export function applyActiveCompositionDocument(project, compositionId, editedDoc
   });
   return validateCompositionProject({
     ...projectFields,
-    compositionSchemaVersion: base.compositionSchemaVersion,
+    compositionSchemaVersion:
+      projectFields.schemaVersion >= CURVE_POINT_REFERENCE_SCHEMA_VERSION
+        ? CURVE_POINT_COMPOSITION_SCHEMA_VERSION
+        : base.compositionSchemaVersion,
     compositions,
   });
 }

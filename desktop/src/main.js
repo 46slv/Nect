@@ -4312,6 +4312,13 @@ function editorExpressionTargets(nodeId, type) {
     ...(type === 'Color' ? expressionReferenceTargets(current(), nodeId) : []),
   ];
 }
+function transformUniformScale(n) {
+  try {
+    return renderEvaluation?.parameterValue(n.id, 'uniformScale') ?? true;
+  } catch {
+    return true;
+  }
+}
 function field(n, key, q, inspector = false) {
   let source = current().nodes.find((x) => x.id === q.source),
     locked =
@@ -4319,9 +4326,7 @@ function field(n, key, q, inspector = false) {
       (n.type === 'Geometry Repeater' && key === 'rotation' && current().locked) ||
       (n.type === 'Text' && key === 'letterSpacing' && maintainedAxis(n) !== null) ||
       !!q.source ||
-      (isTransform(n) &&
-        key === 'scaleWidth' &&
-        (renderEvaluation?.transformValues(n.id).uniformScale ?? true));
+      (isTransform(n) && key === 'scaleWidth' && transformUniformScale(n));
   const factor = isTransform(n) && ['scale', 'scaleWidth'].includes(key) ? 100 : 1;
   let name =
     n.type === 'Join Geometry'
@@ -4507,8 +4512,16 @@ function field(n, key, q, inspector = false) {
     !n.params[key] &&
     ['position', 'scaleWidth'].includes(key) &&
     renderEvaluation
-  )
-    displayed = renderEvaluation.transformValues(n.id)[key];
+  ) {
+    try {
+      displayed = renderEvaluation.parameterValue(n.id, key);
+    } catch {
+      // An inherited virtual value is unavailable until its own driver resolves.
+      // Do not show its authored fallback as though it were evaluated.
+      displayed = q.type === 'Vector2' ? [null, null] : null;
+      locked = true;
+    }
+  }
   if (source && renderEvaluation) {
     try {
       displayed = renderEvaluation.run(source.id, q.sourcePort);
@@ -4550,30 +4563,33 @@ function field(n, key, q, inspector = false) {
       current().locked ||
       q.locked ||
       (n.type === 'Text' && key === 'letterSpacing' && maintainedAxis(n) !== null) ||
-      (isTransform(n) &&
-        key === 'scaleWidth' &&
-        (renderEvaluation?.transformValues(n.id).uniformScale ?? true));
+      (isTransform(n) && key === 'scaleWidth' && transformUniformScale(n));
     const baseInputs = (q.type === 'Vector2' ? q.value : [q.value])
       .map(
         (v, i) =>
           `<label class="base-component">${q.type === 'Vector2' ? (i ? 'Base Y' : 'Base X') : 'Base'}<input type="number" step="any" ${numericAttributes(n, key)} data-value-factor="${factor}" aria-label="${esc(n.name + ' ' + name + ' base' + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-base data-axis="${i}" value="${v * factor}" ${baseLocked ? 'disabled' : ''}></label>`,
       )
       .join('');
-    let result;
+    let result,
+      resultError = '';
     try {
       const effective = renderEvaluation.parameterValue(n.id, key);
       result = (q.type === 'Vector2' ? effective : [effective])
         .map((v) => formatParameterResult(v * factor))
         .join(', ');
-    } catch {
+    } catch (error) {
       result = '— Cannot evaluate';
+      resultError = error?.message || '';
     }
-    control = `<div class="authored-control"><div class="base-inputs">${baseInputs}${angleDial ? repeaterAngleControl(n, q) : ''}</div><output class="parameter-result" aria-label="${esc(name)} result">${q.source ? 'Connected result' : 'Result'} · ${esc(result)}</output>${q.source ? '<small class="base-hint">Base saved · connection takes priority.</small>' : ''}${q.expression ? `<details class="parameter-expression"><summary>${q.source ? 'Expression paused by connection' : 'Expression'}</summary><input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${baseLocked ? 'disabled' : ''}><small class="base-hint">${q.type === 'Vector2' ? 'X; Y · value = each component’s base' : 'value = base'}${factor !== 1 ? ' · expression units: ×, display: %' : ''}</small></details>` : ''}</div>`;
+    const diagnostic = resultError
+      ? ` title="${esc(resultError)}" aria-description="${esc(resultError)}"`
+      : '';
+    control = `<div class="authored-control"><div class="base-inputs">${baseInputs}${angleDial ? repeaterAngleControl(n, q) : ''}</div><output class="parameter-result" aria-label="${esc(name)} result"${diagnostic}>${q.source ? 'Connected result' : 'Result'} · ${esc(result)}</output>${q.source ? '<small class="base-hint">Base saved · connection takes priority.</small>' : ''}${q.expression ? `<details class="parameter-expression"><summary>${q.source ? 'Expression paused by connection' : 'Expression'}</summary><input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${baseLocked ? 'disabled' : ''}><small class="base-hint">${q.type === 'Vector2' ? 'X; Y · value = each component’s base' : 'value = base'}${factor !== 1 ? ' · expression units: ×, display: %' : ''}</small></details>` : ''}</div>`;
   } else
     control = (q.type === 'Vector2' ? displayed : [displayed])
       .map(
         (v, i) =>
-          `<input type="number" step="${n.type === 'Subdivide Path' && key === 'segments' ? '1' : 'any'}" ${numericAttributes(n, key)} data-value-factor="${factor}" aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(['Radial Gradient Fill', 'Angular Gradient Fill'].includes(n.type) || (n.type === 'Geometry Repeater' && key === 'rotation') ? v : ((v * factor).toFixed?.(3) ?? v))}" ${locked ? 'disabled' : ''}>`,
+          `<input type="number" step="${n.type === 'Subdivide Path' && key === 'segments' ? '1' : 'any'}" ${numericAttributes(n, key)} data-value-factor="${factor}" aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${v === null ? '' : Number(['Radial Gradient Fill', 'Angular Gradient Fill'].includes(n.type) || (n.type === 'Geometry Repeater' && key === 'rotation') ? v : ((v * factor).toFixed?.(3) ?? v))}" ${locked ? 'disabled' : ''}>`,
       )
       .join('');
   if (angleDial && !q.source && !q.expression) control += repeaterAngleControl(n, q);
@@ -14677,8 +14693,13 @@ function movePointer(e) {
     if (!d.started) {
       d.original = d.alpha ? q.value.alpha : q.type === 'Vector2' ? q.value[d.axis] : q.value;
       if (isTransform(n) && !n.params[d.key] && ['position', 'scaleWidth'].includes(d.key)) {
-        const evaluated = renderEvaluation.transformValues(n.id)[d.key];
-        d.original = q.type === 'Vector2' ? evaluated[d.axis] : evaluated;
+        try {
+          const evaluated = renderEvaluation.parameterValue(n.id, d.key);
+          d.original = q.type === 'Vector2' ? evaluated[d.axis] : evaluated;
+        } catch {
+          cancelInteraction();
+          return;
+        }
       }
       d.gesture = beginGraphGesture({
         kind: 'parameter',
