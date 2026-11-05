@@ -136,14 +136,15 @@ test('browser runner preserves all 55 original scripts, arguments, order, and CS
     'tests/shared-color-delete.e2e.js',
     'tests/shared-color-copy.e2e.js',
     'tests/curve-point-reference-ui.e2e.js',
+    'tests/curve-handle-reference-ui.e2e.js',
     'tests/curve-point-picker.e2e.js',
     'tests/shared-color-paints.e2e.js',
     'tests/project-composition-import.e2e.js',
     'tests/composition-import-selection.e2e.js',
     'tests/shared-color-uses.e2e.js',
   ]);
-  assert.equal(browserTestFiles.length, 100);
-  assert.equal(new Set(browserTestFiles).size, 100);
+  assert.equal(browserTestFiles.length, 101);
+  assert.equal(new Set(browserTestFiles).size, 101);
   assert.ok(Object.isFrozen(browserTestFiles));
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(

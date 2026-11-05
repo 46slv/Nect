@@ -1,9 +1,13 @@
 import { importColorSlots, colorImportSchemaVersion } from './color-slots.js';
 import { validateCompositionProject } from './composition-project-model.js';
+import { expressionReferencesForSchema } from './core.js';
 import {
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
-  nodesHaveCurvePointReferences,
+  CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
+  nodesCurvePointReferenceVersion,
+  nodesHaveLegacyCurveHandleReference,
+  expressionParameters,
 } from './curve-point-reference.js';
 import {
   collectAssetReferences,
@@ -33,8 +37,27 @@ export function prepareProjectCompositionsImport(current, sourceProject, composi
       code: 'COMPOSITION_SOURCE_MISSING',
     });
 
+  for (const composition of sourceCompositions)
+    for (const layer of composition.layers)
+      for (const node of layer.nodes)
+        for (const q of expressionParameters(node, { includeUnsupported: true }))
+          expressionReferencesForSchema(q, sourceProject.schemaVersion, { preserveOpaque: true });
+
+  if (
+    sourceProject.schemaVersion < CURVE_HANDLE_REFERENCE_SCHEMA_VERSION &&
+    current.schemaVersion >= CURVE_HANDLE_REFERENCE_SCHEMA_VERSION &&
+    sourceCompositions.some((composition) =>
+      composition.layers.some((layer) => nodesHaveLegacyCurveHandleReference(layer.nodes)),
+    )
+  )
+    throw Error(
+      'Legacy unresolved Curve handle expression cannot be imported into schemaVersion 61',
+    );
+
   const occupied = collectIds(current),
-    compositions = sourceCompositions.map((item) => remapIds(item, collectIds(item), occupied));
+    compositions = sourceCompositions.map((item) =>
+      remapIds(item, collectIds(item), occupied, sourceProject.schemaVersion),
+    );
   const colors = importColorSlots(
     current,
     sourceProject,
@@ -57,19 +80,29 @@ export function prepareProjectCompositionsImport(current, sourceProject, composi
   remapAssetReferences(compositions, fonts.mapping, images.mapping);
 
   const project = structuredClone(current);
-  const importsPointReference =
-    sourceProject.schemaVersion >= CURVE_POINT_REFERENCE_SCHEMA_VERSION &&
-    compositions.some((composition) =>
-      composition.layers.some((layer) => nodesHaveCurvePointReferences(layer.nodes)),
-    );
-  const sourceForColors =
-    sourceProject.schemaVersion === CURVE_POINT_REFERENCE_SCHEMA_VERSION && !importsPointReference
-      ? { ...sourceProject, schemaVersion: CURVE_POINT_REFERENCE_SCHEMA_VERSION - 1 }
-      : sourceProject;
+  let referenceVersion = 0;
+  for (const composition of compositions)
+    for (const layer of composition.layers)
+      referenceVersion = Math.max(
+        referenceVersion,
+        nodesCurvePointReferenceVersion(layer.nodes, sourceProject.schemaVersion),
+      );
+  let colorSourceVersion = sourceProject.schemaVersion;
+  if (
+    colorSourceVersion === CURVE_HANDLE_REFERENCE_SCHEMA_VERSION &&
+    referenceVersion < CURVE_HANDLE_REFERENCE_SCHEMA_VERSION
+  )
+    colorSourceVersion--;
+  if (
+    colorSourceVersion === CURVE_POINT_REFERENCE_SCHEMA_VERSION &&
+    referenceVersion < CURVE_POINT_REFERENCE_SCHEMA_VERSION
+  )
+    colorSourceVersion--;
+  const sourceForColors = { ...sourceProject, schemaVersion: colorSourceVersion };
   project.schemaVersion = Math.max(
     current.schemaVersion,
     colorImportSchemaVersion(sourceForColors, colors),
-    importsPointReference ? CURVE_POINT_REFERENCE_SCHEMA_VERSION : 1,
+    referenceVersion,
   );
   if (project.schemaVersion >= CURVE_POINT_REFERENCE_SCHEMA_VERSION)
     project.compositionSchemaVersion = CURVE_POINT_COMPOSITION_SCHEMA_VERSION;

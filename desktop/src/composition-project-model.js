@@ -2,7 +2,8 @@ import { validateColorSlots, validateColorSlotBinding } from './color-slots.js';
 import {
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
-  nodesHaveKnownCurvePointReferences,
+  MAX_DOCUMENT_SCHEMA_VERSION,
+  nodesKnownCurvePointReferenceVersion,
 } from './curve-point-reference.js';
 const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,180}$/;
 const MAX_DIMENSION = 100000;
@@ -93,7 +94,7 @@ function assertDocumentEnvelope(project) {
     ) ||
     !Number.isInteger(project.schemaVersion) ||
     project.schemaVersion < 1 ||
-    project.schemaVersion > CURVE_POINT_REFERENCE_SCHEMA_VERSION ||
+    project.schemaVersion > MAX_DOCUMENT_SCHEMA_VERSION ||
     project.schemaVersion >= CURVE_POINT_REFERENCE_SCHEMA_VERSION !==
       (project.compositionSchemaVersion === CURVE_POINT_COMPOSITION_SCHEMA_VERSION)
   )
@@ -165,19 +166,20 @@ export function assertFreshCompositionEntityIds(project, proposedIds) {
 
 function assertCompositionProjectFields(project) {
   assertDocumentEnvelope(project);
-  const hasPointReferences =
-    project.compositions.some((composition) =>
-      (composition.layers || []).some((layer) =>
-        nodesHaveKnownCurvePointReferences(layer.nodes || []),
-      ),
-    ) ||
-    (project.nodePresets || []).some((preset) =>
-      nodesHaveKnownCurvePointReferences(preset.nodes || []),
+  let pointReferenceVersion = 0;
+  for (const composition of project.compositions)
+    for (const layer of composition.layers || [])
+      pointReferenceVersion = Math.max(
+        pointReferenceVersion,
+        nodesKnownCurvePointReferenceVersion(layer.nodes || []),
+      );
+  for (const preset of project.nodePresets || [])
+    pointReferenceVersion = Math.max(
+      pointReferenceVersion,
+      nodesKnownCurvePointReferenceVersion(preset.nodes || []),
     );
-  if (hasPointReferences && project.schemaVersion < CURVE_POINT_REFERENCE_SCHEMA_VERSION)
-    throw Error(
-      `Curve point references require schemaVersion ${CURVE_POINT_REFERENCE_SCHEMA_VERSION}`,
-    );
+  if (project.schemaVersion < pointReferenceVersion)
+    throw Error(`Curve point references require schemaVersion ${pointReferenceVersion}`);
   for (const composition of project.compositions) {
     assertText(composition.name, 'Composition name');
     assertDimensions(composition.width, composition.height);
@@ -276,7 +278,7 @@ function assertLegacyDocument(document) {
   if (
     !Number.isInteger(document.schemaVersion) ||
     document.schemaVersion < 1 ||
-    document.schemaVersion > CURVE_POINT_REFERENCE_SCHEMA_VERSION
+    document.schemaVersion > MAX_DOCUMENT_SCHEMA_VERSION
   )
     throw Error('Unsupported legacy Document version');
   assertText(document.name, 'project name');

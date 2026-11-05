@@ -104,7 +104,7 @@ test('Apply rejects missing/wrong owners, keys, components, types and cycles wit
   for (const expression of [
     ref('curve', 'missing.position', 'x'),
     ref('wrong', 'anchor.position', 'x'),
-    ref('curve', 'anchor.handleA', 'x'),
+    ref('curve', 'missing.handleA', 'x'),
     ref('curve', 'anchor.position'),
     'ref("curve", "anchor.position", "z")',
     ref('foreign', `${foreign.points[0].id}.position`, 'x'),
@@ -620,7 +620,7 @@ test('low schema rejects point keys when their Curve owner exists; pure codec re
   const plain = fixture(),
     project = migrateLegacyDocumentToCompositionProject(plain.doc);
   for (const compositionSchemaVersion of [1, 2]) {
-    const future = { ...project, compositionSchemaVersion, schemaVersion: 61 };
+    const future = { ...project, compositionSchemaVersion, schemaVersion: 62 };
     assert.throws(
       () => validateCompositionProject(future),
       /Unsupported Composition project version/,
@@ -631,11 +631,11 @@ test('low schema rejects point keys when their Curve owner exists; pure codec re
     );
   }
   assert.throws(
-    () => migrateLegacyDocumentToCompositionProject({ ...plain.doc, schemaVersion: 61 }),
+    () => migrateLegacyDocumentToCompositionProject({ ...plain.doc, schemaVersion: 62 }),
     /Unsupported legacy Document version/,
   );
   assert.throws(
-    () => deserializeCompositionProject(JSON.stringify({ ...plain.doc, schemaVersion: 61 })),
+    () => deserializeCompositionProject(JSON.stringify({ ...plain.doc, schemaVersion: 62 })),
     /Unsupported legacy Document version/,
   );
 });
