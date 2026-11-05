@@ -135,3 +135,59 @@ test('long shared prefixes remain bounded and distinguishable while full names a
   assert.ok(uses.every((use) => use.label.length < 170 && !use.label.includes('\uFFFD')));
   assert.deepEqual(project, before);
 });
+
+test('truncation does not display part of a combining or emoji grapheme', () => {
+  const names = [
+    'あ'.repeat(31) + 'か\u3099' + 'tail',
+    'a'.repeat(31) + '👩‍💻' + 'tail',
+    'x' + '\u0301'.repeat(99999),
+  ];
+  const nodes = names.map((name, index) => ({
+    id: `n${index}`,
+    name,
+    params: { value: { type: 'Color', colorSlotId: 'a' } },
+  }));
+  const project = {
+    colorSlots: [{ id: 'a' }],
+    compositions: [{ id: 'c', name: 'C', layers: [{ id: 'l', name: 'L', nodes }] }],
+  };
+  const uses = directSharedColorUses(project, 'a');
+  assert.ok(uses[0].label.includes('あ'.repeat(31) + '… / value'));
+  assert.ok(uses[1].label.includes('a'.repeat(31) + '… / value'));
+  assert.ok(uses[2].label.includes(' / … / value'));
+  assert.deepEqual(
+    uses.map((use) => use.fullNames[2]),
+    names,
+  );
+});
+
+test('without a grapheme segmenter, long names remain available without partial clusters', async () => {
+  const original = Intl.Segmenter;
+  let fallback;
+  try {
+    Intl.Segmenter = undefined;
+    fallback = await import('../src/shared-color-uses.js?without-segmenter');
+  } finally {
+    Intl.Segmenter = original;
+  }
+  const name = 'あ'.repeat(31) + 'か\u3099' + 'tail';
+  const project = {
+    colorSlots: [{ id: 'a' }],
+    compositions: [
+      {
+        id: 'c',
+        name: 'C',
+        layers: [
+          {
+            id: 'l',
+            name: 'L',
+            nodes: [{ id: 'n', name, params: { value: { type: 'Color', colorSlotId: 'a' } } }],
+          },
+        ],
+      },
+    ],
+  };
+  const [use] = fallback.directSharedColorUses(project, 'a');
+  assert.equal(use.label, 'C / L / … / value');
+  assert.equal(use.fullNames[2], name);
+});

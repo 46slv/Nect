@@ -39,7 +39,7 @@ project.compositions[0].id = 'comp-a';
 project.compositions[0].name = 'First';
 const other = migrateLegacyDocumentToCompositionProject(b.doc).compositions[0];
 other.id = 'comp-b';
-const longCompositionName = 'Second ' + '陽'.repeat(120);
+const longCompositionName = 'Second ' + '陽'.repeat(24) + 'か\u3099' + '陽'.repeat(95);
 other.name = longCompositionName;
 const lockedColor = other.layers[0].nodes.find((entry) => entry.id === b.fill.id).params.color;
 lockedColor.colorSlotId = 'brand';
@@ -154,6 +154,7 @@ try {
   assert.match(await rows().nth(1).textContent(), /<img src=x onerror=alert/);
   assert.equal(await dialog.locator('img').count(), 0);
   assert.match(await rows().nth(1).textContent(), /…/);
+  assert.doesNotMatch(await rows().nth(1).textContent(), /か…/);
   const details = dialog.locator('[data-color-uses-list] li').nth(1).locator('details');
   assert.equal(await details.locator('.shared-color-use-full-names').count(), 0);
   await details.locator('summary').focus();

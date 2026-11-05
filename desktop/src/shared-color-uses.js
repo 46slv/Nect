@@ -1,14 +1,28 @@
 // Direct authored bindings only; equal literals, expressions and downstream
 // render effects are not evidence of a shared Color reference.
+const graphemes =
+  typeof Intl === 'object' && typeof Intl.Segmenter === 'function'
+    ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+    : null;
 function displayPart(value) {
   if (value.length <= 32) return { text: value, truncated: false };
-  let text = '',
-    count = 0;
+  const sample = [];
   for (const character of value) {
-    if (count++ === 32) return { text: text + '…', truncated: true };
-    text += character;
+    sample.push(character);
+    if (sample.length === 33) break;
   }
-  return { text: value, truncated: false };
+  if (sample.length <= 32) return { text: value, truncated: false };
+  // Segment only the bounded prefix and the next code point. If the boundary
+  // cuts a grapheme, omit that whole cluster rather than showing a false name.
+  if (!graphemes) return { text: '…', truncated: true };
+  const prefix = sample.slice(0, 32).join('');
+  let end = prefix.length;
+  for (const part of graphemes.segment(prefix + sample[32]))
+    if (part.index < end && part.index + part.segment.length > end) {
+      end = part.index;
+      break;
+    }
+  return { text: prefix.slice(0, end) + '…', truncated: true };
 }
 
 export function directSharedColorUses(project, slotId) {
