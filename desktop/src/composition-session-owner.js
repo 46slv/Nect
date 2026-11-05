@@ -3,6 +3,7 @@ import {
   assertFreshCompositionEntityIds,
 } from './composition-project-model.js';
 import { keyColorRecipeInitializationSlotIds } from './key-color-recipe-document.js';
+import { assertColorSlotUnused } from './color-slots.js';
 import { prepareProjectCompositionsImport } from './composition-project-import.js';
 import {
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
@@ -368,6 +369,8 @@ export class CompositionSessionOwner {
   async prepareCommand(command, bridge, options = {}) {
     this.#assertCurrentCommand(command);
     this.#assertQuiescent();
+    if (command.type === 'delete-color-slot')
+      assertColorSlotUnused(this.#history.doc, command.payload?.slotId);
     const session = this.#session,
       compositionId = this.#activeCompositionId,
       projectRevision = this.#history.revision;
@@ -493,6 +496,11 @@ export class CompositionSessionOwner {
   }
 
   dispatch(command) {
+    if (command?.type === 'delete-color-slot') {
+      this.#assertCurrentCommand(command);
+      this.#assertQuiescent();
+      assertColorSlotUnused(this.#history.doc, command.payload?.slotId);
+    }
     if (
       ['initialize-key-color-recipe', 'initialize-live-key-color-recipe'].includes(command?.type)
     ) {

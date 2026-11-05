@@ -3,7 +3,7 @@
 The later [Workspace action](https://app.notion.com/p/40ffd279a6f38132856ce92091df60ea)
 authorizes staged implementation; it does not itself establish subjective product
 acceptance. The editor's job is artwork creation and graph editing; the Artboard and Node Graph
-remain the primary working surfaces. The existing creation rail belongs to the
+remain the primary working surfaces. The creation rail normally belongs to the
 upper surface. Side drawers are secondary overlays bounded by the Artboard
 viewport, and the lower graph occupies the workspace width.
 
@@ -22,6 +22,13 @@ view-only and older drawer preferences use the 38% default. Window resizing
 temporarily clamps the layout without overwriting the saved proportion. The
 [WAI window splitter guidance](https://www.w3.org/WAI/ARIA/apg/patterns/windowsplitter/)
 informs its separator semantics. This routing is a reversible trial.
+
+The optional Tools above Inspector control moves the existing creation controls
+into the editing stack while it is open. Closing that stack or selecting Alignment
+returns them to the left rail; reopening restores the chosen view preference.
+The same commands and DOM are used, no document or History entry is created, and
+keyboard focus and horizontal scrolling remain available at constrained widths.
+This is an arrangement trial, not a general docking or pinning system.
 
 The document and Session own artwork, selection targets, commands, validation,
 preview and history. Moving, showing, hiding or restoring a panel is not an edit.

@@ -17,6 +17,7 @@ export const WORKSPACE_SURFACES = Object.freeze(
       label: 'Focus Inspector',
       selector: '.inspector',
       coVisible: 'editing',
+      toolsShelf: 'Inspector',
     },
   ].map(Object.freeze),
 );
@@ -171,6 +172,11 @@ export function resolveWorkspaceSurfaces(declarations, adapters) {
         (typeof item.coVisible !== 'string' ||
           !/^[a-z][a-z0-9-]*$/.test(item.coVisible) ||
           !item.selector)) ||
+      (item.toolsShelf !== undefined &&
+        (typeof item.toolsShelf !== 'string' ||
+          !item.toolsShelf ||
+          !item.selector ||
+          !item.coVisible)) ||
       (item.split !== undefined &&
         (!item.coVisible ||
           !item.split ||
@@ -208,6 +214,7 @@ export function resolveWorkspaceSurfaces(declarations, adapters) {
       typeof adapter.focus !== 'function'
     )
       throw Error(`Invalid workspace surface adapter: ${item.id}`);
+    if (item.toolsShelf && item.side !== 'right') throw Error('Invalid workspace tools shelf');
     if (
       item.kind === 'portal' &&
       (typeof adapter.canRetreat !== 'boolean' ||
@@ -220,6 +227,8 @@ export function resolveWorkspaceSurfaces(declarations, adapters) {
   });
   if (Object.keys(adapters).some((id) => !ids.has(id)))
     throw Error('Unknown workspace surface adapter');
+  if (resolved.filter((item) => item.toolsShelf).length > 1)
+    throw Error('Invalid workspace tools shelf');
   for (const entry of resolved.filter((item) => item.coVisible)) {
     const group = resolved.filter((item) => item.coVisible === entry.coVisible);
     if (

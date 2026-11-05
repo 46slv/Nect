@@ -15,6 +15,11 @@ The opt-in Key color trial has a separate, versioned recipe contract.
   Connected, expression-driven and locked parameters are unavailable for binding.
 - A bound field displays its resolved value and disables local literal edits.
   Unlinking materializes the current shared value, not the old fallback value.
+- A row's Actions menu can delete an unused shared color as one Undo step. A color
+  used by any Composition, saved node preset, legacy palette/lock or retained or
+  live Key color recipe is rejected before mutation. Project metadata that merely
+  contains a `colorSlotId` string is not a binding. A committed removal expires
+  any copied reference even if Undo later restores that ID.
 - A color row can copy a value or a reference inside Nect. A value is the exact
   HEX/alpha at copy time and can be pasted as an independent literal; a reference
   keeps its stable slot ID and can be pasted only while that slot exists in the
@@ -24,9 +29,9 @@ The opt-in Key color trial has a separate, versioned recipe contract.
   requires copying it again. The
   temporary in-app copy does not read or write the system clipboard. Pasting over
   a bound Color parameter explicitly replaces its link with the copied value in
-  one Undo step. The same Color-parameter controls are available for gradient
-  stops and for a Fill applied to Text; Text character-specific paint is not a
-  supported paste surface.
+  one Undo step. The same Color-parameter controls are available for Stroke,
+  gradient stops and a Fill applied to Text; Text character-specific paint is not
+  a supported paste surface.
 - A row's Actions menu can find direct uses across the current project. The list
   contains typed node Color parameters bound to that exact slot ID, not equal
   literals, expression dependencies or inferred visible coverage. Choosing a use

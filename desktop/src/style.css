@@ -3935,6 +3935,34 @@ input[data-color-scrub-step] {
   overscroll-behavior: contain;
 }
 
+/* Optional tools shelf uses the same controls and remains scrollable at narrow widths. */
+.workspace-tools-shelf {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex-direction: row;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 40px;
+  padding: 3px 5px;
+  gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior: contain;
+  border-right: 0;
+  border-bottom: 1px solid var(--line);
+}
+.workspace-tools-shelf button {
+  flex: 0 0 33px;
+}
+.workspace-tools-placement {
+  margin-left: auto;
+}
+.workspace-tools-placement[aria-pressed='true'] {
+  background: #dae3e9;
+  border-color: var(--selection);
+}
+
 /* Drawer surfaces meet their edge controls rather than floating as cards. */
 .workspace-drawer {
   box-sizing: border-box;

@@ -43,7 +43,7 @@ export function collectIds(value) {
   return ids;
 }
 
-export function remapIds(value, ids, occupied) {
+export function remapIds(value, ids, occupied, sourceSchemaVersion) {
   const sourceLayers = Array.isArray(value) ? value : value?.layers;
   if (Array.isArray(sourceLayers))
     for (const layer of sourceLayers)
@@ -71,7 +71,11 @@ export function remapIds(value, ids, occupied) {
   const copiedLayers = Array.isArray(copy) ? copy : copy?.layers;
   if (Array.isArray(sourceLayers))
     sourceLayers.forEach((layer, index) =>
-      remapExpressionReferences(layer.nodes || [], copiedLayers[index].nodes || []),
+      remapExpressionReferences(
+        layer.nodes || [],
+        copiedLayers[index].nodes || [],
+        sourceSchemaVersion,
+      ),
     );
   return copy;
 }
