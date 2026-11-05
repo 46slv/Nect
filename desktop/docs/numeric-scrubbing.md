@@ -169,3 +169,12 @@ alignment preference owner. A blank value remains Auto; zero and negative values
 are explicit spacing. Dragging does not create document history. Cancellation
 restores the previous preference, while newer input and reference changes remain
 owned by their existing controls.
+
+## Individual Path Remap values
+
+Raw per-point position and handle values use the shared numeric behavior and
+the existing `edit-remap` Session gesture. The source path, point, fingerprint,
+component, selection and revision remain part of the edit target. Unchanged or
+cancelled gestures retain sparse edits; typed controls enabled for a remap point
+continue to use the existing parameter owner. Batch deltas remain a separate
+staged edit.

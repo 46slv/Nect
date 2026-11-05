@@ -2367,6 +2367,7 @@ function numericControlTarget(input) {
 function numericBehaviorBinding(input) {
   return (
     alignmentSpacingNumericBinding(input) ||
+    remapIndividualNumericBinding(input) ||
     remapBatchNumericBinding(input) ||
     handlePolarNumericBinding(input) ||
     pngPpiNumericBinding(input) ||
@@ -3733,6 +3734,185 @@ function alignmentSpacingNumericBinding(input) {
       } catch {
         /* The existing preference owner handles unavailable storage. */
       }
+    },
+  };
+}
+// Individual raw remap controls retain the existing edit-remap Session owner.
+function remapIndividualNumericBinding(input) {
+  const { remap: pointId, node: nodeId, component, axis: axisText } = input.dataset,
+    axis = Number(axisText);
+  if (
+    !pointId ||
+    !nodeId ||
+    !['position', 'handleA', 'handleB'].includes(component) ||
+    ![0, 1].includes(axis)
+  )
+    return null;
+  const owner = session,
+    compositionId = owner.activeCompositionId,
+    layerId = current().id,
+    epoch = sourceEpoch,
+    selectedIds = [...selection],
+    originalNode = current().nodes.find((n) => n.id === nodeId),
+    sourceId = originalNode?.params?.path?.source,
+    units = [input.dataset.scrubStep, input.min, input.max];
+  let envelope = owner.state,
+    gesture = null,
+    originalInput,
+    previewInput;
+  const state = () => {
+    const n = current().nodes.find((entry) => entry.id === nodeId);
+    if (n?.type !== 'Path Remap' || !sourceId || n.params?.path?.source !== sourceId) return null;
+    try {
+      const path = evaluate(
+          current(),
+          resolveFonts(history.doc, activeFonts()),
+          history.doc.imageAssets,
+        ).run(sourceId),
+        edit = n.edits.find((entry) => entry.pointId === pointId);
+      if (
+        !path?.contours.some((contour) => contour.points.some((point) => point.id === pointId)) ||
+        edit?.params ||
+        (edit && path.unstable && !remapFingerprintMatches(path, edit.fingerprint))
+      )
+        return null;
+      return {
+        n,
+        signature: JSON.stringify({
+          fingerprint: path.fingerprint || null,
+          unstable: !!path.unstable,
+          contours: path.contours.map((contour) => ({
+            id: contour.id,
+            closed: contour.closed,
+            points: contour.points.map((point) => point.id),
+          })),
+        }),
+        value: edit?.[component]?.[axis] ?? 0,
+      };
+    } catch {
+      return null;
+    }
+  };
+  const initial = state(),
+    signature = initial?.signature;
+  const valid = () => {
+    const currentState = state();
+    return (
+      owner === session &&
+      owner.activeCompositionId === compositionId &&
+      current().id === layerId &&
+      sourceEpoch === epoch &&
+      owner.state.sessionId === envelope.sessionId &&
+      owner.state.expectedRevision === envelope.expectedRevision &&
+      selected === nodeId &&
+      selectedIds.length === selection.size &&
+      selectedIds.every((id) => selection.has(id)) &&
+      input.isConnected &&
+      input.matches('input[type="number"]') &&
+      input.dataset.remap === pointId &&
+      input.dataset.node === nodeId &&
+      input.dataset.component === component &&
+      input.dataset.axis === axisText &&
+      input.dataset.scrubStep === units[0] &&
+      input.min === units[1] &&
+      input.max === units[2] &&
+      !input.disabled &&
+      !input.readOnly &&
+      !current().locked &&
+      !currentState?.n.locked &&
+      !currentState?.n.bypassed &&
+      !composing &&
+      !penDraft &&
+      !nameEdit &&
+      !variableAction &&
+      !owner.hasTextComposition &&
+      !document.querySelector('dialog[open]') &&
+      (!owner.hasGesture || !!gesture) &&
+      !!currentState &&
+      currentState.signature === signature
+    );
+  };
+  const sameControl = () =>
+    owner === session &&
+    owner.activeCompositionId === compositionId &&
+    current().id === layerId &&
+    sourceEpoch === epoch &&
+    state()?.signature === signature &&
+    input.isConnected &&
+    input.dataset.remap === pointId &&
+    input.dataset.node === nodeId &&
+    input.dataset.component === component &&
+    input.dataset.axis === axisText;
+  const onInput = () => {
+    if (drag?.capture !== input || !drag.behavior) return;
+    const typed = input.value;
+    cancelInteraction(false);
+    if (sameControl()) input.value = typed;
+    updateCanvas(true);
+  };
+  return {
+    mode: 'live',
+    valid,
+    read() {
+      originalInput = input.value;
+      if (input.value !== input.defaultValue) {
+        const expected = Number(originalInput);
+        if (!originalInput.trim() || !Number.isFinite(expected))
+          throw Error('Expected a finite number');
+        input.dispatchEvent(new window.Event('change', { bubbles: true }));
+        if (state()?.value !== expected) throw Error('Number change cancelled');
+        settleNumericControl(input, true);
+      }
+      envelope = owner.state;
+      const currentState = state();
+      if (!currentState || currentState.signature !== signature)
+        throw Error('Remap target changed');
+      return [currentState.value];
+    },
+    step: () => Number(units[0]),
+    bounds: () => [Number(units[1] || -Number.MAX_VALUE), Number(units[2] || Number.MAX_VALUE)],
+    begin() {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'begin-gesture',
+        payload: {
+          target: {
+            kind: 'numeric-command',
+            command: 'edit-remap',
+            payload: { layerId, nodeId, action: 'set', pointId, component, axis },
+            initial: state().value,
+          },
+        },
+      });
+      input.addEventListener('input', onInput);
+    },
+    preview([value]) {
+      gesture = owner.dispatch({
+        ...owner.state,
+        type: 'update-gesture',
+        payload: { ...gesture, update: { value } },
+      });
+      drag.preview = owner.previewSnapshot(gesture.gestureId).document;
+      input.value = String(value);
+      previewInput = input.value;
+      updateCanvas();
+    },
+    commit() {
+      input.removeEventListener('input', onInput);
+      settleNumericControl(
+        input,
+        owner.dispatch({ ...owner.state, type: 'commit-gesture', payload: gesture }),
+      );
+    },
+    cancel() {
+      input.removeEventListener('input', onInput);
+      if (gesture)
+        owner.dispatch({
+          ...owner.state,
+          type: 'cancel-gesture',
+          payload: { gestureId: gesture.gestureId },
+        });
+      if (sameControl() && input.value === previewInput) input.value = originalInput;
     },
   };
 }
