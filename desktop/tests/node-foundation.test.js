@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createNodeRegistry, parseNodeDeclaration } from '../src/node-foundation.js';
 import { mathDeclaration } from '../src/math-node-declaration.js';
 import { evaluateMath } from '../src/math-node-binding.js';
+import { nectNodeHost } from '../src/nect-node-host.js';
 import { builtinNodeRegistry, MATH_NODE } from '../src/builtin-node-registry.js';
 import {
   CommandSession,
@@ -39,32 +40,69 @@ test('data declaration rejects executable, ambiguous and unsupported inputs with
       return 1;
     },
   });
-  assert.throws(() => createNodeRegistry([getter], bindings()), /accessor|data/);
+  assert.throws(() => createNodeRegistry([getter], bindings(), nectNodeHost), /accessor|data/);
   assert.equal(invoked, false);
   for (const bad of [() => {}, new Date(), NaN, undefined]) {
     const item = copy();
     item.extra = bad;
-    assert.throws(() => createNodeRegistry([item], bindings()), /data|plain/);
+    assert.throws(() => createNodeRegistry([item], bindings(), nectNodeHost), /data|plain/);
   }
   const duplicate = copy();
   duplicate.operations.push({ ...duplicate.operations[0] });
-  assert.throws(() => createNodeRegistry([duplicate], bindings()), /Duplicate/);
-  assert.throws(() => createNodeRegistry([copy(), copy()], bindings()), /Duplicate/);
+  assert.throws(() => createNodeRegistry([duplicate], bindings(), nectNodeHost), /Duplicate/);
+  assert.throws(() => createNodeRegistry([copy(), copy()], bindings(), nectNodeHost), /Duplicate/);
   const capability = copy();
   capability.capabilities = ['unknown.semantic'];
-  assert.throws(() => createNodeRegistry([capability], bindings()), /Unsupported/);
+  assert.throws(() => createNodeRegistry([capability], bindings(), nectNodeHost), /Unsupported/);
   const unavailable = copy();
   unavailable.implementationId = 'untrusted.script';
-  assert.throws(() => createNodeRegistry([unavailable], bindings()), /Unavailable/);
+  assert.throws(() => createNodeRegistry([unavailable], bindings(), nectNodeHost), /Unavailable/);
   const badPort = copy();
   badPort.outputs[0].type = 'Mystery';
-  assert.throws(() => createNodeRegistry([badPort], bindings()), /Unsupported/);
+  assert.throws(() => createNodeRegistry([badPort], bindings(), nectNodeHost), /Unsupported/);
+});
+
+test('trusted type and host adapters are required and fail closed', () => {
+  assert.throws(() => createNodeRegistry([copy()], bindings()), /host adapters/);
+  const unknown = copy();
+  unknown.parameters[0].type = 'Unknown';
+  assert.throws(() => createNodeRegistry([unknown], bindings(), nectNodeHost), /Unsupported/);
+  const badDefault = copy();
+  badDefault.parameters[0].default = 'bad';
+  assert.throws(() => createNodeRegistry([badDefault], bindings(), nectNodeHost), /default/);
+  const badOutput = copy();
+  badOutput.outputs[0].legacyDefault = false;
+  assert.throws(() => createNodeRegistry([badOutput], bindings(), nectNodeHost), /output/i);
+  const host = { types: new Map(), validateOutputs: () => true };
+  assert.throws(() => createNodeRegistry([copy()], bindings(), host), /Unsupported/);
+});
+
+test('kernel resolves an injected data type without Nect legacy port knowledge', () => {
+  const declaration = copy();
+  declaration.parameters.forEach((parameter) => {
+    parameter.type = 'Synthetic';
+    parameter.default = 'valid';
+  });
+  declaration.outputs = [{ id: 'result', type: 'Synthetic' }];
+  const adapter = {
+    validateDefault: (value) => value === 'valid',
+    validateOutput: (output) => output.id === 'result',
+  };
+  const host = { types: new Map([['Synthetic', adapter]]), validateOutputs: () => true };
+  const resolved = createNodeRegistry([declaration], bindings(), host).get('Math');
+  host.types.clear();
+  declaration.outputs[0].id = 'changed';
+  assert.equal(resolved.declaration.outputs[0].id, 'result');
+  assert.equal(
+    resolved.evaluate('abs', () => -7),
+    7,
+  );
 });
 
 test('resolved registry snapshots are immutable and use one Math projection', () => {
   const input = copy(),
     trusted = bindings(),
-    registry = createNodeRegistry([input], trusted),
+    registry = createNodeRegistry([input], trusted, nectNodeHost),
     resolved = registry.get('Math');
   input.parameters[0].default = 99;
   trusted.set('builtin.math.v1', { evaluate: () => 999 });

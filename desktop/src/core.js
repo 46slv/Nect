@@ -1,4 +1,5 @@
 import { builtinNodeRegistry, MATH_NODE } from './builtin-node-registry.js';
+import { nectOutputPort } from './nect-node-host.js';
 import { KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION } from './key-color-recipe-document.js';
 import {
   COLOR_SLOTS_SCHEMA_VERSION,
@@ -793,7 +794,7 @@ export function outputPorts(n) {
   const registered = builtinNodeRegistry.get(n.type);
   if (registered)
     return registered.declaration.outputs.map(({ id, label, legacyDefault }) => {
-      const port = legacyDefault ? undefined : id;
+      const port = nectOutputPort({ id, legacyDefault });
       return { id: port, label, type: outputType(n, port) };
     });
   return n.type === 'Separate Vector'

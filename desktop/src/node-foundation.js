@@ -66,7 +66,9 @@ export function parseNodeDeclaration(text) {
   if (typeof text !== 'string' || text.length > 262144) throw Error('Invalid declaration text');
   return copyData(JSON.parse(text));
 }
-export function createNodeRegistry(declarations, bindings) {
+export function createNodeRegistry(declarations, bindings, host) {
+  if (!(host?.types instanceof Map) || typeof host.validateOutputs !== 'function')
+    throw Error('Missing trusted host adapters');
   if (!Array.isArray(declarations) || declarations.length > 256)
     throw Error('Invalid declarations');
   const table = new Map();
@@ -80,17 +82,26 @@ export function createNodeRegistry(declarations, bindings) {
     if (!Array.isArray(declaration.capabilities) || declaration.capabilities.length)
       throw Error('Unsupported semantic capability');
     const parameterIds = uniqueIds(declaration.parameters, 'parameter');
-    for (const parameter of declaration.parameters)
-      if (parameter.type !== 'Scalar' || typeof parameter.default !== 'number')
-        throw Error('Unsupported parameter type or default');
-    const outputIds = uniqueIds(declaration.outputs, 'output');
-    if (
-      outputIds.size !== 1 ||
-      declaration.outputs[0].legacyDefault !== true ||
-      typeof declaration.outputs[0].label !== 'string' ||
-      declaration.outputs[0].type !== 'Scalar'
-    )
-      throw Error('Unsupported output');
+    for (const parameter of declaration.parameters) {
+      const typeId = requiredString(parameter.type, 'parameter type');
+      const adapter = host.types.get(typeId);
+      if (!adapter || typeof adapter.validateDefault !== 'function')
+        throw Error(`Unsupported parameter type: ${typeId}`);
+      if (adapter.validateDefault(parameter.default) !== true)
+        throw Error(`Invalid parameter default: ${parameter.id}`);
+    }
+    uniqueIds(declaration.outputs, 'output');
+    for (const output of declaration.outputs) {
+      const typeId = requiredString(output.type, 'output type');
+      const adapter = host.types.get(typeId);
+      if (
+        !adapter ||
+        typeof adapter.validateOutput !== 'function' ||
+        adapter.validateOutput(output) !== true
+      )
+        throw Error(`Unsupported output type: ${typeId}`);
+    }
+    if (host.validateOutputs(declaration.outputs) !== true) throw Error('Unsupported output');
     const operationIds = uniqueIds(declaration.operations, 'operation');
     if (
       !operationIds.has(declaration.defaultOperation) ||
