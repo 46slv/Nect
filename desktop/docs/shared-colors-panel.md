@@ -1,7 +1,7 @@
 # Shared manual colors panel
 
-This first UI slice exposes the schema 54 shared-color registry. It is not the
-automatic palette/AutoChroma design.
+This UI exposes the shared-color registry and the existing AutoChroma controls.
+The opt-in Key color trial has a separate, versioned recipe contract.
 
 - The left workspace bar opens Shared Colors. Opening and
   closing it changes view state only; the existing Assets portal remains mounted.
@@ -15,6 +15,18 @@ automatic palette/AutoChroma design.
   Connected, expression-driven and locked parameters are unavailable for binding.
 - A bound field displays its resolved value and disables local literal edits.
   Unlinking materializes the current shared value, not the old fallback value.
+- A color row can copy a value or a reference inside Nect. A value is the exact
+  HEX/alpha at copy time and can be pasted as an independent literal; a reference
+  keeps its stable slot ID and can be pasted only while that slot exists in the
+  same open project, including another Composition. Replacing the project
+  invalidates a copied reference even if the new project has the same ID. A
+  committed removal also expires the reference; restoring or reusing that ID
+  requires copying it again. The
+  temporary in-app copy does not read or write the system clipboard. Pasting over
+  a bound Color parameter explicitly replaces its link with the copied value in
+  one Undo step. The same Color-parameter controls are available for gradient
+  stops and for a Fill applied to Text; Text character-specific paint is not a
+  supported paste surface.
 - Controls carry their rendering Session identity and revision. Detached controls,
   old document controls and old revisions cannot mutate the current document.
 - Shared slots and bindings are document/project data and survive JSON reopen.

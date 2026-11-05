@@ -995,7 +995,31 @@ input[type='color'] {
   grid-column: 1 / -1;
 }
 .shared-color-row [data-shared-color-edit='name'] {
+  grid-column: 1 / 3;
+}
+.shared-color-copy {
+  grid-column: 3;
+  min-width: 0;
+  width: 100%;
+}
+.shared-color-copy button {
+  width: 100%;
+}
+.shared-color-copy-actions {
   grid-column: 1 / -1;
+  display: grid;
+  gap: 4px;
+}
+.shared-color-copy-actions[hidden] {
+  display: none;
+}
+.shared-color-copy-actions button {
+  text-align: left;
+}
+.shared-color-identity {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
 }
 .empty {
   padding: 15px;
@@ -2965,7 +2989,7 @@ input[data-scrub-step].scrubbing {
 }
 .shared-color-row {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) 58px;
+  grid-template-columns: 32px minmax(0, 1fr) 78px;
   gap: 5px;
   align-items: center;
   margin: 5px 0;

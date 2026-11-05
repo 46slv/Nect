@@ -137,13 +137,24 @@ test('Text position-output cache tracks expression dependencies independently of
   scalar.params.value.value = 7;
   assert.deepEqual(evaluate(l).run(text.id, 'position'), [7, 14]);
 });
-test('picker safely ignores Curve point descriptors and rejects point-reference targets', () => {
+test('picker offers Curve anchor components as stable point-reference targets', () => {
   const { doc, l, sink } = fixture(),
     curve = node('Curve');
   l.nodes.push(curve);
-  assert.doesNotThrow(() => expressionReferenceTargets(l, sink.id));
+  assert.ok(
+    expressionReferenceTargets(l, sink.id).some(
+      (item) =>
+        item.nodeId === curve.id &&
+        item.key === `${curve.points[0].id}.position` &&
+        item.component === 'x',
+    ),
+  );
   sink.params.value.expression = ref(curve.id, `${curve.points[0].id}.position`, 'x');
-  assert.throws(() => deserialize(serialize(doc)), /Scalar/);
+  doc.schemaVersion = 60;
+  assert.equal(
+    evaluate(deserialize(serialize(doc)).layers[0]).run(sink.id),
+    curve.points[0].position.value[0],
+  );
 });
 test('connected targets still reject invalid authored expressions without changing socket priority', () => {
   const { doc, l, scalar, sink } = fixture();

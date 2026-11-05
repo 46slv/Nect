@@ -4,6 +4,10 @@ import {
 } from './composition-project-model.js';
 import { keyColorRecipeInitializationSlotIds } from './key-color-recipe-document.js';
 import { prepareProjectCompositionsImport } from './composition-project-import.js';
+import {
+  CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
+  CURVE_POINT_REFERENCE_SCHEMA_VERSION,
+} from './curve-point-reference.js';
 
 function documentFor(project, compositionId, cloneDocument) {
   const composition = project.compositions.find((entry) => entry.id === compositionId);
@@ -20,9 +24,13 @@ function documentFor(project, compositionId, cloneDocument) {
 
 function projectWithDocument(project, compositionId, document) {
   const { width, height, layers, editor, ...shared } = document;
+  shared.schemaVersion = Math.max(project.schemaVersion, shared.schemaVersion);
   const candidate = {
     ...shared,
-    compositionSchemaVersion: project.compositionSchemaVersion,
+    compositionSchemaVersion:
+      shared.schemaVersion >= CURVE_POINT_REFERENCE_SCHEMA_VERSION
+        ? CURVE_POINT_COMPOSITION_SCHEMA_VERSION
+        : project.compositionSchemaVersion,
     compositions: project.compositions.map((composition) => {
       if (composition.id !== compositionId) return composition;
       const updated = { ...composition, width, height, layers };
