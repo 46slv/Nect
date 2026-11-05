@@ -59,6 +59,43 @@ test('opposite sides switch exclusively without changing the graph', () => {
   f.window.happyDOM.abort();
 });
 
+test('an active owner can defer close and same-side or cross-side switches', () => {
+  const win = new Window();
+  const root = win.document.createElement('div');
+  root.innerHTML = markup;
+  win.document.body.append(root);
+  let blocked = true,
+    writes = 0,
+    assetOpens = 0;
+  const controller = createTestWorkspacePanels({
+    storage: { getItem: () => null, setItem: () => writes++ },
+    getAssetPanel: () => null,
+    onAssets: () => assetOpens++,
+    onAlign: () => {},
+    canDeactivateColors: () => !blocked,
+  });
+  controller.attach(root);
+  controller.select('colors');
+  const input = win.document.createElement('input');
+  root.querySelector('.shared-colors-panel').append(input);
+  input.focus();
+  const beforeWrites = writes;
+  controller.select('assets');
+  controller.select('layers');
+  controller.close('colors');
+  controller.select('colors');
+  assert.deepEqual(controller.active, { left: 'colors', right: null });
+  assert.equal(root.querySelector('.shared-colors-panel').hidden, false);
+  assert.equal(win.document.activeElement, input);
+  assert.equal(writes, beforeWrites);
+  assert.equal(assetOpens, 0);
+  blocked = false;
+  controller.select('assets');
+  assert.deepEqual(controller.active, { left: 'assets', right: null });
+  assert.equal(assetOpens, 1);
+  win.happyDOM.abort();
+});
+
 test('same trigger closes, hidden panels are inert, and dismissal restores focus', () => {
   const f = fixture();
   const trigger = f.root.querySelector('[data-workspace-panel="layers"]');

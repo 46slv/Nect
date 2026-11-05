@@ -75,11 +75,13 @@ export function createWorkspaceSurfaceAdapters({
   onAlign,
   onColors,
   createColorsView,
+  canDeactivateColors,
 }) {
   if (
     typeof onAlign !== 'function' ||
     (onColors !== undefined && typeof onColors !== 'function') ||
-    (createColorsView !== undefined && typeof createColorsView !== 'function')
+    (createColorsView !== undefined && typeof createColorsView !== 'function') ||
+    (canDeactivateColors !== undefined && typeof canDeactivateColors !== 'function')
   )
     throw Error('Invalid legacy surface binding');
   const colorsSelector = '.shared-colors-panel';
@@ -105,6 +107,7 @@ export function createWorkspaceSurfaceAdapters({
         if (!root.querySelector(colorsSelector)) onColors?.();
       },
       {
+        canDeactivate: () => canDeactivateColors?.() !== false,
         attach(host, { right }) {
           const colors = createColorsView
             ? createColorsView()
@@ -161,9 +164,16 @@ export function resolveWorkspaceSurfaces(declarations, adapters) {
       !['left', 'right'].includes(adapter.fixedSide) ||
       adapter.fixedSide !== item.side ||
       (adapter.canRetreat !== undefined && typeof adapter.canRetreat !== 'boolean') ||
-      ['attach', 'setMotion', 'contains', 'open', 'restore', 'focus', 'refresh'].some(
-        (key) => adapter[key] !== undefined && typeof adapter[key] !== 'function',
-      ) ||
+      [
+        'attach',
+        'setMotion',
+        'contains',
+        'open',
+        'restore',
+        'focus',
+        'refresh',
+        'canDeactivate',
+      ].some((key) => adapter[key] !== undefined && typeof adapter[key] !== 'function') ||
       typeof adapter.open !== 'function' ||
       typeof adapter.restore !== 'function' ||
       typeof adapter.focus !== 'function'

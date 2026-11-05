@@ -68,6 +68,7 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
   }
   const item = (id) => ITEMS.find((entry) => entry.id === id);
   const trigger = (id) => root?.querySelector(`[data-workspace-panel="${id}"]`);
+  const canDeactivate = (id) => item(id)?.adapter.canDeactivate?.({ root }) !== false;
   function setMotion(side, enabled) {
     const host = root?.querySelector(`[data-drawer-side="${side}"]`);
     if (host) host.dataset.motionEnabled = String(enabled);
@@ -273,6 +274,10 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     if (!entry) return;
     if (active[entry.side] === id) return close(id, focus);
     const other = entry.side === 'left' ? 'right' : 'left';
+    if (
+      [active[entry.side], active[other]].some((activeId) => activeId && !canDeactivate(activeId))
+    )
+      return;
     if (active[other]) {
       const oldHost = root?.querySelector(`[data-drawer-side="${other}"]`);
       const focused = root?.ownerDocument.activeElement;
@@ -304,7 +309,7 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
   }
   function close(id, focus = true, { animate = true } = {}) {
     const entry = item(id);
-    if (!entry || active[entry.side] !== id) return;
+    if (!entry || active[entry.side] !== id || !canDeactivate(id)) return;
     active[entry.side] = null;
     save();
     if (entry.side === 'left') retreated = false;

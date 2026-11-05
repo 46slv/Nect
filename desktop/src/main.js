@@ -976,7 +976,14 @@ const sharedColors = createSharedColorsPanel({
   getCoverageSnapshot: () => coverageView.snapshot(),
   getSession: () => session,
   getDocument: () => history.doc,
-  dispatch: (type, payload, envelope) => commandChange(type, payload, undefined, false, envelope),
+  dispatch: (type, payload, envelope) =>
+    commandChange(
+      type,
+      payload,
+      undefined,
+      type === 'rename-color-slot' && pointerActive,
+      envelope,
+    ),
   render: () => render(),
   notify: (message, error) => notify(message, error),
   onClose: () => workspacePanels.close('colors'),
@@ -1111,6 +1118,7 @@ const workspacePanels = createWorkspacePanels({
     },
     onColors: () => coverageView.refresh(),
     createColorsView: () => sharedColors.createView(),
+    canDeactivateColors: () => !sharedColors.composing,
     onAlign: () => {},
   }),
 });

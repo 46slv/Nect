@@ -1,7 +1,8 @@
 # Workspace drawers (trial)
 
-This is an integration candidate, not a statement of product acceptance. The
-editor's job is artwork creation and graph editing; the Artboard and Node Graph
+The later [Workspace action](https://app.notion.com/p/40ffd279a6f38132856ce92091df60ea)
+authorizes staged implementation; it does not itself establish subjective product
+acceptance. The editor's job is artwork creation and graph editing; the Artboard and Node Graph
 remain the primary working surfaces. The existing creation rail belongs to the
 upper surface. Side drawers are secondary overlays bounded by the Artboard
 viewport, and the lower graph occupies the workspace width.
@@ -11,8 +12,8 @@ viewport, and the lower graph occupies the workspace width.
 `workspace-panels.js` owns only drawer selection, focus, portal geometry and
 view preferences. Its small panel definition list binds existing owners: Assets
 and project Shared Colors on the left; Layers, Alignment and Inspector on the
-right. One panel per side can be open. Selecting the same trigger closes it;
-selecting another switches that side. This routing is a reversible trial.
+right. One drawer is active across both sides. Selecting the same trigger closes it;
+selecting another switches the active drawer. This routing is a reversible trial.
 
 The document and Session own artwork, selection targets, commands, validation,
 preview and history. Moving, showing, hiding or restoring a panel is not an edit.
@@ -31,7 +32,7 @@ dismisses the appropriate transient panel or drawer. A closed panel must not
 expose interactive hit surfaces.
 In Viewers mode the left Assets/Color overlay is temporarily hidden and inert,
 while the right Inspector remains available for viewer assignment; returning
-to Artwork restores the retained left panel. A minimum upper-pane height keeps
+to Artwork restores the retained left panel if no other drawer replaced it. A minimum upper-pane height keeps
 the edge controls usable at a short split while preserving the graph below.
 
 ## Design and evidence
@@ -45,7 +46,7 @@ motion. Narrow windows constrain secondary overlays rather than changing the
 Artboard/graph layout; reduced motion does not remove state feedback.
 
 Verify both fit and manual canvas transforms, unchanged graph geometry,
-independent side switching and dismissal, native asset drag/cancel and stale
+exclusive side switching and dismissal, native asset drag/cancel and stale
 requests, focus/IME and modal Escape, and same-condition rendered states. A
 passing browser test is not Windows native GUI or commercial-font acceptance.
 

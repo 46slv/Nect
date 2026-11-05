@@ -90,6 +90,51 @@ test('Shared Colors controller view mounts through adapter and uses Session thro
   colorsToggle().click();
   assert.equal(colorsToggle().getAttribute('aria-expanded'), 'true');
   assert.equal(JSON.stringify(win.nect.projectSnapshot()), snapshot);
+
+  const composing = nameInput();
+  composing.focus();
+  composing.value = '編集中';
+  composing.dispatchEvent(new win.Event('compositionstart', { bubbles: true }));
+  const compositionState = { ...win.nect.commandState };
+  for (const selector of [
+    '[data-workspace-panel="assets"]',
+    '[data-workspace-panel="layers"]',
+    '[data-workspace-panel="colors"]',
+    '[data-shared-color-add]',
+    '[data-shared-color-close]',
+    '.viewer-tabs [data-viewer-mode="viewers"]',
+    '[data-key-color-recipe-open]',
+    '.canvas-toolbar [data-action="align-panel"]',
+  ]) {
+    const target = document.querySelector(selector);
+    assert.ok(target, selector);
+    target.click();
+    assert.equal(colors().closest('[data-drawer-side]').dataset.activePanel, 'colors', selector);
+    assert.equal(colors().closest('[data-drawer-side]').hidden, false, selector);
+    assert.equal(document.activeElement, composing, selector);
+    assert.equal(composing.value, '編集中', selector);
+    const down = new win.PointerEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      isPrimary: true,
+      pointerId: 1,
+    });
+    target.dispatchEvent(down);
+    assert.equal(down.defaultPrevented, true, `${selector} preserves focus before pointer blur`);
+    target.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+    assert.deepEqual(win.nect.commandState, compositionState, selector);
+  }
+  composing.dispatchEvent(new win.Event('compositionend', { bubbles: true }));
+  composing.dispatchEvent(new win.Event('change', { bubbles: true }));
+  assert.equal(win.nect.projectSnapshot().colorSlots.find((slot) => slot.id === id).name, '編集中');
+  assert.equal(win.nect.commandState.expectedRevision, compositionState.expectedRevision + 1);
+  win.nect.dispatch({ ...win.nect.commandState, type: 'undo', payload: {} });
+  assert.equal(win.nect.projectSnapshot().colorSlots.find((slot) => slot.id === id).name, 'Studio');
+  win.nect.dispatch({ ...win.nect.commandState, type: 'redo', payload: {} });
+  assert.equal(win.nect.projectSnapshot().colorSlots.find((slot) => slot.id === id).name, '編集中');
+  document.querySelector('[data-workspace-panel="assets"]').click();
+  assert.equal(colors().closest('[data-drawer-side]').dataset.activePanel, 'assets');
   document.querySelector('[aria-label="Close assets"]')?.click();
   await win.happyDOM.close();
 });

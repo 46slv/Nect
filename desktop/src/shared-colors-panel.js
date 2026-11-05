@@ -24,6 +24,22 @@ export function createSharedColorsPanel({
   let activeColorPointer = null,
     rendering = false;
   const composingInputs = new WeakSet();
+  const hasActiveComposition = () => {
+    const active = app.ownerDocument.activeElement;
+    return !!active && app.contains(active) && composingInputs.has(active);
+  };
+  function keepCompositionFocused(event) {
+    if (
+      !hasActiveComposition() ||
+      !event.target.closest?.(
+        '[data-workspace-panel],[data-shared-color-add],[data-shared-color-close],[data-key-color-recipe-open],[data-viewer-mode="viewers"],[data-action="align-panel"],[data-action="asset-library"]',
+      )
+    )
+      return false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return true;
+  }
   app.addEventListener(
     'compositionstart',
     (event) => {
@@ -260,6 +276,7 @@ export function createSharedColorsPanel({
   app.addEventListener(
     'pointerdown',
     (event) => {
+      if (keepCompositionFocused(event)) return;
       // Opening the separate experimental draft must not finish a legacy live
       // gesture. Prevent native blur/change before it can commit the old field.
       if (event.target.closest?.('[data-key-color-recipe-open]')) {
@@ -349,6 +366,7 @@ export function createSharedColorsPanel({
     render();
   });
   function close() {
+    if (hasActiveComposition()) return;
     literalScrub.stop();
     chroma.reset();
     if (externalVisibility) {
@@ -369,6 +387,7 @@ export function createSharedColorsPanel({
       render();
     }
   }
+  app.addEventListener('click', keepCompositionFocused, true);
   app.addEventListener('click', (event) => {
     const button = event.target.closest?.(
       '[data-shared-color-add],[data-shared-color-close],[data-key-color-recipe-open]',
@@ -485,6 +504,7 @@ export function createSharedColorsPanel({
       event.key === 'Escape' &&
       !event.isComposing &&
       event.keyCode !== 229 &&
+      !hasActiveComposition() &&
       !event.defaultPrevented &&
       !event.target.closest?.('dialog[open]') &&
       event.target.closest?.('.shared-colors-panel')
@@ -507,6 +527,9 @@ export function createSharedColorsPanel({
     if (event.target.closest?.('.shared-colors-panel')) event.stopImmediatePropagation();
   });
   const controller = {
+    get composing() {
+      return hasActiveComposition();
+    },
     get previewDocument() {
       return chroma.previewDocument;
     },
