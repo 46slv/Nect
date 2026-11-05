@@ -1,4 +1,4 @@
-import { MATH_NODE, SEPARATE_VECTOR } from './builtin-node-registry.js';
+import { MATH_NODE, SEPARATE_VECTOR, VECTOR_MATH } from './builtin-node-registry.js';
 
 // Editor-only metadata. Never serialized into a document or used as a node type ID.
 export const nodeCategories = [
@@ -485,14 +485,7 @@ export const nodeCatalog = [
     description: 'ベクトル 座標',
     creationRoute: 'add',
   },
-  {
-    typeId: 'Vector Math',
-    categoryId: 'value',
-    labelJa: 'ベクトル計算',
-    aliases: ['ベクトル計算'],
-    description: 'ベクトル計算',
-    creationRoute: 'add',
-  },
+  { typeId: VECTOR_MATH.declaration.typeId, ...VECTOR_MATH.declaration.catalog },
   {
     typeId: 'Vector Transform',
     categoryId: 'value',

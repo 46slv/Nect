@@ -1,4 +1,9 @@
-import { builtinNodeRegistry, MATH_NODE, SEPARATE_VECTOR } from './builtin-node-registry.js';
+import {
+  builtinNodeRegistry,
+  MATH_NODE,
+  SEPARATE_VECTOR,
+  VECTOR_MATH,
+} from './builtin-node-registry.js';
 import { isVector2 } from './node-value-validation.js';
 import { nectOutputPort } from './nect-node-host.js';
 import { KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION } from './key-color-recipe-document.js';
@@ -454,7 +459,9 @@ export const definitions = {
   [MATH_NODE.declaration.typeId]: Object.fromEntries(
     MATH_NODE.declaration.parameters.map(({ id, type, default: value }) => [id, p(type, value)]),
   ),
-  'Vector Math': { a: p('Vector2', [0, 0]), b: p('Vector2', [0, 0]), scale: p('Scalar', 1) },
+  [VECTOR_MATH.declaration.typeId]: Object.fromEntries(
+    VECTOR_MATH.declaration.parameters.map(({ id, type, default: value }) => [id, p(type, value)]),
+  ),
   [SEPARATE_VECTOR.declaration.typeId]: Object.fromEntries(
     SEPARATE_VECTOR.declaration.parameters.map(({ id, type, default: value }) => [
       id,
@@ -703,9 +710,7 @@ export function node(type, x = 40, y = 40) {
                     ? 'linear'
                     : builtinNodeRegistry.get(type)?.declaration.defaultOperation
                       ? builtinNodeRegistry.get(type).declaration.defaultOperation
-                      : type === 'Vector Math'
-                        ? 'add'
-                        : 'subtract',
+                      : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -815,11 +820,11 @@ export function outputType(n, port) {
     return port === undefined ? 'PaintedPath' : undefined;
   const registered = builtinNodeRegistry.get(n.type);
   if (registered)
-    return registered.declaration.outputs.find((output) => nectOutputPort(output) === port)?.type;
+    return registered
+      .interface(n.operation)
+      .outputs.find((output) => nectOutputPort(output) === port)?.type;
   if (n.type === 'Text' && port === 'position') return 'Vector2';
   if (port !== undefined) return undefined;
-  if (n.type === 'Vector Math')
-    return ['length', 'distance', 'dot'].includes(n.operation) ? 'Scalar' : 'Vector2';
   if (
     [
       'Fill',
@@ -861,7 +866,7 @@ const bypassInputs = Object.freeze({
   Boolean: 'a',
   'Join Geometry': 'a',
   [MATH_NODE.declaration.typeId]: MATH_NODE.declaration.bypassInput,
-  'Vector Math': 'a',
+  [VECTOR_MATH.declaration.typeId]: VECTOR_MATH.declaration.bypassInput,
   Transform: 'path',
   Mirror: 'path',
   'Corner Round': 'path',
@@ -1418,17 +1423,7 @@ export const operationOptions = {
   'Line Screen': ['horizontal', 'vertical'],
   Boolean: ['union', 'subtract', 'intersect', 'difference'],
   [MATH_NODE.declaration.typeId]: MATH_NODE.declaration.operations.map(({ id }) => id),
-  'Vector Math': [
-    'add',
-    'subtract',
-    'multiply',
-    'divide',
-    'scale',
-    'normalize',
-    'length',
-    'distance',
-    'dot',
-  ],
+  [VECTOR_MATH.declaration.typeId]: VECTOR_MATH.declaration.operations.map(({ id }) => id),
 };
 export function activeParameters(n) {
   const entries = parameters(n);
@@ -1449,15 +1444,7 @@ export function activeParameters(n) {
     return entries.filter(
       ([key]) => key === 'path' || key === (n.operation === 'spacing' ? 'spacing' : 'count'),
     );
-  if (n.type === 'Vector Math') {
-    const keys =
-      n.operation === 'scale'
-        ? ['a', 'scale']
-        : ['normalize', 'length'].includes(n.operation)
-          ? ['a']
-          : ['a', 'b'];
-    return entries.filter(([key]) => keys.includes(key));
-  }
+
   if (
     isTransform(n) &&
     (!n.params.uniformScale ||
@@ -1468,12 +1455,8 @@ export function activeParameters(n) {
     return entries.filter(([key]) => key !== 'scaleWidth');
   const registered = builtinNodeRegistry.get(n.type);
   if (!registered?.declaration.operations) return entries;
-  const operation =
-    registered.declaration.operations.find(({ id }) => id === n.operation) ||
-    registered.declaration.operations.find(
-      ({ id }) => id === registered.declaration.defaultOperation,
-    );
-  return entries.filter(([key]) => operation.active.includes(key));
+  const active = registered.interface(n.operation).active;
+  return entries.filter(([key]) => active.includes(key));
 }
 export function setOperation(layer, nodeId, operation) {
   const n = layer.nodes.find((n) => n.id === nodeId);
@@ -1495,35 +1478,6 @@ export function setOperation(layer, nodeId, operation) {
     )
       throw Error('Operation would break a Reference Vector2 output');
   n.operation = operation;
-}
-function vectorMathValue(operation, read) {
-  if (!operationOptions['Vector Math'].includes(operation))
-    throw Error('Invalid Vector Math operation');
-  const a = read('a');
-  if (operation === 'length') return Math.hypot(...a);
-  if (operation === 'normalize') {
-    // Scale before measuring so both huge and subnormal finite inputs normalize safely.
-    const largest = Math.max(...a.map(Math.abs));
-    if (largest === 0) return [0, 0];
-    const scaled = a.map((v) => v / largest),
-      length = Math.hypot(...scaled);
-    return scaled.map((v) => v / length);
-  }
-  if (operation === 'scale') {
-    const scale = read('scale');
-    return a.map((v) => v * scale);
-  }
-  const b = read('b');
-  if (operation === 'distance') return Math.hypot(a[0] - b[0], a[1] - b[1]);
-  if (operation === 'dot') return a[0] * b[0] + a[1] * b[1];
-  return a.map((v, i) =>
-    ({
-      add: () => v + b[i],
-      subtract: () => v - b[i],
-      multiply: () => v * b[i],
-      divide: () => (b[i] === 0 ? 0 : v / b[i]),
-    })[operation](),
-  );
 }
 // Evaluator-owned identities only: authored data and caller-supplied alias fields never
 // grant compatibility. The second identity reproduces the empty-expression-field era
@@ -2957,13 +2911,10 @@ export function evaluate(
         result = read('value');
       else if (n.type === 'Vector Transform')
         result = transformVector(transformValues(n, read), read('vector'));
-      else if (n.type === 'Vector Math') {
-        result = vectorMathValue(n.operation, read);
-        assertValue(outputType(n), result);
-      } else if (builtinNodeRegistry.get(n.type)) {
+      else if (builtinNodeRegistry.get(n.type)) {
         const registered = builtinNodeRegistry.get(n.type);
         result = registered.evaluate(n.operation, read);
-        assertValue(registered.declaration.resultType, result);
+        assertValue(registered.interface(n.operation).resultType, result);
       } else if (n.type === 'Combine Vector') {
         result = [read('x'), read('y')];
         assertValue('Vector2', result);

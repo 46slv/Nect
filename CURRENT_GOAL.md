@@ -14,16 +14,16 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-11-05 Node Foundation M2a
+## ACTIVE CHECKPOINT — 2026-11-05 Node Foundation M2b
 
-Goal: migrate the existing Separate Vector node to the data-only declaration and trusted binding path, preserving named x/y ports, shared evaluation cache and authored compatibility.
+Goal: migrate existing Vector Math dynamic operation inputs and output types to the data-only declaration and trusted binding without changing Session or authored compatibility.
 Current phase: focused local implementation and validation complete; independent review pending on the unpublished REQ-42 / #185-dependent stack. #185 is not claimed merged.
-Proven: Math M1 and host-boundary commits b8ba064 and 85296b1 have focused tests/build recorded in `nect-node-foundation-math-m1-evidence` and `nect-node-foundation-math-boundary-evidence` beside the checkout.
-Next task: independent review of the exact Separate Vector candidate and its source-bound focused evidence in `nect-node-foundation-separate-vector-evidence` beside this checkout. M2a does not complete M2, M3, or the product.
-Approach: preserve the existing Session, output identity, source precedence and cache; register one existing node with trusted adapters, without new menus or schema migration.
-Done for next: source-bound focused tests/build, receipt and clean local checkpoint; browser/native/CI and publication remain separate.
-State: base 85296b197cca25093a3a072bde5b425ea772da30, tree 05e3548b823bfd4a69c38ef03b22474d7db1c5d0; local branch `codex/nect-separate-vector-m2a-20261105`; existing stops and unpublished candidate refs retained.
-Authority: bounded parent delegation for M2a; public/remote HOLD; no network, denied-operation retry, native, font/image fixture, or stopped Mask/Keyer/Image/FindNode/AddNode work.
+Proven: Math M1, host boundary and Separate Vector M2a evidence is retained in the corresponding `nect-node-foundation-*` evidence directories beside this checkout. Separate Vector synthetic UI/cache test-only checkpoint is 283e5924; prior results are not this candidate's test results.
+Next task: review the exact Vector Math candidate and its source-bound focused evidence in `nect-node-foundation-vector-math-evidence`; M2b does not complete M2, M3 or the product.
+Approach: preserve operation/port identity, lazy reads, output type, atomic Session validation and existing document encoding, deriving interfaces from the registered declaration.
+Done for next: focused source-bound tests/build and review; browser/native/CI and publication remain separate.
+State: base 283e5924ebf89f7b0b20b807de7fb0a933b02158, tree 50ea9303ab43635b66cf8d9c0bd1d2319988d2d2; local branch `codex/nect-vector-math-m2b-20261105`; existing stops and unpublished candidate refs retained.
+Authority: bounded parent delegation for M2b; public/remote HOLD; no network, denied-operation retry, native, font/image fixture, or stopped Mask/Keyer/Image/FindNode/AddNode work.
 Handoff: CONTINUE_CURRENT_TASK; parent retains Mission ownership.
 
 ## Prior checkpoint — 2026-11-01 explicit key-color initialization infrastructure

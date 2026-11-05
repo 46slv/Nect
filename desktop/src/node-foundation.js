@@ -90,20 +90,7 @@ export function createNodeRegistry(declarations, bindings, host) {
       if (adapter.validateDefault(parameter.default) !== true)
         throw Error(`Invalid parameter default: ${parameter.id}`);
     }
-    const resultType = requiredString(declaration.resultType, 'result type');
-    if (!host.types.has(resultType)) throw Error(`Unsupported result type: ${resultType}`);
     uniqueIds(declaration.outputs, 'output');
-    for (const output of declaration.outputs) {
-      const typeId = requiredString(output.type, 'output type');
-      const adapter = host.types.get(typeId);
-      if (
-        !adapter ||
-        typeof adapter.validateOutput !== 'function' ||
-        adapter.validateOutput(output) !== true
-      )
-        throw Error(`Unsupported output type: ${typeId}`);
-    }
-    if (host.validateOutputs(declaration.outputs) !== true) throw Error('Unsupported output');
     const operationIds =
       declaration.operations === undefined ? null : uniqueIds(declaration.operations, 'operation');
     if (
@@ -114,13 +101,52 @@ export function createNodeRegistry(declarations, bindings, host) {
       throw Error('Invalid operation default');
     if (declaration.bypassInput !== undefined && !parameterIds.has(declaration.bypassInput))
       throw Error('Invalid bypass default');
-    for (const operation of declaration.operations ?? []) {
+    const dynamicResult = declaration.resultType === undefined;
+    if (dynamicResult && !operationIds) throw Error('Invalid result type');
+    if (
+      dynamicResult &&
+      (declaration.outputs.length !== 1 ||
+        declaration.outputs[0].result !== true ||
+        declaration.outputs[0].type !== undefined)
+    )
+      throw Error('Unsupported dynamic output');
+    if (!dynamicResult && declaration.outputs.some((output) => output.result !== undefined))
+      throw Error('Unsupported dynamic output');
+    const interfaces = new Map();
+    const variants = operationIds ? declaration.operations : [null];
+    for (const operation of variants) {
       if (
-        !Array.isArray(operation.active) ||
-        new Set(operation.active).size !== operation.active.length ||
-        operation.active.some((id) => !parameterIds.has(id))
+        operation &&
+        (!Array.isArray(operation.active) ||
+          new Set(operation.active).size !== operation.active.length ||
+          operation.active.some((id) => !parameterIds.has(id)))
       )
         throw Error('Invalid active input');
+      if (!dynamicResult && operation?.resultType !== undefined)
+        throw Error('Conflicting result type');
+      const resultType = requiredString(
+        dynamicResult ? operation.resultType : declaration.resultType,
+        'result type',
+      );
+      if (!host.types.has(resultType)) throw Error(`Unsupported result type: ${resultType}`);
+      const outputs = declaration.outputs.map((output) =>
+        Object.freeze(output.result === true ? { ...output, type: resultType } : { ...output }),
+      );
+      for (const output of outputs) {
+        const typeId = requiredString(output.type, 'output type');
+        const adapter = host.types.get(typeId);
+        if (
+          !adapter ||
+          typeof adapter.validateOutput !== 'function' ||
+          adapter.validateOutput(output) !== true
+        )
+          throw Error(`Unsupported output type: ${typeId}`);
+      }
+      if (host.validateOutputs(outputs) !== true) throw Error('Unsupported output');
+      interfaces.set(
+        operation?.id,
+        Object.freeze({ resultType, outputs: Object.freeze(outputs), active: operation?.active }),
+      );
     }
     if (
       !declaration.catalog ||
@@ -145,6 +171,10 @@ export function createNodeRegistry(declarations, bindings, host) {
     const outputIds = new Set(declaration.outputs.map(({ id }) => id));
     const resolved = Object.freeze({
       declaration,
+      interface(operation) {
+        if (operationIds && !operationIds.has(operation)) throw Error('Invalid operation');
+        return interfaces.get(operationIds ? operation : undefined);
+      },
       evaluate(operation, read) {
         if (operationIds && !operationIds.has(operation)) throw Error('Invalid operation');
         return evaluate(operation, read);
