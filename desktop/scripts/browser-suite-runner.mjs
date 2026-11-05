@@ -97,6 +97,7 @@ export const browserTestFiles = Object.freeze([
   'tests/shared-color-copy.e2e.js',
   'tests/curve-point-reference-ui.e2e.js',
   'tests/curve-point-picker.e2e.js',
+  'tests/shared-color-paints.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };

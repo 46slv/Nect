@@ -24,7 +24,9 @@ The opt-in Key color trial has a separate, versioned recipe contract.
   requires copying it again. The
   temporary in-app copy does not read or write the system clipboard. Pasting over
   a bound Color parameter explicitly replaces its link with the copied value in
-  one Undo step. Gradient-stop and Text-specific paste surfaces are not claimed.
+  one Undo step. The same Color-parameter controls are available for gradient
+  stops and for a Fill applied to Text; Text character-specific paint is not a
+  supported paste surface.
 - Controls carry their rendering Session identity and revision. Detached controls,
   old document controls and old revisions cannot mutate the current document.
 - Shared slots and bindings are document/project data and survive JSON reopen.
