@@ -1,4 +1,5 @@
-import { builtinNodeRegistry, MATH_NODE } from './builtin-node-registry.js';
+import { builtinNodeRegistry, MATH_NODE, SEPARATE_VECTOR } from './builtin-node-registry.js';
+import { isVector2 } from './node-value-validation.js';
 import { nectOutputPort } from './nect-node-host.js';
 import { KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION } from './key-color-recipe-document.js';
 import {
@@ -454,7 +455,12 @@ export const definitions = {
     MATH_NODE.declaration.parameters.map(({ id, type, default: value }) => [id, p(type, value)]),
   ),
   'Vector Math': { a: p('Vector2', [0, 0]), b: p('Vector2', [0, 0]), scale: p('Scalar', 1) },
-  'Separate Vector': { vector: p('Vector2', [0, 0]) },
+  [SEPARATE_VECTOR.declaration.typeId]: Object.fromEntries(
+    SEPARATE_VECTOR.declaration.parameters.map(({ id, type, default: value }) => [
+      id,
+      p(type, value),
+    ]),
+  ),
   'Combine Vector': { x: p('Scalar', 0), y: p('Scalar', 0) },
   Toggle: { value: p('Boolean', true) },
   Color: { value: p('Color', { hex: '#36434e', alpha: 1 }) },
@@ -695,7 +701,7 @@ export function node(type, x = 40, y = 40) {
                   ? 'miter'
                   : type === 'Geometry Repeater'
                     ? 'linear'
-                    : builtinNodeRegistry.get(type)
+                    : builtinNodeRegistry.get(type)?.declaration.defaultOperation
                       ? builtinNodeRegistry.get(type).declaration.defaultOperation
                       : type === 'Vector Math'
                         ? 'add'
@@ -793,26 +799,23 @@ export function hasEmptyOutput(layer, output = layer.nodes?.find((n) => n.id ===
 export function outputPorts(n) {
   const registered = builtinNodeRegistry.get(n.type);
   if (registered)
-    return registered.declaration.outputs.map(({ id, label, legacyDefault }) => {
+    return registered.declaration.outputs.map(({ id, label, legacyDefault, type }) => {
       const port = nectOutputPort({ id, legacyDefault });
-      return { id: port, label, type: outputType(n, port) };
+      return { id: port, label, type: legacyDefault ? outputType(n, port) : type };
     });
-  return n.type === 'Separate Vector'
+  return n.type === 'Text'
     ? [
-        { id: 'x', label: 'X', type: 'Scalar' },
-        { id: 'y', label: 'Y', type: 'Scalar' },
+        { id: undefined, label: 'Path', type: 'Path' },
+        { id: 'position', label: 'Position', type: 'Vector2' },
       ]
-    : n.type === 'Text'
-      ? [
-          { id: undefined, label: 'Path', type: 'Path' },
-          { id: 'position', label: 'Position', type: 'Vector2' },
-        ]
-      : [{ id: undefined, label: n.type === 'Null' ? 'Position' : '', type: outputType(n) }];
+    : [{ id: undefined, label: n.type === 'Null' ? 'Position' : '', type: outputType(n) }];
 }
 export function outputType(n, port) {
   if (['Composition Reference', 'SVG'].includes(n.type) || n.paintMode)
     return port === undefined ? 'PaintedPath' : undefined;
-  if (n.type === 'Separate Vector') return ['x', 'y'].includes(port) ? 'Scalar' : undefined;
+  const registered = builtinNodeRegistry.get(n.type);
+  if (registered)
+    return registered.declaration.outputs.find((output) => nectOutputPort(output) === port)?.type;
   if (n.type === 'Text' && port === 'position') return 'Vector2';
   if (port !== undefined) return undefined;
   if (n.type === 'Vector Math')
@@ -841,8 +844,6 @@ export function outputType(n, port) {
   )
     return 'Image';
   if (n.type === 'Mask') return 'PaintedPath';
-  const registered = builtinNodeRegistry.get(n.type);
-  if (registered) return registered.declaration.outputs[0].type;
   return ['Value', 'Expression'].includes(n.type)
     ? 'Scalar'
     : ['Vector', 'Combine Vector', 'Null', 'Reference', 'Vector Transform'].includes(n.type)
@@ -1466,7 +1467,7 @@ export function activeParameters(n) {
   )
     return entries.filter(([key]) => key !== 'scaleWidth');
   const registered = builtinNodeRegistry.get(n.type);
-  if (!registered) return entries;
+  if (!registered?.declaration.operations) return entries;
   const operation =
     registered.declaration.operations.find(({ id }) => id === n.operation) ||
     registered.declaration.operations.find(
@@ -1921,11 +1922,7 @@ function assertValue(type, value) {
   )
     throw Error('Expected Color with hex #RRGGBB and alpha from 0 to 1');
   if (type === 'Scalar' && !Number.isFinite(value)) throw Error('Expected finite Scalar');
-  if (
-    type === 'Vector2' &&
-    (!Array.isArray(value) || value.length !== 2 || !value.every(Number.isFinite))
-  )
-    throw Error('Expected Vector2');
+  if (type === 'Vector2' && !isVector2(value)) throw Error('Expected Vector2');
   if (type === 'Boolean' && typeof value !== 'boolean') throw Error('Expected Boolean');
 }
 function toPaper(path) {
@@ -2790,7 +2787,12 @@ export function evaluate(
     const n = byId.get(id);
     if (!n || !outputType(n, port)) throw Error('Missing output socket');
     const value = runNode(id, port);
-    return n.type === 'Separate Vector' ? value[port === 'x' ? 0 : 1] : value;
+    const registered = builtinNodeRegistry.get(n.type);
+    if (!registered) return value;
+    const output = registered.declaration.outputs.find((item) => nectOutputPort(item) === port);
+    const projected = registered.project(output.id, value);
+    assertValue(outputType(n, port), projected);
+    return projected;
   }
   function runNode(id, port) {
     const key = outputKey(id, port),
@@ -2958,10 +2960,10 @@ export function evaluate(
       else if (n.type === 'Vector Math') {
         result = vectorMathValue(n.operation, read);
         assertValue(outputType(n), result);
-      } else if (n.type === 'Separate Vector') result = read('vector');
-      else if (builtinNodeRegistry.get(n.type)) {
-        result = builtinNodeRegistry.get(n.type).evaluate(n.operation, read);
-        assertValue(outputType(n), result);
+      } else if (builtinNodeRegistry.get(n.type)) {
+        const registered = builtinNodeRegistry.get(n.type);
+        result = registered.evaluate(n.operation, read);
+        assertValue(registered.declaration.resultType, result);
       } else if (n.type === 'Combine Vector') {
         result = [read('x'), read('y')];
         assertValue('Vector2', result);

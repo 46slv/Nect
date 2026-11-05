@@ -90,6 +90,8 @@ export function createNodeRegistry(declarations, bindings, host) {
       if (adapter.validateDefault(parameter.default) !== true)
         throw Error(`Invalid parameter default: ${parameter.id}`);
     }
+    const resultType = requiredString(declaration.resultType, 'result type');
+    if (!host.types.has(resultType)) throw Error(`Unsupported result type: ${resultType}`);
     uniqueIds(declaration.outputs, 'output');
     for (const output of declaration.outputs) {
       const typeId = requiredString(output.type, 'output type');
@@ -102,13 +104,17 @@ export function createNodeRegistry(declarations, bindings, host) {
         throw Error(`Unsupported output type: ${typeId}`);
     }
     if (host.validateOutputs(declaration.outputs) !== true) throw Error('Unsupported output');
-    const operationIds = uniqueIds(declaration.operations, 'operation');
+    const operationIds =
+      declaration.operations === undefined ? null : uniqueIds(declaration.operations, 'operation');
     if (
-      !operationIds.has(declaration.defaultOperation) ||
-      !parameterIds.has(declaration.bypassInput)
+      operationIds
+        ? !operationIds.has(declaration.defaultOperation)
+        : declaration.defaultOperation !== undefined
     )
-      throw Error('Invalid operation or bypass default');
-    for (const operation of declaration.operations) {
+      throw Error('Invalid operation default');
+    if (declaration.bypassInput !== undefined && !parameterIds.has(declaration.bypassInput))
+      throw Error('Invalid bypass default');
+    for (const operation of declaration.operations ?? []) {
       if (
         !Array.isArray(operation.active) ||
         new Set(operation.active).size !== operation.active.length ||
@@ -130,11 +136,22 @@ export function createNodeRegistry(declarations, bindings, host) {
     if (!binding || typeof binding.evaluate !== 'function')
       throw Error(`Unavailable implementation: ${implementationId}`);
     const evaluate = binding.evaluate;
+    const project = binding.project;
+    if (
+      (project !== undefined && typeof project !== 'function') ||
+      (declaration.outputs.length > 1 && typeof project !== 'function')
+    )
+      throw Error('Invalid projection');
+    const outputIds = new Set(declaration.outputs.map(({ id }) => id));
     const resolved = Object.freeze({
       declaration,
       evaluate(operation, read) {
-        if (!operationIds.has(operation)) throw Error('Invalid operation');
+        if (operationIds && !operationIds.has(operation)) throw Error('Invalid operation');
         return evaluate(operation, read);
+      },
+      project(output, value) {
+        if (!outputIds.has(output)) throw Error('Invalid output');
+        return project ? project(output, value) : value;
       },
     });
     table.set(type, resolved);

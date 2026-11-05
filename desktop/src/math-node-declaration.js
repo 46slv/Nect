@@ -3,6 +3,7 @@ export const mathDeclaration = {
   typeId: 'Math',
   revision: 1,
   implementationId: 'builtin.math.v1',
+  resultType: 'Scalar',
   capabilities: [],
   defaultOperation: 'add',
   bypassInput: 'a',

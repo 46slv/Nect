@@ -14,56 +14,17 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-11-03 REQ-42 Grid opacity numeric binding P3a
+## ACTIVE CHECKPOINT — 2026-11-05 Node Foundation M2a
 
-Goal: Connect the existing Grid opacity number field to the common input behavior
-and existing numeric-command Session owner, with 0–100 percent display and 0–1
-saved values. Preserve its range slider, typing, exact values and Undo/Redo.
-Source: [REQ-42 implementation packet](https://app.notion.com/p/40cfd279a6f3811e8438c585e952c71d).
-
-Base: main `ee3e37ceeb621161a0572b79564379c635e1922e`, tree
-`4af82244c97fae7b109b22f0a53ff1220403b3c2`, normal merge of P2b PR #168.
-This isolated branch started at unchanged P2b head `623c7c51` and fast-forwarded
-to the identical merge tree. Sole writer: `codex/req42-p3-grid-opacity-20261103`.
-
-Current phase: implementation and focused acceptance. Actual Chrome reproduced
-25% staying 25% after a 24px horizontal drag instead of reaching 45%: the field
-had numeric affordance but no binding. The existing command binding now resolves
-Grid opacity, converts only at its UI/Session boundary and reuses the existing
-preview/cancel functions to synchronize number, range and overlay. No kernel,
-Session/schema changes or new pointer-handler branch.
-
-Proven: actual Chrome passes scrub/live preview/one Undo, range slider, native
-click/type/arrows, pending typing as a separate Undo, cancellation and Redo.
-DOM checks exact unchanged fractions, canonical endpoints, stale control/revision
-and Composition ownership. P1/P2a/P2b focused regression and normal CI are required
-for the exact candidate. Task evidence: `req42-p3-grid-opacity-evidence` beside
-this worktree; original font/user document/application state is not a fixture.
-
-Endpoint repair: parent authorized an optional input-behavior normalization hook.
-Grid alone uses raw requested delta/baseline/bounds to produce exact endpoints;
-the normalized values drive same/preview/tracking/finish. Zero request retains
-the raw baseline and interior small positive values keep kernel results. Kernel,
-Session/history, other binding and mixed-selection policies remain unchanged.
-High-precision lower/upper, cancellation/origin and small-positive tests are added.
-
-Next task: finish focused tests/Chrome, format/build, source-bound receipt;
-commit/push the endpoint repair and update existing Draft PR #169. Record exact-head
-CI terminal results and return to parent review. #168 integration/post-merge CI
-is tracked separately in `req42-p2b-evidence`.
-
-Done for next: 0–100% display/0–1 saved, peer range synchronization, native input,
-pending typing separate Undo and gesture one Undo; exact no-op/return-origin/
-cancel with Redo retained; stale revision/Composition/control never late-commit.
-Unchanged number displays do not round-trip authored fractions through percent.
-PPI, asynchronous font work, Color changes and other scalar migrations excluded.
-
-Authority: explicit P3a delegation permits implementation/test/commit/non-force
-push and Draft PR. No P3a Ready/merge/release/approval review, force/history rewrite
-or security changes. #168 integration has separate exact-PR user approval.
-Native WebView2/physical OS IME remains separate LOCAL_WAIT; do not repeat known
-missing capability or CIM access failure. Parent retains Mission ownership.
-Handoff: CONTINUE_CURRENT_TASK.
+Goal: migrate the existing Separate Vector node to the data-only declaration and trusted binding path, preserving named x/y ports, shared evaluation cache and authored compatibility.
+Current phase: focused local implementation and validation complete; independent review pending on the unpublished REQ-42 / #185-dependent stack. #185 is not claimed merged.
+Proven: Math M1 and host-boundary commits b8ba064 and 85296b1 have focused tests/build recorded in `nect-node-foundation-math-m1-evidence` and `nect-node-foundation-math-boundary-evidence` beside the checkout.
+Next task: independent review of the exact Separate Vector candidate and its source-bound focused evidence in `nect-node-foundation-separate-vector-evidence` beside this checkout. M2a does not complete M2, M3, or the product.
+Approach: preserve the existing Session, output identity, source precedence and cache; register one existing node with trusted adapters, without new menus or schema migration.
+Done for next: source-bound focused tests/build, receipt and clean local checkpoint; browser/native/CI and publication remain separate.
+State: base 85296b197cca25093a3a072bde5b425ea772da30, tree 05e3548b823bfd4a69c38ef03b22474d7db1c5d0; local branch `codex/nect-separate-vector-m2a-20261105`; existing stops and unpublished candidate refs retained.
+Authority: bounded parent delegation for M2a; public/remote HOLD; no network, denied-operation retry, native, font/image fixture, or stopped Mask/Keyer/Image/FindNode/AddNode work.
+Handoff: CONTINUE_CURRENT_TASK; parent retains Mission ownership.
 
 ## Prior checkpoint — 2026-11-01 explicit key-color initialization infrastructure
 

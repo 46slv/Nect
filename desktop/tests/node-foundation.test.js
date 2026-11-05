@@ -83,6 +83,7 @@ test('kernel resolves an injected data type without Nect legacy port knowledge',
     parameter.type = 'Synthetic';
     parameter.default = 'valid';
   });
+  declaration.resultType = 'Synthetic';
   declaration.outputs = [{ id: 'result', type: 'Synthetic' }];
   const adapter = {
     validateDefault: (value) => value === 'valid',
