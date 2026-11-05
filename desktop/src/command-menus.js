@@ -1,6 +1,17 @@
 export function ensureCommandMenus(app, document, uiSound = null) {
   const header = app.querySelector('header');
   if (!header || header.querySelector('.command-menu')) return;
+  // Native details toggle events are queued. Close a sibling at activation
+  // time so rapid pointer/keyboard choices cannot briefly overlap or race.
+  // Delegation also covers command menus added later, such as Build.
+  header.addEventListener('click', (event) => {
+    const summary = event.target.closest?.('summary');
+    const menu = summary?.parentElement;
+    if (!menu?.matches('.command-menu') || menu.open || event.defaultPrevented) return;
+    header.querySelectorAll('.command-menu[open]').forEach((other) => {
+      if (other !== menu) other.open = false;
+    });
+  });
   const makeMenu = (label, actions, exclusive = true) => {
     const menu = document.createElement('details');
     menu.className = exclusive ? 'command-menu' : 'output-settings-menu';

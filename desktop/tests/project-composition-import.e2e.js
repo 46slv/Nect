@@ -46,11 +46,33 @@ try {
   assert.deepEqual(page.viewportSize(), { width: 900, height: 620 });
   const menuSummaries = await page.locator('header .command-menu > summary').all(),
     menuLabels = await Promise.all(menuSummaries.map((summary) => summary.textContent())),
-    [projectSummary, importSummary, exportSummary] = menuSummaries,
+    [projectSummary, importSummary, exportSummary, buildSummary] = menuSummaries,
     projectMenu = projectSummary.locator('xpath=..'),
     importMenu = importSummary.locator('xpath=..'),
     exportMenu = exportSummary.locator('xpath=..');
   assert.deepEqual(menuLabels, ['Project', 'Import', 'Export', 'Build']);
+  const rapid = await page.evaluate(() => {
+    const menus = [...document.querySelectorAll('header .command-menu')];
+    for (const menu of menus) menu.querySelector('summary').click();
+    return menus.map((menu) => menu.open);
+  });
+  assert.deepEqual(
+    rapid,
+    [false, false, false, true],
+    'rapid activation keeps only the latest menu open',
+  );
+  await page.waitForFunction(() => {
+    const menus = [...document.querySelectorAll('header .command-menu')];
+    return menus[3].open && menus.slice(0, 3).every((menu) => !menu.open);
+  });
+  await buildSummary.click();
+  await projectSummary.focus();
+  await page.keyboard.press('Enter');
+  await importSummary.focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await projectMenu.evaluate((menu) => menu.open), false);
+  assert.equal(await importMenu.evaluate((menu) => menu.open), true);
+  await importSummary.click();
   await projectSummary.click();
   assert.equal(await projectMenu.evaluate((menu) => menu.open), true);
   await importSummary.click();
