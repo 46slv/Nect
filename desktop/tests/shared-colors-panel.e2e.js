@@ -37,9 +37,13 @@ const target = makeArtwork(80),
 fixture.layers = [target.layer, sibling.layer];
 const fixtureText = serialize(fixture);
 const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
+  executablePath:
+    process.env.CHROMIUM_PATH ||
+    (process.platform === 'win32'
+      ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+      : '/usr/bin/chromium'),
   headless: true,
-  args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  chromiumSandbox: true,
 });
 const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
 page.setDefaultTimeout(30000);
@@ -200,6 +204,17 @@ try {
   const otherSlotId = slots[1].id;
   assert.notEqual(slotId, otherSlotId);
   await change(row(otherSlotId).locator('[data-shared-color-edit="name"]'), 'Brand <&>');
+  await row(otherSlotId)
+    .locator('[data-shared-color-edit="hex"]')
+    .evaluate((el) => {
+      el.value = '#2468ab';
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  await change(row(otherSlotId).locator('[data-shared-color-edit="alpha"]'), '0.5');
+  assert.deepEqual((await documentSnapshot()).colorSlots[1].value, {
+    hex: '#2468ab',
+    alpha: 0.5,
+  });
   assert.deepEqual((await documentSnapshot()).colorSlots[0], {
     id: slotId,
     name: 'Brand <&>',
@@ -213,11 +228,37 @@ try {
   assert.equal(await binding().getAttribute('data-shared-color-layer'), target.layer.id);
   assert.equal(await binding().getAttribute('data-shared-color-node'), target.fill.id);
   assert.equal(await binding().getAttribute('data-shared-color-key'), 'color');
-  await binding().selectOption(slotId);
+  const firstLabel = await binding().locator(`option[value="${slotId}"]`).textContent();
+  const otherLabel = await binding().locator(`option[value="${otherSlotId}"]`).textContent();
+  assert.notEqual(firstLabel, otherLabel, 'same-name and same-color options are distinguishable');
+  assert.match(firstLabel, /^Brand <&> · /);
+  assert.match(otherLabel, /^Brand <&> · /);
+  await binding().selectOption({ label: otherLabel });
+  assert.equal((await parameter()).colorSlotId, otherSlotId);
+  await binding().selectOption({ label: firstLabel });
   assert.equal((await parameter()).colorSlotId, slotId);
   assert.deepEqual((await parameter()).value, { hex: '#112233', alpha: 0.6 });
   assert.equal(await field().locator('[data-hsl-picker-open]').isDisabled(), true);
   assert.equal(await field().locator('[data-color="alpha"]').isDisabled(), true);
+  await openAdvanced();
+  await change(row(slotId).locator('[data-shared-color-edit="name"]'), 'Renamed brand');
+  await inspectTarget();
+  assert.equal(await binding().inputValue(), slotId);
+  assert.equal(await binding().locator(`option[value="${slotId}"]`).textContent(), 'Renamed brand');
+  await page.locator('[data-action="undo"]').click();
+  await inspectTarget();
+  assert.equal(await binding().inputValue(), slotId);
+  assert.notEqual(
+    await binding().locator(`option[value="${slotId}"]`).textContent(),
+    await binding().locator(`option[value="${otherSlotId}"]`).textContent(),
+  );
+  await page.locator('[data-action="redo"]').click();
+  await inspectTarget();
+  assert.equal(await binding().inputValue(), slotId);
+  assert.equal(await binding().locator(`option[value="${slotId}"]`).textContent(), 'Renamed brand');
+  await page.locator('[data-action="undo"]').click();
+  await inspectTarget();
+  assert.equal(await binding().inputValue(), slotId);
   const boundDocument = await documentSnapshot();
   assert.deepEqual(
     boundDocument.layers.find((l) => l.id === sibling.layer.id),
@@ -357,6 +398,8 @@ try {
   await openAdvanced();
   await ensureWorkspacePanel(page, 'inspector');
   assert.equal(await binding().inputValue(), slotId);
+  assert.equal(await binding().locator(`option[value="${slotId}"]`).textContent(), firstLabel);
+  assert.equal(await binding().locator(`option[value="${otherSlotId}"]`).textContent(), otherLabel);
   await shapeHasColor('#2468ab', 0.25);
   await assertCoverage(slotId, otherSlotId, 29, 'browser reopen');
 

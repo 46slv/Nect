@@ -1,6 +1,7 @@
 import { createAutoChromaPanel } from './auto-chroma-panel.js';
 import { createColorDraftScrub } from './color-draft-scrub.js';
 import { renderHslFields, updateHexHsl } from './hsl-color-picker.js';
+import { displayColorLabels } from './color-display-labels.js';
 // View state only; all authored edits go through the current typed Session.
 const esc = (v) =>
   String(v).replace(
@@ -567,7 +568,11 @@ export function createSharedColorsPanel({
     bindingControl(node, key, q, layerId) {
       const slots = getDocument().colorSlots || [];
       if (!slots.length && q.colorSlotId === undefined) return '';
-      return `<select class="shared-color-binding" data-shared-color-binding data-shared-color-layer="${esc(layerId)}" data-shared-color-node="${esc(node.id)}" data-shared-color-key="${esc(key)}" ${stamp()} aria-label="${esc(node.name)} ${esc(key)} shared color" ${q.locked || q.source || q.expression || getDocument().layers.find((l) => l.id === layerId)?.locked ? 'disabled' : ''}><option value="" ${q.colorSlotId === undefined ? 'selected' : ''}>Local color</option>${slots.map((slot) => `<option value="${esc(slot.id)}" ${slot.id === q.colorSlotId ? 'selected' : ''}>${esc(slot.name)}</option>`).join('')}</select>`;
+      const labels = displayColorLabels(
+        slots.map(({ id, name }) => ({ id, label: name })),
+        ['Local color'],
+      );
+      return `<select class="shared-color-binding" data-shared-color-binding data-shared-color-layer="${esc(layerId)}" data-shared-color-node="${esc(node.id)}" data-shared-color-key="${esc(key)}" ${stamp()} aria-label="${esc(node.name)} ${esc(key)} shared color" ${q.locked || q.source || q.expression || getDocument().layers.find((l) => l.id === layerId)?.locked ? 'disabled' : ''}><option value="" ${q.colorSlotId === undefined ? 'selected' : ''}>Local color</option>${slots.map((slot) => `<option value="${esc(slot.id)}" ${slot.id === q.colorSlotId ? 'selected' : ''}>${esc(labels.get(slot.id))}</option>`).join('')}</select>`;
     },
   };
   return controller;

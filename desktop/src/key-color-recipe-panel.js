@@ -15,6 +15,7 @@ import { createKeyColorDeltaScrub } from './key-color-delta-scrub.js';
 import { researchPlans } from './key-color-research-plans.js';
 import { analyzeSelectedContrast } from './palette-contrast.js';
 import { compareModelLightnessOrder } from './key-color-lightness-order.js';
+import { displayColorLabels } from './color-display-labels.js';
 
 const esc = (value) =>
   String(value).replace(
@@ -24,39 +25,8 @@ const esc = (value) =>
 const literal = (value) =>
   `<span class="key-color-swatch" style="background:${esc(value.hex)};opacity:${value.alpha}" aria-hidden="true"></span><code>${esc(value.hex)}</code> · α ${value.alpha}`;
 const trialB = (preset, version) => preset === 'research-neutral-start' && version === 1;
-// Labels are presentation only. Resolve duplicate visible names with stable ID
-// suffixes; grow the suffix until every same-name entry is distinguishable.
-function displayLabels(rows) {
-  const labels = new Map();
-  const used = new Set();
-  const peersOf = (entry) => rows.filter((row) => row.label === entry.label && row.id !== entry.id);
-  for (const entry of rows)
-    if (!peersOf(entry).length) {
-      labels.set(entry.id, entry.label);
-      used.add(entry.label);
-    }
-  const duplicates = rows
-    .filter((entry) => peersOf(entry).length)
-    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  for (const entry of duplicates) {
-    const peers = peersOf(entry);
-    let length = Math.min(4, entry.id.length);
-    const candidate = () =>
-      `${entry.label} · ${length < entry.id.length ? '…' : ''}${entry.id.slice(-length)}`;
-    while (
-      length < entry.id.length &&
-      (peers.some((row) => row.id.endsWith(entry.id.slice(-length))) || used.has(candidate()))
-    )
-      length++;
-    let label = candidate();
-    while (used.has(label)) label += ` · ${entry.id}`;
-    labels.set(entry.id, label);
-    used.add(label);
-  }
-  return labels;
-}
 const roleLabels = (snapshot) =>
-  displayLabels(snapshot.resolved.map(({ id, role }) => ({ id, label: role })));
+  displayColorLabels(snapshot.resolved.map(({ id, role }) => ({ id, label: role })));
 const approximateL = (value) => `≈ ${Number(value.toFixed(3))}`;
 const hideDelta = (snapshot, slot) =>
   isNeutralTextPolicySlot(snapshot.solverVersion, slot.role) ||
@@ -713,7 +683,7 @@ export function createKeyColorRecipePanel({
       const isB =
         trialB(prepared.snapshot.intent.preset.id, prepared.snapshot.intent.preset.version) &&
         prepared.snapshot.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION;
-      const labels = displayLabels(
+      const labels = displayColorLabels(
         prepared.updates.map(({ slotId }) => ({ id: slotId, label: slots.get(slotId).name })),
       );
       const comparisonRows = prepared.updates
