@@ -2,6 +2,7 @@ import { JOIN_SLOT_LIMIT, validJoinSlotOrder } from './join-slots-protocol.js';
 import {
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
   assertNoAccidentalCurvePointRebind,
+  assertNoExternalPointReferenceRebind,
   curvePointId,
   curvePointReferenceOwners,
   danglingExpressionIds,
@@ -7956,6 +7957,7 @@ export class CommandSession {
       const preset = candidate.nodePresets?.find((p) => p.id === payload.presetId);
       if (!preset) throw Error('Missing preset');
       validateNodePreset(candidate, preset);
+      assertNoExternalPointReferenceRebind(preset.nodes, target.nodes);
       const offset = payload.offset ?? [30, 30];
       if (!Array.isArray(offset) || offset.length !== 2 || !offset.every(Number.isFinite))
         throw Error('Invalid preset offset');
@@ -8012,6 +8014,11 @@ export class CommandSession {
         throw Error(
           `Paste needs ${clipboard.externalNodeIds.length} unselected input/reference node(s) in the original Composition. Copy those sources too`,
         );
+      assertNoExternalPointReferenceRebind(
+        clipboard.nodes,
+        target.nodes,
+        clipboard.sourceLayerId === target.id ? new Set(clipboard.externalNodeIds) : new Set(),
+      );
       for (const [id, asset] of Object.entries(clipboard.fonts))
         if (!asset || candidate.fontAssets?.[id]?.data !== asset.data)
           throw Error('Copied font is no longer present unchanged in this Document; copy again');

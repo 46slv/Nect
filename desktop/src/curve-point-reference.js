@@ -105,6 +105,26 @@ export function curvePointReferenceOwners(nodes) {
   return [...new Set([...pointReferences(nodes).values()].map((ref) => ref.owner))];
 }
 
+// Detached Presets and clipboard snapshots can retain a previously missing
+// owner. Never let a coincidentally matching destination Curve resolve it.
+export function assertNoExternalPointReferenceRebind(
+  sourceNodes,
+  targetNodes,
+  preservedOwners = new Set(),
+) {
+  const internal = new Set(sourceNodes.map((node) => node.id)),
+    targets = new Map(targetNodes.map((node) => [node.id, node])),
+    pointIds = new Map();
+  for (const { owner, point } of pointReferences(sourceNodes).values()) {
+    if (internal.has(owner) || preservedOwners.has(owner)) continue;
+    const target = targets.get(owner);
+    if (target?.type !== 'Curve') continue;
+    if (!pointIds.has(owner)) pointIds.set(owner, new Set(target.points.map((item) => item.id)));
+    if (pointIds.get(owner).has(point))
+      throw Error('Copy would retarget a missing Curve point reference');
+  }
+}
+
 // Undo/Redo restores snapshots directly. New edits must never revive a deleted
 // target merely because a newly allocated point happens to reuse its ID.
 export function assertNoAccidentalCurvePointRebind(before, candidate, clipboard = null) {
