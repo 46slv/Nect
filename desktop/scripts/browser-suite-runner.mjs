@@ -94,6 +94,7 @@ export const browserTestFiles = Object.freeze([
   'tests/hsl-popover-numeric-scrub.e2e.js',
   'tests/asset-library-bootstrap.e2e.js',
   'tests/workspace-stack.e2e.js',
+  'tests/workspace-tools-placement.e2e.js',
   'tests/shared-color-copy.e2e.js',
   'tests/curve-point-reference-ui.e2e.js',
   'tests/curve-point-picker.e2e.js',

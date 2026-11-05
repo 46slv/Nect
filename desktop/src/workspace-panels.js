@@ -22,6 +22,7 @@ export function workspaceRailGeometry(height, count) {
 
 export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFACES, adapters }) {
   const ITEMS = resolveWorkspaceSurfaces(declarations, adapters);
+  const toolsShelf = ITEMS.find((entry) => entry.toolsShelf);
   const composing = new WeakSet();
   const splitPreferences = new Map();
   let root,
@@ -30,7 +31,8 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     active = { left: null, right: null },
     lastSide = null,
     retreated = false,
-    splitDrag = null;
+    splitDrag = null,
+    toolsAbovePanel = false;
   let attachVersion = 0,
     restorePending = true,
     peekFrame = 0,
@@ -53,6 +55,7 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
           active[side] = saved[side];
       }
       lastSide = saved.lastSide === 'left' || saved.lastSide === 'right' ? saved.lastSide : null;
+      toolsAbovePanel = saved.toolsAbovePanel === true;
       for (const entry of ITEMS.filter((item) => item.split)) {
         const value = saved.splits?.[entry.coVisible];
         if (Number.isFinite(value) && value > 0 && value < 100)
@@ -74,6 +77,7 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
         JSON.stringify({
           ...active,
           lastSide,
+          ...(toolsAbovePanel ? { toolsAbovePanel: true } : {}),
           ...(splitPreferences.size ? { splits: Object.fromEntries(splitPreferences) } : {}),
         }),
       );
@@ -105,7 +109,7 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     if (!composingInRightDrawer()) return false;
     if (
       event.target.closest?.(
-        '[data-workspace-panel], [data-workspace-split], [data-action="align-panel"], [data-viewer-mode]',
+        '[data-workspace-panel], [data-workspace-split], [data-workspace-tools-placement], [data-action="align-panel"], [data-viewer-mode]',
       )
     )
       return true;
@@ -316,10 +320,42 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     doc?.[method]('click', onGuardedClick, true);
     view?.[method]('blur', onWindowBlur);
   }
+  function syncToolsPlacement(wrap) {
+    if (!toolsShelf) return;
+    const tools = wrap.querySelector('.tools');
+    const panel = wrap.querySelector(toolsShelf.selector);
+    const heading = panel?.querySelector(':scope > .panel-head');
+    const placement = heading?.querySelector('[data-workspace-tools-placement]');
+    if (!tools || !panel || !heading || !placement) return;
+    const shelfVisible =
+      toolsAbovePanel &&
+      (active[toolsShelf.side] === toolsShelf.id ||
+        shareVisibleGroup(active[toolsShelf.side], toolsShelf.id));
+    const destination = shelfVisible ? panel : wrap;
+    if (tools.parentElement !== destination) {
+      const focused = tools.contains(root.ownerDocument.activeElement)
+        ? root.ownerDocument.activeElement
+        : null;
+      if (shelfVisible) heading.before(tools);
+      else wrap.append(tools);
+      focused?.focus({ preventScroll: true });
+    }
+    tools.classList.toggle('workspace-tools-shelf', shelfVisible);
+    const focused = root.ownerDocument.activeElement;
+    if (shelfVisible && tools.contains(focused)) {
+      const bounds = tools.getBoundingClientRect();
+      const target = focused.getBoundingClientRect();
+      if (target.left < bounds.left) tools.scrollLeft += target.left - bounds.left;
+      else if (target.right > bounds.right) tools.scrollLeft += target.right - bounds.right;
+    }
+    placement.setAttribute('aria-pressed', String(toolsAbovePanel));
+  }
   function refresh() {
     if (!root?.isConnected) return;
     const wrap = root.querySelector('.canvas-wrap');
     if (!wrap) return;
+    // Move before visibility changes so a focused tool is not hidden with its old host.
+    syncToolsPlacement(wrap);
     const viewerMode = wrap.dataset.viewerMode === 'viewers';
     if (lastViewerMode !== null && lastViewerMode !== viewerMode && !motionIntent.left)
       setMotion('left', false);
@@ -519,6 +555,26 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     right.dataset.drawerSide = 'right';
     right.id = 'workspace-drawer-right';
     right.setAttribute('aria-label', 'Editing panels');
+    const shelfHeading = toolsShelf && right.querySelector(`${toolsShelf.selector} > .panel-head`);
+    if (shelfHeading) {
+      tools.id = 'workspace-creation-tools';
+      const placement = root.ownerDocument.createElement('button');
+      placement.type = 'button';
+      placement.className = 'mini workspace-tools-placement';
+      placement.dataset.workspaceToolsPlacement = '';
+      placement.textContent = 'Tools ↑';
+      placement.setAttribute('aria-label', `Tools above ${toolsShelf.toolsShelf}`);
+      placement.setAttribute('aria-controls', tools.id);
+      placement.title = `Place tools above ${toolsShelf.toolsShelf} when editing panels are open`;
+      placement.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (pointerDown || splitDrag || composingInRightDrawer()) return;
+        toolsAbovePanel = !toolsAbovePanel;
+        save();
+        refresh();
+      });
+      shelfHeading.append(placement);
+    }
     const left = root.ownerDocument.createElement('aside');
     left.className = 'workspace-drawer workspace-drawer-left';
     left.dataset.drawerSide = 'left';

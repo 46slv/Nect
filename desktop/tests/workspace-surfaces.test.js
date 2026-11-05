@@ -55,6 +55,18 @@ test('invalid registration fails before DOM and preference mutation', () => {
     ],
     [
       WORKSPACE_SURFACES.map((entry) =>
+        entry.id === 'inspector' ? { ...entry, toolsShelf: '' } : entry,
+      ),
+      adapters,
+    ],
+    [
+      WORKSPACE_SURFACES.map((entry) =>
+        entry.id === 'layers' ? { ...entry, toolsShelf: 'Layers' } : entry,
+      ),
+      adapters,
+    ],
+    [
+      WORKSPACE_SURFACES.map((entry) =>
         entry.id === 'colors'
           ? { ...entry, selector: '.shared-colors-panel', coVisible: 'editing' }
           : entry,
