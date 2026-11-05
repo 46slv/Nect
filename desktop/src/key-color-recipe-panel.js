@@ -24,6 +24,40 @@ const esc = (value) =>
 const literal = (value) =>
   `<span class="key-color-swatch" style="background:${esc(value.hex)};opacity:${value.alpha}" aria-hidden="true"></span><code>${esc(value.hex)}</code> · α ${value.alpha}`;
 const trialB = (preset, version) => preset === 'research-neutral-start' && version === 1;
+// Labels are presentation only. Resolve duplicate visible names with stable ID
+// suffixes; grow the suffix until every same-name entry is distinguishable.
+function displayLabels(rows) {
+  const labels = new Map();
+  const used = new Set();
+  const peersOf = (entry) => rows.filter((row) => row.label === entry.label && row.id !== entry.id);
+  for (const entry of rows)
+    if (!peersOf(entry).length) {
+      labels.set(entry.id, entry.label);
+      used.add(entry.label);
+    }
+  const duplicates = rows
+    .filter((entry) => peersOf(entry).length)
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  for (const entry of duplicates) {
+    const peers = peersOf(entry);
+    let length = Math.min(4, entry.id.length);
+    const candidate = () =>
+      `${entry.label} · ${length < entry.id.length ? '…' : ''}${entry.id.slice(-length)}`;
+    while (
+      length < entry.id.length &&
+      (peers.some((row) => row.id.endsWith(entry.id.slice(-length))) || used.has(candidate()))
+    )
+      length++;
+    let label = candidate();
+    while (used.has(label)) label += ` · ${entry.id}`;
+    labels.set(entry.id, label);
+    used.add(label);
+  }
+  return labels;
+}
+const roleLabels = (snapshot) =>
+  displayLabels(snapshot.resolved.map(({ id, role }) => ({ id, label: role })));
+const approximateL = (value) => `≈ ${Number(value.toFixed(3))}`;
 const hideDelta = (snapshot, slot) =>
   isNeutralTextPolicySlot(snapshot.solverVersion, slot.role) ||
   (snapshot.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION &&
@@ -41,14 +75,16 @@ function lightnessOrderSummary(snapshot) {
   const pairs = compareModelLightnessOrder(snapshot);
   if (!pairs) return '<p data-model-l-order>Model L order unavailable: invalid metadata.</p>';
   if (!pairs.length) return '<p data-model-l-order>No active derived pair to compare.</p>';
+  const labels = roleLabels(snapshot);
+  const reversed = pairs.filter((pair) => pair.state === 'reversed').length;
   const shown = pairs
     .slice(0, 30)
     .map(
       ({ a, b, state }) =>
-        `<li>${esc(a.role)} <code>${esc(a.id)}</code> / ${esc(b.role)} <code>${esc(b.id)}</code>: ${esc(state)}</li>`,
+        `<li>${esc(labels.get(a.id))} / ${esc(labels.get(b.id))}: ${esc(state)}</li>`,
     )
     .join('');
-  return `<section data-model-l-order><h4>Derived model L order</h4><p>Exact numeric comparison with the clamped zero-offset baseline; appearance and contrast are not evaluated.</p><ul>${shown}</ul>${pairs.length > 30 ? `<p>${pairs.length - 30} more pairs omitted.</p>` : ''}</section>`;
+  return `<details data-model-l-order><summary>Derived model L order${reversed ? ` · ${reversed} reversed` : ''}</summary><p>Exact comparison with the clamped zero-offset baseline; appearance and contrast are not evaluated.</p><ul>${shown}</ul>${pairs.length > 30 ? `<p>${pairs.length - 30} more pairs omitted.</p>` : ''}</details>`;
 }
 
 // An opt-in, detached view draft, not another authored palette owner. The
@@ -239,8 +275,9 @@ export function createKeyColorRecipePanel({
   function pairControls() {
     const active = new Set(base.intent.preset.slots.map((slot) => slot.id));
     const rows = [base.intent.keyColor, ...base.intent.slots.filter((slot) => active.has(slot.id))];
+    const labels = roleLabels(base);
     const options = rows
-      .map((row) => `<option value="${esc(row.id)}">${esc(row.role)} · ${esc(row.id)}</option>`)
+      .map((row) => `<option value="${esc(row.id)}">${esc(labels.get(row.id))}</option>`)
       .join('');
     return `<section data-pair-check><h3>Selected pair contrast</h3><p>Normal-text 4.5:1 reference for these sRGB literals; opaque background required. Artwork is not evaluated.</p><label>Foreground <select data-pair-foreground><option value="">Choose a color</option>${options}</select></label><label>Background <select data-pair-background><option value="">Choose a color</option>${options}</select></label><button type="button" data-pair-run>Check pair</button><p data-pair-result role="status" aria-live="polite">Not evaluated.</p></section>`;
   }
@@ -306,6 +343,15 @@ export function createKeyColorRecipePanel({
 
   function trialStatus(snapshot, title, created) {
     const slots = new Map(snapshot.intent.slots.map((slot) => [slot.id, slot]));
+    const labels = roleLabels(snapshot);
+    const diagnosticLabels = {
+      'achromatic-hue-hint': 'Achromatic hue hint',
+      'support-chroma-intent-unapplied': 'Stored Δr not applied',
+      'lightness-clamped': 'L range limited',
+      'ratio-clamped': 'Chroma range limited',
+      'zero-cmax': 'Zero maximum chroma',
+      'gamut-limited': 'Gamut limited',
+    };
     const rows = snapshot.resolved
       .map((row) => {
         const intent = slots.get(row.id);
@@ -316,25 +362,22 @@ export function createKeyColorRecipePanel({
               other.value.hex.toLowerCase() === row.value.hex.toLowerCase() &&
               other.value.alpha === row.value.alpha,
           )
-          .map((other) => other.role);
-        const details = [
-          row.active ? 'Active' : 'Dormant',
-          intent
-            ? `ΔL ${intent.deltaL}; base OKLCH L ${row.baseL}; effective L ${row.L}`
-            : `C1 OKLCH L ${row.L}; no ΔL`,
-          row.diagnostics.includes('lightness-clamped') ? 'L range limited' : 'L range not limited',
-          row.diagnostics.includes('support-chroma-intent-unapplied')
-            ? 'Stored Δr not applied'
-            : '',
-          row.diagnostics.length ? `Diagnostics ${row.diagnostics.join(', ')}` : '',
+          .map((other) => labels.get(other.id));
+        const notices = [
+          row.active ? '' : 'Dormant',
+          ...row.diagnostics.map((item) => diagnosticLabels[item] || item),
           equal.length ? `Same literal and alpha as ${equal.join(', ')}` : '',
         ]
           .filter(Boolean)
           .join(' · ');
+        const exact = intent
+          ? `ΔL ${intent.deltaL}; base OKLCH L ${row.baseL}; effective L ${row.L}`
+          : `C1 OKLCH L ${row.L}; no ΔL`;
+        const detail = `<details data-trial-details><summary aria-label="${esc(labels.get(row.id))} details">Details</summary><div>Slot ID <code>${esc(row.id)}</code></div><div>${esc(exact)}</div>${row.diagnostics.length ? `<div>Diagnostics ${esc(row.diagnostics.join(', '))}</div>` : ''}</details>`;
         const usage = created
-          ? `<span data-trial-usage="${esc(row.id)}">Usage unavailable</span>`
-          : 'Not created; usage not measured';
-        return `<tr data-trial-row="${esc(row.id)}" ${created ? '' : `data-research-row="${esc(row.id)}" data-research-role="${esc(row.role)}"`}><th>${esc(row.role)}</th><td>${literal(row.value)}</td><td>${usage}</td><td>${esc(details)}</td><td>Readability not evaluated · procedure not evaluated</td></tr>`;
+          ? `<span data-trial-usage="${esc(row.id)}">Unavailable</span>`
+          : 'Not measured';
+        return `<tr data-trial-row="${esc(row.id)}" ${created ? '' : `data-research-row="${esc(row.id)}" data-research-role="${esc(row.role)}"`}><th scope="row">${esc(labels.get(row.id))}${notices ? `<div data-trial-notice>${esc(notices)}</div>` : ''}</th><td>${literal(row.value)}</td><td>${usage}</td><td><span data-trial-l>${esc(approximateL(row.L))}</span>${detail}</td></tr>`;
       })
       .join('');
     const order =
@@ -343,7 +386,10 @@ export function createKeyColorRecipePanel({
       trialB(snapshot.intent.preset.id, snapshot.intent.preset.version)
         ? lightnessOrderSummary(snapshot)
         : '';
-    return `<section data-trial-status="${esc(title)}"><h3>${esc(title)}</h3><table><thead><tr><th>Role</th><th>Color</th><th>Current visible paint share</th><th>OKLCH adjustment</th><th>Checks</th></tr></thead><tbody>${rows}</tbody></table><p>${esc(snapshot.diagnostics.join(', '))}</p>${order}</section>`;
+    const diagnostics = snapshot.diagnostics.length
+      ? `<p>${esc(snapshot.diagnostics.map((item) => (item === 'coverage-unavailable-unweighted' ? 'Visible-area weighting was not applied.' : item)).join(' '))}</p><details><summary>Diagnostics</summary><code>${esc(snapshot.diagnostics.join(', '))}</code></details>`
+      : '';
+    return `<section data-trial-status="${esc(title)}"><h3>${esc(title)}</h3><div class="key-color-table-scroll"><table><thead><tr><th scope="col">Role</th><th scope="col">Color</th><th scope="col">Saved visible share</th><th scope="col">OKLCH L</th></tr></thead><tbody>${rows}</tbody></table></div><p>Readability and procedure not evaluated.${created ? '' : ' Usage is not measured before creation.'}</p>${diagnostics}${order}</section>`;
   }
 
   function refreshTrialUsage() {
@@ -366,8 +412,8 @@ export function createKeyColorRecipePanel({
         : null;
       output.textContent =
         Number.isFinite(row?.percent) && row.percent >= 0 && row.percent <= 100
-          ? `Current visible paint share ≈ ${row.percent}%`
-          : 'Usage unavailable';
+          ? `≈ ${row.percent}%`
+          : 'Unavailable';
     }
   }
 
@@ -664,12 +710,24 @@ export function createKeyColorRecipePanel({
         updates: structuredClone(prepared.updates),
         key: inputs.key,
       };
-      dialog.querySelector('[data-key-color-comparison]').innerHTML =
-        `<h3>Shared literals · before → after</h3><p>Only active rows below will change. Shared colors change on Apply.</p><table><thead><tr><th>Stable slot</th><th>Current shared literal</th><th>Proposed shared literal</th></tr></thead><tbody>${prepared.updates.map(({ slotId, value }) => `<tr data-key-color-compare="${esc(slotId)}"><th scope="row">${esc(slots.get(slotId).name)}<br><code>${esc(slotId)}</code></th><td data-key-color-before>${literal(slots.get(slotId).value)}</td><td data-key-color-after>${literal(value)}</td></tr>`).join('')}</tbody></table>`;
-      if (
+      const isB =
         trialB(prepared.snapshot.intent.preset.id, prepared.snapshot.intent.preset.version) &&
-        prepared.snapshot.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION
-      ) {
+        prepared.snapshot.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION;
+      const labels = displayLabels(
+        prepared.updates.map(({ slotId }) => ({ id: slotId, label: slots.get(slotId).name })),
+      );
+      const comparisonRows = prepared.updates
+        .map(({ slotId, value }) => {
+          const name = labels.get(slotId);
+          const identity = isB
+            ? `<details><summary aria-label="${esc(name)} slot ID">Details</summary><code>${esc(slotId)}</code></details>`
+            : `<br><code>${esc(slotId)}</code>`;
+          return `<tr data-key-color-compare="${esc(slotId)}"><th scope="row">${esc(isB ? name : slots.get(slotId).name)}${identity}</th><td data-key-color-before>${literal(slots.get(slotId).value)}</td><td data-key-color-after>${literal(value)}</td></tr>`;
+        })
+        .join('');
+      dialog.querySelector('[data-key-color-comparison]').innerHTML =
+        `<h3>${isB ? 'Shared colors' : 'Shared literals · before → after'}</h3><p>${isB ? 'Shared colors change on Apply.' : 'Only active rows below will change. Shared colors change on Apply.'}</p><table><thead><tr><th>${isB ? 'Color' : 'Stable slot'}</th><th>${isB ? 'Current' : 'Current shared literal'}</th><th>${isB ? 'Proposed' : 'Proposed shared literal'}</th></tr></thead><tbody>${comparisonRows}</tbody></table>`;
+      if (isB) {
         dialog
           .querySelector('[data-key-color-comparison]')
           .insertAdjacentHTML(
@@ -733,6 +791,51 @@ export function createKeyColorRecipePanel({
     refreshTrialUsage();
   }
 
+  function retainedControls() {
+    const key = base.intent.keyColor;
+    const active = new Set(base.intent.preset.slots.map((slot) => slot.id));
+    const isB =
+      trialB(base.intent.preset.id, base.intent.preset.version) &&
+      base.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION;
+    const labels = roleLabels(base);
+    const label = (row) => (isB ? labels.get(row.id) : `${row.role} · ${row.id}`);
+    const fields = base.intent.slots
+      .map((slot) => {
+        const resolved = base.resolved.find((row) => row.id === slot.id);
+        if (!active.has(slot.id))
+          return `<fieldset disabled data-key-color-dormant="${esc(slot.id)}"><legend>${esc(label(slot))} · dormant, unchanged</legend><p>ΔL ${slot.deltaL} · Δr ${slot.deltaRatioCmax}</p><p>${literal(resolved.value)}</p></fieldset>`;
+        const reset = isB
+          ? `<button type="button" data-key-color-reset-delta-l="${esc(slot.id)}" aria-label="Reset ${esc(label(slot))} ΔL to zero">Reset ΔL</button>`
+          : '';
+        const hiddenDelta =
+          !isB || slot.deltaRatioCmax !== 0
+            ? `<p data-key-color-support-intent>Stored Δr ${slot.deltaRatioCmax} · ${isNeutralTextPolicySlot(base.solverVersion, slot.role) ? 'not applied' : 'read-only'}${isNeutralTextPolicySlot(base.solverVersion, slot.role) && slot.deltaRatioCmax !== 0 ? ' · support-chroma-intent-unapplied' : ''}</p>`
+            : '';
+        const deltaR = hideDelta(base, slot)
+          ? hiddenDelta
+          : `<label>Δr<input type="number" step="any" data-key-color-input="deltaRatioCmax" data-key-color-slot="${esc(slot.id)}" value="${slot.deltaRatioCmax}" aria-label="${esc(isB ? label(slot) : slot.id)} Δr"></label>`;
+        const alpha =
+          !isB || resolved.value.alpha !== 1
+            ? `<p>Stored derived alpha · ${resolved.value.alpha} (read-only; Apply requires 1, never coerces).</p>`
+            : '';
+        return `<fieldset><legend>${esc(label(slot))}</legend><label>ΔL<input type="number" step="any" data-key-color-input="deltaL" data-key-color-slot="${esc(slot.id)}" value="${slot.deltaL}" aria-label="${esc(isB ? label(slot) : slot.id)} ΔL"></label>${reset}${deltaR}${alpha}</fieldset>`;
+      })
+      .join('');
+    const saved = isB
+      ? `<p>Saved recipe · revision ${base.revision}. Later shared-color edits do not update this snapshot.</p>`
+      : `<p>Palette <code>${esc(base.paletteId)}</code> · retained revision ${base.revision}. This receipt is historical, not a live driver.</p>`;
+    const details = isB
+      ? {
+          paletteId: base.paletteId,
+          keyColor: key,
+          preset: base.intent.preset,
+          slots: base.intent.slots,
+          settings: base.intent.settings,
+        }
+      : { preset: base.intent.preset, settings: base.intent.settings };
+    return `${saved}<fieldset><legend>C1 · ${esc(isB ? label(key) : `${key.role} · ${key.id}`)}</legend><div data-key-color-c1></div></fieldset><h3>Active derived intent</h3><p>ΔL and Δr are finite stored offsets, not clamped slider positions. Derived alpha must be 1.</p>${fields}<details><summary>Read-only preset, coefficients and versions</summary><p>Recipe v${base.version} · solver ${esc(base.solverVersion)} · ${esc(base.colorSemanticsVersion)}</p><pre>${esc(JSON.stringify(details, null, 2))}</pre></details><p data-key-color-status role="status" aria-live="polite">Draft only. Preview these inputs before Apply.</p><section class="key-color-comparison" data-key-color-comparison aria-label="Key color preview"></section>`;
+  }
+
   function open(anchor = null) {
     close(false);
     owner = getSession();
@@ -755,15 +858,15 @@ export function createKeyColorRecipePanel({
     dialog.dataset.keyColorRecipePanel = '';
     dialog.setAttribute('aria-labelledby', 'key-color-recipe-title');
     const controls = base
-      ? (() => {
-          const key = base.intent.keyColor,
-            active = new Set(base.intent.preset.slots.map((slot) => slot.id));
-          return `<p>Palette <code>${esc(base.paletteId)}</code> · retained revision ${base.revision}. This receipt is historical, not a live driver.</p><fieldset><legend>C1 · ${esc(key.role)} · ${esc(key.id)}</legend><div data-key-color-c1></div></fieldset><h3>Active derived intent</h3><p>ΔL and Δr are finite stored offsets, not clamped slider positions. Derived alpha must be 1.</p>${base.intent.slots.map((slot) => (active.has(slot.id) ? `<fieldset><legend>${esc(slot.role)} · ${esc(slot.id)}</legend><label>ΔL<input type="number" step="any" data-key-color-input="deltaL" data-key-color-slot="${esc(slot.id)}" value="${slot.deltaL}" aria-label="${esc(slot.id)} ΔL"></label>${trialB(base.intent.preset.id, base.intent.preset.version) && base.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION ? `<button type="button" data-key-color-reset-delta-l="${esc(slot.id)}" aria-label="Reset ${esc(slot.role)} ΔL to zero">Reset ΔL</button>` : ''}${hideDelta(base, slot) ? `<p data-key-color-support-intent>Stored Δr ${slot.deltaRatioCmax} · ${isNeutralTextPolicySlot(base.solverVersion, slot.role) ? 'not applied' : 'read-only'}${isNeutralTextPolicySlot(base.solverVersion, slot.role) && slot.deltaRatioCmax !== 0 ? ' · support-chroma-intent-unapplied' : ''}</p>` : `<label>Δr<input type="number" step="any" data-key-color-input="deltaRatioCmax" data-key-color-slot="${esc(slot.id)}" value="${slot.deltaRatioCmax}" aria-label="${esc(slot.id)} Δr"></label>`}<p>Stored derived alpha · ${base.resolved.find((row) => row.id === slot.id).value.alpha} (read-only; Apply requires 1, never coerces).</p></fieldset>` : `<fieldset disabled data-key-color-dormant="${esc(slot.id)}"><legend>${esc(slot.role)} · ${esc(slot.id)} · dormant, unchanged</legend><p>ΔL ${slot.deltaL} · Δr ${slot.deltaRatioCmax}</p><p>${literal(base.resolved.find((row) => row.id === slot.id).value)}</p></fieldset>`)).join('')}<details><summary>Read-only preset, coefficients and versions</summary><p>Recipe v${base.version} · solver ${esc(base.solverVersion)} · ${esc(base.colorSemanticsVersion)}</p><pre>${esc(JSON.stringify({ preset: base.intent.preset, settings: base.intent.settings }, null, 2))}</pre></details><p data-key-color-status role="status" aria-live="polite">Draft only. Preview these inputs before Apply.</p><section class="key-color-comparison" data-key-color-comparison aria-label="Key color preview"></section>`;
-        })()
+      ? retainedControls()
       : research
         ? `<p data-key-color-empty>Research candidates. B adds five trial colors without changing existing colors, in one Undo. Coverage and readability are not evaluated; colors may coincide.</p><fieldset><legend>C1</legend><div data-key-color-c1></div></fieldset><label>Research candidate <select data-research-plan><option value="">Choose a candidate</option><option value="research-triadic-offset">A · chromatic comparison</option><option value="research-neutral-start">B · neutral start</option></select></label><details><summary>Candidate roles and coefficients</summary><pre data-research-details></pre></details><p data-key-color-status role="status" aria-live="polite">Enter C1 and choose a candidate.</p><section data-research-results aria-label="Research color preview"></section>`
         : `<p data-key-color-empty>${esc(error || 'The retained recipe is unavailable.')}</p>`;
-    dialog.innerHTML = `<header><h2 id="key-color-recipe-title">Key color · Experimental</h2><button type="button" data-key-color-cancel aria-label="Close Key color">×</button></header>${base ? '<p>Opt-in one-shot Apply. The existing legacy wheel and product defaults are unchanged. Dark TonePlan coefficients remain unresolved.</p>' : ''}<div class="key-color-recipe-body">${controls}</div><footer><button type="button" data-key-color-cancel>Cancel</button>${base ? '<button type="button" data-key-color-preview>Preview</button><button type="button" data-key-color-apply disabled>Apply · 1 Undo</button>' : research ? '<button type="button" data-research-preview disabled>Preview</button><button type="button" data-research-create disabled>Add 5 trial colors · 1 Undo</button>' : ''}</footer>${base ? '<p class="key-color-undo-note">A changed Apply is one Undo. Equal literals and receipt are a no-op. Cancel and Escape discard the draft.</p>' : ''}`;
+    const isB =
+      base &&
+      trialB(base.intent.preset.id, base.intent.preset.version) &&
+      base.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION;
+    dialog.innerHTML = `<header><h2 id="key-color-recipe-title">Key color · Experimental</h2><button type="button" data-key-color-cancel aria-label="Close Key color">×</button></header>${base ? (isB ? '<p>Trial palette.</p>' : '<p>Opt-in one-shot Apply. The existing legacy wheel and product defaults are unchanged. Dark TonePlan coefficients remain unresolved.</p>') : ''}<div class="key-color-recipe-body">${controls}</div><footer><button type="button" data-key-color-cancel>Cancel</button>${base ? '<button type="button" data-key-color-preview>Preview</button><button type="button" data-key-color-apply disabled>Apply · 1 Undo</button>' : research ? '<button type="button" data-research-preview disabled>Preview</button><button type="button" data-research-create disabled>Add 5 trial colors · 1 Undo</button>' : ''}</footer>${base && !isB ? '<p class="key-color-undo-note">A changed Apply is one Undo. Equal literals and receipt are a no-op. Cancel and Escape discard the draft.</p>' : ''}`;
     if (
       base &&
       trialB(base.intent.preset.id, base.intent.preset.version) &&
@@ -779,7 +882,7 @@ export function createKeyColorRecipePanel({
           'beforeend',
           trialStatus(base, 'Saved recipe', true) +
             '<button type="button" data-trial-refresh>Refresh usage</button>' +
-            '<p>Existing bindings only. Usage shows saved colors.</p>' +
+            '<p>Existing bindings only.</p>' +
             '<button type="button" data-artwork-show aria-pressed="false">Show proposal on artwork</button><button type="button" data-artwork-restore>Show saved artwork</button>' +
             pairControls(),
         );

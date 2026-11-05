@@ -29,6 +29,10 @@ share comes only from the existing current coverage snapshot matched by stable
 slot ID; the refresh button rereads it. Missing, stale or unavailable results are
 not converted to zero. Before creation, usage is not measured. Readability and
 procedure checks are not evaluated here, and literal equality includes alpha.
+L is abbreviated as an approximation for scanning; exact L, ΔL, stable ID and
+diagnostics remain in each keyboard-accessible Details disclosure. Duplicate
+visible roles or shared-color names receive a distinguishing ID-derived suffix;
+all commands and comparisons continue to use the full stable ID.
 For retained B recipes, pairwise derived model L order compares effective L
 against the clamped zero-offset baseline by stable ID. Equality is exact; this
 informational result does not judge appearance, contrast or whether Apply is allowed.

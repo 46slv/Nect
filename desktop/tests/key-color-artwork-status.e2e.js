@@ -37,6 +37,20 @@ try {
   await page.locator('[data-key-color-recipe-open]').click();
   await page.locator('[data-research-hex]').fill('#3273c7');
   await page.locator('[data-research-alpha]').fill('1');
+  const researchBefore = await page.evaluate(() => ({
+    project: window.nect.projectSnapshot(),
+    state: window.nect.commandState,
+  }));
+  await page.locator('[data-research-plan]').selectOption('research-triadic-offset');
+  await page.locator('[data-research-preview]').click();
+  assert.equal(await page.locator('[data-research-create]').isDisabled(), true);
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      project: window.nect.projectSnapshot(),
+      state: window.nect.commandState,
+    })),
+    researchBefore,
+  );
   await page.locator('[data-research-plan]').selectOption('research-neutral-start');
   await page.locator('[data-research-preview]').click();
   await page.locator('[data-research-create]').click();
@@ -54,6 +68,13 @@ try {
   const saved = await artboard.innerHTML();
   await ensureWorkspacePanel(page, 'colors');
   await page.locator('[data-key-color-recipe-open]').click();
+  const exact = page.locator(`[data-trial-row="${slotId}"] [data-trial-details]`).last();
+  await exact.locator('summary').focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await exact.evaluate((element) => element.open), true);
+  assert.equal(await exact.locator('code').textContent(), slotId);
+  await page.keyboard.press('Enter');
+  assert.equal(await exact.evaluate((element) => element.open), false);
   const delta = page.locator(`[data-key-color-input="deltaL"][data-key-color-slot="${slotId}"]`);
   await delta.fill('0.2');
   await page.locator('[data-key-color-preview]').click();
@@ -83,6 +104,23 @@ try {
   assert.match(await page.locator('[data-key-color-status]').textContent(), /draft only/i);
   await page.locator('[data-key-color-status]').scrollIntoViewIfNeeded();
   await page.screenshot({ path: resolve(output, 'expired.png') });
+  await page.locator('dialog footer [data-key-color-cancel]').click();
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      project: window.nect.projectSnapshot(),
+      state: window.nect.commandState,
+    })),
+    before,
+  );
+  await page.setViewportSize({ width: 420, height: 760 });
+  await page.locator('[data-key-color-recipe-open]').click();
+  await delta.fill('0.2');
+  await page.locator('[data-key-color-preview]').click();
+  const bounds = await page.locator('dialog[data-key-color-recipe-panel]').boundingBox();
+  assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 420);
+  assert.ok(bounds.y >= 0 && bounds.y + bounds.height <= 760);
+  await page.locator('[data-trial-status="Saved recipe"]').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: resolve(output, 'narrow.png') });
   await page.locator('dialog footer [data-key-color-cancel]').click();
   assert.deepEqual(
     await page.evaluate(() => ({

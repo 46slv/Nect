@@ -3,14 +3,16 @@
 The packet is **opt-in historical persistence, not a live color driver**. A
 separate explicit Session command can materialize its active resolved values once;
 loading never does so. No new coefficients or defaults are selected. The separate
-[opt-in experimental editor](key-color-recipe-editor.md) opens only an existing
-retained receipt for explicit Preview/Apply. The pure
+[opt-in experimental editor](key-color-recipe-editor.md) opens an existing
+retained receipt for explicit Preview/Apply; without one, it offers a research
+preview and explicitly selected B trial creation. The pure
 model is carried from reviewed prototype `535052c4415207143294dea561ad3f96dbdf5456`;
 its experimental affine coefficients and pure editing/alpha policies are unchanged.
 See [the prototype contract](../../docs/key-color-recipe-contract.md).
 The separate [developer/test-fixture initialization API](key-color-recipe-initialization.md)
 can atomically allocate explicitly specified fresh slots and a revision-zero
-receipt. It adds no user creation flow, preset/default or live ownership.
+receipt. The B trial uses it only after explicit Preview; it adds no product
+preset/default or live ownership.
 
 ## Separate, versioned storage
 

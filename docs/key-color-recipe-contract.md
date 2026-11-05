@@ -5,11 +5,12 @@ Status: **experimental pure generator, not an active editor palette or default**
 the [schema58 retained-only adapter](../desktop/docs/key-color-recipe-retention.md).
 That adapter stores historical receipts and permits a separate explicit one-shot
 application of active HEX/alpha values to unlocked existing slots. Loading does
-not generate/apply colors. No generator UI binding, Field evaluator, automatic
-legacy conversion or replacement is introduced; the pure solver is unchanged.
-The separate [developer/test-fixture initialization API](../desktop/docs/key-color-recipe-initialization.md)
-allocates only fully explicit fresh IDs and a revision-zero historical receipt;
-it introduces no product preset/default or ordinary-user creation flow.
+not generate/apply colors. The [experimental editor](../desktop/docs/key-color-recipe-editor.md)
+can preview research candidates; only an explicit B trial Preview permits creating
+five fresh trial colors and a historical receipt. The separate
+[initialization API](../desktop/docs/key-color-recipe-initialization.md) accepts
+fully explicit plans and fresh IDs. Neither path selects a product preset/default,
+adds a live Field evaluator or automatically converts the legacy palette.
 
 ## Source and decision boundary
 

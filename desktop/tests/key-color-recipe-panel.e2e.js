@@ -12,9 +12,13 @@ import { activateCommand } from './command-menu-actions.js';
 const output = resolve('test-results/key-color-recipe-panel');
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
+  executablePath:
+    process.env.CHROMIUM_PATH ||
+    (process.platform === 'win32'
+      ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+      : '/usr/bin/chromium'),
   headless: true,
-  args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  chromiumSandbox: true,
 });
 const page = await browser.newPage({
   viewport: { width: 1440, height: 1000 },
@@ -61,14 +65,13 @@ try {
   const blank = await snapshot(),
     blankState = await command();
   await open(true);
-  assert.match(
-    await page.locator('[data-key-color-empty]').textContent(),
-    /does not create a preset/,
-  );
-  assert.equal(await page.locator('[data-key-color-input]').count(), 0);
+  assert.match(await page.locator('[data-key-color-empty]').textContent(), /Research candidates/);
+  assert.equal(await page.locator('[data-research-hex]').inputValue(), '');
+  assert.equal(await page.locator('[data-research-preview]').isDisabled(), true);
+  assert.equal(await page.locator('[data-research-create]').isDisabled(), true);
   await cancel();
   await unchanged(blank, blankState);
-  results.push('blank opt-in explanatory state: no recipe/bootstrap/default/history change');
+  results.push('blank research draft: no recipe/bootstrap/default/history change');
 
   const fixture = retainedRecipeFixture();
   await load(fixture);

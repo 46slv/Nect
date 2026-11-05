@@ -123,14 +123,16 @@ test('browser runner preserves all 55 original scripts, arguments, order, and CS
     'tests/ui-sound.e2e.js',
     'tests/workspace-escape.e2e.js',
     'tests/key-color-recipe-panel.e2e.js',
+    'tests/key-color-artwork-status.e2e.js',
+    'tests/workspace-colors-ime.e2e.js',
     'tests/numeric-control-behavior.e2e.js',
     'tests/point-spacing-scrub.e2e.js',
     'tests/document-guide-numeric.e2e.js',
     'tests/png-ppi-scrub.e2e.js',
     'tests/hsl-popover-numeric-scrub.e2e.js',
   ]);
-  assert.equal(browserTestFiles.length, 87);
-  assert.equal(new Set(browserTestFiles).size, 87);
+  assert.equal(browserTestFiles.length, 89);
+  assert.equal(new Set(browserTestFiles).size, 89);
   assert.ok(Object.isFrozen(browserTestFiles));
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(

@@ -3,7 +3,7 @@
 This first UI slice exposes the schema 54 shared-color registry. It is not the
 automatic palette/AutoChroma design.
 
-- The right workspace bar opens Shared Colors above Inspector. Opening and
+- The left workspace bar opens Shared Colors. Opening and
   closing it changes view state only; the existing Assets portal remains mounted.
 - Add, name, HEX and alpha edits use typed Session commands. Each accepted edit
   is one Undo step. Empty or invalid values do not become authored data.

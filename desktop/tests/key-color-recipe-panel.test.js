@@ -387,8 +387,11 @@ test('research preview and cancel preserve document revision and redo', (t) => {
   }
   s.click('[data-research-preview]');
   assert.equal(s.document.querySelectorAll('[data-research-row]').length, 5);
-  assert.match(s.query('[data-trial-status]').textContent, /Not created; usage not measured/);
-  assert.match(s.query('[data-trial-status]').textContent, /Readability not evaluated/);
+  assert.match(s.query('[data-trial-status]').textContent, /Usage is not measured before creation/);
+  assert.match(
+    s.query('[data-trial-status]').textContent,
+    /Readability and procedure not evaluated/,
+  );
   s.click('[data-key-color-cancel]');
   assert.deepEqual(s.captured(), before);
   assert.deepEqual(s.calls, []);
@@ -470,15 +473,25 @@ test('B status uses current coverage by stable ID and keeps proposed L separate 
     }),
   });
   s.open();
-  assert.match(s.query('[data-trial-usage="key"]').textContent, /unavailable/);
+  assert.match(s.query('[data-trial-usage="key"]').textContent, /unavailable/i);
   coverage.refresh();
   await new Promise((resolve) => setImmediate(resolve));
   s.click('[data-trial-refresh]');
   assert.match(s.query('[data-trial-usage="key"]').textContent, /37%/);
   assert.match(s.query('[data-trial-usage="neutral"]').textContent, /0%/);
-  assert.match(s.query('[data-trial-usage="accent"]').textContent, /unavailable/);
+  assert.match(s.query('[data-trial-usage="accent"]').textContent, /unavailable/i);
   assert.doesNotMatch(s.query('[data-trial-row="key"]').textContent, /Same literal/); // RGB matches Neutral but alpha differs.
-  assert.match(s.query('[data-trial-row="key"]').textContent, /Readability not evaluated/);
+  const saved = s.query('[data-trial-status="Saved recipe"]');
+  assert.match(saved.textContent, /Readability and procedure not evaluated/);
+  assert.equal(saved.textContent.split('Readability and procedure not evaluated').length - 1, 1);
+  const keyDetails = saved.querySelector('[data-trial-row="key"] [data-trial-details]');
+  assert.equal(keyDetails.open, false);
+  assert.equal(keyDetails.querySelector('code').textContent, 'key');
+  const exactKeyL = before.doc.keyColorRecipe.committedSnapshot.resolved.find(
+    (row) => row.id === 'key',
+  ).L;
+  assert.ok(keyDetails.textContent.includes(`C1 OKLCH L ${exactKeyL}`));
+  assert.match(saved.querySelector('[data-trial-row="key"] [data-trial-l]').textContent, /^≈ /);
   const savedOrder = s.query('[data-trial-status="Saved recipe"] [data-model-l-order]').textContent;
   assert.match(savedOrder, /Derived model L order/);
   assert.match(savedOrder, /maintained/);
@@ -494,8 +507,12 @@ test('B status uses current coverage by stable ID and keeps proposed L separate 
     savedOrder,
   );
   assert.match(
-    comparison.querySelector('[data-trial-row="assort"]').textContent,
-    /ΔL 2.*L range limited/,
+    comparison.querySelector('[data-trial-row="assort"] [data-trial-notice]').textContent,
+    /L range limited/,
+  );
+  assert.match(
+    comparison.querySelector('[data-trial-row="assort"] [data-trial-details]').textContent,
+    /ΔL 2/,
   );
   for (const id of ['key', 'accent', 'neutral', 'text']) {
     const row = comparison.querySelector(`[data-key-color-compare="${id}"]`);
@@ -512,11 +529,11 @@ test('B status uses current coverage by stable ID and keeps proposed L separate 
   assert.deepEqual(s.captured(), before);
   key = 'new-key';
   s.click('[data-trial-refresh]');
-  assert.match(s.query('[data-trial-usage="key"]').textContent, /unavailable/);
+  assert.match(s.query('[data-trial-usage="key"]').textContent, /unavailable/i);
   assert.doesNotMatch(s.query('[data-trial-usage="key"]').textContent, /0%/);
   open = false;
   s.click('[data-trial-refresh]');
-  assert.match(s.query('[data-trial-usage="neutral"]').textContent, /unavailable/);
+  assert.match(s.query('[data-trial-usage="neutral"]').textContent, /unavailable/i);
   s.click('[data-key-color-cancel]');
   assert.deepEqual(s.captured(), before);
   const matching = setup(t, 'document', blankDocument());
@@ -555,6 +572,66 @@ test('B trial preview rejects shared color budget before enabling Create', (t) =
   assert.match(s.query('[data-key-color-status]').textContent, /budget/i);
   assert.deepEqual(s.captured(), before);
   assert.deepEqual(s.calls, []);
+});
+
+test('B trial disambiguates duplicate roles and names without changing stable targets', (t) => {
+  const s = setup(t, 'document', blankDocument());
+  const plan = structuredClone(researchPlans.find((item) => item.id === 'research-neutral-start'));
+  plan.slots[0].id = 'a-1111';
+  plan.slots[1].id = 'b-1111';
+  plan.slots[1].role = plan.slots[0].role;
+  plan.slots[2].role = 'Assort · a-1111';
+  const payload = {
+    version: 1,
+    modelVersion: 2,
+    solverVersion: 'experimental-affine-neutral-text-v1',
+    colorSemanticsVersion: 'linear-srgb-straight-v1',
+    paletteId: 'duplicate-label-palette',
+    intent: {
+      keyColor: { id: 'key', role: 'Identity', value: { hex: '#3273c7', alpha: 1 }, hueHint: 0 },
+      preset: plan,
+      slots: plan.slots.map(({ id, role }) => ({ id, role, deltaL: 0, deltaRatioCmax: 0 })),
+      settings: { areaAware: false },
+    },
+    allocations: [
+      { slotId: 'key', name: 'C1' },
+      { slotId: 'a-1111', name: 'Shared' },
+      { slotId: 'b-1111', name: 'Shared' },
+      { slotId: plan.slots[2].id, name: 'Shared · a-1111' },
+      { slotId: plan.slots[3].id, name: 'Text' },
+    ],
+  };
+  s.send('initialize-key-color-recipe', payload);
+  const before = s.captured();
+  s.open();
+  const options = [...s.document.querySelectorAll('[data-pair-foreground] option')].slice(1);
+  assert.equal(new Set(options.map((option) => option.textContent)).size, options.length);
+  assert.deepEqual(
+    options.map((option) => option.value),
+    ['key', ...plan.slots.map((slot) => slot.id)],
+  );
+  assert.equal(
+    s.query('[data-trial-row="a-1111"] [data-trial-details] code').textContent,
+    'a-1111',
+  );
+  assert.notEqual(
+    s.query('[data-key-color-slot="a-1111"]').getAttribute('aria-label'),
+    s.query('[data-key-color-slot="b-1111"]').getAttribute('aria-label'),
+  );
+  s.click('[data-key-color-preview]');
+  const names = [...s.document.querySelectorAll('[data-key-color-compare] th')].map(
+    (heading) => heading.firstChild.textContent,
+  );
+  assert.equal(new Set(names).size, names.length);
+  assert.equal(s.query('[data-key-color-compare="a-1111"] details code').textContent, 'a-1111');
+  assert.equal(s.query('[data-key-color-compare="b-1111"] details code').textContent, 'b-1111');
+  const foreground = s.query('[data-pair-foreground]');
+  const background = s.query('[data-pair-background]');
+  foreground.value = 'a-1111';
+  background.value = 'b-1111';
+  s.click('[data-pair-run]');
+  assert.match(s.query('[data-pair-result]').textContent, /Current shared colors:/);
+  assert.deepEqual(s.captured(), before);
 });
 
 test('B policy exposes Δr only for Assort and Accent, including with a custom role', (t) => {

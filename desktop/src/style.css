@@ -3069,18 +3069,30 @@ input[data-scrub-step].scrubbing {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.key-color-comparison {
+.key-color-comparison,
+.key-color-table-scroll {
   overflow-x: auto;
 }
-.key-color-comparison table {
+.key-color-comparison table,
+[data-trial-status] table {
   width: 100%;
   border-collapse: collapse;
 }
-.key-color-comparison :is(th, td) {
+.key-color-comparison :is(th, td),
+[data-trial-status] :is(th, td) {
   padding: 6px;
   border-bottom: 1px solid var(--line);
   text-align: left;
+  vertical-align: top;
   overflow-wrap: anywhere;
+}
+[data-trial-notice] {
+  margin-top: 4px;
+  font-weight: normal;
+}
+[data-trial-details] {
+  margin-top: 4px;
+  font-weight: normal;
 }
 .key-color-swatch {
   display: inline-block;
