@@ -14,6 +14,7 @@ import { createKeyColorC1Draft } from './key-color-c1-draft.js';
 import { createKeyColorDeltaScrub } from './key-color-delta-scrub.js';
 import { researchPlans } from './key-color-research-plans.js';
 import { analyzeSelectedContrast } from './palette-contrast.js';
+import { compareModelLightnessOrder } from './key-color-lightness-order.js';
 
 const esc = (value) =>
   String(value).replace(
@@ -35,6 +36,20 @@ const isExactGray = (hex) => {
   const rgb = hex.slice(1).toLowerCase();
   return rgb.slice(0, 2) === rgb.slice(2, 4) && rgb.slice(2, 4) === rgb.slice(4, 6);
 };
+
+function lightnessOrderSummary(snapshot) {
+  const pairs = compareModelLightnessOrder(snapshot);
+  if (!pairs) return '<p data-model-l-order>Model L order unavailable: invalid metadata.</p>';
+  if (!pairs.length) return '<p data-model-l-order>No active derived pair to compare.</p>';
+  const shown = pairs
+    .slice(0, 30)
+    .map(
+      ({ a, b, state }) =>
+        `<li>${esc(a.role)} <code>${esc(a.id)}</code> / ${esc(b.role)} <code>${esc(b.id)}</code>: ${esc(state)}</li>`,
+    )
+    .join('');
+  return `<section data-model-l-order><h4>Derived model L order</h4><p>Exact numeric comparison with the clamped zero-offset baseline; appearance and contrast are not evaluated.</p><ul>${shown}</ul>${pairs.length > 30 ? `<p>${pairs.length - 30} more pairs omitted.</p>` : ''}</section>`;
+}
 
 // An opt-in, detached view draft, not another authored palette owner. The
 // historical receipt is read once; only one explicit Session Apply can write.
@@ -311,7 +326,13 @@ export function createKeyColorRecipePanel({
         return `<tr data-trial-row="${esc(row.id)}" ${created ? '' : `data-research-row="${esc(row.id)}" data-research-role="${esc(row.role)}"`}><th>${esc(row.role)}</th><td>${literal(row.value)}</td><td>${usage}</td><td>${esc(details)}</td><td>Readability not evaluated · procedure not evaluated</td></tr>`;
       })
       .join('');
-    return `<section data-trial-status="${esc(title)}"><h3>${esc(title)}</h3><table><thead><tr><th>Role</th><th>Color</th><th>Current visible paint share</th><th>OKLCH adjustment</th><th>Checks</th></tr></thead><tbody>${rows}</tbody></table><p>${esc(snapshot.diagnostics.join(', '))}</p></section>`;
+    const order =
+      created &&
+      snapshot.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION &&
+      trialB(snapshot.intent.preset.id, snapshot.intent.preset.version)
+        ? lightnessOrderSummary(snapshot)
+        : '';
+    return `<section data-trial-status="${esc(title)}"><h3>${esc(title)}</h3><table><thead><tr><th>Role</th><th>Color</th><th>Current visible paint share</th><th>OKLCH adjustment</th><th>Checks</th></tr></thead><tbody>${rows}</tbody></table><p>${esc(snapshot.diagnostics.join(', '))}</p>${order}</section>`;
   }
 
   function refreshTrialUsage() {

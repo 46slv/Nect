@@ -29,6 +29,9 @@ share comes only from the existing current coverage snapshot matched by stable
 slot ID; the refresh button rereads it. Missing, stale or unavailable results are
 not converted to zero. Before creation, usage is not measured. Readability and
 procedure checks are not evaluated here, and literal equality includes alpha.
+For retained B recipes, pairwise derived model L order compares effective L
+against the clamped zero-offset baseline by stable ID. Equality is exact; this
+informational result does not judge appearance, contrast or whether Apply is allowed.
 
 For a retained B trial, explicitly select two different stable IDs to check a
 foreground/background pair. The advisory compares current shared literals and,

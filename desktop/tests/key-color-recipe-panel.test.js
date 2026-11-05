@@ -444,10 +444,20 @@ test('B status uses current coverage by stable ID and keeps proposed L separate 
   assert.match(s.query('[data-trial-usage="accent"]').textContent, /unavailable/);
   assert.doesNotMatch(s.query('[data-trial-row="key"]').textContent, /Same literal/); // RGB matches Neutral but alpha differs.
   assert.match(s.query('[data-trial-row="key"]').textContent, /Readability not evaluated/);
+  const savedOrder = s.query('[data-trial-status="Saved recipe"] [data-model-l-order]').textContent;
+  assert.match(savedOrder, /Derived model L order/);
+  assert.match(savedOrder, /maintained/);
+  assert.doesNotMatch(savedOrder, /invalid metadata/);
   s.input('deltaL', 2);
   s.click('[data-key-color-preview]');
   const comparison = s.query('[data-key-color-comparison]');
   assert.match(comparison.textContent, /Proposed colors · not applied/);
+  assert.match(comparison.querySelector('[data-model-l-order]').textContent, /reversed/);
+  assert.equal(s.query('[data-key-color-apply]').disabled, false);
+  assert.equal(
+    s.query('[data-trial-status="Saved recipe"] [data-model-l-order]').textContent,
+    savedOrder,
+  );
   assert.match(
     comparison.querySelector('[data-trial-row="assort"]').textContent,
     /ΔL 2.*L range limited/,

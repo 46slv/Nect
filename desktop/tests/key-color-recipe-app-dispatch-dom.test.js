@@ -303,6 +303,10 @@ test('real main.js routes the experimental editor through closed Apply, not a la
         s.open();
         assert.ok(s.win.coverageReadCount > 0);
         assert.match(s.query('[data-trial-usage]').textContent, /unavailable/i);
+        assert.match(
+          s.query('[data-trial-status="Saved recipe"] [data-model-l-order]').textContent,
+          /Derived model L order/,
+        );
         for (const id of ids.slice(1)) {
           assert.ok(s.query(`[data-key-color-input="deltaL"][data-key-color-slot="${id}"]`));
           const chroma = s.query(
