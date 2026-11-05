@@ -118,7 +118,19 @@ test('real main.js routes the experimental editor through closed Apply, not a la
         assert.equal(alpha.value, '');
         assert.equal(choice.value, '');
         assert.equal(button.disabled, true);
+        assert.equal(s.query('[data-key-color-input="hsl-h"]').disabled, true);
+        assert.equal(
+          s.query('canvas[aria-label^="Saturation"]').getAttribute('aria-disabled'),
+          'true',
+        );
         assert.equal(s.query('[data-key-color-apply]'), null);
+        hex.value = '#aAaAaA';
+        s.fire(hex, 'input');
+        assert.equal(s.query('[data-key-color-input="hsl-h"]').disabled, false);
+        const hue = s.query('[data-key-color-input="hsl-h"]');
+        hue.value = '240';
+        s.fire(hue, 'input');
+        assert.equal(hex.value, '#aAaAaA');
         hex.value = '#AbCd09';
         s.fire(hex, 'input');
         alpha.value = '0';
@@ -145,6 +157,13 @@ test('real main.js routes the experimental editor through closed Apply, not a la
         assert.deepEqual(s.snapshot(), before);
         assert.equal(s.ui().future, future);
         assert.ok(s.query('dialog'));
+        const saturation = s.query('[data-key-color-input="hsl-s"]');
+        saturation.value = '50';
+        s.fire(saturation, 'input');
+        assert.equal(s.query('[data-research-row]'), null);
+        assert.notEqual(hex.value, '#AbCd09');
+        hex.value = '#AbCd09';
+        s.fire(hex, 'input');
         choice.value = 'research-triadic-offset';
         s.fire(choice, 'change');
         assert.equal(s.query('[data-research-row]'), null);
@@ -159,8 +178,11 @@ test('real main.js routes the experimental editor through closed Apply, not a la
         hex.value = '#bad';
         s.fire(hex, 'input');
         assert.equal(button.disabled, true);
+        assert.equal(s.query('[data-key-color-input="hsl-h"]').disabled, true);
+        assert.equal(s.query('[data-key-color-hue]').hidden, true);
         hex.value = '#AbCd09';
         s.fire(hex, 'input');
+        assert.equal(s.query('[data-key-color-input="hsl-h"]').disabled, false);
         button.click();
         assert.ok(s.query('[data-research-row]'));
         s.win.nect.dispatch({

@@ -301,7 +301,8 @@ test('absent retained recipe is explanatory only, with no bootstrap/default/hist
     before = s.captured();
   s.open();
   assert.match(s.query('[data-key-color-empty]').textContent, /does not create a preset/);
-  assert.equal(s.query('[data-key-color-input]'), null);
+  assert.equal(s.query('[data-key-color-input="hex"]').value, '');
+  assert.equal(s.query('[data-key-color-input="hsl-h"]').disabled, true);
   assert.equal(s.query('[data-key-color-apply]'), null);
   s.click('[data-key-color-cancel]');
   assert.deepEqual(s.captured(), before);
@@ -315,6 +316,16 @@ test('research draft participates in the edit barrier and never rebases after co
   s.session.switchComposition(first);
   s.open();
   assert.equal(s.panel.editing, true);
+  const canvas = s.query('canvas');
+  let captures = 0;
+  canvas.setPointerCapture = () => {
+    captures++;
+  };
+  canvas.dispatchEvent(
+    new s.win.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 7 }),
+  );
+  assert.equal(captures, 0);
+  assert.equal(s.query('[data-research-hex]').value, '');
   for (const [selector, value, event] of [
     ['[data-research-hex]', '#3273c7', 'input'],
     ['[data-research-alpha]', '1', 'input'],
@@ -330,6 +341,15 @@ test('research draft participates in the edit barrier and never rebases after co
   s.panel.reconcile();
   assert.equal(s.query('[data-research-preview]').disabled, true);
   assert.equal(s.query('[data-research-row]'), null);
+  const hexBeforeStaleInput = s.query('[data-research-hex]').value;
+  const hue = s.query('[data-key-color-input="hsl-h"]');
+  hue.value = '123';
+  s.fire(hue, 'input');
+  canvas.dispatchEvent(
+    new s.win.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 8 }),
+  );
+  assert.equal(captures, 0);
+  assert.equal(s.query('[data-research-hex]').value, hexBeforeStaleInput);
   s.session.switchComposition(first);
   s.panel.reconcile();
   assert.equal(s.query('[data-research-preview]').disabled, true);

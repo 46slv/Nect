@@ -13,6 +13,11 @@ keeps C1 exactly and starts all derived colors with zero chroma; no derived
 chroma controls are provided. Coverage and contrast are not evaluated. This
 does not bootstrap a palette or convert the legacy wheel.
 
+The research C1 uses the same draft-only HSL picker as the retained editor.
+Until a valid six-digit HEX is entered, HSL controls and the plane cannot edit a
+color; no seed color is used for Preview. HEX spelling and alpha zero remain
+literal until an explicit HSL change, and a hue-only edit on gray preserves HEX.
+
 ## Edit, Preview, Apply
 
 - For explicitly initialized `experimental-affine-neutral-text-v1` receipts,

@@ -5,29 +5,41 @@ import { createNumericControlBehavior } from './numeric-control-behavior.js';
 export function createKeyColorC1Draft(
   host,
   value,
-  { valid = () => true, blocked = () => false } = {},
+  { valid = () => true, blocked = () => false, allowEmpty = false } = {},
 ) {
   const document = host.ownerDocument;
   const field = (kind) => host.querySelector(`[data-key-color-input="${kind}"]`);
-  let hsl = hexToHsl(value.hex),
+  let hsl = value ? hexToHsl(value.hex) : null,
     paintedHue = null,
     pointer = null,
     scrub = null,
     internalInput = false;
   const composing = new Set();
   host.innerHTML = `<div class="key-color-c1-picker"><div class="key-color-c1-plane"><canvas width="180" height="132" aria-label="Saturation left to right; lightness bottom to top"></canvas><span data-key-color-marker aria-hidden="true"></span></div><div class="key-color-c1-fields"><label class="hsl-picker-hue">Hue<input type="range" data-key-color-hue min="0" max="360" step="any" aria-label="C1 hue slider"></label><div>${['h', 's', 'l'].map((channel) => `<label>${channel.toUpperCase()}<input type="number" data-key-color-input="hsl-${channel}" min="0" max="${channel === 'h' ? 360 : 100}" step="any" aria-label="C1 ${channel === 'h' ? 'hue degrees' : channel === 's' ? 'saturation percent' : 'lightness percent'}"><span>${channel === 'h' ? '°' : '%'}</span></label>`).join('')}</div></div></div><div class="key-color-c1-literal"><span data-key-color-chip class="key-color-swatch" aria-hidden="true"></span><label>HEX<input type="text" data-key-color-input="hex" spellcheck="false" autocomplete="off" aria-label="C1 HEX literal"></label><label>Alpha<input type="number" data-key-color-input="alpha" min="0" max="1" step="any" aria-label="C1 alpha"></label></div>`;
-  field('hex').value = value.hex;
-  field('alpha').value = String(value.alpha);
+  field('hex').value = value?.hex ?? '';
+  field('alpha').value = value ? String(value.alpha) : '';
   const canvas = host.querySelector('canvas'),
     hue = host.querySelector('[data-key-color-hue]');
 
   function paint(skip = null) {
+    const marker = host.querySelector('[data-key-color-marker]');
+    hue.disabled = !hsl;
+    hue.hidden = !hsl;
+    canvas.setAttribute('aria-disabled', String(!hsl));
+    marker.hidden = !hsl;
+    for (const channel of ['h', 's', 'l']) field(`hsl-${channel}`).disabled = !hsl;
+    if (!hsl) {
+      for (const channel of ['h', 's', 'l']) field(`hsl-${channel}`).value = '';
+      canvas.getContext('2d')?.clearRect?.(0, 0, canvas.width, canvas.height);
+      paintedHue = null;
+      paintChip();
+      return;
+    }
     for (const channel of ['h', 's', 'l']) {
       const input = field(`hsl-${channel}`);
       if (input !== skip) input.value = String(Number(hsl[channel].toFixed(2)));
     }
     hue.value = String(hsl.h);
-    const marker = host.querySelector('[data-key-color-marker]');
     marker.style.left = `${hsl.s}%`;
     marker.style.top = `${100 - hsl.l}%`;
     marker.style.borderColor = hsl.l > 65 ? '#252525' : '#ffffff';
@@ -73,9 +85,13 @@ export function createKeyColorC1Draft(
     if (kind === 'hex' && /^#[0-9a-f]{6}$/i.test(input.value)) {
       const next = hexToHsl(input.value);
       // HSL hue is display/draft state, not the recipe's OKLCH hueHint.
-      hsl = { ...next, h: next.s === 0 ? hsl.h : next.h };
+      hsl = { ...next, h: next.s === 0 && hsl ? hsl.h : next.h };
+      paint();
+    } else if (allowEmpty && kind === 'hex') {
+      hsl = null;
       paint();
     } else if (kind?.startsWith('hsl-')) {
+      if (allowEmpty && (!hsl || !valid() || blocked())) return;
       const channel = kind.slice(4),
         n = Number(input.value);
       if (
@@ -88,6 +104,7 @@ export function createKeyColorC1Draft(
         writeHsl(input);
       }
     } else if (input === hue) {
+      if (allowEmpty && (!hsl || !valid() || blocked())) return;
       field('hsl-h').value = input.value;
       hsl.h = Number(input.value);
       writeHsl();
@@ -166,6 +183,7 @@ export function createKeyColorC1Draft(
       channel = kind?.startsWith('hsl-') ? kind.slice(4) : null;
     if (input !== alpha && !['h', 's', 'l'].includes(channel)) return;
     if (scrub || event.button !== 0 || event.isPrimary === false) return;
+    if (allowEmpty && !hsl) return;
     if (composing.size || blocked()) {
       event.preventDefault();
       return;
@@ -251,6 +269,7 @@ export function createKeyColorC1Draft(
   );
   function fromPlane(event) {
     if (
+      (allowEmpty && (!hsl || !valid() || blocked())) ||
       composing.size ||
       !field('hsl-h').value.trim() ||
       !Number.isFinite(Number(field('hsl-h').value))
@@ -267,6 +286,7 @@ export function createKeyColorC1Draft(
   }
   canvas.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
+    if (allowEmpty && (!hsl || !valid() || blocked() || composing.size)) return;
     event.preventDefault();
     field('hsl-s').focus();
     pointer = event.pointerId;
@@ -285,6 +305,14 @@ export function createKeyColorC1Draft(
     get active() {
       return !!scrub || pointer !== null;
     },
-    dispose: () => finishScrub(),
+    dispose: () => {
+      finishScrub();
+      if (allowEmpty && pointer !== null) {
+        try {
+          canvas.releasePointerCapture(pointer);
+        } catch {}
+        pointer = null;
+      }
+    },
   };
 }

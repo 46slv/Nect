@@ -175,6 +175,17 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
     if (!/^#[0-9a-f]{6}$/i.test(hex)) throw Error('Enter C1 as six-digit HEX.');
     if (!rawAlpha.trim() || !Number.isFinite(alpha) || alpha < 0 || alpha > 1)
       throw Error('Enter alpha between 0 and 1.');
+    for (const channel of ['h', 's', 'l']) {
+      const raw = dialog.querySelector(`[data-key-color-input="hsl-${channel}"]`).value;
+      const number = Number(raw);
+      if (
+        !raw.trim() ||
+        !Number.isFinite(number) ||
+        number < 0 ||
+        number > (channel === 'h' ? 360 : 100)
+      )
+        throw Error('Enter valid C1 HSL values.');
+    }
     if (!plan) throw Error('Choose a research candidate.');
     return { hex, alpha, plan };
   }
@@ -344,15 +355,16 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
           return `<p>Palette <code>${esc(base.paletteId)}</code> · retained revision ${base.revision}. This receipt is historical, not a live driver.</p><fieldset><legend>C1 · ${esc(key.role)} · ${esc(key.id)}</legend><div data-key-color-c1></div></fieldset><h3>Active derived intent</h3><p>ΔL and Δr are finite stored offsets, not clamped slider positions. Derived alpha must be 1.</p>${base.intent.slots.map((slot) => (active.has(slot.id) ? `<fieldset><legend>${esc(slot.role)} · ${esc(slot.id)}</legend><label>ΔL<input type="number" step="any" data-key-color-input="deltaL" data-key-color-slot="${esc(slot.id)}" value="${slot.deltaL}" aria-label="${esc(slot.id)} ΔL"></label>${isNeutralTextPolicySlot(base.solverVersion, slot.role) ? `<p data-key-color-support-intent>Stored Δr ${slot.deltaRatioCmax} · not applied${slot.deltaRatioCmax !== 0 ? ' · support-chroma-intent-unapplied' : ''}</p>` : `<label>Δr<input type="number" step="any" data-key-color-input="deltaRatioCmax" data-key-color-slot="${esc(slot.id)}" value="${slot.deltaRatioCmax}" aria-label="${esc(slot.id)} Δr"></label>`}<p>Stored derived alpha · ${base.resolved.find((row) => row.id === slot.id).value.alpha} (read-only; Apply requires 1, never coerces).</p></fieldset>` : `<fieldset disabled data-key-color-dormant="${esc(slot.id)}"><legend>${esc(slot.role)} · ${esc(slot.id)} · dormant, unchanged</legend><p>ΔL ${slot.deltaL} · Δr ${slot.deltaRatioCmax}</p><p>${literal(base.resolved.find((row) => row.id === slot.id).value)}</p></fieldset>`)).join('')}<details><summary>Read-only preset, coefficients and versions</summary><p>Recipe v${base.version} · solver ${esc(base.solverVersion)} · ${esc(base.colorSemanticsVersion)}</p><pre>${esc(JSON.stringify({ preset: base.intent.preset, settings: base.intent.settings }, null, 2))}</pre></details><p data-key-color-status role="status" aria-live="polite">Draft only. Preview these inputs before Apply.</p><section class="key-color-comparison" data-key-color-comparison aria-label="Key color preview"></section>`;
         })()
       : research
-        ? `<p data-key-color-empty>Research preview only. It does not create a preset or change shared colors. Creation plans are not yet adopted.</p><label>C1 HEX <input data-research-hex type="text" autocomplete="off"></label><label>Alpha <input data-research-alpha type="number" min="0" max="1" step="any"></label><label>Research candidate <select data-research-plan><option value="">Choose a candidate</option><option value="research-triadic-offset">A · chromatic comparison</option><option value="research-neutral-start">B · neutral start</option></select></label><details><summary>Candidate roles and coefficients</summary><pre data-research-details></pre></details><p data-key-color-status role="status" aria-live="polite">Enter C1 and choose a candidate.</p><section data-research-results aria-label="Research color preview"></section>`
+        ? `<p data-key-color-empty>Research preview only. It does not create a preset or change shared colors. Creation plans are not yet adopted.</p><fieldset><legend>C1</legend><div data-key-color-c1></div></fieldset><label>Research candidate <select data-research-plan><option value="">Choose a candidate</option><option value="research-triadic-offset">A · chromatic comparison</option><option value="research-neutral-start">B · neutral start</option></select></label><details><summary>Candidate roles and coefficients</summary><pre data-research-details></pre></details><p data-key-color-status role="status" aria-live="polite">Enter C1 and choose a candidate.</p><section data-research-results aria-label="Research color preview"></section>`
         : `<p data-key-color-empty>${esc(error || 'The retained recipe is unavailable.')}</p>`;
     dialog.innerHTML = `<header><h2 id="key-color-recipe-title">Key color · Experimental</h2><button type="button" data-key-color-cancel aria-label="Close Key color">×</button></header>${base ? '<p>Opt-in one-shot Apply. The existing legacy wheel and product defaults are unchanged. Dark TonePlan coefficients remain unresolved.</p>' : ''}<div class="key-color-recipe-body">${controls}</div><footer><button type="button" data-key-color-cancel>Cancel</button>${base ? '<button type="button" data-key-color-preview>Preview</button><button type="button" data-key-color-apply disabled>Apply · 1 Undo</button>' : research ? '<button type="button" data-research-preview disabled>Preview</button>' : ''}</footer>${base ? '<p class="key-color-undo-note">A changed Apply is one Undo. Equal literals and receipt are a no-op. Cancel and Escape discard the draft.</p>' : ''}`;
-    if (base) {
+    if (base || research) {
       const compositionId = owner.activeCompositionId;
       c1Draft = createKeyColorC1Draft(
         dialog.querySelector('[data-key-color-c1]'),
-        base.intent.keyColor.value,
+        base ? base.intent.keyColor.value : null,
         {
+          allowEmpty: research,
           blocked: () => composing.size > 0 || !!deltaScrub?.active,
           valid: () => {
             try {
@@ -364,17 +376,22 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
           },
         },
       );
-      deltaScrub = createKeyColorDeltaScrub(dialog, {
-        blocked: () => composing.size > 0 || !!c1Draft?.active,
-        valid: () => {
-          try {
-            current();
-            return owner.activeCompositionId === compositionId && !composing.size;
-          } catch {
-            return false;
-          }
-        },
-      });
+      if (research) {
+        dialog.querySelector('[data-key-color-input="hex"]').dataset.researchHex = '';
+        dialog.querySelector('[data-key-color-input="alpha"]').dataset.researchAlpha = '';
+      }
+      if (base)
+        deltaScrub = createKeyColorDeltaScrub(dialog, {
+          blocked: () => composing.size > 0 || !!c1Draft?.active,
+          valid: () => {
+            try {
+              current();
+              return owner.activeCompositionId === compositionId && !composing.size;
+            } catch {
+              return false;
+            }
+          },
+        });
     }
     document.body.append(dialog);
     dialog.addEventListener('input', invalidate);
@@ -402,8 +419,8 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
     });
     dialog.showModal();
     (
-      dialog.querySelector('[data-key-color-input]') ||
       dialog.querySelector('[data-research-hex]') ||
+      dialog.querySelector('[data-key-color-input]') ||
       dialog.querySelector('[data-key-color-cancel]')
     )?.focus({ preventScroll: true });
     return dialog;
