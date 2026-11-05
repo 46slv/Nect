@@ -1,6 +1,7 @@
 import {
   KEY_COLOR_RECIPE_VERSION,
   KEY_COLOR_SOLVER_VERSION,
+  KEY_COLOR_NEUTRAL_SOLVER_VERSION,
   KEY_COLOR_SEMANTICS_VERSION,
   createKeyColorRecipe,
   restoreKeyColorRecipe,
@@ -107,7 +108,7 @@ function initializationRequest(raw) {
   if (
     payload.version !== 1 ||
     payload.modelVersion !== KEY_COLOR_RECIPE_VERSION ||
-    payload.solverVersion !== KEY_COLOR_SOLVER_VERSION ||
+    ![KEY_COLOR_SOLVER_VERSION, KEY_COLOR_NEUTRAL_SOLVER_VERSION].includes(payload.solverVersion) ||
     payload.colorSemanticsVersion !== KEY_COLOR_SEMANTICS_VERSION
   )
     throw Error('Unsupported key-color initialization version');
@@ -174,9 +175,13 @@ export function prepareKeyColorRecipeInitialization(doc, payload, slots) {
     throw Error('Key-color initialization requires fresh slot IDs');
   // Fresh slots have no historic colors. An omitted derived mapping must reject,
   // never become invented dormant history. The pure create path enforces this.
-  const snapshot = createKeyColorRecipe({ paletteId: request.paletteId, ...request.intent }),
+  const snapshot = createKeyColorRecipe({
+      paletteId: request.paletteId,
+      ...request.intent,
+      solverVersion: request.solverVersion,
+    }),
     proposed = new Map(snapshot.resolved.map((row) => [row.id, row]));
-  const prepared = prepareKeyColorRecipeApplication(doc, { snapshot }, proposed);
+  const prepared = prepareApplication(doc, { snapshot }, proposed, true);
   return {
     snapshot: prepared.snapshot,
     slots: request.allocations.map(({ slotId, name }) => ({
@@ -186,12 +191,25 @@ export function prepareKeyColorRecipeInitialization(doc, payload, slots) {
     })),
   };
 }
+function checkPolicyTransition(doc, snapshot) {
+  const current = doc.keyColorRecipe?.committedSnapshot?.solverVersion;
+  if (
+    (current === KEY_COLOR_NEUTRAL_SOLVER_VERSION ||
+      snapshot.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION) &&
+    current !== snapshot.solverVersion
+  )
+    throw Error('Key-color policy changes require create-only initialization');
+}
 export function prepareKeyColorRecipeApplication(doc, payload, slots) {
+  return prepareApplication(doc, payload, slots, false);
+}
+function prepareApplication(doc, payload, slots, initializing) {
   fields(payload, ['snapshot']);
   const snapshot = snapshotWithExistingSlots(payload.snapshot, slots),
     active = snapshot.resolved.filter((row) => row.active),
     locked = new Set(doc.colorDesign?.lockedSlotIds || []),
     keyId = snapshot.intent.keyColor.id;
+  if (!initializing) checkPolicyTransition(doc, snapshot);
   // Legacy generator locks are not silently taken over, even if a target's
   // current literal already matches the receipt. Dormant rows are not targets.
   if (active.some((row) => locked.has(row.id)))
@@ -230,6 +248,13 @@ export function validateRetainedKeyColorRecipe(doc, slots) {
   return snapshotWithExistingSlots(packet.committedSnapshot, slots);
 }
 export function applyRetainedKeyColorRecipeCommand(doc, type, payload, slots) {
+  return applyRetained(doc, type, payload, slots, false);
+}
+// Called only after fresh-slot initialization has passed its complete preflight.
+export function applyInitializedKeyColorRecipe(doc, snapshot, slots) {
+  return applyRetained(doc, 'retain-key-color-recipe-snapshot', { snapshot }, slots, true);
+}
+function applyRetained(doc, type, payload, slots, initializing) {
   const present = Object.hasOwn(doc, 'keyColorRecipe');
   if (type === 'clear-key-color-recipe-snapshot') {
     fields(payload, []);
@@ -248,6 +273,7 @@ export function applyRetainedKeyColorRecipeCommand(doc, type, payload, slots) {
   const snapshot = snapshotWithExistingSlots(payload.snapshot, slots),
     packet = { version: 1, mode: 'retained-only', committedSnapshot: snapshot },
     schemaVersion = Math.max(doc.schemaVersion, KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION);
+  if (!initializing) checkPolicyTransition(doc, snapshot);
   validateRetainedKeyColorRecipe({ ...doc, schemaVersion, keyColorRecipe: packet }, slots);
   const result = { paletteId: snapshot.paletteId, paletteRevision: snapshot.revision };
   // Object key order is not authored snapshot meaning. Preserve the stored bytes

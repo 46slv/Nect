@@ -15,6 +15,10 @@ does not bootstrap a palette or convert the legacy wheel.
 
 ## Edit, Preview, Apply
 
+- For explicitly initialized `experimental-affine-neutral-text-v1` receipts,
+  Neutral/Text expose ΔL only. Their stored Δr remains visible as unapplied
+  intent with a diagnostic when nonzero. Legacy solver controls are unchanged.
+
 - C1 uses a **draft-only HSL picker**: saturation/lightness plane, hue slider and
   H/S/L fields, with a text HEX field and separate alpha. Opening, displaying HSL
   or cancelling never regenerates the exact six-digit HEX literal/case or alpha

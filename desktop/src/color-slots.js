@@ -9,6 +9,7 @@ import {
   keyColorRecipeDocumentCommands,
   validateRetainedKeyColorRecipe,
   applyRetainedKeyColorRecipeCommand,
+  applyInitializedKeyColorRecipe,
   prepareKeyColorRecipeApplication,
   prepareKeyColorRecipeInitialization,
 } from './key-color-recipe-document.js';
@@ -210,12 +211,7 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
     // receipt enter the same Session transaction, never chained public edits.
     doc.colorSlots = [...(doc.colorSlots || []), ...prepared.slots];
     for (const slot of prepared.slots) slots.set(slot.id, slot);
-    const result = applyRetainedKeyColorRecipeCommand(
-      doc,
-      'retain-key-color-recipe-snapshot',
-      { snapshot: prepared.snapshot },
-      slots,
-    );
+    const result = applyInitializedKeyColorRecipe(doc, prepared.snapshot, slots);
     return { ...result, slotIds: prepared.slots.map((slot) => slot.id) };
   }
   if (type === 'apply-key-color-recipe-snapshot') {

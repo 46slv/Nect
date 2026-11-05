@@ -11,6 +11,14 @@ and [historical receipt contract](key-color-recipe-retention.md).
 
 ## Closed version-1 request
 
+The explicit `solverVersion` may be `experimental-affine-v1` (unchanged) or
+`experimental-affine-neutral-text-v1`. The latter is create-only: Neutral and
+Text plans require zero chroma scale and offset, use ΔL but do not apply stored
+Δr, and diagnose nonzero unapplied Δr. No product plan, coefficient, default,
+or automatic legacy migration is selected by choosing this policy. A new-policy
+receipt may subsequently be edited under the same version. Retain, replace and
+Apply cannot convert a legacy receipt or arbitrary existing colors to it.
+
 Use the usual captured `{sessionId, expectedRevision, type, payload}` envelope.
 The payload has exactly these fields:
 
