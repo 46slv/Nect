@@ -161,3 +161,11 @@ selection and revision are captured for each gesture. The existing validator
 continues to own path range and overflow; normalized anchors are not clamped to
 0–1. Variable and OS font paths keep their existing owner and route. Pending
 typing is a separate edit; cancelled or unchanged gestures preserve history.
+
+## Artwork gap spacing
+
+Artwork gap spacing uses the shared numeric behavior with the existing local
+alignment preference owner. A blank value remains Auto; zero and negative values
+are explicit spacing. Dragging does not create document history. Cancellation
+restores the previous preference, while newer input and reference changes remain
+owned by their existing controls.

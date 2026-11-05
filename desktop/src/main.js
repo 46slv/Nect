@@ -2366,6 +2366,7 @@ function numericControlTarget(input) {
 // Unmigrated numeric surfaces keep their previous route.
 function numericBehaviorBinding(input) {
   return (
+    alignmentSpacingNumericBinding(input) ||
     remapBatchNumericBinding(input) ||
     handlePolarNumericBinding(input) ||
     pngPpiNumericBinding(input) ||
@@ -3620,6 +3621,117 @@ function pointOrScalarNumericBinding(input) {
             payload: { gestureId: gesture.gestureId },
           });
         if (sameTarget() && sameRevision()) input.value = originalInput;
+      }
+    },
+  };
+}
+// Artwork gap is a local preference, not a document or history gesture.
+function alignmentSpacingNumericBinding(input) {
+  if (input.dataset.alignSpacing === undefined) return null;
+  const owner = session,
+    envelope = owner.state,
+    compositionId = owner.activeCompositionId,
+    layerId = current().id,
+    epoch = sourceEpoch,
+    selectedIds = [...selection],
+    artworkIds = [...artworkSelection],
+    target = artworkTarget,
+    reference = alignmentPreferences.reference,
+    units = [input.dataset.scrubStep, input.min, input.max];
+  let originalInput,
+    originalValue,
+    originalStorage,
+    lastInput,
+    lastValue,
+    started = false;
+  const sameTarget = () =>
+    owner === session &&
+    owner.activeCompositionId === compositionId &&
+    owner.state.sessionId === envelope.sessionId &&
+    owner.state.expectedRevision === envelope.expectedRevision &&
+    current().id === layerId &&
+    sourceEpoch === epoch &&
+    selectedIds.length === selection.size &&
+    selectedIds.every((id) => selection.has(id)) &&
+    artworkIds.length === artworkSelection.size &&
+    artworkIds.every((id) => artworkSelection.has(id)) &&
+    artworkTarget === target &&
+    alignmentPreferences.reference === reference &&
+    input.isConnected &&
+    input.matches('input[type="number"][data-align-spacing]') &&
+    input.dataset.scrubStep === units[0] &&
+    input.min === units[1] &&
+    input.max === units[2] &&
+    !input.disabled &&
+    !input.readOnly &&
+    !composing &&
+    !penDraft &&
+    !nameEdit &&
+    !variableAction &&
+    !owner.hasTextComposition &&
+    !owner.hasGesture &&
+    !document.querySelector('dialog[open]');
+  const onInput = () => {
+    if (drag?.capture === input && drag.behavior) cancelInteraction(false);
+  };
+  return {
+    mode: 'staged',
+    valid: () =>
+      sameTarget() &&
+      (!started || (input.value === lastInput && alignmentPreferences.spacing === lastValue)),
+    read() {
+      originalInput = input.value;
+      originalValue = alignmentPreferences.spacing;
+      if (
+        input.validity.badInput ||
+        (originalInput.trim() &&
+          (!Number.isFinite(Number(originalInput)) || Number(originalInput) !== originalValue))
+      )
+        throw Error('Invalid spacing');
+      try {
+        originalStorage = localStorage.getItem(ALIGN_PREFERENCES_KEY);
+      } catch {
+        originalStorage = undefined;
+      }
+      lastInput = originalInput;
+      lastValue = originalValue;
+      started = true;
+      return [originalValue ?? 0];
+    },
+    step: () => Number(units[0]),
+    bounds: () => [-100000, 100000],
+    begin() {
+      input.addEventListener('input', onInput);
+    },
+    preview([value]) {
+      input.value = String(value);
+      editAlignmentSpacing(input);
+      lastInput = input.value;
+      lastValue = value;
+    },
+    commit() {
+      input.removeEventListener('input', onInput);
+    },
+    cancel() {
+      input.removeEventListener('input', onInput);
+      if (alignmentPreferences.spacing !== lastValue) return;
+      const live = document.querySelector('[data-align-spacing]');
+      if (live && live.value !== lastInput) return;
+      alignmentPreferences.spacing = originalValue;
+      if (live) {
+        live.value = originalInput;
+        editAlignmentSpacing(live);
+      }
+      if (alignmentPreferences.reference !== reference) {
+        saveAlignmentPreferences();
+        return;
+      }
+      try {
+        if (originalStorage === null) localStorage.removeItem(ALIGN_PREFERENCES_KEY);
+        else if (originalStorage !== undefined)
+          localStorage.setItem(ALIGN_PREFERENCES_KEY, originalStorage);
+      } catch {
+        /* The existing preference owner handles unavailable storage. */
       }
     },
   };
