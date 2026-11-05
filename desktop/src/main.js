@@ -964,6 +964,7 @@ const keyColorRecipePanel = createKeyColorRecipePanel({
   getSession: () => session,
   getDocument: () => history.doc,
   getCoverageSnapshot: () => coverageView.snapshot(),
+  onArtworkPreview: () => updateCanvas(true),
   dispatch: (type, payload, envelope) => commandChange(type, payload, undefined, false, envelope),
   notify: (message, error) => notify(message, error),
 });
@@ -1614,6 +1615,7 @@ const displayDocument = () =>
   fontPreview ||
   drag?.preview ||
   (textPreviewRevision === session.state.expectedRevision && textPreview) ||
+  keyColorRecipePanel.previewDocument ||
   history.doc;
 const evaluate = (layer, fonts = {}, imageAssets = {}, doc = displayDocument()) =>
   evaluateCore(layer, fonts, imageAssets, doc);
@@ -6220,7 +6222,13 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     updateGraphBounds();
     drawWires();
   });
-  if (sharedColors.previewDocument || fontPreview || textPreview) updateCanvas(true);
+  if (
+    keyColorRecipePanel.previewDocument ||
+    sharedColors.previewDocument ||
+    fontPreview ||
+    textPreview
+  )
+    updateCanvas(true);
   coverageView.refresh();
 }
 function editGuides(type, payload, deferRender = false) {

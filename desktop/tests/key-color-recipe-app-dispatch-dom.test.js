@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
-import { serialize } from '../src/core.js';
+import { serialize, layer, node, connect } from '../src/core.js';
 import { serializeCompositionProject } from '../src/composition-project-model.js';
 import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import { openDOMPanel } from './helpers/dom-workspace-controls.js';
@@ -34,6 +34,16 @@ test('real main.js routes the experimental editor through closed Apply, not a la
     for (const key of ['window', 'document', 'HTMLElement', 'MutationObserver'])
       globalThis[key] = win[key];
     globalThis.requestAnimationFrame = () => 0;
+    const frames = new Map();
+    if (label === 'artwork-preview') {
+      let nextFrame = 1;
+      globalThis.requestAnimationFrame = win.requestAnimationFrame = (cb) => {
+        const id = nextFrame++;
+        frames.set(id, cb);
+        return id;
+      };
+      win.cancelAnimationFrame = (id) => frames.delete(id);
+    }
     globalThis.DOMPoint = class {
       constructor(x, y) {
         this.x = x;
@@ -64,7 +74,7 @@ test('real main.js routes the experimental editor through closed Apply, not a la
     );
     source = resolveMainRelativeImports(source.replace("import './style.css';", ''));
     source +=
-      '\nwindow.keyColorAppTest = () => ({ past: history.past.length, future: history.future.length, message, error, initializeFixture: (payload, envelope) => commandChange("initialize-key-color-recipe", payload, undefined, false, envelope) });';
+      '\nwindow.keyColorAppTest = () => ({ past: history.past.length, future: history.future.length, message, error, renderNow: () => render(), queueCanvas: () => updateCanvas(), initializeFixture: (payload, envelope) => commandChange("initialize-key-color-recipe", payload, undefined, false, envelope) });';
     source += `\n//# sourceURL=main-key-color-${label}.js`;
     await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
     const query = (selector) => win.document.querySelector(selector);
@@ -93,6 +103,11 @@ test('real main.js routes the experimental editor through closed Apply, not a la
       input,
       ui: () => win.keyColorAppTest(),
       snapshot: () => win.nect.projectSnapshot(),
+      flushFrames: () => {
+        const pending = [...frames.values()];
+        frames.clear();
+        pending.forEach((cb) => cb());
+      },
       load: (doc = retainedRecipeFixture()) => win.nect.load(serialize(doc)),
       open: () => {
         openDOMPanel(win.document, 'colors');
@@ -100,6 +115,174 @@ test('real main.js routes the experimental editor through closed Apply, not a la
       },
     };
   }
+
+  await t.test(
+    'trial B artwork preview draws only explicit bound proposal and restores authored view',
+    async () => {
+      const s = await boot(main, 'artwork-preview');
+      try {
+        const fixture = retainedRecipeFixture();
+        delete fixture.keyColorRecipe;
+        const unbound = layer('Unbound fixture');
+        const rectangle = node('Rectangle'),
+          plainFill = node('Fill');
+        const out = node('Output');
+        plainFill.params.color.value = { hex: '#e01020', alpha: 1 };
+        unbound.nodes = [rectangle, plainFill, out];
+        unbound.output = out.id;
+        connect(unbound, rectangle.id, plainFill.id, 'path');
+        connect(unbound, plainFill.id, out.id, 'path');
+        fixture.layers.push(unbound);
+        s.load(fixture);
+        s.open();
+        s.query('[data-research-hex]').value = '#3273c7';
+        s.fire(s.query('[data-research-hex]'), 'input');
+        s.query('[data-research-alpha]').value = '1';
+        s.fire(s.query('[data-research-alpha]'), 'input');
+        s.query('[data-research-plan]').value = 'research-neutral-start';
+        s.fire(s.query('[data-research-plan]'), 'change');
+        s.click('[data-research-preview]');
+        s.click('[data-research-create]');
+        const project = s.snapshot();
+        const id = project.keyColorRecipe.committedSnapshot.intent.slots[0].id;
+        const fill = project.compositions[0].layers[0].nodes.find((n) => n.type === 'Fill');
+        fill.params.color.colorSlotId = id;
+        const boundLayerId = project.compositions[0].layers[0].id;
+        s.win.nect.load(serializeCompositionProject(project));
+        s.win.nect.dispatch({
+          ...s.win.nect.commandState,
+          type: 'set-document-settings',
+          payload: { key: 'width', value: 321 },
+        });
+        s.win.nect.dispatch({ ...s.win.nect.commandState, type: 'undo', payload: {} });
+        const before = s.snapshot(),
+          state = { ...s.win.nect.commandState },
+          past = s.ui().past,
+          future = s.ui().future;
+        const svg = () => s.query('.artboard').innerHTML;
+        const fillOf = (layerId) =>
+          s.query(`.artboard path[data-layer="${layerId}"]`)?.getAttribute('fill');
+        const saved = svg();
+        const boundSaved = fillOf(boundLayerId),
+          unboundSaved = fillOf(unbound.id);
+        assert.ok(boundSaved && unboundSaved);
+        s.open();
+        const delta = s.query(`[data-key-color-input="deltaL"][data-key-color-slot="${id}"]`);
+        delta.value = '0.2';
+        s.fire(delta, 'input');
+        s.click('[data-key-color-preview]');
+        assert.equal(svg(), saved, 'preview is off by default');
+        s.click('[data-artwork-show]');
+        const projected = svg();
+        assert.notEqual(projected, saved, 'bound SVG changes when explicitly shown');
+        assert.notEqual(fillOf(boundLayerId), boundSaved);
+        assert.equal(fillOf(unbound.id), unboundSaved, 'unbound literal is unchanged');
+        assert.equal(s.query('[data-artwork-show]').getAttribute('aria-pressed'), 'true');
+        s.ui().renderNow();
+        assert.equal(svg(), projected, 'full render keeps the projection');
+        s.ui().queueCanvas();
+        s.flushFrames();
+        assert.equal(svg(), projected, 'queued redraw keeps the projection');
+        assert.deepEqual(s.snapshot(), before);
+        assert.deepEqual(s.win.nect.commandState, state);
+        assert.equal(s.ui().past, past);
+        assert.equal(s.ui().future, future);
+        s.click('[data-artwork-restore]');
+        assert.equal(svg(), saved);
+        assert.equal(s.query('[data-artwork-show]').getAttribute('aria-pressed'), 'false');
+        s.click('[data-artwork-show]');
+        assert.equal(svg(), projected);
+        delta.value = '0.4'; // A silent mutation is detected on the next draw.
+        s.ui().queueCanvas();
+        s.flushFrames();
+        assert.equal(svg(), saved);
+        assert.equal(s.query('[data-artwork-show]').getAttribute('aria-pressed'), 'false');
+        delta.value = '0.2';
+        s.ui().queueCanvas();
+        s.flushFrames();
+        assert.equal(svg(), saved, 'a silently restored input does not re-enable projection');
+        s.click('[data-artwork-show]');
+        assert.equal(svg(), projected);
+        delta.value = '';
+        s.fire(delta, 'input');
+        assert.equal(svg(), saved, 'invalidating input restores the authored SVG');
+        s.click('[data-key-color-cancel]');
+        assert.deepEqual(s.snapshot(), before);
+        assert.equal(s.ui().future, future);
+        s.open();
+        const cancelDelta = s.query(`[data-key-color-input="deltaL"][data-key-color-slot="${id}"]`);
+        cancelDelta.value = '0.2';
+        s.fire(cancelDelta, 'input');
+        s.click('[data-key-color-preview]');
+        s.click('[data-artwork-show]');
+        assert.equal(svg(), projected);
+        s.click('[data-key-color-cancel]');
+        assert.equal(svg(), saved, 'cancel restores the authored SVG while projection is visible');
+        assert.equal(s.ui().future, future);
+        s.click('[data-action="redo"]');
+        s.click('[data-action="undo"]');
+        assert.deepEqual(s.snapshot(), before);
+        s.open();
+        const changed = s.query(`[data-key-color-input="deltaL"][data-key-color-slot="${id}"]`);
+        changed.value = '0.2';
+        s.fire(changed, 'input');
+        s.click('[data-key-color-preview]');
+        s.click('[data-artwork-show]');
+        assert.notEqual(fillOf(boundLayerId), boundSaved);
+        s.win.nect.dispatch({
+          ...s.win.nect.commandState,
+          type: 'set-color-slot',
+          payload: { slotId: id, value: { hex: '#123abc', alpha: 1 } },
+        });
+        const external = s.snapshot();
+        assert.equal(fillOf(boundLayerId).toLowerCase(), '#123abc');
+        assert.equal(fillOf(unbound.id), unboundSaved);
+        assert.equal(s.query('[data-key-color-apply]').disabled, true);
+        assert.match(s.query('[data-key-color-status]').textContent, /stale/i);
+        s.click('[data-artwork-show]');
+        assert.equal(fillOf(boundLayerId).toLowerCase(), '#123abc');
+        s.click('[data-key-color-cancel]');
+        assert.deepEqual(s.snapshot(), external);
+
+        s.open();
+        const again = s.query(`[data-key-color-input="deltaL"][data-key-color-slot="${id}"]`);
+        again.value = '0.1';
+        s.fire(again, 'input');
+        s.click('[data-key-color-preview]');
+        s.click('[data-artwork-show]');
+        assert.notEqual(fillOf(boundLayerId).toLowerCase(), '#123abc');
+        s.win.nect.load(serializeCompositionProject(external));
+        assert.equal(s.query('dialog[data-key-color-recipe-panel]'), null);
+        assert.equal(
+          fillOf(boundLayerId).toLowerCase(),
+          '#123abc',
+          'replacement session draws its authored state',
+        );
+        s.open();
+        const appliedDelta = s.query(
+          `[data-key-color-input="deltaL"][data-key-color-slot="${id}"]`,
+        );
+        appliedDelta.value = '0.2';
+        s.fire(appliedDelta, 'input');
+        s.click('[data-key-color-preview]');
+        s.click('[data-artwork-show]');
+        const toApply = fillOf(boundLayerId);
+        assert.notEqual(toApply.toLowerCase(), '#123abc');
+        s.click('[data-key-color-apply]');
+        const applied = s.snapshot();
+        assert.equal(fillOf(boundLayerId), toApply);
+        assert.equal(s.ui().past, 1);
+        s.click('[data-action="undo"]');
+        assert.deepEqual(s.snapshot(), external);
+        assert.equal(fillOf(boundLayerId).toLowerCase(), '#123abc');
+        s.click('[data-action="redo"]');
+        assert.deepEqual(s.snapshot(), applied);
+        assert.equal(fillOf(boundLayerId), toApply);
+      } finally {
+        await s.win.happyDOM.abort();
+      }
+    },
+  );
 
   await t.test('B explicit pair compares current and valid preview without authoring', async () => {
     const s = await boot(main, 'pair-advisory');
@@ -858,12 +1041,18 @@ test('real main.js routes the experimental editor through closed Apply, not a la
         s.fire(mode, 'change');
         const before = s.snapshot(),
           past = s.ui().past;
+        const authoredSvg = s.query('.artboard').innerHTML;
         const input = s.query('[data-wheel-chroma]');
         input.focus();
         input.value = '0.03';
         s.fire(input, 'input');
         await new Promise((resolve) => setTimeout(resolve, 40));
         assert.ok(s.win.nect.colorPreviewSnapshot(), 'legacy preview is genuinely pending');
+        assert.notEqual(
+          s.query('.artboard').innerHTML,
+          authoredSvg,
+          'legacy preview reaches the SVG',
+        );
         assert.deepEqual(s.snapshot(), before);
         const launcher = s.query('[data-key-color-recipe-open]');
         assert.equal(
@@ -875,6 +1064,11 @@ test('real main.js routes the experimental editor through closed Apply, not a la
         // pointerdown prevents that native blur, then click opens the separate modal.
         s.click('[data-key-color-recipe-open]');
         assert.ok(s.query('dialog'));
+        assert.equal(
+          s.query('.artboard').innerHTML,
+          authoredSvg,
+          'opening the dialog redraws the legacy authored SVG',
+        );
         assert.deepEqual(s.snapshot(), before);
         assert.equal(s.ui().past, past);
         s.click('[data-key-color-cancel]');

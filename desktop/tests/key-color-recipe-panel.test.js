@@ -394,6 +394,41 @@ test('research preview and cancel preserve document revision and redo', (t) => {
   assert.deepEqual(s.calls, []);
 });
 
+test('retained B artwork projection expires on composition change and never rebases', (t) => {
+  const s = setup(t, 'project', blankDocument());
+  const first = s.session.activeCompositionId;
+  const other = s.session.createComposition();
+  s.session.switchComposition(first);
+  s.open();
+  for (const [selector, value, event] of [
+    ['[data-research-hex]', '#3273c7', 'input'],
+    ['[data-research-alpha]', '1', 'input'],
+    ['[data-research-plan]', 'research-neutral-start', 'change'],
+  ]) {
+    s.query(selector).value = value;
+    s.fire(s.query(selector), event);
+  }
+  s.click('[data-research-preview]');
+  s.click('[data-research-create]');
+  s.open();
+  s.click('[data-key-color-preview]');
+  s.click('[data-artwork-show]');
+  assert.ok(s.panel.previewDocument);
+  const before = s.session.projectSnapshot();
+  const calls = s.calls.length;
+  s.session.switchComposition(other);
+  s.panel.reconcile();
+  assert.equal(s.panel.previewDocument, null);
+  assert.equal(s.query('[data-key-color-apply]').disabled, true);
+  assert.match(s.query('[data-key-color-status]').textContent, /stale/i);
+  s.session.switchComposition(first);
+  s.panel.reconcile();
+  assert.equal(s.panel.previewDocument, null);
+  assert.equal(s.query('[data-key-color-preview]').disabled, true);
+  assert.deepEqual(s.session.projectSnapshot(), before);
+  assert.equal(s.calls.length, calls);
+});
+
 test('B status uses current coverage by stable ID and keeps proposed L separate from saved state', async (t) => {
   let coverage,
     key = 'current',

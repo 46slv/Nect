@@ -58,6 +58,7 @@ export function createKeyColorRecipePanel({
   getSession,
   getDocument,
   getCoverageSnapshot = () => null,
+  onArtworkPreview = () => {},
   dispatch,
   notify,
 }) {
@@ -67,6 +68,8 @@ export function createKeyColorRecipePanel({
     envelope = null,
     base = null,
     preview = null,
+    artworkProjection = null,
+    artworkComposition = null,
     c1Draft = null,
     deltaScrub = null,
     research = false,
@@ -79,6 +82,9 @@ export function createKeyColorRecipePanel({
   function close(restoreFocus = true) {
     const oldTrigger = trigger;
     const old = dialog;
+    const hadArtwork = !!artworkProjection;
+    artworkProjection = null;
+    artworkComposition = null;
     deltaScrub?.dispose();
     deltaScrub = null;
     c1Draft?.dispose();
@@ -95,6 +101,7 @@ export function createKeyColorRecipePanel({
     composing.clear();
     if (old?.open) old.close();
     old?.remove();
+    if (hadArtwork) onArtworkPreview();
     if (restoreFocus)
       (oldTrigger?.isConnected
         ? oldTrigger
@@ -109,7 +116,11 @@ export function createKeyColorRecipePanel({
       owner !== session ||
       state.sessionId !== envelope.sessionId ||
       state.expectedRevision !== envelope.expectedRevision ||
-      (research && session.activeCompositionId !== researchComposition)
+      (research && session.activeCompositionId !== researchComposition) ||
+      (base &&
+        trialB(base.intent.preset.id, base.intent.preset.version) &&
+        base.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION &&
+        session.activeCompositionId !== artworkComposition)
     )
       stale = true; // Never rebase, even if the user later undoes the intervening edit.
     if (stale)
@@ -360,7 +371,45 @@ export function createKeyColorRecipePanel({
     }
   }
 
+  function clearArtworkProjection() {
+    if (!artworkProjection) return;
+    artworkProjection = null;
+    dialog?.querySelector('[data-artwork-show]')?.setAttribute('aria-pressed', 'false');
+    onArtworkPreview();
+  }
+
+  function showArtworkProjection() {
+    try {
+      current();
+      if (
+        !preview ||
+        !base ||
+        owner.activeCompositionId !== artworkComposition ||
+        !trialB(base.intent.preset.id, base.intent.preset.version) ||
+        base.solverVersion !== KEY_COLOR_NEUTRAL_SOLVER_VERSION ||
+        c1Draft?.active ||
+        deltaScrub?.active ||
+        readInputs().key !== preview.key
+      )
+        throw Error('Preview the current inputs before showing artwork.');
+      const prepared = prepare(preview.snapshot);
+      const projected = structuredClone(getDocument());
+      const updates = new Map(prepared.updates.map(({ slotId, value }) => [slotId, value]));
+      projected.colorSlots = projected.colorSlots.map((slot) =>
+        updates.has(slot.id) ? { ...slot, value: structuredClone(updates.get(slot.id)) } : slot,
+      );
+      artworkProjection = projected;
+      dialog.querySelector('[data-artwork-show]').setAttribute('aria-pressed', 'true');
+      onArtworkPreview();
+      status('Artwork preview. Apply to save.');
+    } catch (error) {
+      clearArtworkProjection();
+      status(error.message, true);
+    }
+  }
+
   function clearPreview() {
+    clearArtworkProjection();
     clearPairResult();
     preview = null;
     dialog.querySelector('[data-key-color-comparison]').innerHTML = '';
@@ -610,7 +659,7 @@ export function createKeyColorRecipePanel({
         key: inputs.key,
       };
       dialog.querySelector('[data-key-color-comparison]').innerHTML =
-        `<h3>Shared literals · before → after</h3><p>Only active rows below will change. No artwork changes until Apply.</p><table><thead><tr><th>Stable slot</th><th>Current shared literal</th><th>Proposed shared literal</th></tr></thead><tbody>${prepared.updates.map(({ slotId, value }) => `<tr data-key-color-compare="${esc(slotId)}"><th scope="row">${esc(slots.get(slotId).name)}<br><code>${esc(slotId)}</code></th><td data-key-color-before>${literal(slots.get(slotId).value)}</td><td data-key-color-after>${literal(value)}</td></tr>`).join('')}</tbody></table>`;
+        `<h3>Shared literals · before → after</h3><p>Only active rows below will change. Shared colors change on Apply.</p><table><thead><tr><th>Stable slot</th><th>Current shared literal</th><th>Proposed shared literal</th></tr></thead><tbody>${prepared.updates.map(({ slotId, value }) => `<tr data-key-color-compare="${esc(slotId)}"><th scope="row">${esc(slots.get(slotId).name)}<br><code>${esc(slotId)}</code></th><td data-key-color-before>${literal(slots.get(slotId).value)}</td><td data-key-color-after>${literal(value)}</td></tr>`).join('')}</tbody></table>`;
       if (
         trialB(prepared.snapshot.intent.preset.id, prepared.snapshot.intent.preset.version) &&
         prepared.snapshot.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION
@@ -664,6 +713,7 @@ export function createKeyColorRecipePanel({
 
   function reconcile() {
     if (applying) return;
+    if (artworkProjection && owner.activeCompositionId !== artworkComposition) clearPreview();
     if (dialog && research) {
       try {
         current();
@@ -681,6 +731,7 @@ export function createKeyColorRecipePanel({
     close(false);
     owner = getSession();
     envelope = { ...owner.state }; // Captured once, never refreshed at Preview/Apply.
+    artworkComposition = owner.activeCompositionId;
     trigger = anchor;
     stale = false;
     let error = null;
@@ -722,6 +773,8 @@ export function createKeyColorRecipePanel({
           'beforeend',
           trialStatus(base, 'Saved recipe', true) +
             '<button type="button" data-trial-refresh>Refresh usage</button>' +
+            '<p>Existing bindings only. Usage shows saved colors.</p>' +
+            '<button type="button" data-artwork-show aria-pressed="false">Show proposal on artwork</button><button type="button" data-artwork-restore>Show saved artwork</button>' +
             pairControls(),
         );
       refreshTrialUsage();
@@ -782,6 +835,8 @@ export function createKeyColorRecipePanel({
       if (event.target.closest('[data-key-color-cancel]')) close();
       else if (event.target.closest('[data-key-color-reset-delta-l]'))
         resetDeltaL(event.target.closest('[data-key-color-reset-delta-l]'));
+      else if (event.target.closest('[data-artwork-show]')) showArtworkProjection();
+      else if (event.target.closest('[data-artwork-restore]')) clearArtworkProjection();
       else if (event.target.closest('[data-pair-run]')) checkPair();
       else if (event.target.closest('[data-trial-refresh]')) refreshTrialUsage();
       else if (event.target.closest('[data-research-preview]')) showResearchPreview();
@@ -830,6 +885,24 @@ export function createKeyColorRecipePanel({
     open,
     close,
     reconcile,
+    get previewDocument() {
+      if (!artworkProjection || !preview || !dialog) return null;
+      try {
+        current();
+        if (
+          owner.activeCompositionId !== artworkComposition ||
+          c1Draft?.active ||
+          deltaScrub?.active ||
+          readInputs().key !== preview.key
+        )
+          throw Error('Artwork preview expired');
+        return artworkProjection;
+      } catch {
+        artworkProjection = null;
+        dialog.querySelector('[data-artwork-show]')?.setAttribute('aria-pressed', 'false');
+        return null;
+      }
+    },
     get editing() {
       return !!dialog && (!!base || research);
     },
