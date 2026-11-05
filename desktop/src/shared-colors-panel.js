@@ -113,9 +113,7 @@ export function createSharedColorsPanel({
   function patchPreview(rebaseFrom = null) {
     const host = app.querySelector('.shared-colors-panel');
     if (!host) return;
-    const template = app.ownerDocument.createElement('template');
-    template.innerHTML = controller.html();
-    const next = template.content.firstElementChild;
+    const next = controller.createView();
     const state = getSession().state;
     if (
       rebaseFrom &&
@@ -525,6 +523,11 @@ export function createSharedColorsPanel({
     },
     get open() {
       return open;
+    },
+    createView() {
+      const template = app.ownerDocument.createElement('template');
+      template.innerHTML = controller.html();
+      return template.content.firstElementChild;
     },
     html() {
       if (!open) return '';

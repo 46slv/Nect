@@ -69,8 +69,18 @@ export function createAssetsPortalAdapter({ getAssetPanel, onAssets }) {
 }
 
 // Temporary legacy bindings preserve the current owners and placement semantics.
-export function createWorkspaceSurfaceAdapters({ getAssetPanel, onAssets, onAlign, onColors }) {
-  if (typeof onAlign !== 'function' || (onColors !== undefined && typeof onColors !== 'function'))
+export function createWorkspaceSurfaceAdapters({
+  getAssetPanel,
+  onAssets,
+  onAlign,
+  onColors,
+  createColorsView,
+}) {
+  if (
+    typeof onAlign !== 'function' ||
+    (onColors !== undefined && typeof onColors !== 'function') ||
+    (createColorsView !== undefined && typeof createColorsView !== 'function')
+  )
     throw Error('Invalid legacy surface binding');
   const colorsSelector = '.shared-colors-panel';
   const selector = (css, fixedSide, open = () => {}, restore = () => {}, hooks = {}) =>
@@ -96,7 +106,9 @@ export function createWorkspaceSurfaceAdapters({ getAssetPanel, onAssets, onAlig
       },
       {
         attach(host, { right }) {
-          const colors = right.querySelector(colorsSelector);
+          const colors = createColorsView
+            ? createColorsView()
+            : right.querySelector(colorsSelector);
           if (colors) host.append(colors);
         },
         refresh({ wrap, displayed, id }) {
