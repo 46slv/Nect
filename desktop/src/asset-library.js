@@ -597,13 +597,18 @@ export function mountAssetLibrary({
   place.onclick = () => void placeAsset('layer');
   graph.onclick = () => void placeAsset('graph');
   void (async () => {
+    // A newer folder intent or close owns the UI after this request starts.
+    const token = epoch;
     try {
-      roots = desktop ? await invoke('list_asset_folders') : [...browserRoots.values()];
-      if (!alive) return;
+      const initialRoots = desktop
+        ? await invoke('list_asset_folders')
+        : [...browserRoots.values()];
+      if (!alive || token !== epoch) return;
+      roots = initialRoots;
       drawRoots();
       await refreshRoot();
     } catch (error) {
-      message(String(error.message || error), true);
+      if (alive && token === epoch) message(String(error.message || error), true);
     }
   })();
   buttons();
