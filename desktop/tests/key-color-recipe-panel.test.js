@@ -308,6 +308,61 @@ test('absent retained recipe is explanatory only, with no bootstrap/default/hist
   assert.deepEqual(s.calls, []);
 });
 
+test('research draft participates in the edit barrier and never rebases after composition switch', (t) => {
+  const s = setup(t, 'project', blankDocument());
+  const first = s.session.activeCompositionId,
+    other = s.session.createComposition();
+  s.session.switchComposition(first);
+  s.open();
+  assert.equal(s.panel.editing, true);
+  for (const [selector, value, event] of [
+    ['[data-research-hex]', '#3273c7', 'input'],
+    ['[data-research-alpha]', '1', 'input'],
+    ['[data-research-plan]', 'research-neutral-start', 'change'],
+  ]) {
+    const el = s.query(selector);
+    el.value = value;
+    s.fire(el, event);
+  }
+  s.click('[data-research-preview]');
+  assert.ok(s.query('[data-research-row]'));
+  s.session.switchComposition(other);
+  s.panel.reconcile();
+  assert.equal(s.query('[data-research-preview]').disabled, true);
+  assert.equal(s.query('[data-research-row]'), null);
+  s.session.switchComposition(first);
+  s.panel.reconcile();
+  assert.equal(s.query('[data-research-preview]').disabled, true);
+  const beforeClose = s.captured();
+  s.click('[data-key-color-cancel]');
+  assert.equal(s.panel.editing, false);
+  assert.equal(s.calls.length, 0);
+  assert.deepEqual(s.captured(), beforeClose);
+});
+
+test('research preview and cancel preserve document revision and redo', (t) => {
+  const s = setup(t, 'document', blankDocument());
+  s.send('set-document-settings', { key: 'width', value: 1001 });
+  s.send('undo');
+  const before = s.captured();
+  assert.equal(before.future.length, 1);
+  s.open();
+  for (const [selector, value, event] of [
+    ['[data-research-hex]', '#aBcD09', 'input'],
+    ['[data-research-alpha]', '0', 'input'],
+    ['[data-research-plan]', 'research-neutral-start', 'change'],
+  ]) {
+    const el = s.query(selector);
+    el.value = value;
+    s.fire(el, event);
+  }
+  s.click('[data-research-preview]');
+  assert.equal(s.document.querySelectorAll('[data-research-row]').length, 5);
+  s.click('[data-key-color-cancel]');
+  assert.deepEqual(s.captured(), before);
+  assert.deepEqual(s.calls, []);
+});
+
 test('invalid input anywhere revokes an old preview, and unobserved edits cannot apply it', (t) => {
   const s = setup(t),
     before = s.captured();

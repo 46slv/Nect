@@ -94,6 +94,96 @@ test('real main.js routes the experimental editor through closed Apply, not a la
   }
 
   await t.test(
+    'no receipt research preview is explicit, detached, invalidated and stale-safe',
+    async () => {
+      const s = await boot(main, 'research-preview');
+      try {
+        s.win.nect.dispatch({
+          ...s.win.nect.commandState,
+          type: 'set-document-settings',
+          payload: { key: 'width', value: 1001 },
+        });
+        s.win.nect.dispatch({ ...s.win.nect.commandState, type: 'undo', payload: {} });
+        const before = s.snapshot(),
+          state = { ...s.win.nect.commandState },
+          past = s.ui().past,
+          future = s.ui().future;
+        assert.equal(future, 1);
+        s.open();
+        const hex = s.query('[data-research-hex]'),
+          alpha = s.query('[data-research-alpha]'),
+          choice = s.query('[data-research-plan]'),
+          button = s.query('[data-research-preview]');
+        assert.equal(hex.value, '');
+        assert.equal(alpha.value, '');
+        assert.equal(choice.value, '');
+        assert.equal(button.disabled, true);
+        assert.equal(s.query('[data-key-color-apply]'), null);
+        hex.value = '#AbCd09';
+        s.fire(hex, 'input');
+        alpha.value = '0';
+        s.fire(alpha, 'input');
+        choice.value = 'research-neutral-start';
+        s.fire(choice, 'change');
+        assert.equal(button.disabled, false);
+        assert.match(s.query('[data-research-details]').textContent, /research-neutral-start/);
+        button.click();
+        const rows = [...s.win.document.querySelectorAll('[data-research-row]')];
+        assert.equal(rows.length, 5);
+        assert.match(rows[0].textContent, /#AbCd09/);
+        assert.match(rows[0].textContent, /α\s*0/);
+        assert.deepEqual(s.snapshot(), before);
+        assert.deepEqual(s.win.nect.commandState, state);
+        assert.equal(s.ui().past, past);
+        assert.equal(s.ui().future, future);
+        for (const row of rows.slice(1)) {
+          const match = row.querySelector('code').textContent.match(/^#(..)(..)(..)$/);
+          assert.ok(match && match[1] === match[2] && match[2] === match[3]);
+        }
+        s.click('[data-action="new"]');
+        assert.match(s.ui().message, /Finish or cancel the active edit/);
+        assert.deepEqual(s.snapshot(), before);
+        assert.equal(s.ui().future, future);
+        assert.ok(s.query('dialog'));
+        choice.value = 'research-triadic-offset';
+        s.fire(choice, 'change');
+        assert.equal(s.query('[data-research-row]'), null);
+        assert.deepEqual(s.snapshot(), before);
+        assert.deepEqual(s.win.nect.commandState, state);
+        assert.equal(s.ui().past, past);
+        assert.equal(s.ui().future, future);
+        s.fire(hex, 'compositionstart');
+        assert.equal(button.disabled, true);
+        s.fire(hex, 'compositionend');
+        assert.equal(button.disabled, false);
+        hex.value = '#bad';
+        s.fire(hex, 'input');
+        assert.equal(button.disabled, true);
+        hex.value = '#AbCd09';
+        s.fire(hex, 'input');
+        button.click();
+        assert.ok(s.query('[data-research-row]'));
+        s.win.nect.dispatch({
+          ...s.win.nect.commandState,
+          type: 'set-document-settings',
+          payload: { key: 'width', value: 1002 },
+        });
+        assert.equal(s.query('[data-research-row]'), null);
+        assert.equal(button.disabled, true);
+        assert.match(s.query('[data-key-color-status]').textContent, /stale/i);
+        s.click('[data-key-color-cancel]');
+        assert.equal(s.query('dialog'), null);
+        s.open();
+        assert.equal(s.query('[data-research-hex]').value, '');
+        s.fire(s.query('[data-research-hex]'), 'keydown', { key: 'Escape' });
+        assert.equal(s.query('dialog'), null);
+      } finally {
+        await s.win.happyDOM.abort();
+      }
+    },
+  );
+
+  await t.test(
     'closed initialization through real main preserves atomic history and rejects stale or duplicate requests',
     async () => {
       const s = await boot(main, 'initialize-fixture');

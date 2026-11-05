@@ -1,7 +1,12 @@
-import { restoreKeyColorRecipe, editKeyColorRecipe } from './key-color-recipe.js';
+import {
+  restoreKeyColorRecipe,
+  editKeyColorRecipe,
+  createKeyColorRecipe,
+} from './key-color-recipe.js';
 import { prepareKeyColorRecipeApplication } from './key-color-recipe-document.js';
 import { createKeyColorC1Draft } from './key-color-c1-draft.js';
 import { createKeyColorDeltaScrub } from './key-color-delta-scrub.js';
+import { researchPlans } from './key-color-research-plans.js';
 
 const esc = (value) =>
   String(value).replace(
@@ -22,6 +27,8 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
     preview = null,
     c1Draft = null,
     deltaScrub = null,
+    research = false,
+    researchComposition = null,
     stale = false,
     applying = false;
   const composing = new Set();
@@ -39,6 +46,8 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
     envelope = null;
     base = null;
     preview = null;
+    research = false;
+    researchComposition = null;
     composing.clear();
     if (old?.open) old.close();
     old?.remove();
@@ -55,7 +64,8 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
     if (
       owner !== session ||
       state.sessionId !== envelope.sessionId ||
-      state.expectedRevision !== envelope.expectedRevision
+      state.expectedRevision !== envelope.expectedRevision ||
+      (research && session.activeCompositionId !== researchComposition)
     )
       stale = true; // Never rebase, even if the user later undoes the intervening edit.
     if (stale)
@@ -152,6 +162,74 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
     dialog.querySelector('[data-key-color-apply]').disabled = true;
   }
 
+  function researchInputs() {
+    current();
+    if (composing.size) throw Error('Finish composing before Preview.');
+    const hex = dialog.querySelector('[data-research-hex]').value;
+    const rawAlpha = dialog.querySelector('[data-research-alpha]').value;
+    const alpha = Number(rawAlpha);
+    const id = dialog.querySelector('[data-research-plan]').value;
+    const plan = researchPlans.find((item) => item.id === id);
+    if (!/^#[0-9a-f]{6}$/i.test(hex)) throw Error('Enter C1 as six-digit HEX.');
+    if (!rawAlpha.trim() || !Number.isFinite(alpha) || alpha < 0 || alpha > 1)
+      throw Error('Enter alpha between 0 and 1.');
+    if (!plan) throw Error('Choose a research candidate.');
+    return { hex, alpha, plan };
+  }
+
+  function researchInvalidate() {
+    if (!dialog || !research) return;
+    dialog.querySelector('[data-research-results]').replaceChildren();
+    const selected = researchPlans.find(
+      (item) => item.id === dialog.querySelector('[data-research-plan]').value,
+    );
+    dialog.querySelector('[data-research-details]').textContent = selected
+      ? JSON.stringify(
+          {
+            palette: 'synthetic-only',
+            key: { id: 'key', role: 'Identity' },
+            preset: selected,
+            slots: selected.slots.map(({ id, role }) => ({
+              id,
+              role,
+              deltaL: 0,
+              deltaRatioCmax: 0,
+            })),
+            settings: { areaAware: true },
+          },
+          null,
+          2,
+        )
+      : '';
+    try {
+      researchInputs();
+      dialog.querySelector('[data-research-preview]').disabled = false;
+      status('Ready to preview.');
+    } catch (error) {
+      dialog.querySelector('[data-research-preview]').disabled = true;
+      status(error.message, true);
+    }
+  }
+
+  function showResearchPreview() {
+    researchInvalidate();
+    try {
+      const { hex, alpha, plan } = researchInputs();
+      const result = createKeyColorRecipe({
+        paletteId: 'synthetic-only',
+        keyColor: { id: 'key', role: 'Identity', value: { hex, alpha }, hueHint: 0 },
+        preset: plan,
+        slots: plan.slots.map(({ id, role }) => ({ id, role, deltaL: 0, deltaRatioCmax: 0 })),
+        settings: { areaAware: true },
+      });
+      dialog.querySelector('[data-research-results]').innerHTML =
+        `<table><thead><tr><th>Role</th><th>Preview</th><th>Diagnostics</th></tr></thead><tbody>${result.resolved.map((row) => `<tr data-research-row="${esc(row.id)}"><th>${esc(row.role)}</th><td>${literal(row.value)}</td><td>${esc(row.diagnostics.join(', ') || '—')}</td></tr>`).join('')}</tbody></table><p>${esc(result.diagnostics.join(', '))}</p>`;
+      status('Research preview ready. No shared colors were changed.');
+    } catch (error) {
+      status(error.message, true);
+    }
+  }
+
   function validateDraft() {
     if (!dialog || !base) return false;
     const button = dialog.querySelector('[data-key-color-preview]');
@@ -169,6 +247,7 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
   }
 
   function invalidate() {
+    if (research) return researchInvalidate();
     if (!dialog || !base) return;
     clearPreview();
     if (validateDraft()) status('Draft only. Preview these inputs before Apply.');
@@ -224,6 +303,14 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
   }
 
   function reconcile() {
+    if (dialog && research) {
+      try {
+        current();
+      } catch {
+        researchInvalidate();
+      }
+      return;
+    }
     if (!dialog || !base || applying) return;
     validateDraft();
   }
@@ -236,6 +323,8 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
     stale = false;
     let error = null;
     const saved = getDocument().keyColorRecipe?.committedSnapshot;
+    research = !getDocument().keyColorRecipe;
+    researchComposition = owner.activeCompositionId;
     if (saved)
       try {
         base = restoreKeyColorRecipe(saved);
@@ -252,8 +341,10 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
             active = new Set(base.intent.preset.slots.map((slot) => slot.id));
           return `<p>Palette <code>${esc(base.paletteId)}</code> · retained revision ${base.revision}. This receipt is historical, not a live driver.</p><fieldset><legend>C1 · ${esc(key.role)} · ${esc(key.id)}</legend><div data-key-color-c1></div></fieldset><h3>Active derived intent</h3><p>ΔL and Δr are finite stored offsets, not clamped slider positions. Derived alpha must be 1.</p>${base.intent.slots.map((slot) => (active.has(slot.id) ? `<fieldset><legend>${esc(slot.role)} · ${esc(slot.id)}</legend><label>ΔL<input type="number" step="any" data-key-color-input="deltaL" data-key-color-slot="${esc(slot.id)}" value="${slot.deltaL}" aria-label="${esc(slot.id)} ΔL"></label><label>Δr<input type="number" step="any" data-key-color-input="deltaRatioCmax" data-key-color-slot="${esc(slot.id)}" value="${slot.deltaRatioCmax}" aria-label="${esc(slot.id)} Δr"></label><p>Stored derived alpha · ${base.resolved.find((row) => row.id === slot.id).value.alpha} (read-only; Apply requires 1, never coerces).</p></fieldset>` : `<fieldset disabled data-key-color-dormant="${esc(slot.id)}"><legend>${esc(slot.role)} · ${esc(slot.id)} · dormant, unchanged</legend><p>ΔL ${slot.deltaL} · Δr ${slot.deltaRatioCmax}</p><p>${literal(base.resolved.find((row) => row.id === slot.id).value)}</p></fieldset>`)).join('')}<details><summary>Read-only preset, coefficients and versions</summary><p>Recipe v${base.version} · solver ${esc(base.solverVersion)} · ${esc(base.colorSemanticsVersion)}</p><pre>${esc(JSON.stringify({ preset: base.intent.preset, settings: base.intent.settings }, null, 2))}</pre></details><p data-key-color-status role="status" aria-live="polite">Draft only. Preview these inputs before Apply.</p><section class="key-color-comparison" data-key-color-comparison aria-label="Key color preview"></section>`;
         })()
-      : `<p data-key-color-empty>${esc(error || 'No retained experimental Key color recipe is available. This editor only opens an existing keyColorRecipe.committedSnapshot; it does not create a preset, choose coefficients or change defaults.')}</p>`;
-    dialog.innerHTML = `<header><h2 id="key-color-recipe-title">Key color · Experimental</h2><button type="button" data-key-color-cancel aria-label="Close Key color">×</button></header><p>Opt-in one-shot Apply. The existing legacy wheel and product defaults are unchanged. Dark TonePlan coefficients remain unresolved.</p><div class="key-color-recipe-body">${controls}</div><footer><button type="button" data-key-color-cancel>Cancel</button>${base ? '<button type="button" data-key-color-preview>Preview</button><button type="button" data-key-color-apply disabled>Apply · 1 Undo</button>' : ''}</footer>${base ? '<p class="key-color-undo-note">A changed Apply is one Undo. Equal literals and receipt are a no-op. Cancel and Escape discard the draft.</p>' : ''}`;
+      : research
+        ? `<p data-key-color-empty>Research preview only. It does not create a preset or change shared colors. Creation plans are not yet adopted.</p><label>C1 HEX <input data-research-hex type="text" autocomplete="off"></label><label>Alpha <input data-research-alpha type="number" min="0" max="1" step="any"></label><label>Research candidate <select data-research-plan><option value="">Choose a candidate</option><option value="research-triadic-offset">A · chromatic comparison</option><option value="research-neutral-start">B · neutral start</option></select></label><details><summary>Candidate roles and coefficients</summary><pre data-research-details></pre></details><p data-key-color-status role="status" aria-live="polite">Enter C1 and choose a candidate.</p><section data-research-results aria-label="Research color preview"></section>`
+        : `<p data-key-color-empty>${esc(error || 'The retained recipe is unavailable.')}</p>`;
+    dialog.innerHTML = `<header><h2 id="key-color-recipe-title">Key color · Experimental</h2><button type="button" data-key-color-cancel aria-label="Close Key color">×</button></header>${base ? '<p>Opt-in one-shot Apply. The existing legacy wheel and product defaults are unchanged. Dark TonePlan coefficients remain unresolved.</p>' : ''}<div class="key-color-recipe-body">${controls}</div><footer><button type="button" data-key-color-cancel>Cancel</button>${base ? '<button type="button" data-key-color-preview>Preview</button><button type="button" data-key-color-apply disabled>Apply · 1 Undo</button>' : research ? '<button type="button" data-research-preview disabled>Preview</button>' : ''}</footer>${base ? '<p class="key-color-undo-note">A changed Apply is one Undo. Equal literals and receipt are a no-op. Cancel and Escape discard the draft.</p>' : ''}`;
     if (base) {
       const compositionId = owner.activeCompositionId;
       c1Draft = createKeyColorC1Draft(
@@ -296,6 +387,7 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
     });
     dialog.addEventListener('click', (event) => {
       if (event.target.closest('[data-key-color-cancel]')) close();
+      else if (event.target.closest('[data-research-preview]')) showResearchPreview();
       else if (event.target.closest('[data-key-color-preview]')) showPreview();
       else if (event.target.closest('[data-key-color-apply]')) apply();
     });
@@ -309,6 +401,7 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
     dialog.showModal();
     (
       dialog.querySelector('[data-key-color-input]') ||
+      dialog.querySelector('[data-research-hex]') ||
       dialog.querySelector('[data-key-color-cancel]')
     )?.focus({ preventScroll: true });
     return dialog;
@@ -340,7 +433,7 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
     close,
     reconcile,
     get editing() {
-      return !!dialog && !!base;
+      return !!dialog && (!!base || research);
     },
   };
 }

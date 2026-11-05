@@ -2,9 +2,16 @@
 
 Open **Shared colors → Key color · Experimental**. This is an opt-in editor for
 an **already retained** `keyColorRecipe.committedSnapshot`, not a new default
-palette. If no receipt exists, the dialog explains the boundary and offers only
-Close/Cancel. It does not create a palette, bootstrap a preset, pick coefficients
-or convert the legacy wheel. Dark TonePlan coefficients remain unresolved.
+palette. Without a receipt, the same launcher opens a research-only detached
+preview with initially blank HEX, alpha and candidate selection. The compared
+`research-triadic-offset` and `research-neutral-start` v1 coefficients are
+explicitly inspectable, not adopted defaults. Preview creates no shared slots,
+receipt or History entry and provides no Create or Apply. Inputs, candidate
+changes and composing invalidate the preview; owner, revision or Composition
+changes make the draft stale until it is closed. The neutral-start candidate
+keeps C1 exactly and starts all derived colors with zero chroma; no derived
+chroma controls are provided. Coverage and contrast are not evaluated. This
+does not bootstrap a palette or convert the legacy wheel.
 
 ## Edit, Preview, Apply
 
