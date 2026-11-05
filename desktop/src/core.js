@@ -1922,9 +1922,9 @@ export function expressionReferenceTargets(layer, nodeId, type = 'Scalar') {
       [
         ...Object.entries(n.params).map(([key, q]) => [key, q, false]),
         ...(n.type === 'Curve' && type !== 'Color'
-          ? n.points.map((pt) => [`${pt.id}.position`, pt.position, true])
+          ? n.points.map((pt, index) => [`${pt.id}.position`, pt.position, true, index + 1])
           : []),
-      ].flatMap(([key, q, point]) =>
+      ].flatMap(([key, q, point, pointOrdinal]) =>
         (type === 'Color'
           ? q.type === 'Color'
             ? [undefined]
@@ -1940,7 +1940,10 @@ export function expressionReferenceTargets(layer, nodeId, type = 'Scalar') {
           key,
           component,
           type: type === 'Color' ? 'Color' : 'Scalar',
-          label: `${n.name} · ${key}${component ? `.${component}` : ''}`,
+          ...(point ? { pointOrdinal } : {}),
+          label: point
+            ? `${n.name} · Point ${pointOrdinal} · ${component.toUpperCase()}`
+            : `${n.name} · ${key}${component ? `.${component}` : ''}`,
           expression:
             point && nodeIdPattern.test(n.id) && curvePointId(key)
               ? parameterReferenceText(n.id, key, component)

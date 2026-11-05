@@ -116,6 +116,7 @@ function openSearchPanel({
   categories,
   families,
   filterItems,
+  maxVisible,
   context,
   fallbackFocus,
 }) {
@@ -356,7 +357,7 @@ function openSearchPanel({
     }
     if (forceNotify || lastNotified !== activeId) {
       lastNotified = activeId;
-      status.textContent = '';
+      if (!maxVisible) status.textContent = '';
       onSelect?.(active());
     }
   }
@@ -377,7 +378,7 @@ function openSearchPanel({
                 ? item.metadata?.weightClass == null
                 : String(item.metadata?.weightClass) === weightFilter)) &&
             words.every((word) =>
-              `${item.label} ${item.detail || ''} ${item.metadata?.family || ''} ${item.metadata?.subfamily || ''} ${(item.metadata?.localizedNames || []).join(' ')}`
+              `${item.label} ${item.detail || ''} ${item.searchText || ''} ${item.metadata?.family || ''} ${item.metadata?.subfamily || ''} ${(item.metadata?.localizedNames || []).join(' ')}`
                 .normalize('NFKC')
                 .toLowerCase()
                 .includes(word),
@@ -390,6 +391,7 @@ function openSearchPanel({
     }
     const grouped = categories && !input.value.trim() && !categoryId;
     const candidates = rows;
+    if (maxVisible && !categories && !families) rows = rows.slice(0, maxVisible);
     const familyCandidates = new Map();
     if (families) {
       for (const item of candidates) {
@@ -592,6 +594,11 @@ function openSearchPanel({
     if (categories) list.scrollTop = scrollTop;
     if (!candidates.length)
       status.textContent = categories ? '該当するノードはありません' : 'No matches';
+    else if (maxVisible)
+      status.textContent =
+        candidates.length > rows.length
+          ? `Showing ${rows.length} of ${candidates.length} · search to narrow`
+          : '';
   }
   function updateFontItems(nextItems, nextFamilies) {
     if (closed || !fontFilters || !families) return;
@@ -10271,9 +10278,15 @@ app.addEventListener('click', async (e) => {
         completion.hide();
         const start = input.selectionStart ?? input.value.length,
           end = input.selectionEnd ?? start;
+        const nameCounts = new Map();
+        for (const node of current().nodes) {
+          const name = node.name.normalize('NFC');
+          nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
+        }
         const panel = openSearchPanel({
           title: 'Parameter references',
           action: 'Insert',
+          maxVisible: 100,
           items: expressionReferenceTargets(
             current(),
             nn.id,
@@ -10281,7 +10294,12 @@ app.addEventListener('click', async (e) => {
           ).map((target) => ({
             id: target.expression,
             label: target.label,
-            detail: target.nodeId + ' · ' + target.expression,
+            detail: target.pointOrdinal
+              ? nameCounts.get(target.name.normalize('NFC')) > 1
+                ? target.nodeId
+                : ''
+              : target.nodeId + ' · ' + target.expression,
+            searchText: target.pointOrdinal ? `${target.nodeId} ${target.key}` : '',
           })),
           onCommit(item) {
             if (!item) return;
