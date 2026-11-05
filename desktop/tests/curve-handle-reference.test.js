@@ -176,6 +176,141 @@ test('schema 61 missing-owner handle length imports as missing and keeps the sou
   assert.throws(() => evaluate(layer).run(sink.id), /target is missing/);
 });
 
+for (const sourceExpression of [
+  'ref("deleted", "anchor.handleA", "length")',
+  'ref("curve", "anchor.handleA", "x")',
+]) {
+  test(`connected Path source is validated before import: ${sourceExpression}`, () => {
+    const f = fixture(),
+      transform = node('Transform');
+    transform.id = 'legacy-transform';
+    f.layer.nodes.push(transform);
+    connect(f.layer, 'curve', transform.id, 'path');
+    transform.params.path.expression = sourceExpression;
+    f.doc.schemaVersion = 60;
+    assert.throws(() => deserialize(serialize(f.doc)), /schemaVersion 61/);
+    const source = migrateLegacyDocumentToCompositionProject(f.doc),
+      sourceBefore = serializeCompositionProject(source);
+    const target = fixture(),
+      owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(target.doc));
+    send(owner, 'set-parameter-expression', {
+      layerId: target.layer.id,
+      nodeId: 'sink',
+      key: 'value',
+      expression: handle('handleA', 'length'),
+    });
+    send(owner, 'set-parameter-base', {
+      layerId: target.layer.id,
+      nodeId: 'sink',
+      key: 'value',
+      value: 17,
+    });
+    send(owner, 'undo');
+    const before = serializeCompositionProject(owner.projectSnapshot()),
+      state = { ...owner.state },
+      future = JSON.stringify(owner.historyView.future);
+    assert.throws(
+      () =>
+        send(owner, 'import-project-compositions', {
+          sourceProject: source,
+          compositionIds: [source.compositions[0].id],
+        }),
+      /schemaVersion 61|Legacy unresolved/,
+    );
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+    assert.deepEqual(owner.state, state);
+    assert.equal(JSON.stringify(owner.historyView.future), future);
+    assert.equal(serializeCompositionProject(source), sourceBefore);
+    send(owner, 'redo');
+    assert.equal(
+      owner.snapshot().layers[0].nodes.find((n) => n.id === 'sink').params.value.value,
+      17,
+    );
+    assert.throws(
+      () => prepareCompositionImport(blankDocument(), serialize(f.doc), f.layer.id),
+      /schemaVersion 61/,
+    );
+  });
+}
+
+test('connected Path keeps legacy missing x/y and Color references opaque across import', () => {
+  for (const promotedDestination of [false, true]) {
+    const f = fixture(),
+      transform = node('Transform');
+    transform.id = 'legacy-transform';
+    f.layer.nodes.push(transform);
+    connect(f.layer, 'curve', transform.id, 'path');
+    const sourceExpression = 'ref("deleted", "anchor.handleA", "x")';
+    transform.params.path.expression = sourceExpression;
+    f.color.params.value.expression = 'ref("deleted-color", "anchor.handleA")';
+    f.doc.schemaVersion = 60;
+    assert.doesNotThrow(() => deserialize(serialize(f.doc)));
+    const source = migrateLegacyDocumentToCompositionProject(f.doc);
+    const destinationFixture = fixture(),
+      session = new CommandSession(destinationFixture.doc);
+    if (promotedDestination) apply(session, destinationFixture, handle('handleA', 'length'));
+    const destination = migrateLegacyDocumentToCompositionProject(session.snapshot());
+    const imported = prepareProjectCompositionsImport(destination, source).project;
+    if (promotedDestination) assert.equal(imported.schemaVersion, 61);
+    else assert.ok(imported.schemaVersion < 60);
+    const layer = imported.compositions.at(-1).layers[0];
+    assert.equal(
+      layer.nodes.find((n) => n.id.startsWith('legacy-transform')).params.path.expression,
+      sourceExpression,
+    );
+    assert.equal(
+      layer.nodes.find((n) => n.id.startsWith('color')).params.value.expression,
+      f.color.params.value.expression,
+    );
+    assert.doesNotThrow(() => createCompositionSessionOwner(imported));
+  }
+});
+
+test('length expressions on unsupported Path inputs reject even in schema 61', () => {
+  const f = fixture(),
+    transform = node('Transform');
+  transform.id = 'legacy-transform';
+  f.layer.nodes.push(transform);
+  connect(f.layer, 'curve', transform.id, 'path');
+  transform.params.path.expression = 'ref("deleted", "anchor.handleA", "length")';
+  f.doc.schemaVersion = 61;
+  assert.throws(() => deserialize(serialize(f.doc)), /numeric|unsupported/i);
+  const source = migrateLegacyDocumentToCompositionProject(f.doc);
+  const destination = migrateLegacyDocumentToCompositionProject(blankDocument());
+  assert.throws(
+    () => prepareProjectCompositionsImport(destination, source),
+    /numeric|unsupported/i,
+  );
+});
+
+test('a dormant Path handle reference cannot rebind after schema promotion', () => {
+  const f = fixture(),
+    transform = node('Transform');
+  transform.id = 'legacy-transform';
+  f.layer.nodes.push(transform);
+  connect(f.layer, 'curve', transform.id, 'path');
+  transform.params.path.expression = 'ref("node-collision", "point-collision.handleA", "x")';
+  f.doc.schemaVersion = 60;
+  const session = new CommandSession(f.doc);
+  apply(session, f, handle('handleA', 'length'));
+  const before = serialize(session.snapshot());
+  let count = 0;
+  const random = mock.method(
+    globalThis.crypto,
+    'randomUUID',
+    () => ['collision', 'collision', 'other-1', 'other-2'][count++],
+  );
+  try {
+    assert.throws(
+      () => send(session, 'create-node', { layerId: f.layer.id, nodeType: 'Curve' }),
+      /retarget/,
+    );
+  } finally {
+    random.mock.restore();
+  }
+  assert.equal(serialize(session.snapshot()), before);
+});
+
 test('handle components and lengths read effective relative vectors in Apply, live evaluation and Color preview', () => {
   const f = fixture(),
     session = new CommandSession(f.doc);

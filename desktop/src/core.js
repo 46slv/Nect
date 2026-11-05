@@ -1819,6 +1819,11 @@ export function expressionReferencesForSchema(q, schemaVersion, { preserveOpaque
     throw Error(
       `Curve handle length references require schemaVersion ${CURVE_HANDLE_REFERENCE_SCHEMA_VERSION}`,
     );
+  if (
+    !['Scalar', 'Vector2', 'Color'].includes(q.type) &&
+    refs.some((ref) => ref.component === 'length')
+  )
+    throw Error('Curve handle length requires a numeric expression parameter');
   return refs;
 }
 function parameterBaseValue(layer, n, key, q) {

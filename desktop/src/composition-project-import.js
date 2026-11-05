@@ -40,7 +40,7 @@ export function prepareProjectCompositionsImport(current, sourceProject, composi
   for (const composition of sourceCompositions)
     for (const layer of composition.layers)
       for (const node of layer.nodes)
-        for (const q of expressionParameters(node))
+        for (const q of expressionParameters(node, { includeUnsupported: true }))
           expressionReferencesForSchema(q, sourceProject.schemaVersion, { preserveOpaque: true });
 
   if (

@@ -27,14 +27,15 @@ export function curvePointId(key) {
   return pointKey.exec(key)?.[1] ?? null;
 }
 
-export function expressionParameters(node) {
+export function expressionParameters(node, { includeUnsupported = false } = {}) {
   const result = Object.values(node.params || {});
   for (const point of node.points || []) result.push(point.position, point.handleA, point.handleB);
   for (const edit of node.edits || []) result.push(...Object.values(edit.params || {}));
   return result.filter(
     (q) =>
       q &&
-      ['Scalar', 'Vector2', 'Color'].includes(q.type) &&
+      (['Scalar', 'Vector2', 'Color'].includes(q.type) ||
+        (includeUnsupported && ['Path', 'PaintedPath', 'Image', 'Boolean'].includes(q.type))) &&
       typeof q.expression === 'string' &&
       q.expression,
   );
@@ -83,7 +84,7 @@ export function nodesKnownCurvePointReferenceVersion(nodes) {
 export function nodesHaveLegacyCurveHandleReference(nodes) {
   const owners = new Map(nodes.map((node) => [node.id, node]));
   return nodes.some((node) =>
-    expressionParameters(node).some((q) =>
+    expressionParameters(node, { includeUnsupported: true }).some((q) =>
       [...q.expression.matchAll(pointRefArguments)].some((match) => {
         const ref = curvePointReference(match[2], match[3]);
         return owners.get(match[1])?.type === 'Curve' && ref?.field !== 'position' && !!ref;
@@ -134,10 +135,16 @@ export function danglingExpressionIds(nodes) {
     return pointIds.get(owner.id).has(point);
   };
   for (const node of nodes)
-    for (const q of expressionParameters(node))
+    for (const q of expressionParameters(node, { includeUnsupported: true }))
       for (const match of q.expression.matchAll(refArguments)) {
         const owner = byId.get(match[1]),
           point = curvePointId(match[3]);
+        if (!['Scalar', 'Vector2', 'Color'].includes(q.type)) {
+          const component = /^\s*,\s*"(x|y|length)"\s*\)/.exec(
+            q.expression.slice(match.index + match[0].length),
+          )?.[1];
+          if (!curvePointReference(match[3], component)) continue;
+        }
         if (!owner) reserved.add(match[1]);
         if (owner?.type === 'Curve' && point && !ownsPoint(owner, point)) reserved.add(point);
       }
@@ -147,7 +154,7 @@ export function danglingExpressionIds(nodes) {
 function pointReferences(nodes) {
   const refs = new Map();
   for (const node of nodes)
-    for (const q of expressionParameters(node))
+    for (const q of expressionParameters(node, { includeUnsupported: true }))
       for (const match of q.expression.matchAll(pointRefArguments)) {
         const point = curvePointReference(match[2], match[3]);
         if (point) refs.set(`${match[1]}\0${point.id}`, { owner: match[1], point: point.id });
