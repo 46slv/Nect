@@ -244,6 +244,20 @@ try {
   await page.keyboard.press('Enter');
   assert.equal(await expressionInput.inputValue(), 'ref("curve", "anchor-target.position", "x")');
   await expressionDialog.locator('[data-confirm]').click();
+
+  // Compare against the connected large-Curve route that previously spent
+  // most of its load time repeatedly searching every point parameter.
+  const connected = structuredClone(doc),
+    connectedLayer = connected.layers[0];
+  connect(connectedLayer, 'picker-curve', 'picker-transform', 'path');
+  const connectedStart = Date.now();
+  await page.evaluate((text) => window.nect.load(text), serialize(connected));
+  console.log(`Loaded connected ${pointCount}-point Curve in ${Date.now() - connectedStart} ms`);
+  assert.equal(await page.evaluate(() => window.nect.evaluate().error), null);
+  assert.equal(
+    await page.evaluate(() => window.nect.evaluate().path.contours[0].points.length),
+    pointCount,
+  );
   assert.deepEqual(errors, []);
 } finally {
   await browser.close();

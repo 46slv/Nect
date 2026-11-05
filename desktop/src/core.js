@@ -2758,13 +2758,19 @@ export function evaluate(
       value = readParameter(target, ref.key);
     return ref.component === undefined ? value : value[ref.component === 'x' ? 0 : 1];
   }
-  function readParameter(n, key) {
+  function indexParameters(n) {
+    const indexed = new Map();
+    // Match parameter()'s first-entry behavior even for an invalid duplicate.
+    for (const [key, value] of parameters(n)) if (!indexed.has(key)) indexed.set(key, value);
+    return indexed;
+  }
+  function readParameter(n, key, indexed) {
     const id = `${n.id}\0${key}`;
     if (readingParameters.has(id)) throw Error('Expression reference cycle detected');
     if (readingParameters.size >= 256) throw Error('Expression reference depth exceeds 256');
     readingParameters.add(id);
     try {
-      return readParameterValue(n, key);
+      return readParameterValue(n, key, indexed);
     } finally {
       readingParameters.delete(id);
     }
@@ -2781,10 +2787,10 @@ export function evaluate(
     }
     return null; // Literal and expression-generated colors have no exact slot attribution.
   }
-  function readParameterValue(n, key) {
+  function readParameterValue(n, key, indexed) {
     if (isTransform(n) && !n.params[key] && key === 'position') return readParameter(n, 'anchor');
     if (isTransform(n) && !n.params[key] && key === 'scaleWidth') return readParameter(n, 'scale');
-    let q = parameter(n, key);
+    let q = indexed?.get(key) ?? parameter(n, key);
     if (!q) throw Error(`Missing parameter ${key}`);
     let value =
       q.colorSlotId !== undefined
@@ -2960,7 +2966,7 @@ export function evaluate(
       }
       const warningStart = warnings.length;
       computed++;
-      const read = (key) => readParameter(n, key);
+      const read = (key, indexed) => readParameter(n, key, indexed);
       let result;
       if (n.bypassed) {
         result = cloneEvaluated(read(bypassInput(n)));
@@ -3072,7 +3078,8 @@ export function evaluate(
           bounds: pathBounds(source),
         });
         copyEvaluationIdentity(source, result.children[0]);
-      } else if (n.type === 'Curve')
+      } else if (n.type === 'Curve') {
+        const indexed = indexParameters(n);
         result = {
           contours: [
             {
@@ -3080,22 +3087,23 @@ export function evaluate(
               closed: read('closed'),
               points: n.points.map((pt) => ({
                 id: pt.id,
-                position: read(`${pt.id}.position`),
-                handleA: read(`${pt.id}.handleA`),
-                handleB: read(`${pt.id}.handleB`),
+                position: read(`${pt.id}.position`, indexed),
+                handleA: read(`${pt.id}.handleA`, indexed),
+                handleB: read(`${pt.id}.handleB`, indexed),
               })),
             },
           ],
         };
-      else if (n.type === 'Multi Path') {
+      } else if (n.type === 'Multi Path') {
+        const indexed = indexParameters(n);
         const points = new Map(
           n.points.map((pt) => [
             pt.id,
             {
               id: pt.id,
-              position: read(`${pt.id}.position`),
-              handleA: read(`${pt.id}.handleA`),
-              handleB: read(`${pt.id}.handleB`),
+              position: read(`${pt.id}.position`, indexed),
+              handleA: read(`${pt.id}.handleA`, indexed),
+              handleB: read(`${pt.id}.handleB`, indexed),
             },
           ]),
         );
