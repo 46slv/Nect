@@ -94,6 +94,108 @@ test('real main.js routes the experimental editor through closed Apply, not a la
   }
 
   await t.test(
+    'explicit B preview creates five fresh trial colors in one Undo and reopens without derived chroma controls',
+    async () => {
+      const s = await boot(main, 'trial-create');
+      try {
+        const existing = retainedRecipeFixture();
+        delete existing.keyColorRecipe;
+        s.load(existing);
+        const before = s.snapshot();
+        s.open();
+        const hex = s.query('[data-research-hex]'),
+          alpha = s.query('[data-research-alpha]'),
+          choice = s.query('[data-research-plan]'),
+          create = s.query('[data-research-create]');
+        assert.equal(choice.value, '');
+        assert.equal(create.disabled, true);
+        hex.value = '#aBcD09';
+        s.fire(hex, 'input');
+        alpha.value = '0';
+        s.fire(alpha, 'input');
+        choice.value = 'research-triadic-offset';
+        s.fire(choice, 'change');
+        s.click('[data-research-preview]');
+        assert.equal(create.disabled, true);
+        assert.deepEqual(s.snapshot(), before);
+        choice.value = 'research-neutral-start';
+        s.fire(choice, 'change');
+        s.click('[data-research-preview]');
+        assert.equal(create.disabled, false);
+        assert.match(
+          s.query('[data-research-details]').textContent,
+          /experimental-affine-neutral-text-v1/,
+        );
+        const ids = Array.from(
+          s.win.document.querySelectorAll('[data-research-row]'),
+          (r) => r.dataset.researchRow,
+        );
+        assert.equal(new Set(ids).size, 5);
+        assert.ok(ids.every((id) => !before.colorSlots.some((slot) => slot.id === id)));
+        assert.deepEqual(s.snapshot(), before);
+        alpha.value = '0.5';
+        s.fire(alpha, 'input');
+        assert.equal(create.disabled, true);
+        alpha.value = '0';
+        s.fire(alpha, 'input');
+        s.click('[data-research-preview]');
+        assert.deepEqual(
+          Array.from(
+            s.win.document.querySelectorAll('[data-research-row]'),
+            (r) => r.dataset.researchRow,
+          ),
+          ids,
+        );
+        const previewHex = Array.from(
+          s.win.document.querySelectorAll('[data-research-row]'),
+          (row) => row.querySelector('code').textContent,
+        );
+        create.click();
+        assert.equal(s.ui().error, false);
+        assert.equal(s.ui().past, 1);
+        const after = s.snapshot(),
+          receipt = after.keyColorRecipe.committedSnapshot;
+        assert.deepEqual(after.colorSlots.slice(0, before.colorSlots.length), before.colorSlots);
+        assert.deepEqual(
+          after.colorSlots.slice(-5).map((slot) => slot.id),
+          ids,
+        );
+        assert.deepEqual(
+          after.colorSlots.slice(-5).map((slot) => slot.value.hex),
+          previewHex,
+        );
+        assert.deepEqual(after.compositions, before.compositions);
+        assert.deepEqual(after.colorDesign, before.colorDesign);
+        assert.deepEqual(after.colorSlots.find((slot) => slot.id === ids[0]).value, {
+          hex: '#aBcD09',
+          alpha: 0,
+        });
+        assert.equal(receipt.solverVersion, 'experimental-affine-neutral-text-v1');
+        assert.equal(receipt.intent.preset.id, 'research-neutral-start');
+        assert.ok(receipt.resolved.slice(1).every((row) => row.C === 0 && row.value.alpha === 1));
+        s.click('[data-action="undo"]');
+        assert.deepEqual(s.snapshot(), before);
+        s.click('[data-action="redo"]');
+        assert.deepEqual(s.snapshot(), after);
+        s.win.nect.load(serializeCompositionProject(after));
+        assert.deepEqual(s.snapshot(), after);
+        s.open();
+        for (const id of ids.slice(1)) {
+          assert.ok(s.query(`[data-key-color-input="deltaL"][data-key-color-slot="${id}"]`));
+          assert.equal(
+            s.query(`[data-key-color-input="deltaRatioCmax"][data-key-color-slot="${id}"]`),
+            null,
+          );
+        }
+        s.click('[data-key-color-cancel]');
+        assert.deepEqual(s.snapshot(), after);
+      } finally {
+        await s.win.happyDOM.abort();
+      }
+    },
+  );
+
+  await t.test(
     'no receipt research preview is explicit, detached, invalidated and stale-safe',
     async () => {
       const s = await boot(main, 'research-preview');
@@ -147,7 +249,7 @@ test('real main.js routes the experimental editor through closed Apply, not a la
         assert.equal(hex.value, '#5555ff');
         assert.equal(button.disabled, false);
         button.click();
-        assert.equal(s.query('[data-research-row="key"] code').textContent, '#5555ff');
+        assert.equal(s.query('[data-research-role="Identity"] code').textContent, '#5555ff');
         s.fire(alpha, 'compositionstart');
         s.fire(composedSaturation, 'compositionstart');
         composedSaturation.value = '40';
@@ -219,7 +321,12 @@ test('real main.js routes the experimental editor through closed Apply, not a la
         });
         assert.equal(s.query('[data-research-row]'), null);
         assert.equal(button.disabled, true);
+        assert.equal(s.query('[data-research-create]').disabled, true);
         assert.match(s.query('[data-key-color-status]').textContent, /stale/i);
+        const afterExternal = s.snapshot();
+        s.fire(s.query('[data-research-create]'), 'click');
+        assert.deepEqual(s.snapshot(), afterExternal);
+        assert.match(s.ui().message, /stale/i);
         const staleHex = hex.value;
         s.fire(composedSaturation, 'compositionstart');
         composedSaturation.value = '30';

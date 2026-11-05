@@ -1,4 +1,4 @@
-// Research comparison only: these are not product defaults or creation plans.
+// Research candidates, never product defaults. Only B is approved for explicit trial creation.
 const rows = (assort, accent) => [
   { id: 'assort', role: 'Assort', position: 1, ...assort, chromaOffset: 0, alpha: 1 },
   { id: 'accent', role: 'Accent', position: 2, ...accent, chromaOffset: 0, alpha: 1 },

@@ -300,7 +300,8 @@ test('absent retained recipe is explanatory only, with no bootstrap/default/hist
   const s = setup(t, 'document', blankDocument()),
     before = s.captured();
   s.open();
-  assert.match(s.query('[data-key-color-empty]').textContent, /does not create a preset/);
+  assert.match(s.query('[data-key-color-empty]').textContent, /five trial colors/);
+  assert.equal(s.query('[data-research-create]').disabled, true);
   assert.equal(s.query('[data-key-color-input="hex"]').value, '');
   assert.equal(s.query('[data-key-color-input="hsl-h"]').disabled, true);
   assert.equal(s.query('[data-key-color-apply]'), null);
@@ -379,6 +380,33 @@ test('research preview and cancel preserve document revision and redo', (t) => {
   s.click('[data-research-preview]');
   assert.equal(s.document.querySelectorAll('[data-research-row]').length, 5);
   s.click('[data-key-color-cancel]');
+  assert.deepEqual(s.captured(), before);
+  assert.deepEqual(s.calls, []);
+});
+
+test('B trial preview rejects shared color budget before enabling Create', (t) => {
+  const doc = blankDocument();
+  doc.schemaVersion = 54;
+  doc.colorSlots = Array.from({ length: 252 }, (_, i) => ({
+    id: `existing-${i}`,
+    name: `Existing ${i}`,
+    value: { hex: '#123456', alpha: 1 },
+  }));
+  const s = setup(t, 'document', doc),
+    before = s.captured();
+  s.open();
+  for (const [selector, value, event] of [
+    ['[data-research-hex]', '#aBcD09', 'input'],
+    ['[data-research-alpha]', '0', 'input'],
+    ['[data-research-plan]', 'research-neutral-start', 'change'],
+  ]) {
+    const el = s.query(selector);
+    el.value = value;
+    s.fire(el, event);
+  }
+  s.click('[data-research-preview]');
+  assert.equal(s.query('[data-research-create]').disabled, true);
+  assert.match(s.query('[data-key-color-status]').textContent, /budget/i);
   assert.deepEqual(s.captured(), before);
   assert.deepEqual(s.calls, []);
 });

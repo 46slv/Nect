@@ -1,10 +1,10 @@
-# Explicit key-color initialization — developer/test-fixture API only
+# Explicit key-color initialization
 
-`initialize-key-color-recipe` is a typed Session command for preparing explicitly
-specified experimental fixtures. It is **not ordinary user creation**: there is
-no creation button, preset factory, coefficient editor or JSON-import UX. The
-main dispatcher preserves this command's closed project-level
-payload without adding a layer ID; no production creation control invokes it.
+`initialize-key-color-recipe` is a typed Session command for explicitly
+specified plans. The research panel permits only the explicitly selected B
+trial plan to use it after Preview; this is not an ordinary default palette or
+a generic preset factory, coefficient editor or JSON-import UX. The main
+dispatcher preserves its closed project-level payload without adding a layer ID.
 Product defaults and unresolved dark TonePlan/ChromaPlan coefficients remain
 unchanged. See the [pure model contract](../../docs/key-color-recipe-contract.md)
 and [historical receipt contract](key-color-recipe-retention.md).
@@ -116,6 +116,6 @@ budget rejection with pending Redo; detached preparation and stale envelopes;
 and unchanged ordinary New/load. Existing solver, dormant retention, Apply and
 editor tests remain the regression authority for their unchanged behavior.
 
-This establishes initialization infrastructure only. Ordinary-user creation still
-needs an accepted versioned initial plan and explicit role/count mapping, especially
-dark-role lightness ordering, or approval of a particular experimental plan.
+The only approved user-facing creation plan is the explicitly selected B trial
+in the research panel. General creation and product defaults still need their
+own accepted versioned plans and role/count mappings.

@@ -6,12 +6,17 @@ palette. Without a receipt, the same launcher opens a research-only detached
 preview with initially blank HEX, alpha and candidate selection. The compared
 `research-triadic-offset` and `research-neutral-start` v1 coefficients are
 explicitly inspectable, not adopted defaults. Preview creates no shared slots,
-receipt or History entry and provides no Create or Apply. Inputs, candidate
+receipt or History entry. After an explicit B Preview, the user may add five
+trial shared colors and a receipt in one Undo; A remains Preview-only. B uses
+`experimental-affine-neutral-text-v1`, fresh draft-stable IDs and the same
+closed initialization preflight. Inputs, candidate
 changes and composing invalidate the preview; owner, revision or Composition
 changes make the draft stale until it is closed. The neutral-start candidate
 keeps C1 exactly and starts all derived colors with zero chroma; no derived
 chroma controls are provided. Coverage and contrast are not evaluated. This
-does not bootstrap a palette or convert the legacy wheel.
+does not automatically bootstrap a palette or convert the legacy wheel. On
+reopening a B trial receipt, derived Δr remains stored but its editing controls
+are hidden; other profiles and legacy receipts keep their existing controls.
 
 The research C1 uses the same draft-only HSL picker as the retained editor.
 Until a valid six-digit HEX is entered, HSL controls and the plane cannot edit a
