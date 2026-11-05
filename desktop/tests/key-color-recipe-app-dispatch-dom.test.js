@@ -167,6 +167,17 @@ test('real main.js routes the experimental editor through closed Apply, not a la
       assert.match(result(), /Current shared colors:/);
       assert.match(result(), /Proposed colors: not evaluated/);
       assert.equal(s.query('[data-key-color-apply]').disabled, true);
+      assert.match(s.query('[data-key-color-status]').textContent, /Draft only/i);
+      delta.value = '0.2';
+      s.fire(delta, 'input');
+      s.click('[data-key-color-preview]');
+      delta.value = ''; // Invalid silent mutation must also replace the old status.
+      s.click('[data-pair-run]');
+      assert.match(result(), /Current shared colors:/);
+      assert.match(result(), /Proposed colors: not evaluated/);
+      assert.equal(s.query('[data-key-color-preview]').disabled, true);
+      assert.equal(s.query('[data-key-color-apply]').disabled, true);
+      assert.match(s.query('[data-key-color-status]').textContent, /finite value/i);
       assert.deepEqual(s.snapshot(), before);
       assert.deepEqual(s.win.nect.commandState, state);
       assert.equal(s.ui().past, past);
@@ -192,8 +203,11 @@ test('real main.js routes the experimental editor through closed Apply, not a la
         payload: { key: 'width', value: 1002 },
       });
       assert.match(result(), /Not evaluated/);
+      // Exercise the stale check's status update independently of the prior render.
+      s.query('[data-key-color-status]').textContent = 'Old preview ready';
       s.click('[data-pair-run]');
       assert.match(result(), /stale/i);
+      assert.match(s.query('[data-key-color-status]').textContent, /stale/i);
       assert.doesNotMatch(result(), /at least|below/);
     } finally {
       await s.win.happyDOM.abort();

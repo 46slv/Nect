@@ -263,7 +263,7 @@ export function createKeyColorRecipePanel({
               background,
             );
         } catch {
-          clearPreview();
+          invalidate();
         }
       }
       dialog.querySelector('[data-pair-result]').textContent =
@@ -272,6 +272,7 @@ export function createKeyColorRecipePanel({
       if (stale) {
         clearPreview();
         dialog.querySelector('[data-key-color-preview]').disabled = true;
+        status(error.message, true);
       }
       dialog.querySelector('[data-pair-result]').textContent = error.message;
     }
