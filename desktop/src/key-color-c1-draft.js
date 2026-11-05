@@ -15,6 +15,7 @@ export function createKeyColorC1Draft(
     scrub = null,
     internalInput = false;
   const composing = new Set();
+  const pendingComposition = new Set();
   host.innerHTML = `<div class="key-color-c1-picker"><div class="key-color-c1-plane"><canvas width="180" height="132" aria-label="Saturation left to right; lightness bottom to top"></canvas><span data-key-color-marker aria-hidden="true"></span></div><div class="key-color-c1-fields"><label class="hsl-picker-hue">Hue<input type="range" data-key-color-hue min="0" max="360" step="any" aria-label="C1 hue slider"></label><div>${['h', 's', 'l'].map((channel) => `<label>${channel.toUpperCase()}<input type="number" data-key-color-input="hsl-${channel}" min="0" max="${channel === 'h' ? 360 : 100}" step="any" aria-label="C1 ${channel === 'h' ? 'hue degrees' : channel === 's' ? 'saturation percent' : 'lightness percent'}"><span>${channel === 'h' ? '°' : '%'}</span></label>`).join('')}</div></div></div><div class="key-color-c1-literal"><span data-key-color-chip class="key-color-swatch" aria-hidden="true"></span><label>HEX<input type="text" data-key-color-input="hex" spellcheck="false" autocomplete="off" aria-label="C1 HEX literal"></label><label>Alpha<input type="number" data-key-color-input="alpha" min="0" max="1" step="any" aria-label="C1 alpha"></label></div>`;
   field('hex').value = value?.hex ?? '';
   field('alpha').value = value ? String(value.alpha) : '';
@@ -127,7 +128,8 @@ export function createKeyColorC1Draft(
   });
   host.addEventListener('compositionend', (event) => {
     composing.delete(event.target);
-    edit(event.target);
+    if (allowEmpty) pendingComposition.add(event.target);
+    else edit(event.target);
   });
   const alpha = field('alpha');
   const setAlpha = (raw) => {
@@ -305,8 +307,20 @@ export function createKeyColorC1Draft(
     get active() {
       return !!scrub || pointer !== null;
     },
+    settleComposition() {
+      if (!allowEmpty || composing.size || blocked()) return;
+      if (!valid()) {
+        pendingComposition.clear();
+        return;
+      }
+      for (const input of pendingComposition)
+        if (input.isConnected && host.contains(input) && !input.disabled && !input.readOnly)
+          edit(input);
+      pendingComposition.clear();
+    },
     dispose: () => {
       finishScrub();
+      pendingComposition.clear();
       if (allowEmpty && pointer !== null) {
         try {
           canvas.releasePointerCapture(pointer);

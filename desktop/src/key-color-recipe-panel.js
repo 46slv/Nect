@@ -402,6 +402,7 @@ export function createKeyColorRecipePanel({ document, getSession, getDocument, d
     });
     dialog.addEventListener('compositionend', (event) => {
       composing.delete(event.target);
+      if (research) c1Draft?.settleComposition();
       invalidate();
     });
     dialog.addEventListener('click', (event) => {
