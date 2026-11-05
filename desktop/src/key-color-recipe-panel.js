@@ -442,6 +442,38 @@ export function createKeyColorRecipePanel({
     if (validateDraft()) status('Draft only. Preview these inputs before Apply.');
   }
 
+  function resetDeltaL(button) {
+    if (!dialog || !base || !button.isConnected || !dialog.contains(button)) return;
+    try {
+      current();
+      if (composing.size || c1Draft?.active || deltaScrub?.active)
+        throw Error('Finish the active input before resetting ΔL.');
+      const id = button.dataset.keyColorResetDeltaL;
+      const input = button.closest('fieldset')?.querySelector('[data-key-color-input="deltaL"]');
+      if (
+        !base ||
+        !trialB(base.intent.preset.id, base.intent.preset.version) ||
+        base.solverVersion !== KEY_COLOR_NEUTRAL_SOLVER_VERSION ||
+        !base.intent.preset.slots.some((slot) => slot.id === id) ||
+        !dialog.contains(button) ||
+        !input ||
+        input.dataset.keyColorSlot !== id ||
+        input.disabled ||
+        input.readOnly
+      )
+        throw Error('This color is unavailable. Cancel and reopen the draft.');
+      input.value = '0';
+      invalidate();
+    } catch (error) {
+      if (stale) {
+        clearPreview();
+        dialog.querySelector('[data-key-color-preview]').disabled = true;
+        refreshTrialUsage();
+      }
+      status(error.message, true);
+    }
+  }
+
   function showPreview() {
     clearPreview();
     if (!validateDraft()) return;
@@ -542,7 +574,7 @@ export function createKeyColorRecipePanel({
       ? (() => {
           const key = base.intent.keyColor,
             active = new Set(base.intent.preset.slots.map((slot) => slot.id));
-          return `<p>Palette <code>${esc(base.paletteId)}</code> · retained revision ${base.revision}. This receipt is historical, not a live driver.</p><fieldset><legend>C1 · ${esc(key.role)} · ${esc(key.id)}</legend><div data-key-color-c1></div></fieldset><h3>Active derived intent</h3><p>ΔL and Δr are finite stored offsets, not clamped slider positions. Derived alpha must be 1.</p>${base.intent.slots.map((slot) => (active.has(slot.id) ? `<fieldset><legend>${esc(slot.role)} · ${esc(slot.id)}</legend><label>ΔL<input type="number" step="any" data-key-color-input="deltaL" data-key-color-slot="${esc(slot.id)}" value="${slot.deltaL}" aria-label="${esc(slot.id)} ΔL"></label>${hideDelta(base, slot) ? `<p data-key-color-support-intent>Stored Δr ${slot.deltaRatioCmax} · ${isNeutralTextPolicySlot(base.solverVersion, slot.role) ? 'not applied' : 'read-only'}${isNeutralTextPolicySlot(base.solverVersion, slot.role) && slot.deltaRatioCmax !== 0 ? ' · support-chroma-intent-unapplied' : ''}</p>` : `<label>Δr<input type="number" step="any" data-key-color-input="deltaRatioCmax" data-key-color-slot="${esc(slot.id)}" value="${slot.deltaRatioCmax}" aria-label="${esc(slot.id)} Δr"></label>`}<p>Stored derived alpha · ${base.resolved.find((row) => row.id === slot.id).value.alpha} (read-only; Apply requires 1, never coerces).</p></fieldset>` : `<fieldset disabled data-key-color-dormant="${esc(slot.id)}"><legend>${esc(slot.role)} · ${esc(slot.id)} · dormant, unchanged</legend><p>ΔL ${slot.deltaL} · Δr ${slot.deltaRatioCmax}</p><p>${literal(base.resolved.find((row) => row.id === slot.id).value)}</p></fieldset>`)).join('')}<details><summary>Read-only preset, coefficients and versions</summary><p>Recipe v${base.version} · solver ${esc(base.solverVersion)} · ${esc(base.colorSemanticsVersion)}</p><pre>${esc(JSON.stringify({ preset: base.intent.preset, settings: base.intent.settings }, null, 2))}</pre></details><p data-key-color-status role="status" aria-live="polite">Draft only. Preview these inputs before Apply.</p><section class="key-color-comparison" data-key-color-comparison aria-label="Key color preview"></section>`;
+          return `<p>Palette <code>${esc(base.paletteId)}</code> · retained revision ${base.revision}. This receipt is historical, not a live driver.</p><fieldset><legend>C1 · ${esc(key.role)} · ${esc(key.id)}</legend><div data-key-color-c1></div></fieldset><h3>Active derived intent</h3><p>ΔL and Δr are finite stored offsets, not clamped slider positions. Derived alpha must be 1.</p>${base.intent.slots.map((slot) => (active.has(slot.id) ? `<fieldset><legend>${esc(slot.role)} · ${esc(slot.id)}</legend><label>ΔL<input type="number" step="any" data-key-color-input="deltaL" data-key-color-slot="${esc(slot.id)}" value="${slot.deltaL}" aria-label="${esc(slot.id)} ΔL"></label>${trialB(base.intent.preset.id, base.intent.preset.version) && base.solverVersion === KEY_COLOR_NEUTRAL_SOLVER_VERSION ? `<button type="button" data-key-color-reset-delta-l="${esc(slot.id)}" aria-label="Reset ${esc(slot.role)} ΔL to zero">Reset ΔL</button>` : ''}${hideDelta(base, slot) ? `<p data-key-color-support-intent>Stored Δr ${slot.deltaRatioCmax} · ${isNeutralTextPolicySlot(base.solverVersion, slot.role) ? 'not applied' : 'read-only'}${isNeutralTextPolicySlot(base.solverVersion, slot.role) && slot.deltaRatioCmax !== 0 ? ' · support-chroma-intent-unapplied' : ''}</p>` : `<label>Δr<input type="number" step="any" data-key-color-input="deltaRatioCmax" data-key-color-slot="${esc(slot.id)}" value="${slot.deltaRatioCmax}" aria-label="${esc(slot.id)} Δr"></label>`}<p>Stored derived alpha · ${base.resolved.find((row) => row.id === slot.id).value.alpha} (read-only; Apply requires 1, never coerces).</p></fieldset>` : `<fieldset disabled data-key-color-dormant="${esc(slot.id)}"><legend>${esc(slot.role)} · ${esc(slot.id)} · dormant, unchanged</legend><p>ΔL ${slot.deltaL} · Δr ${slot.deltaRatioCmax}</p><p>${literal(base.resolved.find((row) => row.id === slot.id).value)}</p></fieldset>`)).join('')}<details><summary>Read-only preset, coefficients and versions</summary><p>Recipe v${base.version} · solver ${esc(base.solverVersion)} · ${esc(base.colorSemanticsVersion)}</p><pre>${esc(JSON.stringify({ preset: base.intent.preset, settings: base.intent.settings }, null, 2))}</pre></details><p data-key-color-status role="status" aria-live="polite">Draft only. Preview these inputs before Apply.</p><section class="key-color-comparison" data-key-color-comparison aria-label="Key color preview"></section>`;
         })()
       : research
         ? `<p data-key-color-empty>Research candidates. B adds five trial colors without changing existing colors, in one Undo. Coverage and readability are not evaluated; colors may coincide.</p><fieldset><legend>C1</legend><div data-key-color-c1></div></fieldset><label>Research candidate <select data-research-plan><option value="">Choose a candidate</option><option value="research-triadic-offset">A · chromatic comparison</option><option value="research-neutral-start">B · neutral start</option></select></label><details><summary>Candidate roles and coefficients</summary><pre data-research-details></pre></details><p data-key-color-status role="status" aria-live="polite">Enter C1 and choose a candidate.</p><section data-research-results aria-label="Research color preview"></section>`
@@ -611,6 +643,8 @@ export function createKeyColorRecipePanel({
     });
     dialog.addEventListener('click', (event) => {
       if (event.target.closest('[data-key-color-cancel]')) close();
+      else if (event.target.closest('[data-key-color-reset-delta-l]'))
+        resetDeltaL(event.target.closest('[data-key-color-reset-delta-l]'));
       else if (event.target.closest('[data-trial-refresh]')) refreshTrialUsage();
       else if (event.target.closest('[data-research-preview]')) showResearchPreview();
       else if (event.target.closest('[data-research-create]')) createTrial();

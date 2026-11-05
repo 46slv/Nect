@@ -196,8 +196,101 @@ test('real main.js routes the experimental editor through closed Apply, not a la
             null,
           );
         }
+        const delta = s.query(`[data-key-color-input="deltaL"][data-key-color-slot="${ids[1]}"]`);
+        delta.value = '0.25';
+        s.fire(delta, 'input');
+        s.click('[data-key-color-preview]');
+        s.click('[data-key-color-apply]');
+        const edited = s.snapshot();
+        assert.equal(edited.keyColorRecipe.committedSnapshot.intent.slots[0].deltaL, 0.25);
+        s.open();
+        const input = s.query(`[data-key-color-input="deltaL"][data-key-color-slot="${ids[1]}"]`);
+        const reset = s.query(`[data-key-color-reset-delta-l="${ids[1]}"]`);
+        const stateBeforeReset = { ...s.win.nect.commandState },
+          pastBeforeReset = s.ui().past;
+        s.click('[data-key-color-preview]');
+        assert.equal(s.query('[data-key-color-apply]').disabled, false);
+        s.fire(input, 'compositionstart');
+        reset.click();
+        assert.equal(input.value, '0.25');
+        assert.match(s.query('[data-key-color-status]').textContent, /Finish the active input/);
+        s.fire(input, 'compositionend');
+        const pointer = (target, type, id) =>
+          target.dispatchEvent(
+            new s.win.PointerEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              pointerId: id,
+              button: 0,
+              clientX: 100,
+              isPrimary: true,
+            }),
+          );
+        pointer(input, 'pointerdown', 17);
+        reset.click();
+        assert.equal(input.value, '0.25');
+        assert.match(s.query('[data-key-color-status]').textContent, /Finish the active input/);
+        pointer(s.win.document, 'pointercancel', 17);
+        const alphaInput = s.query('[data-key-color-input="alpha"]');
+        pointer(alphaInput, 'pointerdown', 18);
+        reset.click();
+        assert.equal(input.value, '0.25');
+        assert.match(s.query('[data-key-color-status]').textContent, /Finish the active input/);
+        pointer(s.win.document, 'pointercancel', 18);
+        assert.deepEqual(s.snapshot(), edited);
+        assert.deepEqual(s.win.nect.commandState, stateBeforeReset);
+        assert.equal(s.ui().past, pastBeforeReset);
+        s.click('[data-key-color-preview]');
+        reset.click();
+        assert.equal(input.value, '0');
+        assert.equal(s.query('[data-key-color-apply]').disabled, true);
+        assert.deepEqual(s.snapshot(), edited);
+        assert.deepEqual(s.win.nect.commandState, stateBeforeReset);
+        assert.equal(s.ui().past, pastBeforeReset);
+        s.click('[data-key-color-preview]');
+        s.click('[data-key-color-apply]');
+        const resetResult = s.snapshot();
+        assert.doesNotThrow(() => reset.click());
+        assert.deepEqual(s.snapshot(), resetResult);
+        assert.equal(resetResult.keyColorRecipe.committedSnapshot.intent.slots[0].deltaL, 0);
+        assert.deepEqual(
+          resetResult.colorSlots.filter((slot) => slot.id !== ids[1]),
+          edited.colorSlots.filter((slot) => slot.id !== ids[1]),
+        );
+        s.click('[data-action="undo"]');
+        assert.deepEqual(s.snapshot(), edited);
+        const undoState = { ...s.win.nect.commandState },
+          undoFuture = s.ui().future;
+        assert.equal(undoFuture, 1);
+        s.open();
+        s.click(`[data-key-color-reset-delta-l="${ids[1]}"]`);
+        assert.equal(
+          s.query(`[data-key-color-input="deltaL"][data-key-color-slot="${ids[1]}"]`).value,
+          '0',
+        );
         s.click('[data-key-color-cancel]');
-        assert.deepEqual(s.snapshot(), after);
+        assert.deepEqual(s.snapshot(), edited);
+        assert.deepEqual(s.win.nect.commandState, undoState);
+        assert.equal(s.ui().future, undoFuture);
+        s.click('[data-action="redo"]');
+        assert.deepEqual(s.snapshot(), resetResult);
+        s.open();
+        s.click('[data-key-color-preview]');
+        const staleReset = s.query(`[data-key-color-reset-delta-l="${ids[1]}"]`);
+        s.win.nect.dispatch({
+          ...s.win.nect.commandState,
+          type: 'set-document-settings',
+          payload: { key: 'width', value: 1002 },
+        });
+        const external = s.snapshot(),
+          staleState = { ...s.win.nect.commandState };
+        staleReset.click();
+        assert.match(s.query('[data-key-color-status]').textContent, /stale/i);
+        assert.equal(s.query('[data-key-color-apply]').disabled, true);
+        assert.deepEqual(s.snapshot(), external);
+        assert.deepEqual(s.win.nect.commandState, staleState);
+        s.click('[data-key-color-cancel]');
+        assert.deepEqual(s.snapshot(), external);
       } finally {
         await s.win.happyDOM.abort();
       }
@@ -466,6 +559,7 @@ test('real main.js routes the experimental editor through closed Apply, not a la
         s.load();
         const before = s.snapshot();
         s.open();
+        assert.equal(s.query('[data-key-color-reset-delta-l]'), null);
         s.input('hex', '#DeAd09');
         s.input('alpha', 0);
         s.input('deltaL', -0.125);

@@ -17,6 +17,8 @@ chroma controls are provided. Coverage and contrast are not evaluated. This
 does not automatically bootstrap a palette or convert the legacy wheel. On
 reopening a B trial receipt, derived Δr remains stored but its editing controls
 are hidden; other profiles and legacy receipts keep their existing controls.
+Each active B derived color can reset its draft ΔL to zero; this invalidates
+Preview and changes the document only after a new Preview and Apply.
 
 B trial status lists saved and proposed OKLCH L and ΔL separately. Visible paint
 share comes only from the existing current coverage snapshot matched by stable
