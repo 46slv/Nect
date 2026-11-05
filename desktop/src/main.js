@@ -7696,12 +7696,20 @@ function sourceNavigationBusy(allowedDialog = null) {
 }
 
 function colorUseNavigationBusy(allowedDialog = null) {
+  const pendingRemaps = new Set(
+    [...remapBatches].filter(([, batch]) => batch.selected.size).map(([id]) => id),
+  );
+  const hasOwnedRemap =
+    pendingRemaps.size > 0 &&
+    history.doc.layers.some((layer) =>
+      layer.nodes.some((node) => node.type === 'Path Remap' && pendingRemaps.has(node.id)),
+    );
   return !!(
     sourceNavigationBusy(allowedDialog) ||
     documents.hasDraft() ||
     sharedColors.editing ||
     session.hasTextDrafts ||
-    [...remapBatches.values()].some((batch) => batch.selected.size)
+    hasOwnedRemap
   );
 }
 

@@ -273,6 +273,37 @@ try {
   await dialog.waitFor({ state: 'detached' });
   await page.waitForFunction(() => document.activeElement?.hasAttribute('data-shared-color-uses'));
   assert.deepEqual(await snapshot(), replacement);
+  // Deleting a Remap must not leave an unreachable batch draft blocking navigation.
+  await page.evaluate((value) => window.nect.load(JSON.stringify(value)), project);
+  await remapNode.getByRole('button', { name: 'Browse all points', exact: true }).click();
+  await remapNode.locator('[data-batch-point]').first().check();
+  await remapNode.locator(`[data-delete="${remap.id}"]`).click();
+  await remapNode.waitFor({ state: 'detached' });
+  const afterDelete = await snapshot();
+  await openUses('brand');
+  assert.equal(await dialog.count(), 1, 'deleting the Remap releases the navigation blocker');
+  await dialog.locator('[data-color-uses-close]').click();
+  assert.deepEqual(await snapshot(), afterDelete);
+  await page.evaluate(() =>
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: 1001 },
+    }),
+  );
+  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'undo' }));
+  const deleted = await snapshot();
+  await colors();
+  const orphanToggle = slot('brand').locator('[data-shared-color-copy-toggle]');
+  if ((await orphanToggle.getAttribute('aria-expanded')) !== 'true') await orphanToggle.click();
+  await slot('brand').locator('[data-shared-color-uses]').click();
+  assert.equal(await dialog.count(), 1, 'deleted Remap cannot leave an orphan navigation blocker');
+  await rows().first().click();
+  await dialog.waitFor({ state: 'detached' });
+  assert.deepEqual(await snapshot(), deleted);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await activateCommand(page, 'redo');
+  assert.equal((await snapshot()).compositions[0].width, 1001);
   assert.deepEqual(errors, []);
   console.log(
     'PASS direct shared Color uses: cross-Composition navigation, paging, IME and stale-owner guards',
