@@ -108,3 +108,52 @@ test('portal hide, viewer suspend and retreat preserve live owner and Session', 
   assert.equal(session.state.expectedRevision, revision);
   win.happyDOM.abort();
 });
+
+test('unsupported fixed-side declarations leave an active portal and preferences untouched', () => {
+  const win = new Window(),
+    root = win.document.createElement('div');
+  root.innerHTML = markup;
+  win.document.body.append(root);
+  const values = new Map(),
+    storage = { getItem: (k) => values.get(k), setItem: (k, v) => values.set(k, v) };
+  let panel = null,
+    opens = 0;
+  const adapters = createWorkspaceSurfaceAdapters({
+    getAssetPanel: () => panel,
+    onAssets: () => {
+      opens++;
+      panel = win.document.createElement('aside');
+      panel.innerHTML = '<input data-asset-search>';
+      win.document.body.append(panel);
+    },
+    onAlign() {},
+  });
+  const controller = createWorkspacePanels({ storage, adapters });
+  controller.attach(root);
+  controller.select('assets');
+  const input = panel.querySelector('input');
+  input.value = 'draft';
+  input.focus();
+  const before = root.innerHTML,
+    preferences = JSON.stringify([...values]),
+    active = JSON.stringify(controller.active),
+    original = panel;
+  for (const entry of WORKSPACE_SURFACES) {
+    const declarations = WORKSPACE_SURFACES.map((d) =>
+      d.id === entry.id ? { ...d, side: d.side === 'left' ? 'right' : 'left' } : d,
+    );
+    assert.throws(
+      () => createWorkspacePanels({ storage, adapters, declarations }),
+      /Invalid workspace surface adapter/,
+    );
+    assert.equal(root.innerHTML, before);
+    assert.equal(panel, original);
+    assert.equal(panel.parentNode, win.document.body);
+    assert.equal(input.value, 'draft');
+    assert.equal(win.document.activeElement, input);
+    assert.equal(JSON.stringify([...values]), preferences);
+    assert.equal(JSON.stringify(controller.active), active);
+    assert.equal(opens, 1);
+  }
+  win.happyDOM.abort();
+});

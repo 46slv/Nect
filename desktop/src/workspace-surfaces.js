@@ -13,6 +13,7 @@ export function createAssetsPortalAdapter({ getAssetPanel, onAssets }) {
   if (typeof getAssetPanel !== 'function' || typeof onAssets !== 'function')
     throw Error('Invalid Assets portal binding');
   return Object.freeze({
+    fixedSide: 'left',
     canRetreat: true,
     attach(host) {
       const slot = host.ownerDocument.createElement('div');
@@ -72,8 +73,9 @@ export function createWorkspaceSurfaceAdapters({ getAssetPanel, onAssets, onAlig
   if (typeof onAlign !== 'function' || (onColors !== undefined && typeof onColors !== 'function'))
     throw Error('Invalid legacy surface binding');
   const colorsSelector = '.shared-colors-panel';
-  const selector = (css, open = () => {}, restore = () => {}, hooks = {}) =>
+  const selector = (css, fixedSide, open = () => {}, restore = () => {}, hooks = {}) =>
     Object.freeze({
+      fixedSide,
       open,
       restore,
       ...hooks,
@@ -87,6 +89,7 @@ export function createWorkspaceSurfaceAdapters({ getAssetPanel, onAssets, onAlig
     assets: createAssetsPortalAdapter({ getAssetPanel, onAssets }),
     colors: selector(
       colorsSelector,
+      'left',
       () => onColors?.(),
       ({ root }) => {
         if (!root.querySelector(colorsSelector)) onColors?.();
@@ -102,9 +105,10 @@ export function createWorkspaceSurfaceAdapters({ getAssetPanel, onAssets, onAlig
         },
       },
     ),
-    layers: selector('.layers'),
+    layers: selector('.layers', 'right'),
     align: selector(
       '.alignment-panel',
+      'right',
       () => onAlign(),
       () => onAlign(),
       {
@@ -115,7 +119,7 @@ export function createWorkspaceSurfaceAdapters({ getAssetPanel, onAssets, onAlig
         },
       },
     ),
-    inspector: selector('.inspector'),
+    inspector: selector('.inspector', 'right'),
   });
 }
 
@@ -142,6 +146,8 @@ export function resolveWorkspaceSurfaces(declarations, adapters) {
     if (
       !adapter ||
       typeof adapter !== 'object' ||
+      !['left', 'right'].includes(adapter.fixedSide) ||
+      adapter.fixedSide !== item.side ||
       (adapter.canRetreat !== undefined && typeof adapter.canRetreat !== 'boolean') ||
       ['attach', 'setMotion', 'contains', 'open', 'restore', 'focus', 'refresh'].some(
         (key) => adapter[key] !== undefined && typeof adapter[key] !== 'function',
