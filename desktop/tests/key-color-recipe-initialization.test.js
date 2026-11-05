@@ -389,6 +389,115 @@ for (const kind of ['document', 'composition']) {
   });
 }
 
+test('composition: multiple selected Compositions share one remapped linked palette across inactive-ID collisions', () => {
+  const source = fixture('document', legacyDocument());
+  const plan = request();
+  plan.paletteId = 'fresh-key'; // Palette identity may equal a source slot ID.
+  source.send('initialize-live-key-color-recipe', plan);
+  const sourceDoc = source.session.snapshot();
+  const sourceLayer = sourceDoc.layers[0];
+  const firstColor = sourceLayer.nodes.find((n) => n.type === 'Color');
+  source.send('bind-color-slot', {
+    layerId: sourceLayer.id,
+    nodeId: firstColor.id,
+    key: 'value',
+    slotId: 'fresh-derived',
+  });
+  const project = migrateLegacyDocumentToCompositionProject(source.session.snapshot());
+  const second = blankDocument();
+  const secondColor = node('Color');
+  secondColor.params.value.colorSlotId = 'fresh-derived';
+  second.layers[0].nodes.push(secondColor);
+  project.compositions.push({
+    id: 'source-second',
+    name: 'Second',
+    width: second.width,
+    height: second.height,
+    layers: second.layers,
+    editor: second.editor,
+  });
+  const sourceBefore = serializeCompositionProject(project);
+
+  const destination = migrateLegacyDocumentToCompositionProject(blankDocument());
+  const inactive = blankDocument();
+  const occupiedSlotName = node('Color'),
+    occupiedPaletteName = node('Color');
+  occupiedSlotName.id = 'fresh-derived';
+  occupiedPaletteName.id = 'fresh-key-import-2';
+  inactive.layers[0].nodes.push(occupiedSlotName, occupiedPaletteName);
+  destination.compositions.push({
+    id: 'target-inactive',
+    name: 'Inactive',
+    width: inactive.width,
+    height: inactive.height,
+    layers: inactive.layers,
+    editor: inactive.editor,
+  });
+  const session = createCompositionSessionOwner(destination);
+  const before = serializeCompositionProject(session.projectSnapshot());
+  const result = session.dispatch({
+    ...session.state,
+    type: 'import-project-compositions',
+    payload: { sourceProject: project },
+  });
+  const after = session.projectSnapshot();
+  const snapshot = after.keyColorRecipe.committedSnapshot;
+  assert.equal(result.importedCompositionIds.length, 2);
+  assert.equal(snapshot.paletteId, 'fresh-key-import-3');
+  assert.equal(snapshot.intent.keyColor.id, 'fresh-key-import-1');
+  assert.equal(snapshot.intent.slots[0].id, 'fresh-derived-import-1');
+  assert.equal(snapshot.intent.preset.id, plan.intent.preset.id);
+  for (const id of result.importedCompositionIds) {
+    const imported = after.compositions.find((composition) => composition.id === id);
+    const color = imported.layers[0].nodes.find((entry) => entry.type === 'Color');
+    assert.equal(color.params.value.colorSlotId, snapshot.intent.slots[0].id);
+  }
+  assert.equal(
+    after.colorSlots.filter((slot) => snapshot.resolved.some((row) => row.id === slot.id)).length,
+    2,
+  );
+  assert.equal(serializeCompositionProject(project), sourceBefore);
+  session.dispatch({ ...session.state, type: 'undo', payload: {} });
+  assert.equal(serializeCompositionProject(session.projectSnapshot()), before);
+  session.dispatch({ ...session.state, type: 'redo', payload: {} });
+  assert.deepEqual(session.projectSnapshot(), after);
+});
+
+test('composition: maximum-length live IDs are remapped within bounds', () => {
+  const source = fixture('document', legacyDocument()),
+    plan = request();
+  plan.paletteId = 'p'.repeat(128);
+  retarget(plan, 'fresh-key', 'k'.repeat(128));
+  retarget(plan, 'fresh-derived', 'd'.repeat(128));
+  source.send('initialize-live-key-color-recipe', plan);
+  const layer = source.session.snapshot().layers[0];
+  const color = layer.nodes.find((item) => item.type === 'Color');
+  source.send('bind-color-slot', {
+    layerId: layer.id,
+    nodeId: color.id,
+    key: 'value',
+    slotId: 'd'.repeat(128),
+  });
+  const project = migrateLegacyDocumentToCompositionProject(source.session.snapshot());
+  const targetDoc = blankDocument();
+  targetDoc.schemaVersion = 54;
+  targetDoc.colorSlots = [
+    { id: 'k'.repeat(128), name: 'Collision', value: { hex: '#112233', alpha: 1 } },
+  ];
+  const target = fixture('composition', targetDoc);
+  target.send('import-project-compositions', { sourceProject: project });
+  const imported = target.session.snapshot().keyColorRecipe.committedSnapshot;
+  const ids = [
+    imported.paletteId,
+    imported.intent.keyColor.id,
+    ...imported.intent.slots.map((row) => row.id),
+  ];
+  assert.equal(new Set(ids).size, ids.length);
+  assert.ok(ids.every((id) => id.length <= 128));
+  assert.notEqual(imported.paletteId, plan.paletteId);
+  assert.notEqual(imported.intent.keyColor.id, plan.intent.keyColor.id);
+});
+
 test('composition: inactive Composition entity collisions reject before inner commit and preserve Session/Redo', () => {
   const project = migrateLegacyDocumentToCompositionProject(blankDocument()),
     inactive = blankDocument(),
@@ -749,9 +858,15 @@ for (const kind of ['document', 'composition']) {
     }
   });
 
-  test(`${kind}: import refuses linked references atomically; explicit unbind and unrelated imports still work`, () => {
+  test(`${kind}: import copies one complete linked relation with collision-safe IDs and one Undo`, () => {
     const source = fixture('document', legacyDocument());
-    source.send('initialize-live-key-color-recipe', request());
+    const plan = request();
+    Object.assign(plan.intent.preset.slots[0], {
+      lightnessScale: 0.6,
+      lightnessOffset: 0.1,
+      chromaScale: 0.8,
+    });
+    source.send('initialize-live-key-color-recipe', plan);
     const sourceDoc = source.session.snapshot();
     const color = sourceDoc.layers[0].nodes.find((n) => n.type === 'Color');
     const layerId = sourceDoc.layers[0].id;
@@ -761,45 +876,172 @@ for (const kind of ['document', 'composition']) {
       key: 'value',
       slotId: 'fresh-derived',
     });
-    const target = fixture(kind);
-    withRedo(target);
-    const sourceBefore = serialize(source.session.snapshot()),
-      targetBefore = captured(target.session);
+    const sourceBefore = serialize(source.session.snapshot());
+    const targetDoc = legacyDocument();
+    targetDoc.colorSlots.push(
+      { id: 'fresh-key', name: 'Existing key ID', value: { hex: '#112233', alpha: 1 } },
+      {
+        id: 'fixture-only-palette-import-1',
+        name: 'Existing palette candidate',
+        value: { hex: '#334455', alpha: 1 },
+      },
+    );
+    const occupiedNode = node('Color');
+    occupiedNode.id = 'fresh-derived';
+    targetDoc.layers[0].nodes.push(occupiedNode);
+    const target = fixture(kind, targetDoc);
+    const targetBefore = captured(target.session);
     const project = migrateLegacyDocumentToCompositionProject(source.session.snapshot());
-    const importSource = () =>
+    if (kind === 'document')
+      target.send('import-composition', { sourceText: sourceBefore, compositionId: layerId });
+    else
+      target.send('import-project-compositions', {
+        sourceProject: project,
+        compositionIds: [project.compositions[0].id],
+      });
+    const after = captured(target.session),
+      imported = target.session.snapshot();
+    const importedCompositionId = target.session.activeCompositionId;
+    const importedLayer = kind === 'document' ? imported.layers.at(-1) : imported.layers[0];
+    const importedColor = importedLayer.nodes.find((n) => n.type === 'Color');
+    const snapshot = imported.keyColorRecipe.committedSnapshot;
+    assert.equal(imported.keyColorRecipe.mode, 'live');
+    assert.equal(snapshot.paletteId, 'fixture-only-palette-import-2');
+    assert.notEqual(snapshot.intent.keyColor.id, 'fresh-key');
+    assert.notEqual(importedColor.params.value.colorSlotId, 'fresh-derived');
+    assert.equal(importedColor.params.value.colorSlotId, snapshot.intent.slots[0].id);
+    assert.equal(snapshot.intent.preset.slots[0].id, snapshot.intent.slots[0].id);
+    assert.equal(snapshot.resolved[1].id, snapshot.intent.slots[0].id);
+    assert.deepEqual(imported.colorDesign, targetDoc.colorDesign);
+    assert.deepEqual(
+      imported.colorSlots.slice(0, targetDoc.colorSlots.length),
+      targetDoc.colorSlots,
+    );
+    for (const row of snapshot.resolved)
+      assert.deepEqual(imported.colorSlots.find((slot) => slot.id === row.id).value, row.value);
+    const expected = structuredClone(source.session.snapshot().keyColorRecipe.committedSnapshot);
+    expected.paletteId = snapshot.paletteId;
+    expected.intent.keyColor.id = snapshot.intent.keyColor.id;
+    expected.intent.slots[0].id = snapshot.intent.slots[0].id;
+    expected.intent.preset.slots[0].id = snapshot.intent.slots[0].id;
+    expected.resolved[0].id = snapshot.intent.keyColor.id;
+    expected.resolved[1].id = snapshot.intent.slots[0].id;
+    assert.deepEqual(snapshot, expected);
+    assert.equal(serialize(source.session.snapshot()), sourceBefore);
+    reopen(target.session);
+    const reopened =
       kind === 'document'
-        ? target.send('import-composition', {
-            sourceText: serialize(source.session.snapshot()),
-            compositionId: layerId,
-          })
+        ? new CommandSession(deserialize(serialize(imported)))
+        : createCompositionSessionOwner(
+            deserializeCompositionProject(
+              serializeCompositionProject(target.session.projectSnapshot()),
+            ),
+            { activeCompositionId: importedCompositionId },
+          );
+    const readImported = () => {
+      const document = reopened.snapshot();
+      const layer = kind === 'document' ? document.layers.at(-1) : document.layers[0];
+      return evaluate(layer, {}, document.imageAssets, document).run(importedColor.id);
+    };
+    const oldValue = readImported();
+    const reopenedSnapshot = reopened.snapshot().keyColorRecipe.committedSnapshot;
+    const edited = editKeyColorRecipe(reopenedSnapshot, {
+      type: 'key-color',
+      expectedRevision: reopenedSnapshot.revision,
+      value: { hex: '#d03270', alpha: 1 },
+    });
+    reopened.dispatch({
+      ...reopened.state,
+      type: 'apply-live-key-color-recipe-snapshot',
+      payload: { snapshot: edited, expectedPaletteRevision: reopenedSnapshot.revision },
+    });
+    assert.notDeepEqual(readImported(), oldValue);
+    assert.deepEqual(
+      readImported(),
+      edited.resolved.find((row) => row.id === snapshot.intent.slots[0].id).value,
+    );
+    target.send('undo');
+    assert.equal(captured(target.session).document, targetBefore.document);
+    assert.equal(captured(target.session).project, targetBefore.project);
+    target.send('redo');
+    if (kind === 'composition') target.session.switchComposition(importedCompositionId);
+    assert.equal(captured(target.session).document, after.document);
+    assert.equal(captured(target.session).project, after.project);
+  });
+
+  test(`${kind}: a conflicting destination packet or slot budget rejects linked import with Redo intact`, () => {
+    const source = fixture('document', legacyDocument());
+    source.send('initialize-live-key-color-recipe', request());
+    const layerId = source.session.snapshot().layers[0].id;
+    const color = source.session.snapshot().layers[0].nodes.find((n) => n.type === 'Color');
+    source.send('bind-color-slot', {
+      layerId,
+      nodeId: color.id,
+      key: 'value',
+      slotId: 'fresh-derived',
+    });
+    const sourceBefore = serialize(source.session.snapshot());
+    const project = migrateLegacyDocumentToCompositionProject(source.session.snapshot());
+    const sendImport = (target) =>
+      kind === 'document'
+        ? target.send('import-composition', { sourceText: sourceBefore, compositionId: layerId })
         : target.send('import-project-compositions', {
             sourceProject: project,
             compositionIds: [project.compositions[0].id],
           });
-    assert.throws(
-      importSource,
-      (error) => error.code === 'LIVE_COLOR_IMPORT_UNSUPPORTED' && /Unbind/.test(error.message),
-    );
+    for (const mode of ['retained', 'live']) {
+      const target = fixture(kind);
+      target.send(
+        mode === 'live' ? 'initialize-live-key-color-recipe' : 'initialize-key-color-recipe',
+        request(),
+      );
+      withRedo(target);
+      const before = captured(target.session);
+      assert.throws(
+        () => sendImport(target),
+        (error) => error.code === 'LIVE_COLOR_IMPORT_CONFLICT',
+      );
+      assert.deepEqual(captured(target.session), before);
+      target.send('redo');
+      assert.equal(target.session.snapshot().width, 1001);
+    }
+    const full = blankDocument();
+    full.schemaVersion = 54;
+    full.colorSlots = Array.from({ length: 255 }, (_, i) => ({
+      id: `existing-${i}`,
+      name: `Existing ${i}`,
+      value: { hex: '#123456', alpha: 1 },
+    }));
+    const target = fixture(kind, full);
+    withRedo(target);
+    const before = captured(target.session);
+    assert.throws(() => sendImport(target), /budget/i);
+    assert.deepEqual(captured(target.session), before);
     assert.equal(serialize(source.session.snapshot()), sourceBefore);
-    assert.deepEqual(captured(target.session), targetBefore);
-    target.send('redo');
-    assert.equal(target.session.snapshot().width, 1001);
-    source.send('unbind-color-slot', { layerId, nodeId: color.id, key: 'value' });
-    const detached = source.session.snapshot();
+  });
+
+  test(`${kind}: source with no selected live reference retains the destination packet`, () => {
+    const source = fixture('document', legacyDocument());
+    source.send('initialize-live-key-color-recipe', request());
+    const target = fixture(kind);
+    target.send('initialize-key-color-recipe', request());
+    const packet = structuredClone(target.session.snapshot().keyColorRecipe);
+    const sourceDoc = source.session.snapshot();
     if (kind === 'document')
       target.send('import-composition', {
-        sourceText: serialize(detached),
-        compositionId: layerId,
+        sourceText: serialize(sourceDoc),
+        compositionId: sourceDoc.layers[0].id,
       });
     else {
-      const detachedProject = migrateLegacyDocumentToCompositionProject(detached);
+      const project = migrateLegacyDocumentToCompositionProject(sourceDoc);
       target.send('import-project-compositions', {
-        sourceProject: detachedProject,
-        compositionIds: [detachedProject.compositions[0].id],
+        sourceProject: project,
+        compositionIds: [project.compositions[0].id],
       });
     }
-    assert.equal(source.session.snapshot().keyColorRecipe.mode, 'live');
-    assert.equal(serialize(source.session.snapshot()), serialize(detached));
+    assert.deepEqual(target.session.snapshot().keyColorRecipe, packet);
+    assert.equal(sourceDoc.schemaVersion, 59);
+    assert.equal(target.session.snapshot().schemaVersion, 58);
   });
 
   test(`${kind}: importing an ordinary bound color preserves the destination live palette`, () => {

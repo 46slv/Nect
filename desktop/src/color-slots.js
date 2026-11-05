@@ -7,6 +7,7 @@ import {
 import { MAX_CHROMA } from './auto-chroma.js';
 import {
   keyColorRecipeDocumentCommands,
+  KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION,
   LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION,
   isLiveKeyColorRecipe,
   assertNoLiveKeyColorWrites,
@@ -408,29 +409,50 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
 
 // Import only referenced slots; never coalesce independent identities by value.
 // `copies` are already detached/remapped geometry. Neither input document mutates.
+function walkColorBindings(value, visit) {
+  if (!value || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    for (const item of value) walkColorBindings(item, visit);
+    return;
+  }
+  if (value.colorSlotId !== undefined) visit(value);
+  for (const child of Object.values(value)) walkColorBindings(child, visit);
+}
+
+export function importsLiveKeyColors(source, compositions) {
+  const live = liveKeyColorSlotIds(source);
+  let found = false;
+  if (live.size)
+    walkColorBindings(compositions, (q) => {
+      if (live.has(q.colorSlotId)) found = true;
+    });
+  return found;
+}
+
+// Schema 59 introduces only the live packet. When no selected artwork imports
+// that packet, do not promote an older destination to an unnecessary version.
+export function colorImportSchemaVersion(source, importedColors) {
+  return source.schemaVersion === LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION &&
+    !Object.hasOwn(importedColors, 'keyColorRecipe')
+    ? KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION
+    : source.schemaVersion;
+}
+
 export function importColorSlots(current, source, copies, occupied) {
   const sourceSlots = validateColorSlots(source),
     refs = new Set();
-  function walk(value, visit) {
-    if (!value || typeof value !== 'object') return;
-    if (Array.isArray(value)) {
-      for (const item of value) walk(item, visit);
-      return;
-    }
-    if (value.colorSlotId !== undefined) visit(value);
-    for (const child of Object.values(value)) walk(child, visit);
-  }
-  walk(copies, (q) => refs.add(q.colorSlotId));
-  const live = liveKeyColorSlotIds(source);
-  if ([...refs].some((id) => live.has(id)))
+  walkColorBindings(copies, (q) => refs.add(q.colorSlotId));
+  const importingLive = importsLiveKeyColors(source, copies);
+  if (importingLive && Object.hasOwn(current, 'keyColorRecipe'))
     throw Object.assign(
-      Error(
-        'Cannot import a Composition using linked Key colors. Unbind them in the source first.',
-      ),
-      {
-        code: 'LIVE_COLOR_IMPORT_UNSUPPORTED',
-      },
+      Error('This project already has Key colors. Unbind the source colors before import.'),
+      { code: 'LIVE_COLOR_IMPORT_CONFLICT' },
     );
+  if (importingLive) {
+    // paletteId is not among the entity keys gathered by collectIds.
+    occupied.add(source.keyColorRecipe.committedSnapshot.paletteId);
+    for (const row of source.keyColorRecipe.committedSnapshot.resolved) refs.add(row.id);
+  }
   const result = structuredClone(current.colorSlots || []),
     mapping = new Map();
   for (const id of refs) {
@@ -443,9 +465,28 @@ export function importColorSlots(current, source, copies, occupied) {
     mapping.set(id, next);
     result.push({ ...structuredClone(slot), id: next });
   }
-  walk(copies, (q) => {
+  walkColorBindings(copies, (q) => {
     q.colorSlotId = mapping.get(q.colorSlotId);
   });
   if (result.length > 256) throw Error('Imported Color slot budget exceeded');
-  return current.colorSlots !== undefined || refs.size ? result : undefined;
+  let keyColorRecipe;
+  if (importingLive) {
+    keyColorRecipe = structuredClone(source.keyColorRecipe);
+    const snapshot = keyColorRecipe.committedSnapshot;
+    const originalPaletteId = snapshot.paletteId;
+    let index = 1,
+      paletteId;
+    do paletteId = `${originalPaletteId.slice(0, 96)}-import-${index++}`;
+    while (occupied.has(paletteId) || paletteId === originalPaletteId);
+    occupied.add(paletteId);
+    snapshot.paletteId = paletteId;
+    snapshot.intent.keyColor.id = mapping.get(snapshot.intent.keyColor.id);
+    for (const row of snapshot.intent.slots) row.id = mapping.get(row.id);
+    for (const row of snapshot.intent.preset.slots) row.id = mapping.get(row.id);
+    for (const row of snapshot.resolved) row.id = mapping.get(row.id);
+  }
+  return {
+    colorSlots: current.colorSlots !== undefined || refs.size ? result : undefined,
+    ...(keyColorRecipe ? { keyColorRecipe } : {}),
+  };
 }

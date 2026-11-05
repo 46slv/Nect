@@ -852,6 +852,7 @@ import {
   serializeCompositionProject,
   validateCompositionProject,
 } from './composition-project-model.js';
+import { importsLiveKeyColors } from './color-slots.js';
 import { createCompositionSessionOwner } from './composition-session-owner-core.js';
 import {
   blankDocument,
@@ -8678,10 +8679,13 @@ async function openCompositionImportDialog() {
     await documents.releaseUnused(opened.binding);
   }
   const dialog = document.createElement('dialog');
+  dialog.className = 'composition-import-dialog';
   dialog.innerHTML =
     '<form method="dialog"><h3>Project compositions</h3><label>Compositions to add <select data-composition-choice></select></label><output role="status"></output><footer><button value="cancel">Cancel</button><button value="import">Import</button></footer></form>';
   const select = dialog.querySelector('[data-composition-choice]');
   const status = dialog.querySelector('output');
+  const importButton = dialog.querySelector('button[value="import"]');
+  const destinationHasKeyColors = Object.hasOwn(session.projectSnapshot(), 'keyColorRecipe');
   const allOption = document.createElement('option');
   allOption.value = '__all__';
   allOption.textContent = 'All Compositions (' + source.compositions.length + ')';
@@ -8692,11 +8696,24 @@ async function openCompositionImportDialog() {
     option.textContent = composition.name + ' - ' + composition.width + ' x ' + composition.height;
     select.append(option);
   }
-  status.textContent =
-    source.compositions.length +
-    ' Compositions in ' +
-    source.name +
-    '; All adds the project set in one Undo step; choose one to add only that Composition.';
+  function updateImportStatus() {
+    const selected =
+      select.value === '__all__'
+        ? source.compositions
+        : source.compositions.filter((composition) => composition.id === select.value);
+    const linked = importsLiveKeyColors(source, selected);
+    importButton.disabled = linked && destinationHasKeyColors;
+    status.textContent = importButton.disabled
+      ? 'This project already has Key colors. Choose a Composition without linked colors, or unbind them in the source.'
+      : linked
+        ? 'Adds the full linked palette. Older Nect versions cannot open the result.'
+        : source.compositions.length +
+          ' Compositions in ' +
+          source.name +
+          '; All adds the project set in one Undo step; choose one to add only that Composition.';
+  }
+  select.addEventListener('change', updateImportStatus);
+  updateImportStatus();
   dialog.addEventListener('close', () => {
     const value = dialog.returnValue;
     dialog.remove();

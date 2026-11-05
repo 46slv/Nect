@@ -436,6 +436,7 @@ test('linked trial artwork preview is a valid detached projection and never auth
   const s = setup(t, 'project', blankDocument());
   s.open();
   assert.equal(s.query('[data-research-live-option]').hidden, true);
+  assert.equal(s.query('[data-research-live-warning]').hidden, true);
   for (const [selector, value, event] of [
     ['[data-research-hex]', '#3273c7', 'input'],
     ['[data-research-alpha]', '1', 'input'],
@@ -445,12 +446,23 @@ test('linked trial artwork preview is a valid detached projection and never auth
     s.fire(s.query(selector), event);
   }
   assert.equal(s.query('[data-research-live-option]').hidden, false);
+  assert.equal(s.query('[data-research-live-warning]').hidden, true);
   s.query('[data-research-live]').checked = true;
   s.fire(s.query('[data-research-live]'), 'change');
+  assert.equal(s.query('[data-research-live-warning]').hidden, false);
+  assert.match(
+    s.query('[data-research-live-warning]').textContent,
+    /Older Nect versions cannot open/,
+  );
+  assert.match(
+    s.query('[data-research-live-warning]').textContent,
+    /Detaching the palette is not yet available/,
+  );
   s.query('[data-research-plan]').value = 'research-triadic-offset';
   s.fire(s.query('[data-research-plan]'), 'change');
   assert.equal(s.query('[data-research-live-option]').hidden, true);
   assert.equal(s.query('[data-research-live]').checked, false);
+  assert.equal(s.query('[data-research-live-warning]').hidden, true);
   s.query('[data-research-plan]').value = 'research-neutral-start';
   s.fire(s.query('[data-research-plan]'), 'change');
   s.query('[data-research-live]').checked = true;

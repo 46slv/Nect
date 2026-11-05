@@ -529,6 +529,8 @@ export function createKeyColorRecipePanel({
     const linkOption = dialog.querySelector('[data-research-live-option]');
     linkOption.hidden = !selected || !trialB(selected.id, selected.version);
     if (linkOption.hidden) dialog.querySelector('[data-research-live]').checked = false;
+    dialog.querySelector('[data-research-live-warning]').hidden =
+      linkOption.hidden || !dialog.querySelector('[data-research-live]').checked;
     dialog.querySelector('[data-research-details]').textContent = selected
       ? JSON.stringify(
           {
@@ -856,7 +858,7 @@ export function createKeyColorRecipePanel({
     const controls = base
       ? retainedControls()
       : research
-        ? `<p data-key-color-empty>Research candidates. B adds five trial colors without changing existing colors, in one Undo. Coverage and readability are not evaluated; colors may coincide.</p><fieldset><legend>C1</legend><div data-key-color-c1></div></fieldset><label>Research candidate <select data-research-plan><option value="">Choose a candidate</option><option value="research-triadic-offset">A · chromatic comparison</option><option value="research-neutral-start">B · neutral start</option></select></label><label data-research-live-option hidden><input type="checkbox" data-research-live>Link trial colors to C1</label><details><summary>Candidate roles and coefficients</summary><pre data-research-details></pre></details><p data-key-color-status role="status" aria-live="polite">Enter C1 and choose a candidate.</p><section data-research-results aria-label="Research color preview"></section>`
+        ? `<p data-key-color-empty>Research candidates. B adds five trial colors without changing existing colors, in one Undo. Coverage and readability are not evaluated; colors may coincide.</p><fieldset><legend>C1</legend><div data-key-color-c1></div></fieldset><label>Research candidate <select data-research-plan><option value="">Choose a candidate</option><option value="research-triadic-offset">A · chromatic comparison</option><option value="research-neutral-start">B · neutral start</option></select></label><label data-research-live-option hidden><input type="checkbox" data-research-live>Link trial colors to C1</label><p data-research-live-warning role="status" aria-live="polite" hidden>Older Nect versions cannot open linked palettes. Detaching the palette is not yet available.</p><details><summary>Candidate roles and coefficients</summary><pre data-research-details></pre></details><p data-key-color-status role="status" aria-live="polite">Enter C1 and choose a candidate.</p><section data-research-results aria-label="Research color preview"></section>`
         : `<p data-key-color-empty>${esc(error || 'The retained recipe is unavailable.')}</p>`;
     const isB =
       base &&

@@ -148,10 +148,12 @@ base project. Its other unknown-root-field merge behavior is unchanged.
   target/realized ratios. Loading calls validation, not the color solver.
 - Legacy documents without the field neither opt in nor advance schema on load
   or save. Existing old-format values/recipes remain byte-equivalent.
-- Foreign Composition import keeps the receiving packet and recipe. Only artwork-
+- Foreign Composition import of retained-only recipes keeps the receiving packet and recipe. Only artwork-
   referenced foreign colors are copied/remapped by the existing import policy;
   source packets and unused/dormant source identities are not auto-adopted. The
   existing `Math.max` schema promotion may retain schema58 even without a packet.
+  A source live packet follows the separate linked-import rules in
+  [initialization](key-color-recipe-initialization.md#explicit-linked-trial-schema59).
 - SVG replacement preserves both old `colorDesign` and the new packet alongside
   the existing global registries, deep-copies the metadata and validates the final
   candidate. This also fixes the former omission of old recipe metadata there.

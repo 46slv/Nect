@@ -1024,6 +1024,31 @@ dialog {
 dialog::backdrop {
   background: #18263455;
 }
+
+.composition-import-dialog {
+  box-sizing: border-box;
+  width: min(480px, calc(100vw - 24px));
+}
+.composition-import-dialog form {
+  display: grid;
+  gap: 12px;
+}
+.composition-import-dialog h3 {
+  margin: 0;
+}
+.composition-import-dialog label {
+  display: grid;
+  gap: 4px;
+}
+.composition-import-dialog select {
+  min-width: 0;
+  max-width: 100%;
+}
+.composition-import-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 @media (max-width: 1000px) {
   .workspace {
     grid-template-columns: 44px minmax(0, 1fr) 230px;

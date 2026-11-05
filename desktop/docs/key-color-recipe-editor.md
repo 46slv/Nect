@@ -9,7 +9,8 @@ explicitly inspectable, not adopted defaults. Preview creates no shared slots,
 receipt or History entry. After an explicit B Preview, the user may add five
 trial shared colors and a receipt in one Undo, or explicitly choose a linked
 trial; A remains Preview-only. The linked choice is not a default and does not
-convert any existing palette. B uses
+convert any existing palette. Choosing it displays the older-reader and current
+palette-detach limitations before creation. B uses
 `experimental-affine-neutral-text-v1`, fresh draft-stable IDs and the same
 closed initialization preflight. Inputs, candidate
 changes and composing invalidate the preview; owner, revision or Composition
