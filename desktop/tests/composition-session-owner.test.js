@@ -2,6 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CompositionSessionOwner } from '../src/composition-session-owner.js';
 import {
+  blankDocument as blankCoreDocument,
+  CommandSession as CoreCommandSession,
+  validate as validateCoreDocument,
+} from '../src/core.js';
+import {
+  activeCompositionDocument,
+  deserializeCompositionProject,
   migrateLegacyDocumentToCompositionProject,
   serializeCompositionProject,
 } from '../src/composition-project-model.js';
@@ -415,4 +422,57 @@ test('Composition create, rename, resize and delete are project Undo steps', () 
   );
   assert.equal(owner.projectSnapshot().compositions[1].name, 'Phone');
   assert.equal(owner.projectSnapshot().compositions[1].width, 390);
+});
+
+test('colliding grouped Composition import validates atomically, undoes, redoes and reopens', () => {
+  const document = blankCoreDocument();
+  document.schemaVersion = Math.max(document.schemaVersion, 44);
+  const layer = document.layers[0];
+  const memberId = layer.nodes[0].id;
+  layer.nodeGroups = [{ id: 'group-src', name: 'G', nodeIds: [memberId] }];
+  validateCoreDocument(document);
+
+  const sourceProject = migrateLegacyDocumentToCompositionProject(document);
+  const originalSource = serializeCompositionProject(sourceProject);
+  const owner = new CompositionSessionOwner(clone(sourceProject), {
+    ...runtime,
+    CommandSession: CoreCommandSession,
+    blankDocument: blankCoreDocument,
+    validateDocument: validateCoreDocument,
+  });
+  const before = serializeCompositionProject(owner.projectSnapshot());
+  const previousState = owner.state;
+  const previousHistory = owner.historyState;
+
+  const invalidSource = clone(sourceProject);
+  invalidSource.compositions[0].layers[0].nodeGroups[0].nodeIds = ['missing-member'];
+  assert.throws(
+    () => send(owner, 'import-project-compositions', { sourceProject: invalidSource }),
+    /Missing group member/,
+  );
+  assert.deepEqual(owner.state, previousState);
+  assert.deepEqual(owner.historyState, previousHistory);
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+
+  const result = send(owner, 'import-project-compositions', { sourceProject });
+  assert.equal(result.changed, true);
+  assert.equal(owner.projectRevision, previousHistory.revision + 1);
+  assert.equal(owner.historyView.past.length, 1);
+  assert.equal(result.importedCompositionIds.length, 1);
+  const importedDocument = owner.activeDocument();
+  const importedMemberId = importedDocument.layers[0].nodes[0].id;
+  const importedGroup = importedDocument.layers[0].nodeGroups[0];
+  assert.notEqual(importedMemberId, memberId);
+  assert.equal(importedGroup.id, 'group-src-import-1');
+  assert.deepEqual(importedGroup.nodeIds, [importedMemberId]);
+  validateCoreDocument(importedDocument);
+
+  const after = serializeCompositionProject(owner.projectSnapshot());
+  const reopened = deserializeCompositionProject(after);
+  validateCoreDocument(activeCompositionDocument(reopened, result.importedCompositionIds[0]));
+  send(owner, 'undo');
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+  send(owner, 'redo');
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), after);
+  assert.equal(serializeCompositionProject(sourceProject), originalSource);
 });

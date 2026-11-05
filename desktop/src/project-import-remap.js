@@ -96,9 +96,16 @@ export function remapIds(value, ids, occupied) {
   const sourceLayers = Array.isArray(value) ? value : value?.layers;
   const copiedLayers = Array.isArray(copy) ? copy : copy?.layers;
   if (Array.isArray(sourceLayers))
-    sourceLayers.forEach((layer, index) =>
-      remapLayerExpressions(layer, copiedLayers[index], mapping),
-    );
+    sourceLayers.forEach((layer, index) => {
+      const copiedLayer = copiedLayers[index];
+      // Only node-group membership arrays contain node ID references; group
+      // names and unrelated string arrays must retain their literal values.
+      if (Array.isArray(copiedLayer.nodeGroups))
+        for (const group of copiedLayer.nodeGroups)
+          if (Array.isArray(group?.nodeIds))
+            group.nodeIds = group.nodeIds.map((id) => mapping.get(id) ?? id);
+      remapLayerExpressions(layer, copiedLayer, mapping);
+    });
   return copy;
 }
 
