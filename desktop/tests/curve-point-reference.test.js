@@ -380,6 +380,49 @@ test('missing references do not block independent Transform controls or hide inv
   );
 });
 
+test('Transform aliases resolve independently and reject edits whose own inherited value is missing', () => {
+  for (const unresolved of ['rotation', 'anchor', 'scale']) {
+    const f = fixture(),
+      transform = node('Transform');
+    transform.id = 'transform';
+    f.l.nodes.push(transform);
+    const session = new CommandSession(f.doc),
+      command = (type, payload) =>
+        send(session, type, { layerId: f.l.id, nodeId: 'transform', ...payload });
+    const expression = unresolved === 'anchor' ? `${f.expr}; 0` : f.expr;
+    command('set-parameter-expression', { key: unresolved, expression });
+    send(session, 'delete-point', { layerId: f.l.id, nodeId: 'curve', pointId: 'anchor' });
+    if (unresolved === 'rotation') {
+      command('set-transform-control', { key: 'anchor', value: [5, 6] });
+      assert.deepEqual(
+        session.snapshot().layers[0].nodes.find((n) => n.id === 'transform').params.position.value,
+        [0, 0],
+      );
+      command('set-transform-control', { key: 'uniformScale', value: false });
+      command('set-transform-control', { key: 'scaleWidth', value: 2 });
+      assert.equal(
+        session.snapshot().layers[0].nodes.find((n) => n.id === 'transform').params.scaleWidth
+          .value,
+        2,
+      );
+    } else {
+      const before = serialize(session.snapshot());
+      assert.throws(
+        () =>
+          unresolved === 'anchor'
+            ? command('set-transform-control', { key: 'position', value: [4, 5] })
+            : command('set-transform-control', { key: 'uniformScale', value: false }),
+        /missing/,
+      );
+      assert.equal(serialize(session.snapshot()), before);
+      command('set-parameter-expression', { key: unresolved, expression: '' });
+      if (unresolved === 'anchor')
+        command('set-transform-control', { key: 'position', value: [4, 5] });
+      else command('set-transform-control', { key: 'uniformScale', value: false });
+    }
+  }
+});
+
 test('node and generic layer duplication remap only matching Curve owner and point', () => {
   const f = fixture(),
     other = node('Curve');
@@ -498,6 +541,147 @@ test('document and Composition codecs enforce both version floors and preserve h
     }).schemaVersion,
     60,
   );
+});
+
+test('legacy missing-node arbitrary position keys stay loadable through edit, import and promotion', () => {
+  const f = fixture(),
+    color = node('Color'),
+    newSink = node('Value'),
+    presetDriver = node('Value'),
+    presetSink = node('Value');
+  f.doc.schemaVersion = 59;
+  f.sink.params.value.expression = ref('deleted-node', 'arbitrary.position', 'x');
+  color.id = 'color';
+  color.params.value.expression = ref('deleted-node', 'arbitrary.position');
+  newSink.id = 'new-sink';
+  f.l.nodes.push(color, newSink);
+  presetDriver.id = 'preset-driver';
+  presetSink.id = 'preset-sink';
+  presetSink.params.value.source = presetDriver.id;
+  presetSink.params.value.expression = ref('deleted-node', 'arbitrary.position', 'x');
+  f.doc.nodePresets = [
+    {
+      id: 'preset',
+      name: 'Legacy',
+      nodes: [presetDriver, presetSink],
+      fontAssets: {},
+      imageAssets: {},
+    },
+  ];
+  const original = serialize(f.doc),
+    reopened = deserialize(original);
+  assert.equal(
+    reopened.layers[0].nodes.find((n) => n.id === 'sink').params.value.expression,
+    f.sink.params.value.expression,
+  );
+  assert.throws(() => evaluate(reopened.layers[0]).run('sink'), /target is missing/);
+  assert.throws(() => evaluate(reopened.layers[0]).run('color'), /target is missing/);
+  const oldProject = migrateLegacyDocumentToCompositionProject(reopened);
+  assert.equal(oldProject.compositionSchemaVersion, 1);
+  assert.deepEqual(
+    deserializeCompositionProject(serializeCompositionProject(oldProject)),
+    oldProject,
+  );
+
+  const destination = migrateLegacyDocumentToCompositionProject(blankDocument()),
+    imported = prepareProjectCompositionsImport(destination, oldProject).project;
+  assert.equal(imported.compositionSchemaVersion, 1);
+  assert.ok(imported.schemaVersion < 60);
+  const owner = createCompositionSessionOwner(oldProject);
+  send(owner, 'set-parameter', { layerId: f.l.id, nodeId: 'new-sink', key: 'value', value: 3 });
+  assert.equal(owner.projectSnapshot().compositionSchemaVersion, 1);
+  send(owner, 'set-parameter-expression', {
+    layerId: f.l.id,
+    nodeId: 'new-sink',
+    key: 'value',
+    expression: f.expr,
+  });
+  assert.equal(owner.projectSnapshot().compositionSchemaVersion, 2);
+  const promoted = createCompositionSessionOwner(
+    deserializeCompositionProject(serializeCompositionProject(owner.projectSnapshot())),
+  );
+  assert.throws(
+    () => evaluate(promoted.activeDocument().layers[0]).run('sink'),
+    /target is missing/,
+  );
+  assert.throws(
+    () => evaluate(promoted.activeDocument().layers[0]).run('color'),
+    /target is missing/,
+  );
+  assert.equal(evaluate(promoted.activeDocument().layers[0]).run('new-sink'), 30);
+});
+
+test('low schema rejects point keys when their Curve owner exists; pure codec rejects future versions', () => {
+  const f = fixture();
+  f.doc.schemaVersion = 59;
+  f.sink.params.value.expression = f.expr;
+  assert.throws(() => deserialize(serialize(f.doc)), /schemaVersion 60/);
+  assert.throws(() => migrateLegacyDocumentToCompositionProject(f.doc), /schemaVersion 60/);
+  const plain = fixture(),
+    project = migrateLegacyDocumentToCompositionProject(plain.doc);
+  for (const compositionSchemaVersion of [1, 2]) {
+    const future = { ...project, compositionSchemaVersion, schemaVersion: 61 };
+    assert.throws(
+      () => validateCompositionProject(future),
+      /Unsupported Composition project version/,
+    );
+    assert.throws(
+      () => deserializeCompositionProject(JSON.stringify(future)),
+      /Unsupported Composition project version/,
+    );
+  }
+  assert.throws(
+    () => migrateLegacyDocumentToCompositionProject({ ...plain.doc, schemaVersion: 61 }),
+    /Unsupported legacy Document version/,
+  );
+  assert.throws(
+    () => deserializeCompositionProject(JSON.stringify({ ...plain.doc, schemaVersion: 61 })),
+    /Unsupported legacy Document version/,
+  );
+});
+
+test('legacy paused missing-node expressions remain copyable without inventing a Curve dependency', () => {
+  const f = fixture(),
+    driver = node('Value');
+  driver.id = 'legacy-driver';
+  f.doc.schemaVersion = 59;
+  f.sink.params.value.source = driver.id;
+  f.sink.params.value.expression = ref('deleted-node', 'arbitrary.position', 'x');
+  f.l.nodes.push(driver);
+  const session = new CommandSession(f.doc);
+  send(session, 'copy-nodes', { layerId: f.l.id, nodeIds: ['legacy-driver', 'sink'] });
+  const result = send(session, 'paste-nodes', { layerId: f.l.id });
+  const copies = session.snapshot().layers[0].nodes.filter((n) => result.nodeIds.includes(n.id)),
+    copiedSink = copies.find((n) => n.params.value.expression);
+  assert.equal(copiedSink.params.value.expression, f.sink.params.value.expression);
+  assert.ok(copies.some((n) => n.id === copiedSink.params.value.source));
+  assert.equal(session.snapshot().schemaVersion, 59);
+  assert.doesNotThrow(() => deserialize(serialize(session.snapshot())));
+});
+
+test('a missing legacy Color key in a schema 60 source does not promote an unrelated import', () => {
+  const f = fixture(),
+    unrelated = layer(),
+    color = node('Color');
+  f.doc.schemaVersion = 60;
+  f.sink.params.value.expression = f.expr;
+  color.id = 'unrelated-color';
+  color.params.value.expression = ref('deleted-node', 'arbitrary.position');
+  unrelated.nodes.push(color);
+  f.doc.layers.push(unrelated);
+  const legacy = prepareCompositionImport(blankDocument(), serialize(f.doc), unrelated.id);
+  assert.ok(legacy.schemaVersion < 60);
+  assert.throws(() => evaluate(legacy.layers.at(-1)).run(color.id), /target is missing/);
+
+  const source = migrateLegacyDocumentToCompositionProject(f.doc),
+    plain = migrateLegacyDocumentToCompositionProject(blankDocument()).compositions[0];
+  plain.id = 'plain-composition';
+  plain.layers[0].nodes.push({ ...structuredClone(color), id: 'second-color' });
+  source.compositions.push(plain);
+  const destination = migrateLegacyDocumentToCompositionProject(blankDocument());
+  const imported = prepareProjectCompositionsImport(destination, source, [plain.id]).project;
+  assert.ok(imported.schemaVersion < 60);
+  assert.equal(imported.compositionSchemaVersion, 1);
 });
 
 test('both import routes remap owner and point IDs and promote only selected references', () => {

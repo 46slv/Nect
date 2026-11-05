@@ -2,7 +2,7 @@ import { validateColorSlots, validateColorSlotBinding } from './color-slots.js';
 import {
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
-  nodesHaveCurvePointReferences,
+  nodesHaveKnownCurvePointReferences,
 } from './curve-point-reference.js';
 const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,180}$/;
 const MAX_DIMENSION = 100000;
@@ -93,6 +93,7 @@ function assertDocumentEnvelope(project) {
     ) ||
     !Number.isInteger(project.schemaVersion) ||
     project.schemaVersion < 1 ||
+    project.schemaVersion > CURVE_POINT_REFERENCE_SCHEMA_VERSION ||
     project.schemaVersion >= CURVE_POINT_REFERENCE_SCHEMA_VERSION !==
       (project.compositionSchemaVersion === CURVE_POINT_COMPOSITION_SCHEMA_VERSION)
   )
@@ -166,9 +167,13 @@ function assertCompositionProjectFields(project) {
   assertDocumentEnvelope(project);
   const hasPointReferences =
     project.compositions.some((composition) =>
-      (composition.layers || []).some((layer) => nodesHaveCurvePointReferences(layer.nodes || [])),
+      (composition.layers || []).some((layer) =>
+        nodesHaveKnownCurvePointReferences(layer.nodes || []),
+      ),
     ) ||
-    (project.nodePresets || []).some((preset) => nodesHaveCurvePointReferences(preset.nodes || []));
+    (project.nodePresets || []).some((preset) =>
+      nodesHaveKnownCurvePointReferences(preset.nodes || []),
+    );
   if (hasPointReferences && project.schemaVersion < CURVE_POINT_REFERENCE_SCHEMA_VERSION)
     throw Error(
       `Curve point references require schemaVersion ${CURVE_POINT_REFERENCE_SCHEMA_VERSION}`,
@@ -268,7 +273,11 @@ function assertLegacyDocument(document) {
     Object.hasOwn(document, 'compositions')
   )
     throw Error('Refusing to migrate a Composition project more than once');
-  if (!Number.isInteger(document.schemaVersion) || document.schemaVersion < 1)
+  if (
+    !Number.isInteger(document.schemaVersion) ||
+    document.schemaVersion < 1 ||
+    document.schemaVersion > CURVE_POINT_REFERENCE_SCHEMA_VERSION
+  )
     throw Error('Unsupported legacy Document version');
   assertText(document.name, 'project name');
   assertDimensions(document.width, document.height);

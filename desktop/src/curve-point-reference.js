@@ -4,6 +4,8 @@ export const CURVE_POINT_COMPOSITION_SCHEMA_VERSION = 2;
 
 const pointKey = /^([a-zA-Z0-9][a-zA-Z0-9:_-]{0,180})\.position$/;
 const refArguments = /\bref\s*\(\s*"([a-zA-Z0-9:_-]+)"(\s*,\s*)"([a-zA-Z0-9:_.-]+)"/g;
+const pointRefArguments =
+  /\bref\s*\(\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_.-]+)"\s*,\s*"(?:x|y)"\s*\)/g;
 
 export function curvePointId(key) {
   return pointKey.exec(key)?.[1] ?? null;
@@ -23,12 +25,25 @@ export function expressionParameters(node) {
 }
 
 export function expressionHasCurvePointReference(source) {
-  return [...source.matchAll(refArguments)].some((match) => curvePointId(match[3]));
+  return [...source.matchAll(pointRefArguments)].some((match) => curvePointId(match[2]));
 }
 
 export function nodesHaveCurvePointReferences(nodes) {
   return nodes.some((node) =>
     expressionParameters(node).some((q) => expressionHasCurvePointReference(q.expression)),
+  );
+}
+
+// Before schema 60, a reference to a deleted node could use any parameter key.
+// Only a Curve that is actually present proves this spelling has the new meaning.
+export function nodesHaveKnownCurvePointReferences(nodes) {
+  const owners = new Map(nodes.map((node) => [node.id, node]));
+  return nodes.some((node) =>
+    expressionParameters(node).some((q) =>
+      [...q.expression.matchAll(refArguments)].some(
+        (match) => curvePointId(match[3]) && owners.get(match[1])?.type === 'Curve',
+      ),
+    ),
   );
 }
 
@@ -79,8 +94,8 @@ function pointReferences(nodes) {
   const refs = new Map();
   for (const node of nodes)
     for (const q of expressionParameters(node))
-      for (const match of q.expression.matchAll(refArguments)) {
-        const point = curvePointId(match[3]);
+      for (const match of q.expression.matchAll(pointRefArguments)) {
+        const point = curvePointId(match[2]);
         if (point) refs.set(`${match[1]}\0${point}`, { owner: match[1], point });
       }
   return refs;

@@ -1251,10 +1251,7 @@ function validateNodePreset(doc, preset) {
   for (const n of preset.nodes) {
     if (['Output', 'Image Output', 'Composition Reference', 'SVG'].includes(n.type))
       throw Error('Preset cannot contain Output or Composition Reference nodes');
-    if (
-      nodeDependencies(n).some((d) => !ids.has(d.source)) ||
-      curvePointReferenceOwners([n]).some((id) => !ids.has(id))
-    )
+    if (nodeDependencies(n).some((d) => !ids.has(d.source)))
       throw Error('Preset has an external node reference; select its sources too');
   }
   const fontIds = new Set(
@@ -1313,6 +1310,14 @@ function captureNodePreset(doc, layer, nodeIds, name, id) {
   )
     throw Error('Select distinct nodes in this composition');
   const nodes = clone(layer.nodes.filter((n) => nodeIds.includes(n.id)));
+  const selected = new Set(nodeIds);
+  if (
+    curvePointReferenceOwners(nodes).some(
+      (id) =>
+        !selected.has(id) && layer.nodes.some((node) => node.id === id && node.type === 'Curve'),
+    )
+  )
+    throw Error('Preset has an external node reference; select its sources too');
   const fonts = new Set(
     nodes
       .filter((n) => n.type === 'Text')
@@ -5305,6 +5310,7 @@ export function validate(doc) {
   // loadable as diagnosed dangling targets rather than silently losing the link.
   const owners = new Map(doc.layers.flatMap((l) => l.nodes.map((n) => [n.id, l.id])));
   for (const l of doc.layers) {
+    const localNodes = new Map(l.nodes.map((item) => [item.id, item]));
     for (const n of l.nodes)
       if (n.type === 'Reference' && n.reference) {
         const owner = owners.get(n.reference.nodeId);
@@ -5322,18 +5328,18 @@ export function validate(doc) {
       for (const [, q] of parameters(n))
         if (q.expression) {
           for (const ref of parameterExpressionUses(q)) {
-            if (curvePointId(ref.key) && sourceSchemaVersion < CURVE_POINT_REFERENCE_SCHEMA_VERSION)
+            if (owners.has(ref.nodeId) && owners.get(ref.nodeId) !== l.id)
+              throw Error('Expression reference target must be in the same layer');
+            const owner = localNodes.get(ref.nodeId);
+            if (
+              owner?.type === 'Curve' &&
+              curvePointId(ref.key) &&
+              sourceSchemaVersion < CURVE_POINT_REFERENCE_SCHEMA_VERSION
+            )
               throw Error(
                 `Curve point references require schemaVersion ${CURVE_POINT_REFERENCE_SCHEMA_VERSION}`,
               );
-            if (
-              curvePointId(ref.key) &&
-              (ref.type !== 'Scalar' || !['x', 'y'].includes(ref.component))
-            )
-              throw Error('Curve point reference requires an x or y Scalar component');
-            if (owners.has(ref.nodeId) && owners.get(ref.nodeId) !== l.id)
-              throw Error('Expression reference target must be in the same layer');
-            if (owners.has(ref.nodeId)) {
+            if (owner) {
               try {
                 referenceParameter(l, ref, ref.type);
               } catch (error) {
@@ -6886,7 +6892,9 @@ export class CommandSession {
           ...new Set(
             [
               ...nodes.flatMap((n) => nodeDependencies(n).map((d) => d.source)),
-              ...curvePointReferenceOwners(nodes),
+              ...curvePointReferenceOwners(nodes).filter((id) =>
+                layer.nodes.some((node) => node.id === id && node.type === 'Curve'),
+              ),
             ].filter((id) => !ids.has(id)),
           ),
         ];
@@ -7488,7 +7496,7 @@ export class CommandSession {
           resolveFonts(base, this.#fonts()),
           base.imageAssets,
           base,
-        ).transformValues(n.id)[payload.key];
+        ).parameterValue(n.id, payload.key);
       const unchanged =
         !q.source &&
         !q.expression &&
@@ -7501,7 +7509,7 @@ export class CommandSession {
           resolveFonts(base, this.#fonts()),
           base.imageAssets,
           base,
-        ).transformValues(n.id).anchor;
+        ).parameterValue(n.id, 'anchor');
         n.params.position = { ...clone(transformExtensions.position), value: clone(anchor) };
         base.schemaVersion = Math.max(base.schemaVersion, 11);
       }
@@ -7912,7 +7920,7 @@ export class CommandSession {
             resolveFonts(candidate, this.#fonts()),
             candidate.imageAssets,
             candidate,
-          ).transformValues(transformNode.id)[payload.key],
+          ).parameterValue(transformNode.id, payload.key),
         );
       if (
         (type === 'set-parameter-lock' && payload.locked === virtual.locked) ||
@@ -8703,7 +8711,7 @@ export class CommandSession {
               resolveFonts(candidate, this.#fonts()),
               candidate.imageAssets,
               candidate,
-            ).transformValues(node.id).scaleWidth;
+            ).parameterValue(node.id, 'scaleWidth');
             node.params.scaleWidth = { ...clone(transformExtensions.scaleWidth), value: width };
           }
           if (payload.axis !== undefined) {

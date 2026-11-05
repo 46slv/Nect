@@ -57,9 +57,11 @@ export function prepareProjectCompositionsImport(current, sourceProject, composi
   remapAssetReferences(compositions, fonts.mapping, images.mapping);
 
   const project = structuredClone(current);
-  const importsPointReference = compositions.some((composition) =>
-    composition.layers.some((layer) => nodesHaveCurvePointReferences(layer.nodes)),
-  );
+  const importsPointReference =
+    sourceProject.schemaVersion >= CURVE_POINT_REFERENCE_SCHEMA_VERSION &&
+    compositions.some((composition) =>
+      composition.layers.some((layer) => nodesHaveCurvePointReferences(layer.nodes)),
+    );
   const sourceForColors =
     sourceProject.schemaVersion === CURVE_POINT_REFERENCE_SCHEMA_VERSION && !importsPointReference
       ? { ...sourceProject, schemaVersion: CURVE_POINT_REFERENCE_SCHEMA_VERSION - 1 }

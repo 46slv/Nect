@@ -50,9 +50,9 @@ export function prepareCompositionImport(current, sourceText, compositionId) {
   remapAssetReferences(copiedLayers, fonts.mapping, images.mapping);
   const result = cloneDocument(current);
   result.layers.push(...copiedLayers);
-  const importsPointReference = copiedLayers.some((layer) =>
-    nodesHaveCurvePointReferences(layer.nodes),
-  );
+  const importsPointReference =
+    source.schemaVersion >= CURVE_POINT_REFERENCE_SCHEMA_VERSION &&
+    copiedLayers.some((layer) => nodesHaveCurvePointReferences(layer.nodes));
   const sourceForColors =
     source.schemaVersion === CURVE_POINT_REFERENCE_SCHEMA_VERSION && !importsPointReference
       ? { ...source, schemaVersion: CURVE_POINT_REFERENCE_SCHEMA_VERSION - 1 }
