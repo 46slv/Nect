@@ -153,15 +153,23 @@ try {
     beforeLegacyChroma.expectedRevision,
   );
   assert.deepEqual((await page.evaluate(() => window.nect.document)).keyColorRecipe, priorPacket);
+  await page
+    .locator(`[data-shared-color-row="${liveDerived}"] [data-shared-color-copy-menu]`)
+    .selectOption('reference');
   await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${liveLayer.id}"]`).click();
   await page.locator(`.graph .node[data-id="${liveFill.id}"] .node-head strong`).click();
   await ensureWorkspacePanel(page, 'inspector');
   await page
-    .locator(
-      `.inspector-body .field[data-node="${liveFill.id}"][data-key="color"] [data-shared-color-binding]`,
-    )
-    .selectOption(liveDerived);
+    .locator(`.inspector-body .field[data-node="${liveFill.id}"][data-key="color"]`)
+    .getByRole('button', { name: /Paste link into/ })
+    .click();
+  assert.equal(
+    (await page.evaluate(() => window.nect.document)).layers
+      .find((layer) => layer.id === liveLayer.id)
+      .nodes.find((entry) => entry.id === liveFill.id).params.color.colorSlotId,
+    liveDerived,
+  );
   await ensureWorkspacePanel(page, 'colors');
   await page.locator('[data-harmony-create]').click();
   const withHarmony = await page.evaluate(() => window.nect.document);

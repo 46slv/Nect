@@ -23,7 +23,8 @@ function setup(t) {
     ],
     layers: [{ id: 'layer-a' }, { id: 'layer-b' }],
   };
-  let session = { state: { sessionId: 'session-a', expectedRevision: 3 } };
+  let session = { state: { sessionId: 'session-a', expectedRevision: 3 } },
+    projectIdentity = 1;
   const calls = [],
     notices = [];
   let renders = 0,
@@ -37,6 +38,7 @@ function setup(t) {
     app,
     getSession: () => session,
     getDocument: () => model,
+    getProjectIdentity: () => projectIdentity,
     dispatch: (type, payload, state) => {
       if (dispatchError) throw dispatchError;
       calls.push({ type, payload, state });
@@ -82,9 +84,141 @@ function setup(t) {
     set session(value) {
       session = value;
     },
+    set projectIdentity(value) {
+      projectIdentity = value;
+    },
     failDispatch: (error) => (dispatchError = error),
   };
 }
+
+test('copying a value captures the literal and pastes it independently in another project', (t) => {
+  const s = setup(t);
+  s.panel.toggle();
+  const copy = s.app.querySelector(
+    '[data-shared-color-row="slot-a"] [data-shared-color-copy-menu]',
+  );
+  copy.value = 'value';
+  s.fire(copy);
+  s.model.colorSlots[0].value = { hex: '#ff0000', alpha: 1 };
+  s.projectIdentity = 2;
+  s.model.colorSlots = [];
+  s.bind({ colorSlotId: undefined });
+  const paste = s.app.querySelector('[data-shared-color-paste]');
+  assert.equal(paste.textContent, 'Paste value');
+  assert.equal(paste.disabled, false);
+  s.fire(paste, 'click');
+  assert.deepEqual(s.calls.at(-1), {
+    type: 'paste-color-value',
+    payload: {
+      layerId: 'layer-b',
+      nodeId: 'node-b',
+      key: 'stroke',
+      value: { hex: '#112233', alpha: 0.4 },
+    },
+    state: { sessionId: 'session-a', expectedRevision: 3 },
+  });
+});
+
+test('copied references survive Composition switches but reject missing or other-project slots', (t) => {
+  const s = setup(t);
+  s.panel.toggle();
+  const copy = s.app.querySelector(
+    '[data-shared-color-row="slot-b"] [data-shared-color-copy-menu]',
+  );
+  copy.value = 'reference';
+  s.fire(copy);
+  s.session = { state: { sessionId: 'session-b', expectedRevision: 9 } };
+  s.model.colorSlots[1].value = { hex: '#abcdef', alpha: 0.25 };
+  s.bind();
+  let paste = s.app.querySelector('[data-shared-color-paste]');
+  assert.equal(paste.textContent, 'Paste link');
+  assert.equal(paste.disabled, false);
+  s.fire(paste, 'click');
+  assert.deepEqual(s.calls.at(-1), {
+    type: 'paste-color-reference',
+    payload: { layerId: 'layer-b', nodeId: 'node-b', key: 'stroke', slotId: 'slot-b' },
+    state: { sessionId: 'session-b', expectedRevision: 9 },
+  });
+  const count = s.calls.length;
+  s.projectIdentity = 2;
+  s.bind();
+  paste = s.app.querySelector('[data-shared-color-paste]');
+  assert.equal(paste.disabled, true, 'same slot ID in a different project is not a reference');
+  s.fire(paste, 'click');
+  assert.equal(s.calls.length, count);
+  assert.match(s.notices.at(-1)[0], /no longer available/);
+  s.projectIdentity = 1;
+  s.model.colorSlots = s.model.colorSlots.filter((slot) => slot.id !== 'slot-b');
+  s.bind();
+  assert.equal(s.app.querySelector('[data-shared-color-paste]').disabled, true);
+  s.model.colorSlots.push({
+    id: 'slot-b',
+    name: 'Restored',
+    value: { hex: '#abcdef', alpha: 0.25 },
+  });
+  s.bind();
+  assert.equal(
+    s.app.querySelector('[data-shared-color-paste]').disabled,
+    false,
+    'Undo can restore the slot',
+  );
+});
+
+test('same-name color rows identify which reference will be copied', (t) => {
+  const s = setup(t);
+  s.model.colorSlots[1].value = { ...s.model.colorSlots[0].value };
+  s.panel.toggle();
+  const a = s.app.querySelector('[data-shared-color-row="slot-a"]'),
+    b = s.app.querySelector('[data-shared-color-row="slot-b"]');
+  assert.notEqual(
+    a.querySelector('[data-shared-color-copy-menu]').getAttribute('aria-label'),
+    b.querySelector('[data-shared-color-copy-menu]').getAttribute('aria-label'),
+  );
+  assert.notEqual(
+    a.querySelector('.shared-color-identity').textContent,
+    b.querySelector('.shared-color-identity').textContent,
+  );
+  assert.equal(a.querySelector('[data-shared-color-edit="name"]').value, 'Primary');
+  assert.equal(b.querySelector('[data-shared-color-edit="name"]').value, 'Primary');
+});
+
+test('stale copy and paste controls cannot act after the Session changes', (t) => {
+  const s = setup(t);
+  s.panel.toggle();
+  const staleCopy = s.app.querySelector(
+    '[data-shared-color-row="slot-a"] [data-shared-color-copy-menu]',
+  );
+  s.session = { state: { sessionId: 'other', expectedRevision: 1 } };
+  staleCopy.value = 'value';
+  s.fire(staleCopy);
+  assert.match(s.notices.at(-1)[0], /stale/);
+  s.bind();
+  assert.equal(s.app.querySelector('[data-shared-color-paste]'), null);
+  const freshCopy = s.app.querySelector(
+    '[data-shared-color-row="slot-a"] [data-shared-color-copy-menu]',
+  );
+  freshCopy.value = 'value';
+  s.fire(freshCopy);
+  s.bind();
+  const stalePaste = s.app.querySelector('[data-shared-color-paste]');
+  s.session = { state: { sessionId: 'other', expectedRevision: 2 } };
+  s.fire(stalePaste, 'click');
+  assert.equal(s.calls.length, 0);
+  assert.match(s.notices.at(-1)[0], /stale/);
+});
+
+test('paste is disabled on a locked node without changing the existing binding selector', (t) => {
+  const s = setup(t);
+  s.panel.toggle();
+  const copy = s.app.querySelector(
+    '[data-shared-color-row="slot-a"] [data-shared-color-copy-menu]',
+  );
+  copy.value = 'reference';
+  s.fire(copy);
+  const select = s.bind({}, { id: 'node-b', name: 'Paint', locked: true });
+  assert.equal(select.disabled, false);
+  assert.equal(s.app.querySelector('[data-shared-color-paste]').disabled, true);
+});
 
 test('panel starts closed and add dispatches a typed command with the current Session envelope', (t) => {
   const s = setup(t);

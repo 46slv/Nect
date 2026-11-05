@@ -13,6 +13,7 @@ export function createSharedColorsPanel({
   app,
   getSession,
   getDocument,
+  getProjectIdentity = () => getSession(),
   getCoverageSnapshot,
   dispatch,
   render,
@@ -23,7 +24,8 @@ export function createSharedColorsPanel({
   onOpenKeyColorRecipe = () => {},
   externalVisibility = false,
 }) {
-  let activeColorPointer = null,
+  let copiedColor = null,
+    activeColorPointer = null,
     rendering = false;
   const composingInputs = new WeakSet();
   const hasActiveComposition = () => {
@@ -34,7 +36,7 @@ export function createSharedColorsPanel({
     if (
       !hasActiveComposition() ||
       !event.target.closest?.(
-        '[data-workspace-panel],[data-shared-color-add],[data-shared-color-close],[data-key-color-recipe-open],[data-viewer-mode="viewers"],[data-action="align-panel"],[data-action="asset-library"]',
+        '[data-workspace-panel],[data-shared-color-add],[data-shared-color-close],[data-shared-color-copy-menu],[data-key-color-recipe-open],[data-viewer-mode="viewers"],[data-action="align-panel"],[data-action="asset-library"]',
       )
     )
       return false;
@@ -392,10 +394,30 @@ export function createSharedColorsPanel({
   app.addEventListener('click', keepCompositionFocused, true);
   app.addEventListener('click', (event) => {
     const button = event.target.closest?.(
-      '[data-shared-color-add],[data-shared-color-close],[data-key-color-recipe-open]',
+      '[data-shared-color-add],[data-shared-color-close],[data-key-color-recipe-open],[data-shared-color-paste]',
     );
     if (!button) return;
     event.stopImmediatePropagation();
+    if (button.hasAttribute('data-shared-color-paste')) {
+      return perform(() => {
+        const state = envelope(button);
+        if (!copiedColor) throw Error('Copy a color in Nect first');
+        const payload = {
+          layerId: button.dataset.sharedColorLayer,
+          nodeId: button.dataset.sharedColorNode,
+          key: button.dataset.sharedColorKey,
+        };
+        if (copiedColor.kind === 'reference') {
+          if (
+            copiedColor.project !== getProjectIdentity() ||
+            !getDocument().colorSlots?.some((slot) => slot.id === copiedColor.slotId)
+          )
+            throw Error('Copied color reference is no longer available in this project');
+          dispatch('paste-color-reference', { ...payload, slotId: copiedColor.slotId }, state);
+        } else
+          dispatch('paste-color-value', { ...payload, value: { ...copiedColor.value } }, state);
+      });
+    }
     if (button.hasAttribute('data-key-color-recipe-open')) {
       controller.cancelEdit();
       render();
@@ -457,6 +479,24 @@ export function createSharedColorsPanel({
   app.addEventListener('compositionend', literalInput);
   app.addEventListener('change', (event) => {
     const el = event.target;
+    if (el.matches?.('[data-shared-color-copy-menu]')) {
+      event.stopImmediatePropagation();
+      return perform(() => {
+        const kind = el.value;
+        el.value = '';
+        envelope(el);
+        if (chroma.editing || hasActiveComposition()) throw Error('Finish the color edit first');
+        const slotId = el.closest('[data-shared-color-row]')?.dataset.sharedColorRow;
+        const slot = getDocument().colorSlots?.find((entry) => entry.id === slotId);
+        if (!slot) throw Error('Shared color is no longer available');
+        if (kind === 'value') copiedColor = { kind, value: { ...slot.value } };
+        else if (kind === 'reference')
+          copiedColor = { kind, slotId, project: getProjectIdentity() };
+        else throw Error('Unknown color copy action');
+        render();
+        notify(kind === 'value' ? 'Color value copied in Nect' : 'Color reference copied in Nect');
+      });
+    }
     if (el.matches?.('[data-shared-color-binding]')) {
       event.stopImmediatePropagation();
       perform(() => {
@@ -558,10 +598,16 @@ export function createSharedColorsPanel({
       if (!open) return '';
       const slots = (chroma.previewDocument || getDocument()).colorSlots || [];
       const linked = liveKeyColorSlotIds(getDocument());
+      const rowLabels = displayColorLabels(slots.map(({ id, name }) => ({ id, label: name })));
       const rows = slots
         .map((slot) => {
-          const owned = linked.has(slot.id);
-          return `<div class="shared-color-row" data-shared-color-row="${esc(slot.id)}"><input type="text" data-shared-color-edit="name" data-shared-color-id="${esc(slot.id)}" maxlength="128" value="${esc(slot.name)}" aria-label="Shared color name">${owned ? '<span data-live-color-note title="Edit in Key color" aria-label="Linked color. Edit in Key color">Linked</span>' : ''}${renderHslFields(slot.value.hex, { mode: 'shared', name: slot.name, id: slot.id, scrub: live, disabled: owned })}<input type="color" data-shared-color-edit="hex" data-shared-color-id="${esc(slot.id)}" value="${esc(slot.value.hex)}" aria-label="${esc(slot.name)} color" ${owned ? 'disabled' : ''}><output data-color-coverage-id="${esc(slot.id)}" aria-label="${esc(slot.name)} visible area">—</output><input type="number" data-color-scrub-step="0.01" title="Drag horizontally to adjust; click to type" data-shared-color-edit="alpha" data-shared-color-id="${esc(slot.id)}" min="0" max="1" step="0.01" value="${slot.value.alpha}" aria-label="${esc(slot.name)} alpha" ${owned ? 'disabled' : ''}></div>`;
+          const owned = linked.has(slot.id),
+            label = rowLabels.get(slot.id);
+          const identity =
+            label === slot.name
+              ? ''
+              : `<span class="shared-color-identity">${esc(label.slice(slot.name.length))}</span>`;
+          return `<div class="shared-color-row" data-shared-color-row="${esc(slot.id)}"><input type="text" data-shared-color-edit="name" data-shared-color-id="${esc(slot.id)}" maxlength="128" value="${esc(slot.name)}" aria-label="Shared color name"><select class="shared-color-copy" data-shared-color-copy-menu="${esc(slot.id)}" aria-label="Copy ${esc(label)} in Nect"><option value="">Copy…</option><option value="value">Copy value in Nect</option><option value="reference">Copy reference in Nect</option></select>${identity}${owned ? '<span data-live-color-note title="Edit in Key color" aria-label="Linked color. Edit in Key color">Linked</span>' : ''}${renderHslFields(slot.value.hex, { mode: 'shared', name: slot.name, id: slot.id, scrub: live, disabled: owned })}<input type="color" data-shared-color-edit="hex" data-shared-color-id="${esc(slot.id)}" value="${esc(slot.value.hex)}" aria-label="${esc(slot.name)} color" ${owned ? 'disabled' : ''}><output data-color-coverage-id="${esc(slot.id)}" aria-label="${esc(slot.name)} visible area">—</output><input type="number" data-color-scrub-step="0.01" title="Drag horizontally to adjust; click to type" data-shared-color-edit="alpha" data-shared-color-id="${esc(slot.id)}" min="0" max="1" step="0.01" value="${slot.value.alpha}" aria-label="${esc(slot.name)} alpha" ${owned ? 'disabled' : ''}></div>`;
         })
         .join('');
       const savedColors = `<div class="shared-color-list" aria-label="Saved shared colors"><h3 class="shared-colors-heading">${live && chroma.editing ? 'Live colors' : 'Saved colors'}</h3>${linked.size ? '<p class="font-note">Edit linked colors in Key color.</p>' : ''}${rows || '<p class="font-note">Add a color, then link a Color field.</p>'}</div>${getDocument().colorDesign?.version === 2 ? '' : '<p class="font-note" data-color-coverage-status role="status">Measuring visible area…</p>'}`;
@@ -569,12 +615,28 @@ export function createSharedColorsPanel({
     },
     bindingControl(node, key, q, layerId) {
       const slots = getDocument().colorSlots || [];
-      if (!slots.length && q.colorSlotId === undefined) return '';
+      if (!slots.length && q.colorSlotId === undefined && !copiedColor) return '';
+      const disabled =
+        q.locked ||
+        q.source ||
+        q.expression ||
+        getDocument().layers.find((l) => l.id === layerId)?.locked;
+      const missingReference =
+        copiedColor?.kind === 'reference' &&
+        (copiedColor.project !== getProjectIdentity() ||
+          !slots.some((slot) => slot.id === copiedColor.slotId));
       const labels = displayColorLabels(
         slots.map(({ id, name }) => ({ id, label: name })),
         ['Local color'],
       );
-      return `<select class="shared-color-binding" data-shared-color-binding data-shared-color-layer="${esc(layerId)}" data-shared-color-node="${esc(node.id)}" data-shared-color-key="${esc(key)}" ${stamp()} aria-label="${esc(node.name)} ${esc(key)} shared color" ${q.locked || q.source || q.expression || getDocument().layers.find((l) => l.id === layerId)?.locked ? 'disabled' : ''}><option value="" ${q.colorSlotId === undefined ? 'selected' : ''}>Local color</option>${slots.map((slot) => `<option value="${esc(slot.id)}" ${slot.id === q.colorSlotId ? 'selected' : ''}>${esc(labels.get(slot.id))}</option>`).join('')}</select>`;
+      const select =
+        slots.length || q.colorSlotId !== undefined
+          ? `<select class="shared-color-binding" data-shared-color-binding data-shared-color-layer="${esc(layerId)}" data-shared-color-node="${esc(node.id)}" data-shared-color-key="${esc(key)}" ${stamp()} aria-label="${esc(node.name)} ${esc(key)} shared color" ${disabled ? 'disabled' : ''}><option value="" ${q.colorSlotId === undefined ? 'selected' : ''}>Local color</option>${slots.map((slot) => `<option value="${esc(slot.id)}" ${slot.id === q.colorSlotId ? 'selected' : ''}>${esc(labels.get(slot.id))}</option>`).join('')}</select>`
+          : '';
+      const paste = copiedColor
+        ? `<button type="button" class="mini shared-color-paste" data-shared-color-paste data-shared-color-layer="${esc(layerId)}" data-shared-color-node="${esc(node.id)}" data-shared-color-key="${esc(key)}" ${stamp()} aria-label="Paste ${copiedColor.kind === 'reference' ? 'link' : 'value'} into ${esc(node.name)} ${esc(key)}" title="${missingReference ? 'Copied reference is unavailable in this project' : 'Paste color copied in Nect'}" ${disabled || node.locked || missingReference ? 'disabled' : ''}>Paste ${copiedColor.kind === 'reference' ? 'link' : 'value'}</button>`
+        : '';
+      return select + paste;
     },
   };
   return controller;

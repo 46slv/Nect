@@ -184,6 +184,78 @@ test('unbind freezes the current resolved Color, not the pre-binding fallback', 
   assert.deepEqual(f.result().run(f.sourcedFill.id).fill, changed);
 });
 
+test('pasting a literal replaces a binding atomically and preserves Undo, Redo and validation', () => {
+  const f = fixture(),
+    slotId = f.create();
+  f.send('bind-color-slot', { slotId });
+  const before = serialize(f.session.snapshot());
+  const revision = f.session.state.expectedRevision;
+  f.send('paste-color-value', { value: changed });
+  assert.equal(f.session.state.expectedRevision, revision + 1);
+  assert.equal(Object.hasOwn(f.read(), 'colorSlotId'), false);
+  assert.deepEqual(f.read().value, changed);
+  assert.deepEqual(f.result().run(f.directFill.id).fill, changed);
+  const after = serialize(f.session.snapshot());
+  f.send('undo');
+  assert.equal(serialize(f.session.snapshot()), before);
+  rejectsWithoutMutation(f, 'paste-color-value', { value: { hex: '#invalid', alpha: 1 } });
+  rejectsWithoutMutation(f, 'paste-color-value', { nodeId: f.sourcedFill.id, value: changed });
+  f.send('redo');
+  assert.equal(serialize(f.session.snapshot()), after);
+  assert.deepEqual(
+    deserialize(after).layers[0].nodes.find((n) => n.id === f.directFill.id).params.color.value,
+    changed,
+  );
+});
+
+test('pasting an unchanged literal preserves its serialized keys and pending Redo', () => {
+  const f = fixture(({ directFill }) => {
+    directFill.params.color.value = { alpha: 0.6, hex: '#112233' };
+  });
+  f.send('set-parameter', { value: changed });
+  f.send('undo');
+  const before = stateOf(f.session);
+  f.send('paste-color-value', { value: { hex: '#112233', alpha: 0.6 } });
+  assert.deepEqual(stateOf(f.session), before);
+  f.send('redo');
+  assert.deepEqual(f.read().value, changed);
+});
+
+test('pasting a literal over a null Fill fallback restores null with one Undo', () => {
+  const f = fixture(({ directFill }) => {
+    directFill.params.color.value = null;
+  });
+  f.send('paste-color-value', { value: changed });
+  assert.deepEqual(f.read().value, changed);
+  f.send('undo');
+  assert.equal(f.read().value, null);
+  f.send('redo');
+  assert.deepEqual(f.read().value, changed);
+});
+
+test('copy paste commands reject locked owners without consuming pending Redo', () => {
+  for (const lock of ['layer', 'node', 'parameter']) {
+    const f = fixture(({ layer, directFill }) => {
+      if (lock === 'layer') layer.locked = true;
+      else if (lock === 'node') directFill.locked = true;
+      else directFill.params.color.locked = true;
+    });
+    const slotId = f.create();
+    f.send('set-color-slot', { slotId, value: changed });
+    f.send('undo');
+    rejectsWithoutMutation(f, 'paste-color-value', { value: changed });
+    rejectsWithoutMutation(f, 'paste-color-reference', { slotId });
+    f.send('redo');
+    assert.deepEqual(f.session.snapshot().colorSlots[0].value, changed);
+    if (lock === 'node') {
+      f.send('bind-color-slot', { slotId });
+      assert.equal(f.read().colorSlotId, slotId, 'legacy bind semantics remain unchanged');
+      f.send('unbind-color-slot');
+      assert.equal(f.read().colorSlotId, undefined);
+    }
+  }
+});
+
 test('create, bind, rename, edit and unbind each have exact single-step Undo/Redo and reopen', () => {
   const f = fixture();
   const roundTripCommand = (type, payload) => {

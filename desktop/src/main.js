@@ -977,6 +977,7 @@ const sharedColors = createSharedColorsPanel({
   getCoverageSnapshot: () => coverageView.snapshot(),
   getSession: () => session,
   getDocument: () => history.doc,
+  getProjectIdentity: () => documents.generation,
   dispatch: (type, payload, envelope) =>
     commandChange(
       type,
