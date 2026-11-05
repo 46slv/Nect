@@ -2,9 +2,11 @@
 
 `initialize-key-color-recipe` is a typed Session command for preparing explicitly
 specified experimental fixtures. It is **not ordinary user creation**: there is
-no creation button, preset factory, coefficient editor, JSON-import UX or new
-`main.js` routing. Product defaults and unresolved dark TonePlan/ChromaPlan
-coefficients remain unchanged. See the [pure model contract](../../docs/key-color-recipe-contract.md)
+no creation button, preset factory, coefficient editor or JSON-import UX. The
+main dispatcher preserves this command's closed project-level
+payload without adding a layer ID; no production creation control invokes it.
+Product defaults and unresolved dark TonePlan/ChromaPlan coefficients remain
+unchanged. See the [pure model contract](../../docs/key-color-recipe-contract.md)
 and [historical receipt contract](key-color-recipe-retention.md).
 
 ## Closed version-1 request

@@ -56,7 +56,7 @@ test('real main.js routes the experimental editor through closed Apply, not a la
     source = source.slice(0, start) + source.slice(end);
     source = resolveMainRelativeImports(source.replace("import './style.css';", ''));
     source +=
-      '\nwindow.keyColorAppTest = () => ({ past: history.past.length, future: history.future.length, message, error });';
+      '\nwindow.keyColorAppTest = () => ({ past: history.past.length, future: history.future.length, message, error, initializeFixture: (payload, envelope) => commandChange("initialize-key-color-recipe", payload, undefined, false, envelope) });';
     source += `\n//# sourceURL=main-key-color-${label}.js`;
     await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
     const query = (selector) => win.document.querySelector(selector);
@@ -92,6 +92,103 @@ test('real main.js routes the experimental editor through closed Apply, not a la
       },
     };
   }
+
+  await t.test(
+    'closed initialization through real main preserves atomic history and rejects stale or duplicate requests',
+    async () => {
+      const s = await boot(main, 'initialize-fixture');
+      try {
+        // Fixed developer-only input: not an approved plan, preset or user entry.
+        const payload = {
+          version: 1,
+          modelVersion: 2,
+          solverVersion: 'experimental-affine-v1',
+          colorSemanticsVersion: 'linear-srgb-straight-v1',
+          paletteId: 'fixture-only-palette',
+          intent: {
+            keyColor: {
+              id: 'fresh-key',
+              role: 'Identity',
+              value: { hex: '#aBcD09', alpha: 0 },
+              hueHint: 17,
+            },
+            preset: {
+              id: 'explicit-fixture-only',
+              version: 1,
+              harmony: 'triadic',
+              hueSteps: 12,
+              slots: [
+                {
+                  id: 'fresh-derived',
+                  role: 'Fixture background',
+                  position: 1,
+                  lightnessScale: 0,
+                  lightnessOffset: 0.83,
+                  chromaScale: 0,
+                  chromaOffset: 0,
+                  alpha: 1,
+                },
+              ],
+            },
+            slots: [
+              { id: 'fresh-derived', role: 'Fixture background', deltaL: 0.03, deltaRatioCmax: 0 },
+            ],
+            settings: { areaAware: false },
+          },
+          allocations: [
+            { slotId: 'fresh-derived', name: 'Exact background name' },
+            { slotId: 'fresh-key', name: 'Exact C1 name' },
+          ],
+        };
+        const existing = retainedRecipeFixture();
+        delete existing.keyColorRecipe;
+        s.load(existing);
+        const before = s.snapshot();
+        const captured = { ...s.win.nect.commandState };
+        assert.notEqual(s.ui().initializeFixture(payload, captured), null);
+        const after = s.snapshot();
+        assert.equal(s.ui().error, false);
+        assert.equal(s.ui().past, 1);
+        assert.equal(after.colorSlots.length, before.colorSlots.length + 2);
+        assert.deepEqual(
+          after.colorSlots.slice(-2).map((slot) => slot.id),
+          ['fresh-derived', 'fresh-key'],
+        );
+        assert.deepEqual(after.colorSlots.find((slot) => slot.id === 'fresh-key').value, {
+          hex: '#aBcD09',
+          alpha: 0,
+        });
+        assert.ok(after.keyColorRecipe.committedSnapshot);
+        const duplicate = structuredClone(payload);
+        duplicate.paletteId = 'second-fixture-palette';
+        duplicate.intent.keyColor.id = 'second-key';
+        duplicate.intent.slots[0].id = 'second-derived';
+        duplicate.intent.preset.slots[0].id = 'second-derived';
+        duplicate.allocations[0].slotId = 'second-derived';
+        duplicate.allocations[1].slotId = 'second-key';
+        const current = { ...s.win.nect.commandState };
+        assert.equal(s.ui().initializeFixture(duplicate, current), null);
+        assert.match(s.ui().message, /Retained key-color recipe exists/);
+        assert.deepEqual(s.snapshot(), after);
+        assert.equal(s.ui().past, 1);
+        assert.equal(s.ui().future, 0);
+        s.click('[data-action="undo"]');
+        assert.deepEqual(s.snapshot(), before);
+        assert.equal(s.ui().future, 1);
+        assert.equal(s.ui().initializeFixture(payload, captured), null);
+        assert.match(s.ui().message, /STALE_SESSION/);
+        assert.deepEqual(s.snapshot(), before);
+        assert.equal(s.ui().past, 0);
+        assert.equal(s.ui().future, 1);
+        s.click('[data-action="redo"]');
+        assert.deepEqual(s.snapshot(), after);
+        assert.equal(s.ui().past, 1);
+        assert.equal(s.ui().future, 0);
+      } finally {
+        await s.win.happyDOM.abort();
+      }
+    },
+  );
 
   await t.test(
     'empty state and real Apply/Undo/Redo/native reopen preserve legacy data/IDs/refs',

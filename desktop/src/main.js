@@ -1889,6 +1889,7 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
       payload:
         type === 'create-harmony-palette' ||
         type === 'add-harmony-color' ||
+        type === 'initialize-key-color-recipe' ||
         type === 'apply-key-color-recipe-snapshot'
           ? payload
           : { layerId: current().id, ...payload },
