@@ -17,7 +17,7 @@ const doc = blankDocument(),
   fill = node('Fill', 730, 70),
   out = layer.nodes[0];
 curve.id = 'picker-curve';
-curve.name = 'Contour';
+curve.name = `Contour ${pointCount}`;
 curve.points = Array.from({ length: pointCount }, (_, i) => {
   const point = structuredClone(curve.points[0]);
   point.id = `point-${i + 1}`;
@@ -66,7 +66,7 @@ try {
   const initialCount = await picker.locator('.picker-option').count();
   assert.equal(initialCount, Math.min(100, pointCount * 2 + 4));
   if (pointCount * 2 > 100)
-    assert.match(await picker.locator('.picker-status').textContent(), /search to narrow/);
+    assert.match(await picker.locator('.picker-status').textContent(), /^1–100 of /);
   await page.screenshot({ path: resolve(output, 'large-picker.png') });
   await page.setViewportSize({ width: 900, height: 640 });
   await page.screenshot({ path: resolve(output, 'large-picker-narrow.png') });
@@ -81,10 +81,18 @@ try {
   await picker.locator('.picker-option').first().waitFor();
   const searchMs = Date.now() - searchStart;
   const labels = await picker.locator('.picker-option').allTextContents();
-  console.log(JSON.stringify({ points: pointCount, openMs, initialCount, searchMs, labels }));
-  assert.deepEqual(labels, [
-    `Contour · Point ${pointCount} · X`,
-    `Contour · Point ${pointCount} · Y`,
+  console.log(
+    JSON.stringify({
+      points: pointCount,
+      openMs,
+      initialCount,
+      searchMs,
+      first: labels.slice(0, 2),
+    }),
+  );
+  assert.deepEqual(labels.slice(0, 2), [
+    `Contour ${pointCount} · Point ${pointCount} · X`,
+    `Contour ${pointCount} · Point ${pointCount} · Y`,
   ]);
   await search.press('ArrowDown');
   await search.press('ArrowUp');
@@ -137,6 +145,7 @@ try {
   // also accepts a readable point ordinal rather than requiring a UUID.
   const small = structuredClone(doc),
     firstCurve = small.layers[0].nodes.find((item) => item.id === 'picker-curve');
+  firstCurve.name = 'Contour';
   firstCurve.points = firstCurve.points.slice(0, 2);
   const secondCurve = structuredClone(firstCurve);
   secondCurve.id = 'picker-curve-b';
@@ -176,6 +185,65 @@ try {
     ),
     'ref("picker-curve-b", "other-point-1.position", "y")',
   );
+
+  // Every matching result remains reachable, even when IDs and names are
+  // substring-colliding and the desired owner is beyond the first 100 rows.
+  const many = structuredClone(small),
+    manyLayer = many.layers[0];
+  manyLayer.nodes = manyLayer.nodes.filter(
+    (item) => !['picker-curve', 'picker-curve-b'].includes(item.id),
+  );
+  for (let index = 1; index <= 102; index++) {
+    const copy = structuredClone(firstCurve);
+    copy.id = index === 102 ? 'curve' : `curve-${index}`;
+    copy.points = [copy.points[0]];
+    copy.points[0].id = index === 102 ? 'anchor-target' : `anchor-${index}`;
+    manyLayer.nodes.push(copy);
+  }
+  await page.evaluate((text) => window.nect.load(text), serialize(many));
+  await page.locator('.node[data-id="picker-transform"] .node-head strong').click();
+  await field.locator('[data-fx]').click();
+  await expressionDialog.locator('[data-insert-reference]').click();
+  const manySearch = picker.getByRole('combobox', { name: 'Parameter references search' }),
+    previous = picker.locator('[aria-label="Previous results"]'),
+    next = picker.locator('[aria-label="Next results"]');
+  await manySearch.fill('Contour Point 1 curve');
+  assert.equal(await picker.locator('.picker-option').count(), 100);
+  assert.match(await picker.locator('.picker-status').textContent(), /^1–100 of 204$/);
+  for (let i = 0; i < 3 && !(await next.evaluate((el) => el === document.activeElement)); i++)
+    await page.keyboard.press('Tab');
+  assert.equal(await next.evaluate((el) => el === document.activeElement), true);
+  await page.keyboard.press('Enter');
+  assert.match(await picker.locator('.picker-status').textContent(), /^101–200 of 204$/);
+  assert.equal(await next.evaluate((el) => el === document.activeElement), true);
+  await manySearch.fill('Contour Point 1 curve-1');
+  assert.equal(await previous.isDisabled(), true);
+  assert.equal(await previous.isHidden(), true);
+  await manySearch.fill('Contour Point 1 curve');
+  assert.match(await picker.locator('.picker-status').textContent(), /^1–100 of 204$/);
+  for (let i = 0; i < 3 && !(await next.evaluate((el) => el === document.activeElement)); i++)
+    await page.keyboard.press('Tab');
+  assert.equal(await next.evaluate((el) => el === document.activeElement), true);
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  assert.match(await picker.locator('.picker-status').textContent(), /^201–204 of 204$/);
+  assert.equal(await previous.evaluate((el) => el === document.activeElement), true);
+  assert.equal(await next.isDisabled(), true);
+  await page.screenshot({ path: resolve(output, 'paged-curves.png') });
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  assert.match(await picker.locator('.picker-status').textContent(), /^1–100 of 204$/);
+  assert.equal(await next.evaluate((el) => el === document.activeElement), true);
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  const target = picker.getByRole('option', { name: 'Contour · Point 1 · X · curve', exact: true });
+  assert.equal(await target.count(), 1);
+  const targetIndex = await target.evaluate((el) => [...el.parentElement.children].indexOf(el));
+  await manySearch.focus();
+  for (let index = 0; index < targetIndex; index++) await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  assert.equal(await expressionInput.inputValue(), 'ref("curve", "anchor-target.position", "x")');
+  await expressionDialog.locator('[data-confirm]').click();
   assert.deepEqual(errors, []);
 } finally {
   await browser.close();

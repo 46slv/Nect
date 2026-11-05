@@ -116,6 +116,7 @@ function openSearchPanel({
   categories,
   families,
   filterItems,
+  rankItems,
   maxVisible,
   context,
   fallbackFocus,
@@ -149,7 +150,20 @@ function openSearchPanel({
     closed = false,
     composing = false,
     favoriteOnly = false,
-    lastNotified;
+    lastNotified,
+    resultPage = 0;
+  let previousPage, nextPage;
+  if (maxVisible) {
+    previousPage = document.createElement('button');
+    previousPage.type = 'button';
+    previousPage.textContent = 'Previous';
+    previousPage.setAttribute('aria-label', 'Previous results');
+    nextPage = document.createElement('button');
+    nextPage.type = 'button';
+    nextPage.textContent = 'Next';
+    nextPage.setAttribute('aria-label', 'Next results');
+    dialog.querySelector('footer').prepend(previousPage, nextPage);
+  }
   let familyFilter = '',
     weightFilter = '';
   let familySelect, weightSelect, technicalDetails, technicalIdentity;
@@ -389,9 +403,16 @@ function openSearchPanel({
       scope.textContent = `${categoryId ? label + '内' : '全体'} ${rows.length}件`;
       clearScope.hidden = !categoryId;
     }
+    if (rankItems) rows = rankItems(rows, input.value);
     const grouped = categories && !input.value.trim() && !categoryId;
     const candidates = rows;
-    if (maxVisible && !categories && !families) rows = rows.slice(0, maxVisible);
+    if (maxVisible && !categories && !families) {
+      resultPage = Math.min(resultPage, Math.max(0, Math.ceil(candidates.length / maxVisible) - 1));
+      rows = candidates.slice(resultPage * maxVisible, (resultPage + 1) * maxVisible);
+      previousPage.hidden = nextPage.hidden = candidates.length <= maxVisible;
+      previousPage.disabled = resultPage === 0;
+      nextPage.disabled = (resultPage + 1) * maxVisible >= candidates.length;
+    }
     const familyCandidates = new Map();
     if (families) {
       for (const item of candidates) {
@@ -596,8 +617,8 @@ function openSearchPanel({
       status.textContent = categories ? '該当するノードはありません' : 'No matches';
     else if (maxVisible)
       status.textContent =
-        candidates.length > rows.length
-          ? `Showing ${rows.length} of ${candidates.length} · search to narrow`
+        candidates.length > maxVisible
+          ? `${resultPage * maxVisible + 1}–${resultPage * maxVisible + rows.length} of ${candidates.length}`
           : '';
   }
   function updateFontItems(nextItems, nextFamilies) {
@@ -687,6 +708,17 @@ function openSearchPanel({
     refresh();
     input.focus();
   };
+  if (maxVisible) {
+    const turnPage = (delta) => {
+      resultPage += delta;
+      refresh({ scroll: false });
+      list.scrollTop = 0;
+      if (delta > 0 && nextPage.disabled) previousPage.focus();
+      if (delta < 0 && previousPage.disabled) nextPage.focus();
+    };
+    previousPage.onclick = () => turnPage(-1);
+    nextPage.onclick = () => turnPage(1);
+  }
   dialog.addEventListener('cancel', (event) => {
     event.preventDefault();
     panel.close(true);
@@ -696,6 +728,7 @@ function openSearchPanel({
   });
   dialog.addEventListener('compositionend', () => {
     composing = false;
+    resultPage = 0;
     if (pendingFontUpdate) {
       const update = pendingFontUpdate;
       pendingFontUpdate = null;
@@ -703,7 +736,10 @@ function openSearchPanel({
     } else refresh();
   });
   input.oninput = () => {
-    if (!composing) refresh();
+    if (!composing) {
+      resultPage = 0;
+      refresh();
+    }
   };
   dialog.addEventListener('keydown', (event) => {
     event.stopPropagation();
@@ -10288,6 +10324,15 @@ app.addEventListener('click', async (e) => {
           title: 'Parameter references',
           action: 'Insert',
           maxVisible: 100,
+          rankItems: (items, query) => {
+            const ordinal = /(?:^|\s)point\s+(\d+)(?=\s|$)/i.exec(query.normalize('NFKC'));
+            if (!ordinal) return items;
+            const exact = [],
+              remaining = [];
+            for (const item of items)
+              (item.pointOrdinal === Number(ordinal[1]) ? exact : remaining).push(item);
+            return [...exact, ...remaining];
+          },
           items: expressionReferenceTargets(
             current(),
             nn.id,
@@ -10295,6 +10340,7 @@ app.addEventListener('click', async (e) => {
           ).map((target) => ({
             id: target.expression,
             label: target.label,
+            pointOrdinal: target.pointOrdinal,
             detail: target.pointOrdinal
               ? nameCounts.get(target.name.normalize('NFC')) > 1
                 ? target.nodeId
