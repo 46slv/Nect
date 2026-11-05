@@ -14,16 +14,16 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-11-05 Node Foundation M2d
+## ACTIVE CHECKPOINT — 2026-11-05 Node Foundation M2e
 
-Goal: migrate existing Join Geometry dynamic input slots and Path/PaintedPath evaluation to a bounded data declaration and trusted binding while preserving Session, identity and codec behavior.
-Current phase: focused local implementation and validation complete; independent review pending on the unpublished REQ-42 / #185-dependent stack. #185 is not claimed merged.
-Proven: prior Reverse Path and Join read-only packet evidence are in `nect-node-foundation-reverse-path-evidence` and `nect-node-foundation-join-geometry-packet-evidence` beside this checkout. Prior results are not this candidate's test results.
-Next task: independent review of this exact Join candidate, baseline/candidate oracle and focused evidence in `nect-node-foundation-join-geometry-evidence`; M2d does not complete M2, M3 or the product.
-Approach: frozen bounded stable-slot shape snapshot; existing Session owns mutation; trusted evaluator helper preserves painted identity; Path and PaintedPath general validation remains outside this bounded migration.
-Done for next: source-bound focused tests/build and review; actual Text/font, browser/native/CI and publication remain separate.
-State: base 942ec19187e4684867499acb31393ca64b4775e7, tree 586a41b52de1be75c1939451324142252d54e719; local branch `codex/nect-join-geometry-m2d-20261105`; existing stops and unpublished refs retained.
-Authority: bounded parent delegation for M2d; public/remote HOLD; no network, denied-operation retry, native, font/image fixture or stopped Mask/Keyer/Image/FindNode/AddNode work.
+Goal: derive registered consumers from one trusted manifest and verify an isolated developer-only Scalar fixture through the same host runtime without product exposure.
+Current phase: projection checkpoint A local; isolated fixture checkpoint B in progress; unpublished REQ-42 / #185-dependent stack. #185 is not claimed merged.
+Proven: passive prior/candidate projection oracle and focused checkpoint evidence are in `nect-node-foundation-developer-node-evidence` beside this checkout; older M2d evidence remains separate.
+Next task: prove isolated private fixture uses the same registered module snapshot for headless, Session, codec and synthetic Inspector while normal production rejects and hides it; complete exact-source focused tests/build and independent review.
+Approach: immutable manifest and generic anchored projections; scratch-only test composition root; no global mutable registry or product registration API.
+Done for next: exact projection equivalence, private production exclusion, same-host fixture acceptance, tests/build and independent review; real browser/native/CI and publication remain separate.
+State: base 4472283a09f20573a5c9b1012d3a8463cffe6429, tree 907d4140492feb1cb3b5817217fabf0a724b04eb; local branch `codex/nect-developer-node-m2e-20261105`; stops and unpublished refs retained.
+Authority: bounded parent delegation for M2e; public/remote HOLD; no network, denied-operation retry, native, font/image fixture or stopped Mask/Keyer/Image/FindNode/AddNode work.
 Handoff: CONTINUE_CURRENT_TASK; parent retains Mission ownership.
 
 ## Prior checkpoint — 2026-11-01 explicit key-color initialization infrastructure

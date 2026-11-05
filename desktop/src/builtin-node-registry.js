@@ -1,43 +1,25 @@
 import { createNodeRegistry } from './node-foundation.js';
-import { mathDeclaration } from './math-node-declaration.js';
-import { evaluateMath } from './math-node-binding.js';
-import { separateVectorDeclaration } from './separate-vector-declaration.js';
-import { evaluateSeparateVector, projectSeparateVector } from './separate-vector-binding.js';
-import { vectorMathDeclaration } from './vector-math-declaration.js';
-import { evaluateVectorMath } from './vector-math-binding.js';
-import { reversePathDeclaration } from './reverse-path-declaration.js';
-import { evaluateReversePath } from './reverse-path-binding.js';
-import { joinGeometryDeclaration } from './join-geometry-declaration.js';
-import { evaluateJoinGeometry } from './join-geometry-binding.js';
+import { builtinManifest } from './builtin-node-manifest.js';
+import { manifestBindings } from './registered-node-projections.js';
 import { nectNodeHost } from './nect-node-host.js';
 
-// Builtins are explicitly registered by trusted host code, never loaded from a declaration.
+const implementations = manifestBindings(builtinManifest);
 export const builtinNodeRegistry = createNodeRegistry(
-  [
-    mathDeclaration,
-    separateVectorDeclaration,
-    vectorMathDeclaration,
-    reversePathDeclaration,
-    joinGeometryDeclaration,
-  ],
-  new Map([
-    ['builtin.math.v1', Object.freeze({ evaluate: evaluateMath })],
-    ['builtin.join-geometry.v1', Object.freeze({ evaluate: evaluateJoinGeometry })],
-    ['builtin.reverse-path.v1', Object.freeze({ evaluate: evaluateReversePath })],
-    ['builtin.vector-math.v1', Object.freeze({ evaluate: evaluateVectorMath })],
-    [
-      'builtin.separate-vector.v1',
-      Object.freeze({ evaluate: evaluateSeparateVector, project: projectSeparateVector }),
-    ],
-  ]),
+  builtinManifest.map((row) => row.declaration),
+  implementations,
   nectNodeHost,
 );
+export const registeredNodes = Object.freeze(
+  builtinManifest.map((row) =>
+    Object.freeze({
+      resolved: builtinNodeRegistry.get(row.declaration.typeId),
+      placement: row.placement,
+      exposure: row.exposure,
+    }),
+  ),
+);
 export const MATH_NODE = builtinNodeRegistry.get('Math');
-
 export const SEPARATE_VECTOR = builtinNodeRegistry.get('Separate Vector');
-
 export const VECTOR_MATH = builtinNodeRegistry.get('Vector Math');
-
 export const REVERSE_PATH = builtinNodeRegistry.get('Reverse Path');
-
 export const JOIN_GEOMETRY = builtinNodeRegistry.get('Join Geometry');

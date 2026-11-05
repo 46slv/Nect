@@ -61,6 +61,8 @@ function uniqueIds(items, label) {
   }
   return ids;
 }
+// Snapshot trusted built-in data without evaluating getters.
+export const snapshotNodeDeclaration = (value) => copyData(value);
 // External data can be parsed without evaluating caller-provided JavaScript objects.
 export function parseNodeDeclaration(text) {
   if (typeof text !== 'string' || text.length > 262144) throw Error('Invalid declaration text');

@@ -1,10 +1,5 @@
-import {
-  MATH_NODE,
-  SEPARATE_VECTOR,
-  VECTOR_MATH,
-  REVERSE_PATH,
-  JOIN_GEOMETRY,
-} from './builtin-node-registry.js';
+import { registeredNodes } from './builtin-node-registry.js';
+import { placeRegistered } from './registered-node-projections.js';
 
 // Editor-only metadata. Never serialized into a document or used as a node type ID.
 export const nodeCategories = [
@@ -41,7 +36,7 @@ export const nodeCategories = [
     label: '値・制御',
   },
 ];
-export const nodeCatalog = [
+const legacyNodeCatalog = [
   {
     typeId: 'Angular Gradient Fill',
     categoryId: 'paint',
@@ -234,7 +229,6 @@ export const nodeCatalog = [
     description: '開閉 閉じる',
     creationRoute: 'add',
   },
-  { typeId: REVERSE_PATH.declaration.typeId, ...REVERSE_PATH.declaration.catalog },
   {
     typeId: 'Subdivide Path',
     categoryId: 'path',
@@ -347,7 +341,6 @@ export const nodeCatalog = [
     description: '輪郭を演算して合成する',
     creationRoute: 'add',
   },
-  { typeId: JOIN_GEOMETRY.declaration.typeId, ...JOIN_GEOMETRY.declaration.catalog },
   {
     typeId: 'Geometry Repeater',
     categoryId: 'repeat',
@@ -468,7 +461,6 @@ export const nodeCatalog = [
     description: '数値',
     creationRoute: 'add',
   },
-  { typeId: MATH_NODE.declaration.typeId, ...MATH_NODE.declaration.catalog },
   {
     typeId: 'Vector',
     categoryId: 'value',
@@ -477,7 +469,6 @@ export const nodeCatalog = [
     description: 'ベクトル 座標',
     creationRoute: 'add',
   },
-  { typeId: VECTOR_MATH.declaration.typeId, ...VECTOR_MATH.declaration.catalog },
   {
     typeId: 'Vector Transform',
     categoryId: 'value',
@@ -486,7 +477,6 @@ export const nodeCatalog = [
     description: '数値ベクトルの移動・回転・拡大縮小',
     creationRoute: 'add',
   },
-  { typeId: SEPARATE_VECTOR.declaration.typeId, ...SEPARATE_VECTOR.declaration.catalog },
   {
     typeId: 'Combine Vector',
     categoryId: 'value',
@@ -536,11 +526,22 @@ export const nodeCatalog = [
     creationRoute: 'add',
   },
 ];
+export const nodeCatalog = placeRegistered(
+  legacyNodeCatalog.map((entry) => [entry.typeId, entry]),
+  registeredNodes.filter((row) => row.exposure === 'public'),
+  'catalogAfter',
+  (row) => ({ typeId: row.resolved.declaration.typeId, ...row.resolved.declaration.catalog }),
+).map(([, entry]) => entry);
+const privateTypes = new Set(
+  registeredNodes
+    .filter((row) => row.exposure === 'private')
+    .map((row) => row.resolved.declaration.typeId),
+);
 const excludedTypes = new Set(['Output', 'Image Output', 'Image', 'SVG']);
 export function nodePickerItems(definitions, label = (type) => type) {
   const metadata = new Map(nodeCatalog.map((entry) => [entry.typeId, entry]));
   return Object.keys(definitions)
-    .filter((type) => !excludedTypes.has(type))
+    .filter((type) => !excludedTypes.has(type) && !privateTypes.has(type))
     .map((type) => {
       const entry = metadata.get(type) || {
         typeId: type,

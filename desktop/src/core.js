@@ -3,14 +3,8 @@ export { JOIN_SLOT_LIMIT } from './join-slots-protocol.js';
 import { contourGroups } from './path-groups.js';
 import { signature } from './path-signature.js';
 export { signature } from './path-signature.js';
-import {
-  builtinNodeRegistry,
-  MATH_NODE,
-  SEPARATE_VECTOR,
-  VECTOR_MATH,
-  REVERSE_PATH,
-  JOIN_GEOMETRY,
-} from './builtin-node-registry.js';
+import { builtinNodeRegistry, registeredNodes } from './builtin-node-registry.js';
+import { placeRegistered } from './registered-node-projections.js';
 import { isVector2 } from './node-value-validation.js';
 import { nectOutputPort } from './nect-node-host.js';
 import { KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION } from './key-color-recipe-document.js';
@@ -286,7 +280,7 @@ export function sameDocument(a, b) {
 }
 export const uid = (prefix = 'id') => `${prefix}-${globalThis.crypto.randomUUID()}`;
 const p = (type, value) => ({ type, value, expression: '', locked: false });
-export const definitions = {
+const legacyDefinitions = {
   Image: { position: p('Vector2', [100, 100]), size: p('Vector2', [320, 240]) },
   'Image Output': { path: p('Image', null) },
   Keyer: {
@@ -315,12 +309,6 @@ export const definitions = {
   Curve: { closed: p('Boolean', true) },
   'Multi Path': {},
   Boolean: { a: p('Path', null), b: p('Path', null) },
-  [JOIN_GEOMETRY.declaration.typeId]: Object.fromEntries(
-    JOIN_GEOMETRY.declaration.parameters.map(({ id, type, default: value }) => [
-      id,
-      p(type, value),
-    ]),
-  ),
   'Convert to Path': { path: p('Path', null) },
   'Closed Path Offset': {
     path: p('Path', null),
@@ -384,9 +372,6 @@ export const definitions = {
     inverse: p('Boolean', false),
   },
   'Auto Handles': { path: p('Path', null), strength: p('Scalar', 1) },
-  [REVERSE_PATH.declaration.typeId]: Object.fromEntries(
-    REVERSE_PATH.declaration.parameters.map(({ id, type, default: value }) => [id, p(type, value)]),
-  ),
   'Wave Points': {
     path: p('Path', null),
     amplitude: p('Scalar', 20),
@@ -469,18 +454,6 @@ export const definitions = {
     alignTangent: p('Boolean', false),
   },
   Value: { value: p('Scalar', 100) },
-  [MATH_NODE.declaration.typeId]: Object.fromEntries(
-    MATH_NODE.declaration.parameters.map(({ id, type, default: value }) => [id, p(type, value)]),
-  ),
-  [VECTOR_MATH.declaration.typeId]: Object.fromEntries(
-    VECTOR_MATH.declaration.parameters.map(({ id, type, default: value }) => [id, p(type, value)]),
-  ),
-  [SEPARATE_VECTOR.declaration.typeId]: Object.fromEntries(
-    SEPARATE_VECTOR.declaration.parameters.map(({ id, type, default: value }) => [
-      id,
-      p(type, value),
-    ]),
-  ),
   'Combine Vector': { x: p('Scalar', 0), y: p('Scalar', 0) },
   Toggle: { value: p('Boolean', true) },
   Color: { value: p('Color', { hex: '#36434e', alpha: 1 }) },
@@ -574,7 +547,18 @@ export const definitions = {
   'Text to Path': { path: p('Path', null) },
   'Imported Path': {},
 };
+export const definitions = Object.fromEntries(
+  placeRegistered(Object.entries(legacyDefinitions), registeredNodes, 'definitionAfter', (row) =>
+    Object.fromEntries(
+      row.resolved.declaration.parameters.map(({ id, type, default: value }) => [
+        id,
+        p(type, value),
+      ]),
+    ),
+  ),
+);
 for (const type of imageDitherTypes) {
+  if (Object.hasOwn(definitions, type)) throw Error(`Duplicate projected type: ${type}`);
   const shapeType = type.replace(/ Image$/, '');
   definitions[type] = { ...structuredClone(definitions[shapeType]), path: p('Image', null) };
 }
@@ -872,21 +856,22 @@ export function outputType(n, port) {
 }
 // Deliberate identity contracts. Never guess the first socket of a new node type.
 const bypassInputs = Object.freeze({
+  ...Object.fromEntries(
+    registeredNodes
+      .filter((row) => row.resolved.declaration.bypassInput !== undefined)
+      .map((row) => [row.resolved.declaration.typeId, row.resolved.declaration.bypassInput]),
+  ),
   Keyer: 'path',
   'Ordered Dither Image': 'path',
   'Error Diffusion Dither Image': 'path',
   Mask: 'path',
   Boolean: 'a',
-  [JOIN_GEOMETRY.declaration.typeId]: JOIN_GEOMETRY.declaration.bypassInput,
-  [MATH_NODE.declaration.typeId]: MATH_NODE.declaration.bypassInput,
-  [VECTOR_MATH.declaration.typeId]: VECTOR_MATH.declaration.bypassInput,
   Transform: 'path',
   Mirror: 'path',
   'Corner Round': 'path',
   'Resample Path': 'path',
   Roughen: 'path',
   'Smooth Path': 'path',
-  [REVERSE_PATH.declaration.typeId]: REVERSE_PATH.declaration.bypassInput,
   'Trim Path': 'path',
   'Set Path Start': 'path',
   'Set Closure': 'path',
@@ -1436,8 +1421,14 @@ export const operationOptions = {
   'Resample Path': ['count', 'spacing'],
   'Line Screen': ['horizontal', 'vertical'],
   Boolean: ['union', 'subtract', 'intersect', 'difference'],
-  [MATH_NODE.declaration.typeId]: MATH_NODE.declaration.operations.map(({ id }) => id),
-  [VECTOR_MATH.declaration.typeId]: VECTOR_MATH.declaration.operations.map(({ id }) => id),
+  ...Object.fromEntries(
+    registeredNodes
+      .filter((row) => row.resolved.declaration.operations)
+      .map((row) => [
+        row.resolved.declaration.typeId,
+        row.resolved.declaration.operations.map(({ id }) => id),
+      ]),
+  ),
 };
 export function activeParameters(n) {
   const entries = parameters(n);
