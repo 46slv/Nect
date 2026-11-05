@@ -192,6 +192,7 @@ export function mountAssetLibrary({
       e.key === 'Escape' &&
       !e.defaultPrevented &&
       !e.isComposing &&
+      e.keyCode !== 229 &&
       panel.contains(e.target) &&
       !document.querySelector('dialog[open]')
     ) {

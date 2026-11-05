@@ -11,6 +11,8 @@ test('main composition keeps Assets portal on hide and disposes only on panel cl
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement', 'MutationObserver'])
     globalThis[key] = win[key];
+  globalThis.localStorage = win.localStorage;
+  t.after(() => delete globalThis.localStorage);
   globalThis.requestAnimationFrame = () => 0;
   globalThis.DOMPoint = class {
     constructor(x, y) {
@@ -110,6 +112,32 @@ test('main composition keeps Assets portal on hide and disposes only on panel cl
   assert.equal(input.value, 'synthetic search');
   assert.equal(serialize(win.nect.document), before);
   assert.equal(document.querySelector('[data-action="redo"]').disabled, false);
+  input.focus();
+  const preference = win.localStorage.getItem('nect.workspace-drawers.v1');
+  const expanded = toggle().getAttribute('aria-expanded');
+  assert.equal(expanded, 'true');
+  assert.ok(preference);
+  for (const options of [{ isComposing: true }, { isComposing: false, keyCode: 229 }]) {
+    const composingEscape = new win.KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+      ...options,
+    });
+    assert.equal(composingEscape.isComposing, options.isComposing);
+    if (options.keyCode) assert.equal(composingEscape.keyCode, 229);
+    input.dispatchEvent(composingEscape);
+    assert.equal(composingEscape.defaultPrevented, false);
+    assert.equal(document.querySelector('[data-asset-library]'), panel);
+    assert.equal(panel.isConnected, true);
+    assert.equal(panel.querySelector('[data-asset-search]'), input);
+    assert.equal(input.value, 'synthetic search');
+    assert.equal(document.activeElement, input);
+    assert.equal(toggle().getAttribute('aria-expanded'), expanded);
+    assert.equal(win.localStorage.getItem('nect.workspace-drawers.v1'), preference);
+    assert.equal(serialize(win.nect.document), before);
+    assert.equal(document.querySelector('[data-action="redo"]').disabled, false);
+  }
   const escape = new win.KeyboardEvent('keydown', {
     key: 'Escape',
     bubbles: true,
