@@ -5,6 +5,7 @@ import {
   node,
   connect,
   evaluate,
+  expression,
   serialize,
   deserialize,
   duplicateNodes,
@@ -48,6 +49,132 @@ const apply = (session, f, expression) =>
     key: 'value',
     expression,
   });
+
+test('length grammar is limited to handle keys and requires schema 61 even when the owner is missing', () => {
+  const missingHandle = 'ref("deleted", "anchor.handleA", "length")';
+  for (const source of [
+    'ref("deleted", "radius", "length")',
+    'ref("deleted", "anchor.position", "length")',
+    'ref("deleted", "anchor.handleC", "length")',
+  ])
+    assert.throws(() => expression(source, () => 0, true), /length|component/i);
+
+  for (const schemaVersion of [59, 60]) {
+    const f = fixture();
+    f.doc.schemaVersion = schemaVersion;
+    f.sink.params.value.expression = missingHandle;
+    assert.throws(() => deserialize(serialize(f.doc)), /schemaVersion 61/);
+  }
+  const f = fixture();
+  f.doc.schemaVersion = 61;
+  f.sink.params.value.expression = missingHandle;
+  const restored = deserialize(serialize(f.doc));
+  assert.equal(
+    restored.layers[0].nodes.find((n) => n.id === 'sink').params.value.expression,
+    missingHandle,
+  );
+  assert.throws(() => evaluate(restored.layers[0]).run('sink'), /target is missing/);
+});
+
+test('selected legacy Composition validates source grammar before import and preserves pending Redo', () => {
+  for (const [schemaVersion, sourceExpression] of [59, 60].flatMap((version) => [
+    [version, 'ref("deleted", "anchor.handleA", "length")'],
+    [version, 'ref("deleted", "radius", "length")'],
+  ])) {
+    const f = fixture();
+    f.doc.schemaVersion = schemaVersion;
+    f.sink.params.value.expression = sourceExpression;
+    const source = migrateLegacyDocumentToCompositionProject(f.doc);
+    const clean = migrateLegacyDocumentToCompositionProject(blankDocument()).compositions[0];
+    clean.id = 'unselected-clean';
+    source.compositions.push(clean);
+    const sourceBefore = serializeCompositionProject(source);
+
+    const target = fixture(),
+      owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(target.doc));
+    send(owner, 'set-parameter-expression', {
+      layerId: target.layer.id,
+      nodeId: 'sink',
+      key: 'value',
+      expression: handle('handleA', 'length'),
+    });
+    send(owner, 'set-parameter-base', {
+      layerId: target.layer.id,
+      nodeId: 'sink',
+      key: 'value',
+      value: 17,
+    });
+    send(owner, 'undo');
+    const before = serializeCompositionProject(owner.projectSnapshot()),
+      state = { ...owner.state },
+      future = JSON.stringify(owner.historyView.future);
+    assert.throws(
+      () =>
+        send(owner, 'import-project-compositions', {
+          sourceProject: source,
+          compositionIds: [source.compositions[0].id],
+        }),
+      /length|schemaVersion 61/,
+    );
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+    assert.deepEqual(owner.state, state);
+    assert.equal(JSON.stringify(owner.historyView.future), future);
+    assert.equal(serializeCompositionProject(source), sourceBefore);
+    send(owner, 'redo');
+    assert.equal(
+      owner.snapshot().layers[0].nodes.find((n) => n.id === 'sink').params.value.value,
+      17,
+    );
+
+    // An invalid unselected Composition must not block an independent selection.
+    const imported = prepareProjectCompositionsImport(owner.projectSnapshot(), source, [
+      'unselected-clean',
+    ]).project;
+    assert.equal(imported.compositions.length, owner.projectSnapshot().compositions.length + 1);
+  }
+});
+
+test('legacy source grammar checks Vector2, Color scalar and paused expressions', () => {
+  for (const [kind, oldSource] of ['Vector2', 'Color', 'paused'].flatMap((type) => [
+    [type, 'ref("deleted", "anchor.handleB", "length")'],
+    [type, 'ref("deleted", "radius", "length")'],
+  ])) {
+    const f = fixture();
+    f.doc.schemaVersion = 60;
+    if (kind === 'Vector2') f.curve.points[0].handleA.expression = `${oldSource}; 0`;
+    if (kind === 'Color') f.color.params.value.expression = `alpha(value, ${oldSource} / 20)`;
+    if (kind === 'paused') {
+      const driver = node('Value');
+      driver.id = 'paused-driver';
+      f.layer.nodes.push(driver);
+      f.sink.params.value.source = driver.id;
+      f.sink.params.value.expression = oldSource;
+    }
+    assert.throws(() => deserialize(serialize(f.doc)), /length|schemaVersion 61/);
+    const source = migrateLegacyDocumentToCompositionProject(f.doc);
+    const destination = migrateLegacyDocumentToCompositionProject(blankDocument());
+    const before = serializeCompositionProject(destination);
+    assert.throws(
+      () => prepareProjectCompositionsImport(destination, source),
+      /length|schemaVersion 61/,
+    );
+    assert.equal(serializeCompositionProject(destination), before);
+  }
+});
+
+test('schema 61 missing-owner handle length imports as missing and keeps the source version', () => {
+  const f = fixture();
+  f.doc.schemaVersion = 61;
+  f.sink.params.value.expression = 'ref("deleted", "anchor.handleA", "length")';
+  const source = migrateLegacyDocumentToCompositionProject(deserialize(serialize(f.doc)));
+  const destination = migrateLegacyDocumentToCompositionProject(blankDocument());
+  const imported = prepareProjectCompositionsImport(destination, source).project;
+  const layer = imported.compositions.at(-1).layers[0];
+  const sink = layer.nodes.find((n) => n.type === 'Value');
+  assert.equal(imported.schemaVersion, 61);
+  assert.equal(sink.params.value.expression, f.sink.params.value.expression);
+  assert.throws(() => evaluate(layer).run(sink.id), /target is missing/);
+});
 
 test('handle components and lengths read effective relative vectors in Apply, live evaluation and Color preview', () => {
   const f = fixture(),
@@ -187,8 +314,8 @@ test('invalid types, projections, missing targets and cycles reject atomically a
     ref('curve', 'missing.handleA', 'x'),
     ref('vector', 'anchor.handleA', 'x'),
     ref('curve', 'anchor.handleA'),
-    ref('curve', 'anchor.position', 'length'),
-    ref('vector', 'value', 'length'),
+    'ref("curve", "anchor.position", "length")',
+    'ref("vector", "value", "length")',
     'ref("curve", "anchor.handleA", "z")',
     '1 / 0',
   ]) {

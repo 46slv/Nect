@@ -1702,6 +1702,10 @@ export function expression(source, resolveReference, referencesOnly = false, bas
       }
       if (component !== undefined && !['x', 'y', 'length'].includes(component))
         throw Error('Reference component must be x, y or length');
+      if (component === 'length' && !curvePointReference(key, component))
+        throw Object.assign(Error('Reference length requires a Curve handle key'), {
+          code: 'EXPRESSION_INVALID_LENGTH_REFERENCE',
+        });
       if (tokens[i++] !== ')') throw Error('Invalid reference arguments');
       if (!resolveReference) throw Error('Reference requires a composition');
       return resolveReference({ nodeId, key, component });
@@ -1794,6 +1798,27 @@ function parameterExpressionUses(q) {
       return refs.length === before ? expression(source) : 0.5;
     },
   });
+  return refs;
+}
+// Validate against the source Document's grammar before a wrapped import can
+// raise its version. Missing owners do not make new syntax legal in old files.
+export function expressionReferencesForSchema(q, schemaVersion, { preserveOpaque = false } = {}) {
+  let refs;
+  try {
+    refs = parameterExpressionUses(q);
+  } catch (error) {
+    // The wrapper importer historically retained expressions that neither the
+    // old nor the new parser can understand. Keep those bytes opaque.
+    if (preserveOpaque && error.code !== 'EXPRESSION_INVALID_LENGTH_REFERENCE') return [];
+    throw error;
+  }
+  if (
+    schemaVersion < CURVE_HANDLE_REFERENCE_SCHEMA_VERSION &&
+    refs.some((ref) => ref.component === 'length')
+  )
+    throw Error(
+      `Curve handle length references require schemaVersion ${CURVE_HANDLE_REFERENCE_SCHEMA_VERSION}`,
+    );
   return refs;
 }
 function parameterBaseValue(layer, n, key, q) {
@@ -5363,7 +5388,7 @@ export function validate(doc) {
     for (const n of l.nodes)
       for (const [, q] of parameters(n))
         if (q.expression) {
-          for (const ref of parameterExpressionUses(q)) {
+          for (const ref of expressionReferencesForSchema(q, sourceSchemaVersion)) {
             if (owners.has(ref.nodeId) && owners.get(ref.nodeId) !== l.id)
               throw Error('Expression reference target must be in the same layer');
             const owner = localNodes.get(ref.nodeId);

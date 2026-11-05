@@ -11,6 +11,7 @@ import {
   CommandSession,
   parameterReferenceExpression as ref,
   serialize,
+  deserialize,
 } from '../src/core.js';
 import {
   migrateLegacyDocumentToCompositionProject,
@@ -75,6 +76,15 @@ assert.throws(
     oldCore.deserialize(JSON.stringify({ ...v60, layers: legacyUnknown.compositions[0].layers })),
   /Scalar parameter/,
 );
+for (const source of [
+  'ref("deleted", "anchor.handleA", "length")',
+  'ref("deleted", "radius", "length")',
+]) {
+  const oldDocument = structuredClone(v60);
+  oldDocument.layers[0].nodes.find((n) => n.id === 'sink').params.value.expression = source;
+  assert.throws(() => oldCore.deserialize(serialize(oldDocument)), /component must be x or y/);
+  assert.throws(() => deserialize(serialize(oldDocument)), /length|schemaVersion 61/);
+}
 apply(ref('curve', 'anchor.handleA', 'length'));
 const v61 = session.snapshot(),
   wrapper61 = migrateLegacyDocumentToCompositionProject(v61);
@@ -91,3 +101,4 @@ console.log(
 console.log(
   'PASS baseline legacy ambiguity: wrapper preserves missing handle text; Document rejects it',
 );
+console.log('PASS baseline/new readers both reject schema 60 missing-owner length syntax');

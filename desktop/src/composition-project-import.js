@@ -1,11 +1,13 @@
 import { importColorSlots, colorImportSchemaVersion } from './color-slots.js';
 import { validateCompositionProject } from './composition-project-model.js';
+import { expressionReferencesForSchema } from './core.js';
 import {
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
   CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
   nodesCurvePointReferenceVersion,
   nodesHaveLegacyCurveHandleReference,
+  expressionParameters,
 } from './curve-point-reference.js';
 import {
   collectAssetReferences,
@@ -34,6 +36,12 @@ export function prepareProjectCompositionsImport(current, sourceProject, composi
     throw Object.assign(Error('Missing source Composition'), {
       code: 'COMPOSITION_SOURCE_MISSING',
     });
+
+  for (const composition of sourceCompositions)
+    for (const layer of composition.layers)
+      for (const node of layer.nodes)
+        for (const q of expressionParameters(node))
+          expressionReferencesForSchema(q, sourceProject.schemaVersion, { preserveOpaque: true });
 
   if (
     sourceProject.schemaVersion < CURVE_HANDLE_REFERENCE_SCHEMA_VERSION &&
