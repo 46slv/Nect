@@ -200,6 +200,7 @@ test('pasting a literal replaces a binding atomically and preserves Undo, Redo a
   assert.equal(serialize(f.session.snapshot()), before);
   rejectsWithoutMutation(f, 'paste-color-value', { value: { hex: '#invalid', alpha: 1 } });
   rejectsWithoutMutation(f, 'paste-color-value', { nodeId: f.sourcedFill.id, value: changed });
+  rejectsWithoutMutation(f, 'paste-color-reference', { slotId: 'missing-slot' });
   f.send('redo');
   assert.equal(serialize(f.session.snapshot()), after);
   assert.deepEqual(

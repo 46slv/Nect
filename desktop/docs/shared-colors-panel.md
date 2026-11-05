@@ -19,7 +19,9 @@ The opt-in Key color trial has a separate, versioned recipe contract.
   HEX/alpha at copy time and can be pasted as an independent literal; a reference
   keeps its stable slot ID and can be pasted only while that slot exists in the
   same open project, including another Composition. Replacing the project
-  invalidates a copied reference even if the new project has the same ID. The
+  invalidates a copied reference even if the new project has the same ID. A
+  committed removal also expires the reference; restoring or reusing that ID
+  requires copying it again. The
   temporary in-app copy does not read or write the system clipboard. Pasting over
   a bound Color parameter explicitly replaces its link with the copied value in
   one Undo step. Gradient-stop and Text-specific paste surfaces are not claimed.

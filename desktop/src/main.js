@@ -1327,6 +1327,9 @@ document.addEventListener(
 const sessionOptions = {
   fonts: activeFonts,
   onCommitted: (state) => {
+    // A copied slot reference expires at the first committed removal, even if
+    // another import later introduces the same ID while its panel is hidden.
+    if (state.sessionId === session.id) sharedColors.observeCommittedProject();
     // Let the operation finish a document-lifetime transition (e.g. SVG import)
     // before associating its committed state with a recovery document identity.
     queueMicrotask(() => {

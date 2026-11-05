@@ -95,10 +95,9 @@ test('copying a value captures the literal and pastes it independently in anothe
   const s = setup(t);
   s.panel.toggle();
   const copy = s.app.querySelector(
-    '[data-shared-color-row="slot-a"] [data-shared-color-copy-menu]',
+    '[data-shared-color-row="slot-a"] [data-shared-color-copy="value"]',
   );
-  copy.value = 'value';
-  s.fire(copy);
+  s.fire(copy, 'click');
   s.model.colorSlots[0].value = { hex: '#ff0000', alpha: 1 };
   s.projectIdentity = 2;
   s.model.colorSlots = [];
@@ -123,10 +122,9 @@ test('copied references survive Composition switches but reject missing or other
   const s = setup(t);
   s.panel.toggle();
   const copy = s.app.querySelector(
-    '[data-shared-color-row="slot-b"] [data-shared-color-copy-menu]',
+    '[data-shared-color-row="slot-b"] [data-shared-color-copy="reference"]',
   );
-  copy.value = 'reference';
-  s.fire(copy);
+  s.fire(copy, 'click');
   s.session = { state: { sessionId: 'session-b', expectedRevision: 9 } };
   s.model.colorSlots[1].value = { hex: '#abcdef', alpha: 0.25 };
   s.bind();
@@ -149,6 +147,7 @@ test('copied references survive Composition switches but reject missing or other
   assert.match(s.notices.at(-1)[0], /no longer available/);
   s.projectIdentity = 1;
   s.model.colorSlots = s.model.colorSlots.filter((slot) => slot.id !== 'slot-b');
+  s.panel.observeCommittedProject();
   s.bind();
   assert.equal(s.app.querySelector('[data-shared-color-paste]').disabled, true);
   s.model.colorSlots.push({
@@ -159,8 +158,8 @@ test('copied references survive Composition switches but reject missing or other
   s.bind();
   assert.equal(
     s.app.querySelector('[data-shared-color-paste]').disabled,
-    false,
-    'Undo can restore the slot',
+    true,
+    'a later same-ID slot cannot revive a copied reference',
   );
 });
 
@@ -171,8 +170,8 @@ test('same-name color rows identify which reference will be copied', (t) => {
   const a = s.app.querySelector('[data-shared-color-row="slot-a"]'),
     b = s.app.querySelector('[data-shared-color-row="slot-b"]');
   assert.notEqual(
-    a.querySelector('[data-shared-color-copy-menu]').getAttribute('aria-label'),
-    b.querySelector('[data-shared-color-copy-menu]').getAttribute('aria-label'),
+    a.querySelector('[data-shared-color-copy-toggle]').getAttribute('aria-label'),
+    b.querySelector('[data-shared-color-copy-toggle]').getAttribute('aria-label'),
   );
   assert.notEqual(
     a.querySelector('.shared-color-identity').textContent,
@@ -186,19 +185,17 @@ test('stale copy and paste controls cannot act after the Session changes', (t) =
   const s = setup(t);
   s.panel.toggle();
   const staleCopy = s.app.querySelector(
-    '[data-shared-color-row="slot-a"] [data-shared-color-copy-menu]',
+    '[data-shared-color-row="slot-a"] [data-shared-color-copy="value"]',
   );
   s.session = { state: { sessionId: 'other', expectedRevision: 1 } };
-  staleCopy.value = 'value';
-  s.fire(staleCopy);
+  s.fire(staleCopy, 'click');
   assert.match(s.notices.at(-1)[0], /stale/);
   s.bind();
   assert.equal(s.app.querySelector('[data-shared-color-paste]'), null);
   const freshCopy = s.app.querySelector(
-    '[data-shared-color-row="slot-a"] [data-shared-color-copy-menu]',
+    '[data-shared-color-row="slot-a"] [data-shared-color-copy="value"]',
   );
-  freshCopy.value = 'value';
-  s.fire(freshCopy);
+  s.fire(freshCopy, 'click');
   s.bind();
   const stalePaste = s.app.querySelector('[data-shared-color-paste]');
   s.session = { state: { sessionId: 'other', expectedRevision: 2 } };
@@ -211,10 +208,9 @@ test('paste is disabled on a locked node without changing the existing binding s
   const s = setup(t);
   s.panel.toggle();
   const copy = s.app.querySelector(
-    '[data-shared-color-row="slot-a"] [data-shared-color-copy-menu]',
+    '[data-shared-color-row="slot-a"] [data-shared-color-copy="reference"]',
   );
-  copy.value = 'reference';
-  s.fire(copy);
+  s.fire(copy, 'click');
   const select = s.bind({}, { id: 'node-b', name: 'Paint', locked: true });
   assert.equal(select.disabled, false);
   assert.equal(s.app.querySelector('[data-shared-color-paste]').disabled, true);

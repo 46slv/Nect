@@ -154,8 +154,11 @@ try {
   );
   assert.deepEqual((await page.evaluate(() => window.nect.document)).keyColorRecipe, priorPacket);
   await page
-    .locator(`[data-shared-color-row="${liveDerived}"] [data-shared-color-copy-menu]`)
-    .selectOption('reference');
+    .locator(`[data-shared-color-row="${liveDerived}"] [data-shared-color-copy-toggle]`)
+    .click();
+  await page
+    .locator(`[data-shared-color-row="${liveDerived}"] [data-shared-color-copy="reference"]`)
+    .click();
   await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${liveLayer.id}"]`).click();
   await page.locator(`.graph .node[data-id="${liveFill.id}"] .node-head strong`).click();

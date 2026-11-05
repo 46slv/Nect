@@ -42,7 +42,7 @@ try {
     '[data-workspace-panel="colors"]',
     '[data-shared-color-add]',
     '[data-shared-color-close]',
-    '[data-shared-color-copy-menu]',
+    '[data-shared-color-copy-toggle]',
     '.viewer-tabs [data-viewer-mode="viewers"]',
     '[data-key-color-recipe-open]',
   ]) {

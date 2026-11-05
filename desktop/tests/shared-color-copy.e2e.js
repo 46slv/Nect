@@ -66,7 +66,8 @@ async function colors() {
 }
 async function copy(kind) {
   await colors();
-  await slot().locator('[data-shared-color-copy-menu]').selectOption(kind);
+  await slot().locator('[data-shared-color-copy-toggle]').click();
+  await slot().locator(`[data-shared-color-copy="${kind}"]`).click();
 }
 async function inspectB() {
   await page.locator('[role="tab"][data-active-composition="composition-b"]').click();
@@ -94,20 +95,56 @@ try {
       .locator('[data-shared-color-row="shared-other"] .shared-color-identity')
       .textContent(),
   );
-  assert.deepEqual(await slot().locator('[data-shared-color-copy-menu] option').allTextContents(), [
-    'Copy…',
-    'Copy value in Nect',
-    'Copy reference in Nect',
-  ]);
+  const copyToggle = () => slot().locator('[data-shared-color-copy-toggle]');
+  await copyToggle().focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await copyToggle().getAttribute('aria-expanded'), 'true');
   await page.screenshot({ path: resolve(output, 'copy-menu.png') });
-  await slot().locator('[data-shared-color-copy-menu]').focus();
-  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Tab');
+  assert.equal(
+    await slot()
+      .locator('[data-shared-color-copy="value"]')
+      .evaluate((el) => el === document.activeElement),
+    true,
+  );
+  await page.keyboard.press('Tab');
+  assert.equal(
+    await slot()
+      .locator('[data-shared-color-copy="reference"]')
+      .evaluate((el) => el === document.activeElement),
+    true,
+  );
+  await page.keyboard.press('Escape');
+  assert.equal(await copyToggle().getAttribute('aria-expanded'), 'false');
+  assert.equal(await copyToggle().evaluate((el) => el === document.activeElement), true);
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Enter');
   await page.waitForFunction(() =>
     document.querySelector('.status .message')?.textContent.includes('Color value copied in Nect'),
   );
   assert.deepEqual(await snapshot(), beforeCopy);
   assert.deepEqual(await state(), copyState);
   assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  const nameInput = slot().locator('[data-shared-color-edit="name"]');
+  await nameInput.fill('編集中');
+  await nameInput.evaluate((el) =>
+    el.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })),
+  );
+  const graphPaste = page.locator(
+    `.graph .field[data-node="${a.fill.id}"][data-key="color"] [data-shared-color-paste]`,
+  );
+  await graphPaste.click();
+  assert.equal(await nameInput.evaluate((el) => el === document.activeElement), true);
+  assert.equal(await nameInput.inputValue(), '編集中');
+  assert.deepEqual(await snapshot(), beforeCopy);
+  assert.deepEqual(await state(), copyState);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await nameInput.evaluate((el) =>
+    el.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true })),
+  );
+  await nameInput.fill('Brand');
+  await nameInput.press('Tab');
   await slot().locator('[data-shared-color-edit="alpha"]').fill('0.8');
   await slot().locator('[data-shared-color-edit="alpha"]').press('Tab');
   assert.equal((await snapshot()).colorSlots[0].value.alpha, 0.8);
@@ -183,7 +220,70 @@ try {
   await page.setViewportSize({ width: 900, height: 720 });
   await colors();
   await slot().scrollIntoViewIfNeeded();
+  await copyToggle().click();
   await page.screenshot({ path: resolve(output, 'copy-menu-narrow.png') });
+
+  // A copied reference must not retarget when Undo removes its source and a
+  // different import reuses that ID, even if no color panel is visible.
+  const base = artwork('Import target'),
+    foreignA = artwork('Imported A'),
+    foreignB = artwork('Imported B');
+  for (const [source, name, hex] of [
+    [foreignA, 'A', '#112233'],
+    [foreignB, 'B', '#445566'],
+  ]) {
+    source.doc.schemaVersion = 54;
+    source.doc.colorSlots = [{ id: 'reused-slot', name, value: { hex, alpha: 1 } }];
+    source.fill.params.color.colorSlotId = 'reused-slot';
+  }
+  const baseProject = migrateLegacyDocumentToCompositionProject(base.doc),
+    sourceA = migrateLegacyDocumentToCompositionProject(foreignA.doc),
+    sourceB = migrateLegacyDocumentToCompositionProject(foreignB.doc);
+  await page.evaluate((p) => window.nect.load(JSON.stringify(p)), baseProject);
+  await page.evaluate(
+    (p) =>
+      window.nect.dispatch({
+        ...window.nect.commandState,
+        type: 'import-project-compositions',
+        payload: { sourceProject: p, compositionIds: [p.compositions[0].id] },
+      }),
+    sourceA,
+  );
+  assert.equal((await snapshot()).colorSlots.find((item) => item.id === 'reused-slot').name, 'A');
+  await colors();
+  const importedSlot = page.locator('[data-shared-color-row="reused-slot"]');
+  await importedSlot.locator('[data-shared-color-copy-toggle]').click();
+  await importedSlot.locator('[data-shared-color-copy="reference"]').click();
+  await ensureWorkspacePanel(page, 'assets');
+  await page.evaluate((p) => {
+    window.nect.dispatch({ ...window.nect.commandState, type: 'undo', payload: {} });
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'import-project-compositions',
+      payload: { sourceProject: p, compositionIds: [p.compositions[0].id] },
+    });
+  }, sourceB);
+  assert.equal((await snapshot()).colorSlots.find((item) => item.id === 'reused-slot').name, 'B');
+  await page
+    .locator(`[role="tab"][data-active-composition="${baseProject.compositions[0].id}"]`)
+    .click();
+  await page.locator(`.graph .node[data-id="${base.fill.id}"] .node-head strong`).click();
+  await ensureWorkspacePanel(page, 'inspector');
+  let expiredPaste = page.locator(
+    `.inspector-body .field[data-node="${base.fill.id}"][data-key="color"] [data-shared-color-paste]`,
+  );
+  assert.equal(await expiredPaste.isDisabled(), true, 'same-ID import must not revive reference');
+  await activateCommand(page, 'undo');
+  const pendingRedoProject = await snapshot(),
+    pendingRedoState = await state();
+  expiredPaste = page.locator(
+    `.inspector-body .field[data-node="${base.fill.id}"][data-key="color"] [data-shared-color-paste]`,
+  );
+  assert.equal(await expiredPaste.isDisabled(), true);
+  await expiredPaste.evaluate((el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  assert.deepEqual(await snapshot(), pendingRedoProject);
+  assert.deepEqual(await state(), pendingRedoState);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
   assert.deepEqual(errors, []);
   console.log(
     'Shared color copy: value snapshot, project-bound reference, Undo/Redo and browser reopen passed',

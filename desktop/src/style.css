@@ -1002,6 +1002,20 @@ input[type='color'] {
   min-width: 0;
   width: 100%;
 }
+.shared-color-copy button {
+  width: 100%;
+}
+.shared-color-copy-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 4px;
+}
+.shared-color-copy-actions[hidden] {
+  display: none;
+}
+.shared-color-copy-actions button {
+  text-align: left;
+}
 .shared-color-identity {
   grid-column: 1 / -1;
   color: var(--muted);
