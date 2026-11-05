@@ -1,3 +1,5 @@
+import { danglingExpressionIds, remapExpressionReferences } from './curve-point-reference.js';
+
 const REF_KEYS = new Set([
   'id',
   'source',
@@ -41,38 +43,11 @@ export function collectIds(value) {
   return ids;
 }
 
-function remapLayerExpressions(source, copy, mapping) {
-  if (!Array.isArray(source?.nodes)) return;
-  // ref() resolves only within its own layer. A colliding Composition/layer/
-  // point ID or a node in another layer must not retarget a dangling expression.
-  const nodes = new Map(
-    source.nodes
-      .filter((node) => mapping.has(node.id))
-      .map((node) => [node.id, mapping.get(node.id)]),
-  );
-  for (const node of copy.nodes) {
-    const parameters = Object.values(node.params ?? {});
-    for (const point of Array.isArray(node.points) ? node.points : [])
-      parameters.push(point?.position, point?.handleA, point?.handleB);
-    for (const edit of Array.isArray(node.edits) ? node.edits : [])
-      parameters.push(...Object.values(edit?.params ?? {}));
-    for (const parameter of parameters) {
-      if (
-        !['Scalar', 'Vector2', 'Color'].includes(parameter?.type) ||
-        typeof parameter.expression !== 'string'
-      )
-        continue;
-      // Same restricted quoted-ID matcher as duplicateNodes in core.js.
-      // Replace only the first ref argument, preserving all authored syntax.
-      parameter.expression = parameter.expression.replace(
-        /\bref\s*\(\s*"([a-zA-Z0-9:_-]+)"/g,
-        (match, id) => (nodes.has(id) ? match.replace(`"${id}"`, `"${nodes.get(id)}"`) : match),
-      );
-    }
-  }
-}
-
 export function remapIds(value, ids, occupied) {
+  const sourceLayers = Array.isArray(value) ? value : value?.layers;
+  if (Array.isArray(sourceLayers))
+    for (const layer of sourceLayers)
+      for (const id of danglingExpressionIds(layer.nodes || [])) occupied.add(id);
   const mapping = new Map();
   for (const id of ids) {
     let next = id,
@@ -93,11 +68,10 @@ export function remapIds(value, ids, occupied) {
     )
       owner[key] = mapping.get(current);
   });
-  const sourceLayers = Array.isArray(value) ? value : value?.layers;
   const copiedLayers = Array.isArray(copy) ? copy : copy?.layers;
   if (Array.isArray(sourceLayers))
     sourceLayers.forEach((layer, index) =>
-      remapLayerExpressions(layer, copiedLayers[index], mapping),
+      remapExpressionReferences(layer.nodes || [], copiedLayers[index].nodes || []),
     );
   return copy;
 }

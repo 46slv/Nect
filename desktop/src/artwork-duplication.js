@@ -1,4 +1,5 @@
-import { characterPositionStatus, parameters, uid, validate } from './core.js';
+import { characterPositionStatus, uid, validate } from './core.js';
+import { danglingExpressionIds, remapExpressionReferences } from './curve-point-reference.js';
 import { candidateDocument } from './artwork-candidate.js';
 import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 
@@ -93,6 +94,7 @@ function occupiedArtworkIds(doc) {
   const occupied = new Set();
   for (const guide of doc.editor?.guides || []) occupied.add(guide.id);
   for (const l of doc.layers) {
+    for (const id of danglingExpressionIds(l.nodes)) occupied.add(id);
     occupied.add(l.id);
     for (const group of l.nodeGroups || []) occupied.add(group.id);
     for (const n of l.nodes) {
@@ -148,6 +150,7 @@ function copyArtwork(source, occupied) {
     for (const child of Object.values(value)) remapSources(child);
   }
   remapSources(layer);
+  remapExpressionReferences(source.nodes, layer.nodes);
   return layer;
 }
 
@@ -275,22 +278,7 @@ export function duplicateLayerGeneric(doc, layerId) {
     }
   };
   remap(layer);
-  // Expressions embed node IDs rather than storing them as whole-string fields.
-  // Restrict rewriting to authored parameters and nodes from this source layer:
-  // text/metadata and unresolved references must retain their original meaning.
-  const nodeIds = new Set(source.nodes.map((n) => n.id));
-  for (const n of layer.nodes)
-    for (const [, parameter] of parameters(n)) {
-      if (
-        !['Scalar', 'Vector2', 'Color'].includes(parameter.type) ||
-        typeof parameter.expression !== 'string'
-      )
-        continue;
-      parameter.expression = parameter.expression.replace(
-        /\bref\s*\(\s*"([a-zA-Z0-9:_-]+)"/g,
-        (match, id) => (nodeIds.has(id) ? match.replace(`"${id}"`, `"${ids.get(id)}"`) : match),
-      );
-    }
+  remapExpressionReferences(source.nodes, layer.nodes);
   layer.nodeGroups?.forEach((g, i) => {
     g.name = source.nodeGroups[i].name;
   });

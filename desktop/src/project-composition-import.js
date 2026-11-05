@@ -1,6 +1,10 @@
 import { importColorSlots, colorImportSchemaVersion } from './color-slots.js';
 import { cloneDocument, deserialize, validate } from './core.js';
 import {
+  CURVE_POINT_REFERENCE_SCHEMA_VERSION,
+  nodesHaveCurvePointReferences,
+} from './curve-point-reference.js';
+import {
   collectAssetReferences,
   collectIds,
   mergeAssetRegistry,
@@ -46,7 +50,18 @@ export function prepareCompositionImport(current, sourceText, compositionId) {
   remapAssetReferences(copiedLayers, fonts.mapping, images.mapping);
   const result = cloneDocument(current);
   result.layers.push(...copiedLayers);
-  result.schemaVersion = Math.max(result.schemaVersion, colorImportSchemaVersion(source, colors));
+  const importsPointReference = copiedLayers.some((layer) =>
+    nodesHaveCurvePointReferences(layer.nodes),
+  );
+  const sourceForColors =
+    source.schemaVersion === CURVE_POINT_REFERENCE_SCHEMA_VERSION && !importsPointReference
+      ? { ...source, schemaVersion: CURVE_POINT_REFERENCE_SCHEMA_VERSION - 1 }
+      : source;
+  result.schemaVersion = Math.max(
+    result.schemaVersion,
+    colorImportSchemaVersion(sourceForColors, colors),
+    importsPointReference ? CURVE_POINT_REFERENCE_SCHEMA_VERSION : 1,
+  );
   if (colors.colorSlots !== undefined) result.colorSlots = colors.colorSlots;
   if (colors.keyColorRecipe) result.keyColorRecipe = colors.keyColorRecipe;
   result.fontAssets = fonts.assets;
