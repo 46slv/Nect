@@ -1904,6 +1904,7 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
         type === 'initialize-key-color-recipe' ||
         type === 'initialize-live-key-color-recipe' ||
         type === 'apply-live-key-color-recipe-snapshot' ||
+        type === 'detach-live-key-color-recipe' ||
         type === 'apply-key-color-recipe-snapshot'
           ? payload
           : { layerId: current().id, ...payload },

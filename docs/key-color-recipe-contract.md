@@ -178,8 +178,8 @@ chroma override, Lock, Neutral lightness, alpha, role or reference is removed or
 rewritten. No legacy conversion runs on load and no existing document is automatically
 linked to this model. Schema58 can explicitly retain an independently validated
 receipt as historical metadata; it does not make the recipe a live color owner.
-Future active integration still needs an explicit conversion operation and its
-own save/reopen/reference acceptance.
+The separate explicit linked trial can be ended while preserving shared colors
+and references; that operation keeps schema59 and does not convert legacy palettes.
 
 ## Verification
 

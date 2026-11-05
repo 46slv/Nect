@@ -80,6 +80,7 @@ opaque-derived policy is reused; C1 preserves exact HEX spelling and alpha 0.
 or reserve IDs, and its output is not another authored owner. Preview consumers
 may display each proposed new slot's ID, exact name and literal, alongside the
 explicit plan and versions. This packet does not add a visual preview interface.
+The separate experimental editor can preview the explicitly selected B trial.
 
 Capture the Session owner and envelope **once before preparation**. Keep the same
 explicit request detached from caller edits; check that the current owner is the
@@ -149,7 +150,18 @@ than overwriting it. The dialog identifies the full palette addition and old-rea
 incompatibility. When the selected source does not reference the live palette,
 ordinary import is retained and schema59 alone does not unnecessarily upgrade an
 older destination. The trial does not supply final presets, a full-precision Field
-evaluator, palette migration or a general detach/convert command.
+evaluator or palette migration.
+
+The explicit `detach-live-key-color-recipe` Session command ends an active trial
+after checking the captured Session envelope and palette revision. It replaces
+the live wrapper with a v1 `retained-only` receipt containing the exact saved
+snapshot, in one Undo step. Shared slot identities, values and artwork references
+do not change; the slots become independently editable. Undo restores the live
+relationship and Redo restores the receipt. Schema59 stays at 59, so unlinking
+does not promise compatibility with older readers. The editor only permits the
+action from the saved state: active input, IME/scrub, uncommitted draft or artwork
+preview must be closed or restored first. This is a trial exit, not automatic
+conversion of historical palettes or a general compatibility export.
 
 ## Verification scope
 

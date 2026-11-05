@@ -109,10 +109,7 @@ try {
     await page.locator('[data-research-live-warning]').textContent(),
     /Older Nect versions cannot open/,
   );
-  assert.match(
-    await page.locator('[data-research-live-warning]').textContent(),
-    /Detaching the palette is not yet available/,
-  );
+  assert.match(await page.locator('[data-research-live-warning]').textContent(), /after linking/);
   await page.locator('[data-research-preview]').click();
   await page.screenshot({ path: resolve(output, 'linked-trial-preview.png'), fullPage: true });
   await page.setViewportSize({ width: 420, height: 820 });
@@ -392,6 +389,91 @@ try {
   assert.deepEqual(JSON.parse(await readFile(liveFile, 'utf8')), editedLive);
   results.push(
     'downloaded linked project import: warning, full palette, one Undo/Redo, re-edit, conflict refusal and unlinked metadata',
+  );
+
+  // End the linked trial explicitly, never using an unsaved draft or preview.
+  const beforeUnlink = await snapshot();
+  await open();
+  const unlink = page.locator('[data-key-color-unlink]');
+  assert.equal(await unlink.isEnabled(), true);
+  await field('alpha').scrollIntoViewIfNeeded();
+  const alphaBounds = await field('alpha').boundingBox();
+  await page.mouse.move(alphaBounds.x + 8, alphaBounds.y + alphaBounds.height / 2);
+  await page.mouse.down();
+  assert.equal(await unlink.isDisabled(), true);
+  await unlink.dispatchEvent('click');
+  assert.deepEqual(await snapshot(), beforeUnlink);
+  await page.mouse.up();
+  assert.equal(await unlink.isEnabled(), true);
+  await field('hex').fill('#b7621a');
+  assert.equal(await unlink.isDisabled(), true);
+  await preview();
+  await page.locator('[data-artwork-show]').click();
+  assert.equal(await unlink.isDisabled(), true);
+  await cancel();
+  assert.deepEqual(await snapshot(), beforeUnlink);
+  await open();
+  await field('hex').dispatchEvent('compositionstart', { bubbles: true });
+  assert.equal(await unlink.isDisabled(), true);
+  await field('hex').dispatchEvent('compositionend', { bubbles: true });
+  assert.equal(await unlink.isEnabled(), true);
+  await page.screenshot({ path: resolve(output, 'linked-unlink.png'), fullPage: true });
+  await page.setViewportSize({ width: 420, height: 820 });
+  await page.screenshot({ path: resolve(output, 'linked-unlink-narrow.png'), fullPage: true });
+  const unlinkBounds = await unlink.boundingBox();
+  assert.ok(unlinkBounds.x >= 0 && unlinkBounds.x + unlinkBounds.width <= 420);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await unlink.focus();
+  await page.keyboard.press('Enter');
+  const detachedProject = await snapshot();
+  assert.equal(detachedProject.schemaVersion, 59);
+  assert.equal(detachedProject.keyColorRecipe.mode, 'retained-only');
+  assert.deepEqual(
+    detachedProject.keyColorRecipe.committedSnapshot,
+    beforeUnlink.keyColorRecipe.committedSnapshot,
+  );
+  assert.deepEqual(detachedProject.colorSlots, beforeUnlink.colorSlots);
+  assert.deepEqual(detachedProject.compositions, beforeUnlink.compositions);
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), beforeUnlink);
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await snapshot(), detachedProject);
+  await ensureWorkspacePanel(page, 'colors');
+  const detachedAdvanced = page.locator('[data-color-advanced]');
+  if (!(await detachedAdvanced.evaluate((element) => element.open)))
+    await detachedAdvanced.locator('summary').click();
+  const detachedColor = page.locator(
+    `[data-shared-color-row="${importedDerivedId}"] [data-shared-color-edit="hex"]`,
+  );
+  assert.equal(await detachedColor.isEnabled(), true);
+  await detachedColor.fill('#2468ac');
+  const editedDetached = await snapshot();
+  assert.equal(
+    editedDetached.colorSlots.find((slot) => slot.id === importedDerivedId).value.hex,
+    '#2468ac',
+  );
+  assert.equal(
+    editedDetached.compositions
+      .find((composition) => composition.id === importedComposition.id)
+      .layers[0].nodes.find((entry) => entry.id === importedFill.id).params.color.colorSlotId,
+    importedDerivedId,
+  );
+  const detachedDownload = page.waitForEvent('download');
+  await activateCommand(page, 'save');
+  const detachedFile = resolve(output, 'saved-unlinked-trial.json');
+  await (await detachedDownload).saveAs(detachedFile);
+  assert.deepEqual(JSON.parse(await readFile(detachedFile, 'utf8')), editedDetached);
+  await page.reload();
+  await page.waitForFunction(() => window.nect);
+  const detachedChooser = page.waitForEvent('filechooser');
+  await activateCommand(page, 'open');
+  if (await page.locator('dialog[open] button[value="discard"]').count())
+    await page.locator('dialog[open] button[value="discard"]').click();
+  await (await detachedChooser).setFiles(detachedFile);
+  await page.waitForFunction(() => window.nect.document.keyColorRecipe?.mode === 'retained-only');
+  assert.deepEqual(await snapshot(), editedDetached);
+  results.push(
+    'unlink saved trial: draft/preview/IME guard, one Undo/Redo, editable colors and JSON reopen',
   );
 
   const fixture = retainedRecipeFixture();

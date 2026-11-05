@@ -1083,6 +1083,98 @@ for (const kind of ['document', 'composition']) {
 }
 
 for (const kind of ['document', 'composition']) {
+  test(`${kind}: explicitly unlinking keeps shared identities, values and artwork in one Undo`, () => {
+    const f = fixture(kind, legacyDocument());
+    f.send('initialize-live-key-color-recipe', request());
+    const layer = f.session.snapshot().layers[0];
+    const color = layer.nodes.find((item) => item.type === 'Color');
+    f.send('bind-color-slot', {
+      layerId: layer.id,
+      nodeId: color.id,
+      key: 'value',
+      slotId: 'fresh-derived',
+    });
+    const before = captured(f.session);
+    const beforeDocument = f.session.snapshot();
+    const revision = beforeDocument.keyColorRecipe.committedSnapshot.revision;
+    const result = f.send('detach-live-key-color-recipe', { expectedPaletteRevision: revision });
+    const after = captured(f.session);
+    const detached = f.session.snapshot();
+    const expected = structuredClone(beforeDocument);
+    expected.keyColorRecipe = {
+      version: 1,
+      mode: 'retained-only',
+      committedSnapshot: expected.keyColorRecipe.committedSnapshot,
+    };
+    assert.equal(result.changed, true);
+    assert.deepEqual(detached, expected);
+    assert.equal(detached.schemaVersion, 59);
+    assert.equal(after.past.length, before.past.length + 1);
+    f.send('undo');
+    assert.deepEqual(JSON.parse(captured(f.session).document), JSON.parse(before.document));
+    assert.equal(captured(f.session).project, before.project);
+    f.send('redo');
+    assert.deepEqual(JSON.parse(captured(f.session).document), JSON.parse(after.document));
+    assert.equal(captured(f.session).project, after.project);
+
+    const reopened =
+      kind === 'document'
+        ? new CommandSession(deserialize(serialize(detached)))
+        : createCompositionSessionOwner(
+            deserializeCompositionProject(serializeCompositionProject(f.session.projectSnapshot())),
+          );
+    const nextValue = { hex: '#492a7c', alpha: 0.7 };
+    reopened.dispatch({
+      ...reopened.state,
+      type: 'set-color-slot',
+      payload: { slotId: 'fresh-derived', value: nextValue },
+    });
+    const changed = reopened.snapshot();
+    assert.equal(changed.keyColorRecipe.mode, 'retained-only');
+    assert.deepEqual(
+      changed.keyColorRecipe.committedSnapshot,
+      beforeDocument.keyColorRecipe.committedSnapshot,
+    );
+    assert.deepEqual(
+      evaluate(changed.layers[0], {}, changed.imageAssets, changed).run(color.id),
+      nextValue,
+    );
+    assert.equal(
+      changed.layers[0].nodes.find((item) => item.id === color.id).params.value.colorSlotId,
+      'fresh-derived',
+    );
+  });
+
+  test(`${kind}: stale or invalid unlink preserves document, revision and pending Redo`, () => {
+    const f = fixture(kind);
+    f.send('initialize-live-key-color-recipe', request());
+    const oldEnvelope = { ...f.session.state };
+    withRedo(f);
+    const before = captured(f.session);
+    for (const payload of [
+      {},
+      { expectedPaletteRevision: -1 },
+      { expectedPaletteRevision: 0, extra: true },
+    ]) {
+      assert.throws(() => f.send('detach-live-key-color-recipe', payload));
+      assert.deepEqual(captured(f.session), before);
+    }
+    assert.throws(() =>
+      f.session.dispatch({
+        ...oldEnvelope,
+        type: 'detach-live-key-color-recipe',
+        payload: { expectedPaletteRevision: 0 },
+      }),
+    );
+    assert.deepEqual(captured(f.session), before);
+    f.send('redo');
+    assert.equal(f.session.snapshot().width, 1001);
+    f.send('detach-live-key-color-recipe', { expectedPaletteRevision: 0 });
+    const detached = captured(f.session);
+    assert.throws(() => f.send('detach-live-key-color-recipe', { expectedPaletteRevision: 0 }));
+    assert.deepEqual(captured(f.session), detached);
+  });
+
   test(`${kind}: a layer extension named layers cannot silently retarget a linked Color`, () => {
     const doc = legacyDocument();
     doc.layers[0].layers = [];

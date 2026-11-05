@@ -140,6 +140,17 @@ export function assertNoLiveKeyColorWrites(doc, slotIds) {
   if (slotIds.some((id) => owned.has(id))) throw Error('Edit live trial colors in Key color');
 }
 
+// End only an explicit live trial. Keep the exact saved snapshot as a receipt;
+// its shared slots and all artwork references remain unchanged.
+export function detachLiveKeyColorRecipe(doc, payload) {
+  fields(payload, ['expectedPaletteRevision']);
+  if (!isLiveKeyColorRecipe(doc)) throw Error('No live key-color recipe');
+  const snapshot = doc.keyColorRecipe.committedSnapshot;
+  if (payload.expectedPaletteRevision !== snapshot.revision) throw Error('Stale palette revision');
+  doc.keyColorRecipe = { version: 1, mode: 'retained-only', committedSnapshot: snapshot };
+  return { paletteId: snapshot.paletteId, paletteRevision: snapshot.revision };
+}
+
 // Rebuild proposed intent from the current packet. This prevents callers from
 // changing the plan, IDs, solver or revision under the cover of an Apply.
 export function prepareLiveKeyColorRecipeApplication(doc, payload, slots) {

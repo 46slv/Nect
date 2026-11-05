@@ -13,6 +13,7 @@ import {
   assertNoLiveKeyColorWrites,
   liveKeyColorSlotIds,
   prepareLiveKeyColorRecipeApplication,
+  detachLiveKeyColorRecipe,
   validateRetainedKeyColorRecipe,
   applyRetainedKeyColorRecipeCommand,
   applyInitializedKeyColorRecipe,
@@ -42,6 +43,7 @@ export const colorSlotCommands = new Set([
   'initialize-key-color-recipe',
   'initialize-live-key-color-recipe',
   'apply-live-key-color-recipe-snapshot',
+  'detach-live-key-color-recipe',
   'bind-color-slot',
   'unbind-color-slot',
   ...keyColorRecipeDocumentCommands,
@@ -213,6 +215,7 @@ function prepareColorSlotUpdates(slots, updates) {
 }
 export function applyColorSlotCommand(doc, type, payload, makeId) {
   const slots = validateColorSlots(doc);
+  if (type === 'detach-live-key-color-recipe') return detachLiveKeyColorRecipe(doc, payload);
   if (type === 'initialize-key-color-recipe' || type === 'initialize-live-key-color-recipe') {
     const prepared = prepareKeyColorRecipeInitialization(doc, payload, slots);
     // Fresh slots and their versioned packet enter one private candidate,

@@ -454,10 +454,7 @@ test('linked trial artwork preview is a valid detached projection and never auth
     s.query('[data-research-live-warning]').textContent,
     /Older Nect versions cannot open/,
   );
-  assert.match(
-    s.query('[data-research-live-warning]').textContent,
-    /Detaching the palette is not yet available/,
-  );
+  assert.match(s.query('[data-research-live-warning]').textContent, /after linking/);
   s.query('[data-research-plan]').value = 'research-triadic-offset';
   s.fire(s.query('[data-research-plan]'), 'change');
   assert.equal(s.query('[data-research-live-option]').hidden, true);
@@ -490,6 +487,81 @@ test('linked trial artwork preview is a valid detached projection and never auth
   assert.equal(s.panel.previewDocument, null);
   assert.deepEqual(s.captured(), before);
 });
+
+for (const kind of ['document', 'project']) {
+  test(`${kind}: unlink uses saved colors only and protects drafts, preview, IME and stale state`, (t) => {
+    const s = setup(t, kind, blankDocument());
+    s.open();
+    for (const [selector, value, event] of [
+      ['[data-research-hex]', '#3273c7', 'input'],
+      ['[data-research-alpha]', '1', 'input'],
+      ['[data-research-plan]', 'research-neutral-start', 'change'],
+    ]) {
+      s.query(selector).value = value;
+      s.fire(s.query(selector), event);
+    }
+    s.query('[data-research-live]').checked = true;
+    s.fire(s.query('[data-research-live]'), 'change');
+    s.click('[data-research-preview]');
+    s.click('[data-research-create]');
+    const before = s.captured();
+    const callCount = s.calls.length;
+    s.open();
+    const unlink = () => s.query('[data-key-color-unlink]');
+    assert.equal(unlink().disabled, false);
+    const hex = s.query('[data-key-color-input="hex"]');
+    s.fire(hex, 'compositionstart');
+    assert.equal(unlink().disabled, true);
+    s.fire(unlink(), 'click');
+    assert.equal(s.calls.length, callCount);
+    s.fire(hex, 'compositionend');
+    assert.equal(unlink().disabled, false);
+    s.input('hex', '#e43f74');
+    assert.equal(unlink().disabled, true);
+    s.fire(unlink(), 'click');
+    assert.deepEqual(s.captured(), before);
+    s.click('[data-key-color-preview]');
+    s.click('[data-artwork-show]');
+    assert.ok(s.panel.previewDocument);
+    s.fire(unlink(), 'click');
+    assert.equal(s.calls.length, callCount);
+    assert.deepEqual(s.captured(), before);
+    s.click('[data-key-color-cancel]');
+    assert.equal(s.panel.previewDocument, null);
+    s.open();
+    assert.equal(unlink().disabled, false);
+    s.click('[data-key-color-preview]');
+    assert.equal(unlink().disabled, true);
+    s.click('[data-key-color-cancel]');
+    s.open();
+    s.query('[data-key-color-input="hex"]').value = '#e43f74'; // silent edit
+    s.fire(unlink(), 'click');
+    assert.equal(s.calls.length, callCount);
+    assert.deepEqual(s.captured(), before);
+    s.click('[data-key-color-cancel]');
+    s.open();
+    s.send('set-document-settings', { key: 'width', value: 1001 });
+    const stale = s.captured();
+    s.panel.reconcile();
+    assert.equal(unlink().disabled, true);
+    s.fire(unlink(), 'click');
+    assert.deepEqual(s.captured(), stale);
+    s.click('[data-key-color-cancel]');
+    s.open();
+    const linked = s.snapshot();
+    s.click('[data-key-color-unlink]');
+    const detached = s.snapshot();
+    assert.equal(detached.keyColorRecipe.mode, 'retained-only');
+    assert.deepEqual(detached.colorSlots, linked.colorSlots);
+    assert.deepEqual(detached.layers, linked.layers);
+    assert.equal(detached.schemaVersion, 59);
+    assert.equal(s.calls.at(-1).type, 'detach-live-key-color-recipe');
+    s.send('undo');
+    assert.deepEqual(s.snapshot(), linked);
+    s.send('redo');
+    assert.deepEqual(s.snapshot(), detached);
+  });
+}
 
 test('B status uses current coverage by stable ID and keeps proposed L separate from saved state', async (t) => {
   let coverage,
