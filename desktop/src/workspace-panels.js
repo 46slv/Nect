@@ -129,6 +129,7 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     event.stopImmediatePropagation();
   }
   function onFocusIn(event) {
+    if (splitDrag && event.target !== splitDrag.separator) finishSplit(false);
     const entry = ITEMS.find(
       (candidate) =>
         candidate.selector &&
@@ -178,7 +179,7 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     } catch {
       /* Capture may already have been released by the browser. */
     }
-    if (commit) {
+    if (commit && previous.preview !== previous.startValue) {
       splitPreferences.set(previous.entry.coVisible, previous.preview);
       save();
     }
@@ -426,6 +427,7 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
       [active[entry.side], active[other]].some((activeId) => activeId && !canDeactivate(activeId))
     )
       return;
+    finishSplit(false);
     if (shareVisibleGroup(active[entry.side], id)) {
       active[entry.side] = id;
       lastSide = entry.side;
@@ -466,6 +468,7 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
   function close(id, focus = true, { animate = true } = {}) {
     const entry = item(id);
     if (!entry || active[entry.side] !== id || !canDeactivate(id)) return;
+    finishSplit(false);
     active[entry.side] = null;
     save();
     if (entry.side === 'left') retreated = false;
@@ -579,12 +582,12 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
             : event.key === 'End'
               ? bounds.max
               : current + (event.key === 'ArrowUp' ? -2 : 2);
-        splitPreferences.set(
-          entry.coVisible,
-          rounded(Math.max(bounds.min, Math.min(bounds.max, wanted))),
-        );
-        save();
-        updateSplit(entry, host);
+        const next = rounded(Math.max(bounds.min, Math.min(bounds.max, wanted)));
+        if (next !== current) {
+          splitPreferences.set(entry.coVisible, next);
+          save();
+          updateSplit(entry, host);
+        }
         event.preventDefault();
         event.stopPropagation();
       });

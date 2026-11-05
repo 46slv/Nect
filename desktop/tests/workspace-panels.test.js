@@ -431,6 +431,24 @@ test('editing split keyboard and interrupted pointer gestures stay view-only and
   assert.equal(values.get(DRAWER_PREFERENCES_KEY), stored);
   split.dispatchEvent(
     new win.PointerEvent('pointerdown', {
+      pointerId: 10,
+      button: 0,
+      isPrimary: true,
+      bubbles: true,
+      clientY: 250,
+    }),
+  );
+  win.document.dispatchEvent(
+    new win.PointerEvent('pointermove', { pointerId: 10, bubbles: true, clientY: 290, buttons: 1 }),
+  );
+  controller.select('align');
+  win.document.dispatchEvent(new win.PointerEvent('pointerup', { pointerId: 10, bubbles: true }));
+  assert.equal(JSON.parse(values.get(DRAWER_PREFERENCES_KEY)).splits.editing, adjusted);
+  controller.select('layers');
+  assert.equal(Number(split.getAttribute('aria-valuenow')), adjusted);
+  const storedAfterSwitch = values.get(DRAWER_PREFERENCES_KEY);
+  split.dispatchEvent(
+    new win.PointerEvent('pointerdown', {
       pointerId: 8,
       button: 0,
       isPrimary: true,
@@ -448,10 +466,65 @@ test('editing split keyboard and interrupted pointer gestures stay view-only and
     new win.PointerEvent('pointermove', { pointerId: 8, bubbles: true, clientY: 320, buttons: 1 }),
   );
   win.document.dispatchEvent(new win.PointerEvent('pointerup', { pointerId: 8, bubbles: true }));
-  assert.equal(values.get(DRAWER_PREFERENCES_KEY), stored);
+  assert.equal(values.get(DRAWER_PREFERENCES_KEY), storedAfterSwitch);
   assert.equal(Number(split.getAttribute('aria-valuenow')), adjusted);
   win.happyDOM.abort();
 });
+
+for (const action of ['click', 'ArrowUp', 'ArrowDown', 'Home', 'End'])
+  test(`clamped split preserves its preferred size on no-op ${action}`, () => {
+    const win = new Window();
+    const root = win.document.createElement('div');
+    root.innerHTML = markup;
+    win.document.body.append(root);
+    const original = JSON.stringify({
+      left: null,
+      right: 'layers',
+      lastSide: 'right',
+      splits: { editing: 38 },
+    });
+    let saved = original;
+    const controller = createTestWorkspacePanels({
+      storage: {
+        getItem: () => saved,
+        setItem: (_key, value) => {
+          saved = value;
+        },
+      },
+      getAssetPanel: () => null,
+      onAssets() {},
+      onAlign() {},
+      onColors() {},
+    });
+    controller.attach(root);
+    const host = root.querySelector('[data-drawer-side="right"]');
+    Object.defineProperty(host, 'clientHeight', { configurable: true, value: 120 });
+    controller.refresh();
+    const split = root.querySelector('[data-workspace-split]');
+    const clamped = Number(split.getAttribute('aria-valuenow'));
+    assert.notEqual(clamped, 38);
+    if (action === 'click') {
+      split.dispatchEvent(
+        new win.PointerEvent('pointerdown', {
+          pointerId: 9,
+          button: 0,
+          isPrimary: true,
+          bubbles: true,
+        }),
+      );
+      win.document.dispatchEvent(
+        new win.PointerEvent('pointerup', { pointerId: 9, bubbles: true }),
+      );
+    } else
+      split.dispatchEvent(
+        new win.KeyboardEvent('keydown', { key: action, bubbles: true, cancelable: true }),
+      );
+    assert.equal(saved, original);
+    Object.defineProperty(host, 'clientHeight', { configurable: true, value: 400 });
+    controller.refresh();
+    assert.equal(Number(split.getAttribute('aria-valuenow')), 38);
+    win.happyDOM.abort();
+  });
 
 test('asset portal uses the stable slot origin and retreats without motion', () => {
   const f = fixture();

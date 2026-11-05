@@ -102,6 +102,32 @@ try {
     ),
     pointerSize,
   );
+  splitBox = await separator.boundingBox();
+  await page.mouse.move(splitBox.x + splitBox.width / 2, splitBox.y + splitBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(splitBox.x + splitBox.width / 2, splitBox.y + splitBox.height / 2 + 30);
+  await page.keyboard.press('Tab');
+  assert.equal(Number(await separator.getAttribute('aria-valuenow')), pointerSize);
+  let reachedAlign = false;
+  for (let i = 0; i < 100; i++) {
+    if (await alignRail.evaluate((element) => element === document.activeElement)) {
+      reachedAlign = true;
+      break;
+    }
+    await page.keyboard.press('Tab');
+  }
+  assert.equal(reachedAlign, true, 'Alignment rail is reachable by keyboard');
+  await page.keyboard.press('Enter');
+  await page.mouse.up();
+  assert.equal(await page.locator('.alignment-panel').isVisible(), true);
+  assert.equal(
+    await page.evaluate(
+      () => JSON.parse(localStorage.getItem('nect.workspace-drawers.v1')).splits.editing,
+    ),
+    pointerSize,
+  );
+  await layersRail.click();
+  await visibleStack();
   assert.deepEqual(await snapshot(), before);
   assert.deepEqual(await command(), beforeCommand);
   assert.equal(await layersRail.getAttribute('aria-pressed'), 'true');
@@ -347,6 +373,29 @@ try {
   await visibleStack();
   assert.equal(await inspectorRail.getAttribute('aria-pressed'), 'true');
   assert.equal(Number(await separator.getAttribute('aria-valuenow')), pointerSize);
+  await separator.focus();
+  await page.keyboard.press('End');
+  const preferredWide = Number(await separator.getAttribute('aria-valuenow'));
+  await page.setViewportSize({ width: 1200, height: 620 });
+  const constrained = Number(await separator.getAttribute('aria-valuenow'));
+  assert.ok(constrained < preferredWide);
+  await separator.click();
+  await separator.press('End');
+  assert.equal(
+    await page.evaluate(
+      () => JSON.parse(localStorage.getItem('nect.workspace-drawers.v1')).splits.editing,
+    ),
+    preferredWide,
+  );
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.waitForFunction(
+    (expected) =>
+      Number(
+        document.querySelector('[data-workspace-split="editing"]').getAttribute('aria-valuenow'),
+      ) === expected,
+    preferredWide,
+  );
+  assert.equal(Number(await separator.getAttribute('aria-valuenow')), preferredWide);
   assert.deepEqual(errors, []);
   console.log(
     'Workspace stack: focus, scrolling, preferences, synthetic IME and one Undo/Redo passed',
