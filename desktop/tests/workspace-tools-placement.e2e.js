@@ -141,6 +141,16 @@ try {
   await page.mouse.up();
 
   const name = inspector.locator('[data-layer-name]');
+  await name.scrollIntoViewIfNeeded();
+  const nameBox = await name.boundingBox();
+  assert.ok(nameBox);
+  assert.equal(
+    await name.evaluate(
+      (element, point) => document.elementFromPoint(point.x, point.y) === element,
+      { x: nameBox.x + nameBox.width / 2, y: nameBox.y + nameBox.height / 2 },
+    ),
+    true,
+  );
   await name.focus();
   const originalName = await name.inputValue();
   await name.evaluate((element) => {
