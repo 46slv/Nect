@@ -1951,6 +1951,7 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
       payload:
         type === 'create-harmony-palette' ||
         type === 'add-harmony-color' ||
+        type === 'delete-color-slot' ||
         type === 'initialize-key-color-recipe' ||
         type === 'initialize-live-key-color-recipe' ||
         type === 'apply-live-key-color-recipe-snapshot' ||

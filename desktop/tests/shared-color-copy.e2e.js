@@ -128,6 +128,13 @@ try {
     true,
   );
   await page.keyboard.press('Tab');
+  assert.equal(
+    await slot()
+      .locator('[data-shared-color-delete]')
+      .evaluate((el) => el === document.activeElement),
+    true,
+  );
+  await page.keyboard.press('Tab');
   const hue = slot().locator('[data-shared-color-edit="hsl-h"]');
   assert.equal(await hue.evaluate((el) => el === document.activeElement), true);
   await hue.fill('190');

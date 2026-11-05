@@ -71,7 +71,9 @@ colors, references, revision, History and Redo.
 Retained input is detached from the caller; ordinary snapshot reads are detached
 and History views remain deeply frozen. Clear neither deletes slots nor lowers
 schema58. Explicit Undo may of course restore the pre-retain native document.
-There is no new slot-delete operation and no legacy set/rename/bind/unbind guard.
+The retention commands do not delete slots. The separate shared-color deletion
+command rejects every slot referenced by a retained or live recipe, including
+dormant rows. Legacy set/rename/bind/unbind behavior remains as described below.
 
 ## Explicit one-shot application
 
