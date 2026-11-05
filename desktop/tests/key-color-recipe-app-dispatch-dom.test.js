@@ -101,6 +101,105 @@ test('real main.js routes the experimental editor through closed Apply, not a la
     };
   }
 
+  await t.test('B explicit pair compares current and valid preview without authoring', async () => {
+    const s = await boot(main, 'pair-advisory');
+    try {
+      s.open();
+      const hex = s.query('[data-research-hex]'),
+        alpha = s.query('[data-research-alpha]'),
+        choice = s.query('[data-research-plan]');
+      hex.value = '#3273c7';
+      s.fire(hex, 'input');
+      alpha.value = '1';
+      s.fire(alpha, 'input');
+      choice.value = 'research-neutral-start';
+      s.fire(choice, 'change');
+      s.click('[data-research-preview]');
+      s.click('[data-research-create]');
+      const created = s.snapshot(),
+        ids = created.keyColorRecipe.committedSnapshot.intent.slots.map((slot) => slot.id);
+      s.win.nect.dispatch({
+        ...s.win.nect.commandState,
+        type: 'set-document-settings',
+        payload: { key: 'width', value: 1001 },
+      });
+      s.win.nect.dispatch({ ...s.win.nect.commandState, type: 'undo', payload: {} });
+      const before = s.snapshot(),
+        state = { ...s.win.nect.commandState },
+        past = s.ui().past,
+        future = s.ui().future;
+      assert.equal(future, 1);
+      s.open();
+      const fg = s.query('[data-pair-foreground]'),
+        bg = s.query('[data-pair-background]');
+      const result = () => s.query('[data-pair-result]').textContent;
+      s.click('[data-pair-run]');
+      assert.match(result(), /Choose both colors/);
+      fg.value = ids[0];
+      s.fire(fg, 'change');
+      bg.value = ids[0];
+      s.fire(bg, 'change');
+      s.click('[data-pair-run]');
+      assert.match(result(), /Choose two different colors/);
+      bg.value = ids[3];
+      s.fire(bg, 'change');
+      assert.match(result(), /Not evaluated/);
+      s.click('[data-pair-run]');
+      assert.match(result(), /Current shared colors: [\d.]+:1/);
+      assert.match(result(), /Proposed colors: not evaluated/);
+      const delta = s.query(`[data-key-color-input="deltaL"][data-key-color-slot="${ids[0]}"]`);
+      delta.value = '0.2';
+      s.fire(delta, 'input');
+      assert.match(result(), /Not evaluated/);
+      s.click('[data-key-color-preview]');
+      s.click('[data-pair-run]');
+      const both = result().match(/(?:Current shared colors|Proposed colors): ([\d.]+):1/g);
+      assert.equal(both.length, 2);
+      assert.notEqual(both[0].split(': ')[1], both[1].split(': ')[1]);
+      fg.value = ids[1];
+      s.fire(fg, 'change');
+      assert.match(result(), /Not evaluated/);
+      assert.equal(s.query('[data-key-color-apply]').disabled, false);
+      s.click('[data-pair-run]');
+      assert.match(result(), /Proposed colors: [\d.]+:1/);
+      delta.value = '0.3'; // Silent mutation must not reuse the old Preview.
+      s.click('[data-pair-run]');
+      assert.match(result(), /Current shared colors:/);
+      assert.match(result(), /Proposed colors: not evaluated/);
+      assert.equal(s.query('[data-key-color-apply]').disabled, true);
+      assert.deepEqual(s.snapshot(), before);
+      assert.deepEqual(s.win.nect.commandState, state);
+      assert.equal(s.ui().past, past);
+      assert.equal(s.ui().future, future);
+      s.click('[data-key-color-cancel]');
+      assert.deepEqual(s.snapshot(), before);
+      assert.equal(s.ui().future, future);
+      s.click('[data-action="redo"]');
+      s.click('[data-action="undo"]');
+      assert.deepEqual(s.snapshot(), before);
+      s.open();
+      const fg2 = s.query('[data-pair-foreground]'),
+        bg2 = s.query('[data-pair-background]');
+      fg2.value = ids[0];
+      s.fire(fg2, 'change');
+      bg2.value = ids[3];
+      s.fire(bg2, 'change');
+      s.click('[data-pair-run]');
+      assert.match(result(), /Current shared colors:/);
+      s.win.nect.dispatch({
+        ...s.win.nect.commandState,
+        type: 'set-document-settings',
+        payload: { key: 'width', value: 1002 },
+      });
+      assert.match(result(), /Not evaluated/);
+      s.click('[data-pair-run]');
+      assert.match(result(), /stale/i);
+      assert.doesNotMatch(result(), /at least|below/);
+    } finally {
+      await s.win.happyDOM.abort();
+    }
+  });
+
   await t.test(
     'explicit B preview creates five fresh trial colors in one Undo and reopens without derived chroma controls',
     async () => {

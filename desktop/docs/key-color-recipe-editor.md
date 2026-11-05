@@ -30,6 +30,14 @@ slot ID; the refresh button rereads it. Missing, stale or unavailable results ar
 not converted to zero. Before creation, usage is not measured. Readability and
 procedure checks are not evaluated here, and literal equality includes alpha.
 
+For a retained B trial, explicitly select two different stable IDs to check a
+foreground/background pair. The advisory compares current shared literals and,
+only while valid, the detached Preview separately. It composites foreground
+alpha in encoded sRGB over an opaque background and compares the unrounded
+ratio with the normal-text 4.5:1 reference. Missing, ambiguous, invalid or
+translucent-background inputs are unknown. This is not an artwork accessibility
+audit and does not change the document or colors.
+
 The research C1 uses the same draft-only HSL picker as the retained editor.
 Until a valid six-digit HEX is entered, HSL controls and the plane cannot edit a
 color; no seed color is used for Preview. HEX spelling and alpha zero remain

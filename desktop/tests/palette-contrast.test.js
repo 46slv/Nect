@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzePaletteContrast, NORMAL_TEXT_CONTRAST_THRESHOLD } from '../src/palette-contrast.js';
+import {
+  analyzePaletteContrast,
+  analyzeExplicitContrast,
+  analyzeSelectedContrast,
+  NORMAL_TEXT_CONTRAST_THRESHOLD,
+} from '../src/palette-contrast.js';
 
 const slot = (id, hex, alpha = 1) => ({ id, name: id, value: { hex, alpha } });
 const entry = (id, role) => ({ id, kind: 'neutral', L: 0.5, role });
@@ -21,6 +26,53 @@ function freezeTree(value) {
   }
   return value;
 }
+
+test('explicit pair handles alpha, opaque background and ambiguous or missing stable IDs', () => {
+  const black = { hex: '#000000', alpha: 1 },
+    white = { hex: '#ffffff', alpha: 1 };
+  assert.equal(analyzeExplicitContrast(black, white).ratio, 21);
+  assert.equal(analyzeExplicitContrast({ ...black, alpha: 0 }, white).ratio, 1);
+  assert.equal(analyzeExplicitContrast({ ...black, alpha: 0.5 }, white).status, 'fail');
+  assert.equal(
+    analyzeExplicitContrast(black, { ...white, alpha: 0.5 }).reason,
+    'non-opaque-background',
+  );
+  assert.equal(analyzeExplicitContrast(null, white).reason, 'invalid-text-color');
+  const slots = [
+    { id: 'text', value: black },
+    { id: 'background', value: white },
+  ];
+  assert.equal(analyzeSelectedContrast(slots, 'text', 'background').ratio, 21);
+  assert.equal(analyzeSelectedContrast(slots, 'text', 'text').reason, 'select-distinct-colors');
+  assert.equal(analyzeSelectedContrast(slots, '', 'background').reason, 'select-two-colors');
+  assert.equal(
+    analyzeSelectedContrast(slots, 'missing', 'background').reason,
+    'missing-text-color',
+  );
+  assert.equal(
+    analyzeSelectedContrast(slots, 'text', 'missing').reason,
+    'missing-background-color',
+  );
+  assert.equal(
+    analyzeSelectedContrast([...slots, slots[0]], 'text', 'background').reason,
+    'duplicate-color-slot-id',
+  );
+  assert.equal(
+    analyzeSelectedContrast([...slots, slots[1]], 'text', 'background').reason,
+    'duplicate-color-slot-id',
+  );
+  const extra = { id: 'unrelated', value: white };
+  assert.equal(
+    analyzeSelectedContrast([...slots, extra, extra], 'text', 'background').reason,
+    'duplicate-color-slot-id',
+  );
+  for (const target of [4.499, 4.501]) {
+    const alpha = 1.055 * ((target - 1) * 0.05) ** (1 / 2.4) - 0.055;
+    const result = analyzeExplicitContrast({ hex: '#ffffff', alpha }, black);
+    assert.ok(Math.abs(result.ratio - target) < 1e-12);
+    assert.equal(result.status, target < 4.5 ? 'fail' : 'pass');
+  }
+});
 
 test('semantic normal-text black/white ratio is 21 in either direction', () => {
   for (const doc of [fixture(), fixture('#FFFFFF', '#000000')]) {

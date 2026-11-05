@@ -13,6 +13,7 @@ import { uid } from './core.js';
 import { createKeyColorC1Draft } from './key-color-c1-draft.js';
 import { createKeyColorDeltaScrub } from './key-color-delta-scrub.js';
 import { researchPlans } from './key-color-research-plans.js';
+import { analyzeSelectedContrast } from './palette-contrast.js';
 
 const esc = (value) =>
   String(value).replace(
@@ -204,6 +205,78 @@ export function createKeyColorRecipePanel({
     output.dataset.error = String(error);
   }
 
+  function clearPairResult() {
+    const result = dialog?.querySelector('[data-pair-result]');
+    if (result) result.textContent = 'Not evaluated.';
+  }
+
+  function pairControls() {
+    const active = new Set(base.intent.preset.slots.map((slot) => slot.id));
+    const rows = [base.intent.keyColor, ...base.intent.slots.filter((slot) => active.has(slot.id))];
+    const options = rows
+      .map((row) => `<option value="${esc(row.id)}">${esc(row.role)} · ${esc(row.id)}</option>`)
+      .join('');
+    return `<section data-pair-check><h3>Selected pair contrast</h3><p>Normal-text 4.5:1 reference for these sRGB literals; opaque background required. Artwork is not evaluated.</p><label>Foreground <select data-pair-foreground><option value="">Choose a color</option>${options}</select></label><label>Background <select data-pair-background><option value="">Choose a color</option>${options}</select></label><button type="button" data-pair-run>Check pair</button><p data-pair-result role="status" aria-live="polite">Not evaluated.</p></section>`;
+  }
+
+  function checkPair() {
+    if (!dialog || !base || !dialog.isConnected) return;
+    clearPairResult();
+    try {
+      current();
+      if (composing.size) throw Error('Finish composing before checking the pair.');
+      const foreground = dialog.querySelector('[data-pair-foreground]').value;
+      const background = dialog.querySelector('[data-pair-background]').value;
+      const slots = getDocument().colorSlots;
+      const currentResult = analyzeSelectedContrast(slots, foreground, background);
+      const reasons = {
+        'select-two-colors': 'Choose both colors',
+        'select-distinct-colors': 'Choose two different colors',
+        'invalid-color-slots': 'Colors are unavailable',
+        'duplicate-color-slot-id': 'Color ID is ambiguous',
+        'missing-background-color': 'Background color is missing',
+        'missing-text-color': 'Foreground color is missing',
+        'invalid-background-color': 'Background color is invalid',
+        'invalid-text-color': 'Foreground color is invalid',
+        'non-opaque-background': 'Background must be opaque',
+      };
+      const describe = (name, result) =>
+        result.ratio === null
+          ? `${name}: unknown (${reasons[result.reason] || 'Unavailable'}).`
+          : `${name}: ${result.ratio.toFixed(3)}:1 · ${result.status === 'pass' ? 'at least' : 'below'} 4.5:1 (unrounded comparison).`;
+      let proposed = null;
+      if (preview) {
+        try {
+          if (readInputs().key !== preview.key) throw Error('Draft changed');
+          const invalidIds = [
+            'select-two-colors',
+            'select-distinct-colors',
+            'invalid-color-slots',
+            'duplicate-color-slot-id',
+            'missing-background-color',
+            'missing-text-color',
+          ];
+          if (!invalidIds.includes(currentResult.reason))
+            proposed = analyzeSelectedContrast(
+              preview.updates.map(({ slotId, value }) => ({ id: slotId, value })),
+              foreground,
+              background,
+            );
+        } catch {
+          clearPreview();
+        }
+      }
+      dialog.querySelector('[data-pair-result]').textContent =
+        `${describe('Current shared colors', currentResult)} ${proposed ? describe('Proposed colors', proposed) : 'Proposed colors: not evaluated.'}`;
+    } catch (error) {
+      if (stale) {
+        clearPreview();
+        dialog.querySelector('[data-key-color-preview]').disabled = true;
+      }
+      dialog.querySelector('[data-pair-result]').textContent = error.message;
+    }
+  }
+
   function trialStatus(snapshot, title, created) {
     const slots = new Map(snapshot.intent.slots.map((slot) => [slot.id, slot]));
     const rows = snapshot.resolved
@@ -266,6 +339,7 @@ export function createKeyColorRecipePanel({
   }
 
   function clearPreview() {
+    clearPairResult();
     preview = null;
     dialog.querySelector('[data-key-color-comparison]').innerHTML = '';
     dialog.querySelector('[data-key-color-apply]').disabled = true;
@@ -508,7 +582,11 @@ export function createKeyColorRecipePanel({
       const inputs = readInputs(),
         prepared = prepare(candidate(inputs.values)),
         slots = new Map(getDocument().colorSlots.map((slot) => [slot.id, slot]));
-      preview = { snapshot: prepared.snapshot, key: inputs.key };
+      preview = {
+        snapshot: prepared.snapshot,
+        updates: structuredClone(prepared.updates),
+        key: inputs.key,
+      };
       dialog.querySelector('[data-key-color-comparison]').innerHTML =
         `<h3>Shared literals · before → after</h3><p>Only active rows below will change. No artwork changes until Apply.</p><table><thead><tr><th>Stable slot</th><th>Current shared literal</th><th>Proposed shared literal</th></tr></thead><tbody>${prepared.updates.map(({ slotId, value }) => `<tr data-key-color-compare="${esc(slotId)}"><th scope="row">${esc(slots.get(slotId).name)}<br><code>${esc(slotId)}</code></th><td data-key-color-before>${literal(slots.get(slotId).value)}</td><td data-key-color-after>${literal(value)}</td></tr>`).join('')}</tbody></table>`;
       if (
@@ -621,7 +699,8 @@ export function createKeyColorRecipePanel({
         .insertAdjacentHTML(
           'beforeend',
           trialStatus(base, 'Saved recipe', true) +
-            '<button type="button" data-trial-refresh>Refresh usage</button>',
+            '<button type="button" data-trial-refresh>Refresh usage</button>' +
+            pairControls(),
         );
       refreshTrialUsage();
     }
@@ -661,8 +740,13 @@ export function createKeyColorRecipePanel({
         });
     }
     document.body.append(dialog);
-    dialog.addEventListener('input', invalidate);
-    dialog.addEventListener('change', invalidate);
+    const onInput = (event) => {
+      if (event.target.matches?.('[data-pair-foreground], [data-pair-background]'))
+        clearPairResult();
+      else invalidate();
+    };
+    dialog.addEventListener('input', onInput);
+    dialog.addEventListener('change', onInput);
     dialog.addEventListener('compositionstart', (event) => {
       composing.add(event.target);
       invalidate();
@@ -676,6 +760,7 @@ export function createKeyColorRecipePanel({
       if (event.target.closest('[data-key-color-cancel]')) close();
       else if (event.target.closest('[data-key-color-reset-delta-l]'))
         resetDeltaL(event.target.closest('[data-key-color-reset-delta-l]'));
+      else if (event.target.closest('[data-pair-run]')) checkPair();
       else if (event.target.closest('[data-trial-refresh]')) refreshTrialUsage();
       else if (event.target.closest('[data-research-preview]')) showResearchPreview();
       else if (event.target.closest('[data-research-create]')) createTrial();
