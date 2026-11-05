@@ -116,6 +116,8 @@ function openSearchPanel({
   categories,
   families,
   filterItems,
+  rankItems,
+  maxVisible,
   context,
   fallbackFocus,
 }) {
@@ -148,7 +150,20 @@ function openSearchPanel({
     closed = false,
     composing = false,
     favoriteOnly = false,
-    lastNotified;
+    lastNotified,
+    resultPage = 0;
+  let previousPage, nextPage;
+  if (maxVisible) {
+    previousPage = document.createElement('button');
+    previousPage.type = 'button';
+    previousPage.textContent = 'Previous';
+    previousPage.setAttribute('aria-label', 'Previous results');
+    nextPage = document.createElement('button');
+    nextPage.type = 'button';
+    nextPage.textContent = 'Next';
+    nextPage.setAttribute('aria-label', 'Next results');
+    dialog.querySelector('footer').prepend(previousPage, nextPage);
+  }
   let familyFilter = '',
     weightFilter = '';
   let familySelect, weightSelect, technicalDetails, technicalIdentity;
@@ -356,7 +371,7 @@ function openSearchPanel({
     }
     if (forceNotify || lastNotified !== activeId) {
       lastNotified = activeId;
-      status.textContent = '';
+      if (!maxVisible) status.textContent = '';
       onSelect?.(active());
     }
   }
@@ -377,7 +392,7 @@ function openSearchPanel({
                 ? item.metadata?.weightClass == null
                 : String(item.metadata?.weightClass) === weightFilter)) &&
             words.every((word) =>
-              `${item.label} ${item.detail || ''} ${item.metadata?.family || ''} ${item.metadata?.subfamily || ''} ${(item.metadata?.localizedNames || []).join(' ')}`
+              `${item.label} ${item.detail || ''} ${item.searchText || ''} ${item.metadata?.family || ''} ${item.metadata?.subfamily || ''} ${(item.metadata?.localizedNames || []).join(' ')}`
                 .normalize('NFKC')
                 .toLowerCase()
                 .includes(word),
@@ -388,8 +403,16 @@ function openSearchPanel({
       scope.textContent = `${categoryId ? label + '内' : '全体'} ${rows.length}件`;
       clearScope.hidden = !categoryId;
     }
+    if (rankItems) rows = rankItems(rows, input.value);
     const grouped = categories && !input.value.trim() && !categoryId;
     const candidates = rows;
+    if (maxVisible && !categories && !families) {
+      resultPage = Math.min(resultPage, Math.max(0, Math.ceil(candidates.length / maxVisible) - 1));
+      rows = candidates.slice(resultPage * maxVisible, (resultPage + 1) * maxVisible);
+      previousPage.hidden = nextPage.hidden = candidates.length <= maxVisible;
+      previousPage.disabled = resultPage === 0;
+      nextPage.disabled = (resultPage + 1) * maxVisible >= candidates.length;
+    }
     const familyCandidates = new Map();
     if (families) {
       for (const item of candidates) {
@@ -592,6 +615,11 @@ function openSearchPanel({
     if (categories) list.scrollTop = scrollTop;
     if (!candidates.length)
       status.textContent = categories ? '該当するノードはありません' : 'No matches';
+    else if (maxVisible)
+      status.textContent =
+        candidates.length > maxVisible
+          ? `${resultPage * maxVisible + 1}–${resultPage * maxVisible + rows.length} of ${candidates.length}`
+          : '';
   }
   function updateFontItems(nextItems, nextFamilies) {
     if (closed || !fontFilters || !families) return;
@@ -680,6 +708,17 @@ function openSearchPanel({
     refresh();
     input.focus();
   };
+  if (maxVisible) {
+    const turnPage = (delta) => {
+      resultPage += delta;
+      refresh({ scroll: false });
+      list.scrollTop = 0;
+      if (delta > 0 && nextPage.disabled) previousPage.focus();
+      if (delta < 0 && previousPage.disabled) nextPage.focus();
+    };
+    previousPage.onclick = () => turnPage(-1);
+    nextPage.onclick = () => turnPage(1);
+  }
   dialog.addEventListener('cancel', (event) => {
     event.preventDefault();
     panel.close(true);
@@ -689,6 +728,7 @@ function openSearchPanel({
   });
   dialog.addEventListener('compositionend', () => {
     composing = false;
+    resultPage = 0;
     if (pendingFontUpdate) {
       const update = pendingFontUpdate;
       pendingFontUpdate = null;
@@ -696,7 +736,10 @@ function openSearchPanel({
     } else refresh();
   });
   input.oninput = () => {
-    if (!composing) refresh();
+    if (!composing) {
+      resultPage = 0;
+      refresh();
+    }
   };
   dialog.addEventListener('keydown', (event) => {
     event.stopPropagation();
@@ -977,6 +1020,7 @@ const sharedColors = createSharedColorsPanel({
   getCoverageSnapshot: () => coverageView.snapshot(),
   getSession: () => session,
   getDocument: () => history.doc,
+  getProjectIdentity: () => documents.generation,
   dispatch: (type, payload, envelope) =>
     commandChange(
       type,
@@ -1326,6 +1370,9 @@ document.addEventListener(
 const sessionOptions = {
   fonts: activeFonts,
   onCommitted: (state) => {
+    // A copied slot reference expires at the first committed removal, even if
+    // another import later introduces the same ID while its panel is hidden.
+    if (state.sessionId === session.id) sharedColors.observeCommittedProject();
     // Let the operation finish a document-lifetime transition (e.g. SVG import)
     // before associating its committed state with a recovery document identity.
     queueMicrotask(() => {
@@ -4308,6 +4355,13 @@ function editorExpressionTargets(nodeId, type) {
     ...(type === 'Color' ? expressionReferenceTargets(current(), nodeId) : []),
   ];
 }
+function transformUniformScale(n) {
+  try {
+    return renderEvaluation?.parameterValue(n.id, 'uniformScale') ?? true;
+  } catch {
+    return true;
+  }
+}
 function field(n, key, q, inspector = false) {
   let source = current().nodes.find((x) => x.id === q.source),
     locked =
@@ -4315,9 +4369,7 @@ function field(n, key, q, inspector = false) {
       (n.type === 'Geometry Repeater' && key === 'rotation' && current().locked) ||
       (n.type === 'Text' && key === 'letterSpacing' && maintainedAxis(n) !== null) ||
       !!q.source ||
-      (isTransform(n) &&
-        key === 'scaleWidth' &&
-        (renderEvaluation?.transformValues(n.id).uniformScale ?? true));
+      (isTransform(n) && key === 'scaleWidth' && transformUniformScale(n));
   const factor = isTransform(n) && ['scale', 'scaleWidth'].includes(key) ? 100 : 1;
   let name =
     n.type === 'Join Geometry'
@@ -4503,8 +4555,16 @@ function field(n, key, q, inspector = false) {
     !n.params[key] &&
     ['position', 'scaleWidth'].includes(key) &&
     renderEvaluation
-  )
-    displayed = renderEvaluation.transformValues(n.id)[key];
+  ) {
+    try {
+      displayed = renderEvaluation.parameterValue(n.id, key);
+    } catch {
+      // An inherited virtual value is unavailable until its own driver resolves.
+      // Do not show its authored fallback as though it were evaluated.
+      displayed = q.type === 'Vector2' ? [null, null] : null;
+      locked = true;
+    }
+  }
   if (source && renderEvaluation) {
     try {
       displayed = renderEvaluation.run(source.id, q.sourcePort);
@@ -4546,30 +4606,33 @@ function field(n, key, q, inspector = false) {
       current().locked ||
       q.locked ||
       (n.type === 'Text' && key === 'letterSpacing' && maintainedAxis(n) !== null) ||
-      (isTransform(n) &&
-        key === 'scaleWidth' &&
-        (renderEvaluation?.transformValues(n.id).uniformScale ?? true));
+      (isTransform(n) && key === 'scaleWidth' && transformUniformScale(n));
     const baseInputs = (q.type === 'Vector2' ? q.value : [q.value])
       .map(
         (v, i) =>
           `<label class="base-component">${q.type === 'Vector2' ? (i ? 'Base Y' : 'Base X') : 'Base'}<input type="number" step="any" ${numericAttributes(n, key)} data-value-factor="${factor}" aria-label="${esc(n.name + ' ' + name + ' base' + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-base data-axis="${i}" value="${v * factor}" ${baseLocked ? 'disabled' : ''}></label>`,
       )
       .join('');
-    let result;
+    let result,
+      resultError = '';
     try {
       const effective = renderEvaluation.parameterValue(n.id, key);
       result = (q.type === 'Vector2' ? effective : [effective])
         .map((v) => formatParameterResult(v * factor))
         .join(', ');
-    } catch {
+    } catch (error) {
       result = '— Cannot evaluate';
+      resultError = error?.message || '';
     }
-    control = `<div class="authored-control"><div class="base-inputs">${baseInputs}${angleDial ? repeaterAngleControl(n, q) : ''}</div><output class="parameter-result" aria-label="${esc(name)} result">${q.source ? 'Connected result' : 'Result'} · ${esc(result)}</output>${q.source ? '<small class="base-hint">Base saved · connection takes priority.</small>' : ''}${q.expression ? `<details class="parameter-expression"><summary>${q.source ? 'Expression paused by connection' : 'Expression'}</summary><input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${baseLocked ? 'disabled' : ''}><small class="base-hint">${q.type === 'Vector2' ? 'X; Y · value = each component’s base' : 'value = base'}${factor !== 1 ? ' · expression units: ×, display: %' : ''}</small></details>` : ''}</div>`;
+    const diagnostic = resultError
+      ? ` title="${esc(resultError)}" aria-description="${esc(resultError)}"`
+      : '';
+    control = `<div class="authored-control"><div class="base-inputs">${baseInputs}${angleDial ? repeaterAngleControl(n, q) : ''}</div><output class="parameter-result" aria-label="${esc(name)} result"${diagnostic}>${q.source ? 'Connected result' : 'Result'} · ${esc(result)}</output>${q.source ? '<small class="base-hint">Base saved · connection takes priority.</small>' : ''}${q.expression ? `<details class="parameter-expression"><summary>${q.source ? 'Expression paused by connection' : 'Expression'}</summary><input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${baseLocked ? 'disabled' : ''}><small class="base-hint">${q.type === 'Vector2' ? 'X; Y · value = each component’s base' : 'value = base'}${factor !== 1 ? ' · expression units: ×, display: %' : ''}</small></details>` : ''}</div>`;
   } else
     control = (q.type === 'Vector2' ? displayed : [displayed])
       .map(
         (v, i) =>
-          `<input type="number" step="${n.type === 'Subdivide Path' && key === 'segments' ? '1' : 'any'}" ${numericAttributes(n, key)} data-value-factor="${factor}" aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(['Radial Gradient Fill', 'Angular Gradient Fill'].includes(n.type) || (n.type === 'Geometry Repeater' && key === 'rotation') ? v : ((v * factor).toFixed?.(3) ?? v))}" ${locked ? 'disabled' : ''}>`,
+          `<input type="number" step="${n.type === 'Subdivide Path' && key === 'segments' ? '1' : 'any'}" ${numericAttributes(n, key)} data-value-factor="${factor}" aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${v === null ? '' : Number(['Radial Gradient Fill', 'Angular Gradient Fill'].includes(n.type) || (n.type === 'Geometry Repeater' && key === 'rotation') ? v : ((v * factor).toFixed?.(3) ?? v))}" ${locked ? 'disabled' : ''}>`,
       )
       .join('');
   if (angleDial && !q.source && !q.expression) control += repeaterAngleControl(n, q);
@@ -10252,9 +10315,24 @@ app.addEventListener('click', async (e) => {
         completion.hide();
         const start = input.selectionStart ?? input.value.length,
           end = input.selectionEnd ?? start;
+        const nameCounts = new Map();
+        for (const node of current().nodes) {
+          const name = node.name.normalize('NFC');
+          nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
+        }
         const panel = openSearchPanel({
           title: 'Parameter references',
           action: 'Insert',
+          maxVisible: 100,
+          rankItems: (items, query) => {
+            const ordinal = /(?:^|\s)point\s+(\d+)(?=\s|$)/i.exec(query.normalize('NFKC'));
+            if (!ordinal) return items;
+            const exact = [],
+              remaining = [];
+            for (const item of items)
+              (item.pointOrdinal === Number(ordinal[1]) ? exact : remaining).push(item);
+            return [...exact, ...remaining];
+          },
           items: expressionReferenceTargets(
             current(),
             nn.id,
@@ -10262,7 +10340,13 @@ app.addEventListener('click', async (e) => {
           ).map((target) => ({
             id: target.expression,
             label: target.label,
-            detail: target.nodeId + ' · ' + target.expression,
+            pointOrdinal: target.pointOrdinal,
+            detail: target.pointOrdinal
+              ? nameCounts.get(target.name.normalize('NFC')) > 1
+                ? target.nodeId
+                : ''
+              : target.nodeId + ' · ' + target.expression,
+            searchText: target.pointOrdinal ? `${target.nodeId} ${target.key}` : '',
           })),
           onCommit(item) {
             if (!item) return;
@@ -14674,8 +14758,13 @@ function movePointer(e) {
     if (!d.started) {
       d.original = d.alpha ? q.value.alpha : q.type === 'Vector2' ? q.value[d.axis] : q.value;
       if (isTransform(n) && !n.params[d.key] && ['position', 'scaleWidth'].includes(d.key)) {
-        const evaluated = renderEvaluation.transformValues(n.id)[d.key];
-        d.original = q.type === 'Vector2' ? evaluated[d.axis] : evaluated;
+        try {
+          const evaluated = renderEvaluation.parameterValue(n.id, d.key);
+          d.original = q.type === 'Vector2' ? evaluated[d.axis] : evaluated;
+        } catch {
+          cancelInteraction();
+          return;
+        }
       }
       d.gesture = beginGraphGesture({
         kind: 'parameter',

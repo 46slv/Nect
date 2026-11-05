@@ -46,6 +46,8 @@ export const colorSlotCommands = new Set([
   'detach-live-key-color-recipe',
   'bind-color-slot',
   'unbind-color-slot',
+  'paste-color-value',
+  'paste-color-reference',
   ...keyColorRecipeDocumentCommands,
 ]);
 const idPattern = /^[A-Za-z0-9_-]{1,128}$/;
@@ -398,13 +400,26 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
   const layer = doc.layers.find((l) => l.id === payload.layerId);
   const node = layer?.nodes.find((n) => n.id === payload.nodeId);
   const q = node?.params?.[payload.key];
-  if (!q || q.type !== 'Color' || layer.locked || q.locked || q.source || q.expression)
+  if (
+    !q ||
+    q.type !== 'Color' ||
+    layer.locked ||
+    q.locked ||
+    q.source ||
+    q.expression ||
+    (node.locked && (type === 'paste-color-value' || type === 'paste-color-reference'))
+  )
     throw Error('Select an unlocked, undriven Color parameter');
-  if (type === 'bind-color-slot') {
+  if (type === 'bind-color-slot' || type === 'paste-color-reference') {
     if (!slots.has(payload.slotId)) throw Error('Missing shared Color slot');
     q.colorSlotId = payload.slotId;
   } else if (type === 'unbind-color-slot') {
     if (q.colorSlotId !== undefined) q.value = resolveColorSlot(doc, q.colorSlotId);
+    delete q.colorSlotId;
+  } else if (type === 'paste-color-value') {
+    color(payload.value);
+    if (q.value?.hex !== payload.value.hex || q.value?.alpha !== payload.value.alpha)
+      q.value = { ...payload.value };
     delete q.colorSlotId;
   } else throw Error('Unknown shared Color command');
   return {};

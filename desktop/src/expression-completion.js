@@ -120,6 +120,7 @@ export function expressionCompletions(value, start, end, targets = [], parameter
           target.name,
           target.key,
           `${target.key}.${target.component || ''}`,
+          ...(target.pointOrdinal ? [`point${target.pointOrdinal}`] : []),
           'ref',
           ...target.name.split(/\s+/),
         ],

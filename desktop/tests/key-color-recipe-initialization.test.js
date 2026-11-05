@@ -1175,6 +1175,37 @@ for (const kind of ['document', 'composition']) {
     assert.deepEqual(captured(f.session), detached);
   });
 
+  test(`${kind}: schema 60 source without selected point refs still imports a live packet as schema 59`, () => {
+    const source = fixture('document', legacyDocument());
+    source.send('initialize-live-key-color-recipe', request());
+    const layer = source.session.snapshot().layers[0];
+    const color = layer.nodes.find((item) => item.type === 'Color');
+    source.send('bind-color-slot', {
+      layerId: layer.id,
+      nodeId: color.id,
+      key: 'value',
+      slotId: 'fresh-derived',
+    });
+    const doc = source.session.snapshot();
+    // A project stays at 60 after its last point-reference expression is cleared.
+    doc.schemaVersion = 60;
+    const target = fixture(kind);
+    if (kind === 'document')
+      target.send('import-composition', { sourceText: serialize(doc), compositionId: layer.id });
+    else {
+      const project = migrateLegacyDocumentToCompositionProject(doc);
+      assert.equal(project.compositionSchemaVersion, 2);
+      target.send('import-project-compositions', {
+        sourceProject: project,
+        compositionIds: [project.compositions[0].id],
+      });
+    }
+    assert.equal(target.session.snapshot().schemaVersion, 59);
+    assert.equal(target.session.snapshot().keyColorRecipe.mode, 'live');
+    if (kind === 'composition')
+      assert.equal(target.session.projectSnapshot().compositionSchemaVersion, 1);
+  });
+
   test(`${kind}: a layer extension named layers cannot silently retarget a linked Color`, () => {
     const doc = legacyDocument();
     doc.layers[0].layers = [];
