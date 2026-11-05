@@ -213,20 +213,21 @@ try {
   assert.deepEqual(await snapshot(), before);
   await activateCommand(page, 'redo');
   assert.deepEqual(await snapshot(), imported);
-  await page.evaluate(async () => {
-    const { editKeyColorRecipe } = await import('/src/key-color-recipe.js');
-    const current = window.nect.projectSnapshot().keyColorRecipe.committedSnapshot;
-    const next = editKeyColorRecipe(current, {
-      type: 'key-color',
-      expectedRevision: current.revision,
-      value: { hex: '#d03270', alpha: 0.25 },
-    });
-    window.nect.dispatch({
-      ...window.nect.commandState,
-      type: 'apply-live-key-color-recipe-snapshot',
-      payload: { snapshot: next, expectedPaletteRevision: current.revision },
-    });
-  });
+  // The Node client sends authored intent, not a Node-computed resolved snapshot.
+  const intentOnly = {
+    expectedPaletteRevision: packet.revision,
+    keyColor: { hex: '#d03270', alpha: 0.25 },
+    slotDeltas: [{ slotId: derived, deltaL: 0.08, deltaRatioCmax: 0.02 }],
+  };
+  await page.evaluate(
+    (payload) =>
+      window.nect.dispatch({
+        ...window.nect.commandState,
+        type: 'edit-live-key-color-recipe',
+        payload,
+      }),
+    intentOnly,
+  );
   const changed = await snapshot();
   assert.notDeepEqual(
     changed.colorSlots.find((slot) => slot.id === derived).value,

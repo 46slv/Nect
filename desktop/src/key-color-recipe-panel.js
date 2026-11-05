@@ -814,8 +814,18 @@ export function createKeyColorRecipePanel({
       applying = true;
       const linked = isLiveKeyColorRecipe(getDocument());
       const result = dispatch(
-        linked ? 'apply-live-key-color-recipe-snapshot' : 'apply-key-color-recipe-snapshot',
-        linked ? { snapshot, expectedPaletteRevision: base.revision } : { snapshot },
+        linked ? 'edit-live-key-color-recipe' : 'apply-key-color-recipe-snapshot',
+        linked
+          ? {
+              expectedPaletteRevision: base.revision,
+              keyColor: snapshot.intent.keyColor.value,
+              slotDeltas: snapshot.intent.slots.map(({ id, deltaL, deltaRatioCmax }) => ({
+                slotId: id,
+                deltaL,
+                deltaRatioCmax,
+              })),
+            }
+          : { snapshot },
         { ...envelope },
       );
       if (result == null || result === false)

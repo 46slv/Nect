@@ -181,6 +181,74 @@ export function prepareLiveKeyColorRecipeApplication(doc, payload, slots) {
   if (!equalJson(proposed, expected)) throw Error('Invalid live key-color change');
   return prepareApplication(doc, { snapshot: expected }, slots, false);
 }
+
+// Receive authored intent only and solve in this Session's runtime. Computed
+// snapshots from another engine may differ in the last floating-point bits.
+export function prepareLiveKeyColorRecipeEdit(doc, raw, slots) {
+  assertJsonSnapshot(raw, '$.liveEdit');
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+    throw Error('Invalid live key-color edit');
+  fields(raw, [
+    'expectedPaletteRevision',
+    ...(Object.hasOwn(raw, 'keyColor') ? ['keyColor'] : []),
+    ...(Object.hasOwn(raw, 'slotDeltas') ? ['slotDeltas'] : []),
+  ]);
+  const payload = structuredClone(raw);
+  if (!isLiveKeyColorRecipe(doc)) throw Error('No live key-color recipe');
+  const previous = validateLiveSnapshot(doc, doc.keyColorRecipe.committedSnapshot, slots);
+  if (payload.expectedPaletteRevision !== previous.revision) throw Error('Stale palette revision');
+  if (Object.hasOwn(payload, 'keyColor')) {
+    fields(payload.keyColor, ['hex', 'alpha']);
+    if (
+      typeof payload.keyColor.hex !== 'string' ||
+      !/^#[0-9a-fA-F]{6}$/.test(payload.keyColor.hex) ||
+      !Number.isFinite(payload.keyColor.alpha) ||
+      payload.keyColor.alpha < 0 ||
+      payload.keyColor.alpha > 1
+    )
+      throw Error('Expected literal key Color {hex, alpha}');
+  }
+  const deltas = new Map();
+  if (Object.hasOwn(payload, 'slotDeltas')) {
+    if (
+      !Array.isArray(payload.slotDeltas) ||
+      payload.slotDeltas.length > previous.intent.slots.length
+    )
+      throw Error('Invalid live key-color slot edits');
+    for (const delta of payload.slotDeltas) {
+      fields(delta, ['slotId', 'deltaL', 'deltaRatioCmax']);
+      if (
+        typeof delta.slotId !== 'string' ||
+        !previous.intent.slots.some((slot) => slot.id === delta.slotId) ||
+        deltas.has(delta.slotId) ||
+        !Number.isFinite(delta.deltaL) ||
+        !Number.isFinite(delta.deltaRatioCmax)
+      )
+        throw Error('Invalid live key-color slot edit');
+      deltas.set(delta.slotId, delta);
+    }
+  }
+  let next = previous;
+  if (payload.keyColor && !equalJson(payload.keyColor, previous.intent.keyColor.value))
+    next = editKeyColorRecipe(next, {
+      type: 'key-color',
+      expectedRevision: next.revision,
+      value: payload.keyColor,
+    });
+  // Canonical intent order matches the panel preview regardless of request order.
+  for (const slot of previous.intent.slots) {
+    const delta = deltas.get(slot.id);
+    if (delta && (delta.deltaL !== slot.deltaL || delta.deltaRatioCmax !== slot.deltaRatioCmax))
+      next = editKeyColorRecipe(next, {
+        type: 'slot-delta',
+        expectedRevision: next.revision,
+        slotId: slot.id,
+        deltaL: delta.deltaL,
+        deltaRatioCmax: delta.deltaRatioCmax,
+      });
+  }
+  return prepareApplication(doc, { snapshot: next }, slots, false);
+}
 // Developer/test-fixture boundary only: no product plan, coefficients, roles,
 // generated count, names or allocation are selected here. Validate raw data
 // before the pure model's structuredClone can discard unsupported properties.
