@@ -39,7 +39,8 @@ project.compositions[0].id = 'comp-a';
 project.compositions[0].name = 'First';
 const other = migrateLegacyDocumentToCompositionProject(b.doc).compositions[0];
 other.id = 'comp-b';
-other.name = 'Second';
+const longCompositionName = 'Second ' + '陽'.repeat(120);
+other.name = longCompositionName;
 const lockedColor = other.layers[0].nodes.find((entry) => entry.id === b.fill.id).params.color;
 lockedColor.colorSlotId = 'brand';
 lockedColor.locked = true;
@@ -150,12 +151,25 @@ try {
   assert.equal(await rows().count(), 100);
   assert.equal(await dialog.locator('[data-color-uses-page]').textContent(), '1–100 / 103');
   assert.match(await rows().first().textContent(), /First \/ Artwork A \/ Fill \/ color/);
-  assert.match(await rows().nth(1).textContent(), /<img src=x onerror=alert\(1\)>/);
+  assert.match(await rows().nth(1).textContent(), /<img src=x onerror=alert/);
   assert.equal(await dialog.locator('img').count(), 0);
+  assert.match(await rows().nth(1).textContent(), /…/);
+  const details = dialog.locator('[data-color-uses-list] li').nth(1).locator('details');
+  assert.equal(await details.locator('.shared-color-use-full-names').count(), 0);
+  await details.locator('summary').focus();
+  await page.keyboard.press('Enter');
+  await details.locator('.shared-color-use-full-names').waitFor();
+  assert.match(
+    await details.locator('.shared-color-use-full-names').textContent(),
+    new RegExp(longCompositionName),
+  );
+  assert.ok(
+    (await details.locator('.shared-color-use-full-names').textContent()).includes(b.fill.name),
+  );
+  await page.keyboard.press('Enter');
   assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
   await page.screenshot({ path: resolve(output, 'direct-uses.png') });
   await page.setViewportSize({ width: 420, height: 520 });
-  await page.screenshot({ path: resolve(output, 'direct-uses-narrow.png') });
   for (const selector of ['[data-color-uses-next]', '[data-color-uses-close]']) {
     const hit = await dialog.locator(selector).evaluate((element) => {
       const rect = element.getBoundingClientRect();
@@ -167,6 +181,10 @@ try {
     });
     assert.equal(hit, true, selector);
   }
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+  await page.screenshot({ path: resolve(output, 'direct-uses-narrow.png') });
   await page.setViewportSize({ width: 1440, height: 960 });
   await dialog.locator('[data-color-uses-next]').focus();
   await page.keyboard.press('Enter');

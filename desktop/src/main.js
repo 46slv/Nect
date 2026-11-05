@@ -7819,6 +7819,27 @@ function openDirectColorUses(slotId, anchor) {
       button.textContent = use.label;
       button.addEventListener('click', () => goTo(use));
       item.append(button);
+      if (use.fullNames) {
+        const details = document.createElement('details'),
+          summary = document.createElement('summary');
+        summary.textContent = 'Full names';
+        summary.setAttribute('aria-label', `Full names for ${use.label}`);
+        details.append(summary);
+        details.addEventListener('toggle', () => {
+          if (!details.open || details.querySelector('.shared-color-use-full-names')) return;
+          const content = document.createElement('div');
+          content.className = 'shared-color-use-full-names';
+          for (const [index, name] of use.fullNames.entries()) {
+            const line = document.createElement('p'),
+              heading = document.createElement('strong');
+            heading.textContent = ['Composition', 'Layer', 'Node', 'Parameter'][index] + ': ';
+            line.append(heading, document.createTextNode(name));
+            content.append(line);
+          }
+          details.append(content);
+        });
+        item.append(details);
+      }
       list.append(item);
     }
     status.textContent = uses.length ? '' : 'No direct uses.';

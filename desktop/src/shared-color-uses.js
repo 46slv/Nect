@@ -1,21 +1,47 @@
 // Direct authored bindings only; equal literals, expressions and downstream
 // render effects are not evidence of a shared Color reference.
+function displayPart(value) {
+  if (value.length <= 32) return { text: value, truncated: false };
+  let text = '',
+    count = 0;
+  for (const character of value) {
+    if (count++ === 32) return { text: text + '…', truncated: true };
+    text += character;
+  }
+  return { text: value, truncated: false };
+}
+
 export function directSharedColorUses(project, slotId) {
   if (!project.colorSlots?.some((slot) => slot.id === slotId))
     throw Error('Shared color is no longer available');
   const uses = [];
-  for (const composition of project.compositions)
-    for (const layer of composition.layers)
-      for (const node of layer.nodes)
+  for (const composition of project.compositions) {
+    const compositionName = displayPart(composition.name);
+    for (const layer of composition.layers) {
+      const layerName = displayPart(layer.name);
+      for (const node of layer.nodes) {
+        const nodeName = displayPart(node.name);
         for (const [key, parameter] of Object.entries(node.params || {}))
-          if (parameter?.type === 'Color' && parameter.colorSlotId === slotId)
+          if (parameter?.type === 'Color' && parameter.colorSlotId === slotId) {
+            const parameterName = displayPart(key);
             uses.push({
               compositionId: composition.id,
               layerId: layer.id,
               nodeId: node.id,
               key,
-              label: `${composition.name} / ${layer.name} / ${node.name} / ${key}`,
+              label: [compositionName, layerName, nodeName, parameterName]
+                .map((part) => part.text)
+                .join(' / '),
+              ...([compositionName, layerName, nodeName, parameterName].some(
+                (part) => part.truncated,
+              )
+                ? { fullNames: [composition.name, layer.name, node.name, key] }
+                : {}),
             });
+          }
+      }
+    }
+  }
 
   // Keep visually identical paths distinguishable without treating any name
   // as identity. NFC comparison also catches equivalent Unicode spellings.

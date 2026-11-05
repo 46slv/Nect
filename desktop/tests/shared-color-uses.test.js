@@ -106,3 +106,32 @@ test('duplicate and visually equivalent names receive distinct labels without re
     ['n1', 'n2', 'n3'],
   );
 });
+
+test('long shared prefixes remain bounded and distinguishable while full names are retained', () => {
+  const prefix = '😀'.repeat(64),
+    names = [prefix + ' first', prefix + ' second', prefix + '…'];
+  const nodes = names.map((name, index) => ({
+    id: `n${index}`,
+    name,
+    params: {
+      [index === 2 ? 'value · 1' : 'value']: { type: 'Color', colorSlotId: 'a' },
+    },
+  }));
+  const project = {
+    colorSlots: [{ id: 'a' }],
+    compositions: [{ id: 'c', name: 'C', layers: [{ id: 'l', name: 'L', nodes }] }],
+  };
+  const before = structuredClone(project),
+    uses = directSharedColorUses(project, 'a');
+  assert.equal(new Set(uses.map((use) => use.label.normalize('NFC'))).size, 3);
+  assert.deepEqual(
+    uses.map((use) => use.nodeId),
+    ['n0', 'n1', 'n2'],
+  );
+  assert.deepEqual(
+    uses.map((use) => use.fullNames[2]),
+    names,
+  );
+  assert.ok(uses.every((use) => use.label.length < 170 && !use.label.includes('\uFFFD')));
+  assert.deepEqual(project, before);
+});
