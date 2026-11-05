@@ -255,12 +255,8 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
         if (panel) panel.hidden = displayed[entry.side] !== entry.id;
       }
     }
-    root
-      .querySelector('.canvas-toolbar [data-action="align-panel"]')
-      ?.setAttribute('aria-pressed', String(active.right === 'align'));
-    const colors = wrap.querySelector('.shared-colors-panel');
-    if (colors) colors.hidden = displayed.left !== 'colors';
-    for (const entry of ITEMS)
+    // Synchronize panel visibility before the fixed portal measures its slot.
+    for (const entry of [...ITEMS].reverse())
       entry.adapter.refresh?.({
         root,
         wrap,
@@ -356,9 +352,7 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     left.id = 'workspace-drawer-left';
     left.setAttribute('aria-label', 'Assets and colors');
     for (const entry of ITEMS.filter((entry) => entry.side === 'left'))
-      entry.adapter.attach?.(left);
-    const colors = right.querySelector('.shared-colors-panel');
-    if (colors) left.append(colors);
+      entry.adapter.attach?.(left, { right });
     wrap.append(left);
     for (const side of ['left', 'right']) {
       const bar = root.ownerDocument.createElement('nav');

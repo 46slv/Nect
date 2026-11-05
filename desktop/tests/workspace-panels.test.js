@@ -460,3 +460,80 @@ test('saved last side wins an old both-open preference without losing either own
   assert.equal(panel.hidden && panel.inert, true);
   w.happyDOM.abort();
 });
+
+test('legacy adapters retain DOM order, focus and sync visibility before portal measurement', async () => {
+  const win = new Window(),
+    root = win.document.createElement('div');
+  root.innerHTML = markup;
+  root
+    .querySelector('.canvas-wrap')
+    .insertAdjacentHTML(
+      'afterbegin',
+      '<div class="canvas-toolbar"><button data-action="align-panel"></button></div>',
+    );
+  win.document.body.append(root);
+  const colors = root.querySelector('.shared-colors-panel');
+  let panel = null,
+    colorsCalls = 0,
+    alignCalls = 0,
+    assetCalls = 0;
+  const controller = createTestWorkspacePanels({
+    getAssetPanel: () => panel,
+    onAssets: () => {
+      assetCalls++;
+      panel = win.document.createElement('aside');
+      panel.innerHTML = '<input data-asset-search>';
+      win.document.body.append(panel);
+    },
+    onAlign: () => {
+      alignCalls++;
+    },
+    onColors: () => {
+      colorsCalls++;
+    },
+  });
+  controller.attach(root);
+  await Promise.resolve();
+  const left = root.querySelector('[data-drawer-side="left"]'),
+    slot = left.querySelector('[data-workspace-asset-slot]');
+  assert.equal(colors.parentNode, left);
+  assert.deepEqual([...left.children], [slot, colors]);
+  controller.select('colors');
+  assert.equal(colors.hidden, false);
+  assert.equal(win.document.activeElement, colors);
+  assert.equal(colorsCalls, 1);
+  const measures = [];
+  slot.getBoundingClientRect = () => {
+    measures.push({
+      hidden: colors.hidden,
+      pressed: root.querySelector('[data-action="align-panel"]').getAttribute('aria-pressed'),
+    });
+    return { left: 1, top: 2, width: 3, height: 4 };
+  };
+  controller.select('assets');
+  assert.equal(assetCalls, 1);
+  assert.ok(measures.length);
+  assert.ok(measures.every((x) => x.hidden && x.pressed === 'false'));
+  controller.select('align');
+  assert.equal(alignCalls, 1);
+  assert.equal(
+    root.querySelector('[data-action="align-panel"]').getAttribute('aria-pressed'),
+    'true',
+  );
+  assert.equal(win.document.activeElement, root.querySelector('.alignment-panel'));
+  controller.refresh();
+  controller.attach(root);
+  assert.equal(alignCalls, 1);
+  assert.equal(colorsCalls, 1);
+  assert.equal(assetCalls, 1);
+  assert.equal(colors.parentNode, left);
+  assert.deepEqual([...left.children], [slot, colors]);
+  controller.select('colors');
+  assert.equal(colorsCalls, 2);
+  assert.equal(colors.hidden, false);
+  assert.equal(
+    root.querySelector('[data-action="align-panel"]').getAttribute('aria-pressed'),
+    'false',
+  );
+  win.happyDOM.abort();
+});

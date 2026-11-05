@@ -4,4 +4,6 @@
 
 The Assets adapter keeps the existing singleton under `document.body` and aligns it to the drawer's fixed slot. Drawer close, panel switch, viewer suspension and drag retreat hide or suspend that same element; they do not dispose the Assets owner. The Assets owner's own Close/Escape keeps its existing disposal and epoch behavior. Existing Shared Colors and selector-based panels remain legacy bindings, including their existing event and Session ownership.
 
+The legacy Colors binding attaches the existing element after the Assets slot and synchronizes its visibility; the Alignment binding synchronizes its toolbar pressed state. Adapter refresh runs in reverse declaration order so these updates precede the Assets slot measurement. This preserves the existing order; it is not a general layout policy.
+
 This is a fixed-placement adapter, not relocation, a profile system, independent left/right drawers, or a new feature controller. Existing cross-side exclusivity, preference format and workspace geometry remain in force. Actual browser/native, active IME and in-flight asset integration remain separate acceptance work.

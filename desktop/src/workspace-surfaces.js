@@ -71,10 +71,12 @@ export function createAssetsPortalAdapter({ getAssetPanel, onAssets }) {
 export function createWorkspaceSurfaceAdapters({ getAssetPanel, onAssets, onAlign, onColors }) {
   if (typeof onAlign !== 'function' || (onColors !== undefined && typeof onColors !== 'function'))
     throw Error('Invalid legacy surface binding');
-  const selector = (css, open = () => {}, restore = () => {}) =>
+  const colorsSelector = '.shared-colors-panel';
+  const selector = (css, open = () => {}, restore = () => {}, hooks = {}) =>
     Object.freeze({
       open,
       restore,
+      ...hooks,
       focus({ root }) {
         const target = root.querySelector(css);
         if (target) target.tabIndex = -1;
@@ -84,10 +86,20 @@ export function createWorkspaceSurfaceAdapters({ getAssetPanel, onAssets, onAlig
   return Object.freeze({
     assets: createAssetsPortalAdapter({ getAssetPanel, onAssets }),
     colors: selector(
-      '.shared-colors-panel',
+      colorsSelector,
       () => onColors?.(),
       ({ root }) => {
-        if (!root.querySelector('.shared-colors-panel')) onColors?.();
+        if (!root.querySelector(colorsSelector)) onColors?.();
+      },
+      {
+        attach(host, { right }) {
+          const colors = right.querySelector(colorsSelector);
+          if (colors) host.append(colors);
+        },
+        refresh({ wrap, displayed, id }) {
+          const colors = wrap.querySelector(colorsSelector);
+          if (colors) colors.hidden = displayed !== id;
+        },
       },
     ),
     layers: selector('.layers'),
@@ -95,6 +107,13 @@ export function createWorkspaceSurfaceAdapters({ getAssetPanel, onAssets, onAlig
       '.alignment-panel',
       () => onAlign(),
       () => onAlign(),
+      {
+        refresh({ root, active, id }) {
+          root
+            .querySelector('.canvas-toolbar [data-action="align-panel"]')
+            ?.setAttribute('aria-pressed', String(active === id));
+        },
+      },
     ),
     inspector: selector('.inspector'),
   });
