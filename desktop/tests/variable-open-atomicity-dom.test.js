@@ -6,6 +6,7 @@ import { Window } from 'happy-dom';
 import { blankDocument, node, createVariableDocumentPreparer } from '../src/core.js';
 import { makeVariableFontAsset } from '../src/fonts.js';
 import { migrateLegacyDocumentToCompositionProject } from '../src/composition-project-model.js';
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 
 test('rejected variable Open retains live fonts and retires only abandoned/old document resources', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
@@ -77,6 +78,7 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
     window.openForTest = async project => { await prepareOpenDocument(project, {saved:true}); render(true); };
     window.editForTest = (type, payload = {}) => preparedChange(type, payload, 'Text updated');
     window.liveBridgeForTest = () => variableBridge;
+    window.variableBusyForTest = () => !!variableAction;
     window.openStateForTest = () => ({project:session.projectSnapshot(), command:session.state,
       file:window.nect.fileState, past:history.past, future:history.future,
       activeLayer, selected, selection:[...selection], artworkTarget,
@@ -156,4 +158,96 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
   await win.openForTest(migrateLegacyDocumentToCompositionProject(blankDocument()));
   assert.equal(win.liveBridgeForTest(), null);
   assert.equal(records[2].disposals, 1, 'static replacement releases the last variable bank');
+
+  await t.test(
+    'prepared rename Undo keeps a newer selection made while fonts are loading',
+    async () => {
+      const document = blankDocument(),
+        texts = Array.from({ length: 8 }, (_, i) => {
+          const text = node('Text', 100 + i * 20, 40);
+          Object.assign(text, {
+            font: asset.id,
+            text: String.fromCharCode(65 + i),
+            variation: { version: 1, fontId: asset.id, axes: {} },
+          });
+          return text;
+        });
+      document.fontAssets = { [asset.id]: asset.asset };
+      document.layers[0].nodes.push(...texts);
+      document.layers[0].nodes[0].params.path.source = texts[0].id;
+      await win.openForTest(migrateLegacyDocumentToCompositionProject(document));
+      assert.equal(win.liveBridgeForTest().stats().active.runs, 8);
+      const root = win.document,
+        click = (selector) => {
+          const element = root.querySelector(selector);
+          assert.ok(element, selector);
+          element.click();
+        },
+        waitFor = async (predicate) => {
+          const deadline = Date.now() + 15000;
+          while (!predicate()) {
+            if (Date.now() >= deadline) throw Error('Variable-font test timed out');
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+        };
+      click('[data-tool="Circle"]');
+      const circle = win.nect.document.layers.at(-1).id;
+      click('[data-tool="Rectangle"]');
+      const rectangle = win.nect.document.layers.at(-1).id;
+      openDOMPanel(root, 'layers');
+      click(`[data-select-layer="${circle}"]`);
+      const originalName = win.nect.compositions[0].name;
+      win.nect.dispatch({
+        ...win.nect.commandState,
+        type: 'rename-composition',
+        payload: {
+          compositionId: win.nect.activeCompositionId,
+          name: 'Variable rename',
+          expectedName: originalName,
+          expectedProjectRevision: win.nect.projectRevision,
+        },
+      });
+      click(`[data-select-layer="${document.layers[0].id}"]`);
+      const title = root.querySelector(`.node[data-id="${texts[0].id}"] .node-head strong`);
+      title.dispatchEvent(
+        new win.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 1 }),
+      );
+      root.dispatchEvent(
+        new win.PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 1 }),
+      );
+      openDOMPanel(root, 'inspector');
+      const axis = root.querySelector('.inspector-body [data-variable-axis="wght"]');
+      assert.ok(axis);
+      axis.value = '500';
+      axis.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await waitFor(() => !!win.liveBridgeForTest().stats().candidate);
+      axis.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await waitFor(() => !win.variableBusyForTest());
+      assert.equal(win.nect.compositions[0].name, 'Variable rename');
+
+      openDOMPanel(root, 'layers');
+      click(`[data-select-layer="${circle}"]`);
+      const revision = win.nect.projectRevision;
+      click('[data-action="undo"]');
+      assert.equal(win.variableBusyForTest(), true, 'Undo is still preparing');
+      click(`[data-select-layer="${rectangle}"]`);
+      assert.equal(win.openStateForTest().activeLayer, rectangle);
+      await waitFor(
+        () => !win.variableBusyForTest() && win.nect.compositions[0].name === originalName,
+      );
+      assert.equal(win.openStateForTest().activeLayer, rectangle);
+      assert.equal(win.nect.projectRevision, revision + 1);
+      click('[data-action="redo"]');
+      await waitFor(
+        () => !win.variableBusyForTest() && win.nect.compositions[0].name === 'Variable rename',
+      );
+      assert.equal(win.openStateForTest().activeLayer, rectangle);
+      click(`[data-select-layer="${circle}"]`);
+      click('[data-action="undo"]');
+      await waitFor(
+        () => !win.variableBusyForTest() && win.nect.compositions[0].name === originalName,
+      );
+      assert.equal(win.openStateForTest().activeLayer, circle);
+    },
+  );
 });

@@ -1642,6 +1642,9 @@ function stepHistory(redo = false) {
   selectionHistory.set(history.doc, priorUI);
   const target = (redo ? history.future : history.past).at(-1);
   if (hasVariableFonts(history.doc) || (target && hasVariableFonts(target))) {
+    // A rename does not alter the active Document. Restore its current view
+    // before async font preparation, so later user selection remains current.
+    if (viewNeutral) restoreHistorySelection(priorUI);
     void preparedChange(redo ? 'redo' : 'undo', {}, redo ? 'Redone' : 'Undone').then((result) => {
       if (result) {
         compositionViewStates.prune(session.projectSnapshot().compositions);
@@ -1649,7 +1652,6 @@ function stepHistory(redo = false) {
           const graphScroll = restoreCompositionViewState();
           render(false, null, graphScroll);
         } else {
-          if (viewNeutral) restoreHistorySelection(priorUI);
           activeLayer =
             history.doc.layers.find((l) => l.id === activeLayer)?.id || history.doc.layers[0].id;
           render();
