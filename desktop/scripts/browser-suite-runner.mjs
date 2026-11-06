@@ -116,6 +116,7 @@ export const browserTestFiles = Object.freeze([
   'tests/composition-rename.e2e.js',
   'tests/composition-delete.e2e.js',
   'tests/variable-composition-switch.e2e.js',
+  'tests/close-recovery-race.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };

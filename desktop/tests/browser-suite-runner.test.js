@@ -154,9 +154,10 @@ test('browser runner preserves all 55 original scripts, arguments, order, and CS
     'tests/composition-rename.e2e.js',
     'tests/composition-delete.e2e.js',
     'tests/variable-composition-switch.e2e.js',
+    'tests/close-recovery-race.e2e.js',
   ]);
-  assert.equal(browserTestFiles.length, 113);
-  assert.equal(new Set(browserTestFiles).size, 113);
+  assert.equal(browserTestFiles.length, 114);
+  assert.equal(new Set(browserTestFiles).size, 114);
   assert.ok(Object.isFrozen(browserTestFiles));
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(

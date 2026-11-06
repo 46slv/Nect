@@ -520,6 +520,10 @@ export class CompositionSessionOwner {
     return this.#session.hasTextDrafts;
   }
 
+  get hasChangedTextDrafts() {
+    return this.#session.hasChangedTextDrafts;
+  }
+
   get gestureState() {
     return this.#session.gestureState;
   }
