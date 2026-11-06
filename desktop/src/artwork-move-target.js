@@ -23,6 +23,20 @@ const finitePoint = (value) =>
   Number.isFinite(value[0]) &&
   Number.isFinite(value[1]);
 const unsupported = (code, reason) => ({ supported: false, code, reason });
+function localPathArea(value) {
+  const origin = value.contours.find((contour) => contour.points.length)?.points[0].position;
+  if (!origin) return 0;
+  return pathArea({
+    ...value,
+    contours: value.contours.map((contour) => ({
+      ...contour,
+      points: contour.points.map((point) => ({
+        ...point,
+        position: point.position.map((coordinate, axis) => coordinate - origin[axis]),
+      })),
+    })),
+  });
+}
 
 /**
  * Resolve a final artwork layer, never the currently selected graph node.
@@ -394,7 +408,7 @@ export function resolveArtworkMoveTarget(
       return unsupported('invalid-output', 'The final artwork bounds are not finite.');
     if (bounds.some(([min, , max]) => max <= min))
       return unsupported('empty-output', 'The final artwork has no nonzero area.');
-    if (canvasOnly && !(pathArea(value) > 0))
+    if (canvasOnly && !(localPathArea(value) > 0))
       return unsupported('empty-output', 'The final artwork has no nonzero area.');
     if (!['image', 'painted-group'].includes(value.kind) && (!value.fill || value.fill.alpha <= 0))
       return unsupported('empty-output', 'The final artwork has no visible solid Fill.');

@@ -719,23 +719,37 @@ test('translation that overflows the affine result or collapses its geometry is 
 });
 
 test('a diagonal floating-point collapse after a large translation is atomic', () => {
-  const f = fixture();
-  f.transform.params.rotation.value = 45;
-  const session = new CommandSession(f.doc);
-  command(session, 'set-document-settings', { key: 'width', value: 961 });
-  command(session, 'undo');
-  const before = session.snapshot(),
-    state = session.state;
-  assert.throws(() =>
-    command(session, 'translate-artworks', {
-      layerIds: [f.l.id],
-      delta: [2 ** 60 + 512, 2 ** 60 + 256],
-    }),
+  for (const y of [256, 768]) {
+    const f = fixture();
+    f.transform.params.rotation.value = 45;
+    const session = new CommandSession(f.doc);
+    command(session, 'set-document-settings', { key: 'width', value: 961 });
+    command(session, 'undo');
+    const before = session.snapshot(),
+      state = session.state;
+    assert.throws(() =>
+      command(session, 'translate-artworks', {
+        layerIds: [f.l.id],
+        delta: [2 ** 60 + 512, 2 ** 60 + y],
+      }),
+    );
+    assert.deepEqual(session.snapshot(), before);
+    assert.deepEqual(session.state, state);
+    command(session, 'redo');
+    assert.equal(session.snapshot().width, 961);
+  }
+  const valid = fixture();
+  valid.transform.params.rotation.value = 45;
+  valid.transform.params.scale.value = -1;
+  const session = new CommandSession(valid.doc),
+    before = session.snapshot();
+  command(session, 'translate-artworks', { layerIds: [valid.l.id], delta: [2 ** 40, -(2 ** 40)] });
+  assert.deepEqual(
+    session.snapshot().layers[0].nodes.find((n) => n.id === valid.transform.id).params.offset.value,
+    [2 ** 40, -(2 ** 40)],
   );
+  command(session, 'undo');
   assert.deepEqual(session.snapshot(), before);
-  assert.deepEqual(session.state, state);
-  command(session, 'redo');
-  assert.equal(session.snapshot().width, 961);
 });
 
 test('missing Transform, driven or locked movement and shared output reject without changing Redo', () => {
