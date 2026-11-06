@@ -1257,8 +1257,10 @@ const fontsFromBridge = (bridge) => ({
 const activeFonts = () => fontsFromBridge(variableBridge);
 function cancelVariableAction() {
   variableAction?.controller.abort();
-  variableAction?.owner.cancelPrepared(variableAction.bridge);
-  if (variableAction?.opening) variableAction.bridge.dispose();
+  if (variableAction?.switching)
+    variableAction.owner.cancelPreparedCompositionSwitch(variableAction.bridge);
+  else variableAction?.owner.cancelPrepared(variableAction.bridge);
+  if (variableAction?.opening || variableAction?.ownedBridge) variableAction.bridge.dispose();
   variableAction = null;
   variablePreviewFonts = null;
   fontPreview = null;
@@ -1386,10 +1388,11 @@ document.addEventListener(
     if (event.key !== 'Escape' || (!variableAction && !fontRequest?.variable)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
+    const switching = variableAction?.switching;
     cancelVariableAction();
     if (fontRequest?.variable) fontRequest = null;
     notify('Variable font preparation cancelled; current document preserved');
-    render();
+    if (!switching) render();
   },
   true,
 );
@@ -9561,6 +9564,17 @@ function restoreCompositionViewState() {
   viewerState = state.viewerState;
   return state.graphScroll;
 }
+function finishCompositionSwitch(project) {
+  compositionViewStates.prune(project.compositions);
+  const graphScroll = restoreCompositionViewState();
+  render(false, null, graphScroll);
+  updateDocumentStatus();
+  return true;
+}
+function beforeCompositionSwitch() {
+  saveCompositionViewState();
+  resetTransient();
+}
 function switchActiveComposition(compositionId) {
   if (variableAction) throw Error('Finish or cancel variable font preparation first');
   if (documents.hasDraft()) throw Error('Finish or cancel the active edit first');
@@ -9568,14 +9582,65 @@ function switchActiveComposition(compositionId) {
   const project = session.projectSnapshot();
   if (!project.compositions.some((composition) => composition.id === compositionId))
     throw Error('Unknown active Composition ID');
-  saveCompositionViewState();
-  resetTransient();
-  if (!session.switchComposition(compositionId)) return false;
-  compositionViewStates.prune(project.compositions);
-  const graphScroll = restoreCompositionViewState();
-  render(false, null, graphScroll);
-  updateDocumentStatus();
-  return true;
+  let switched;
+  try {
+    switched = session.switchComposition(compositionId, { beforeCommit: beforeCompositionSwitch });
+  } catch (error) {
+    if (error.code !== 'PREPARATION_REQUIRED') throw error;
+    return prepareCompositionSwitch(compositionId, project);
+  }
+  return switched ? finishCompositionSwitch(project) : false;
+}
+async function prepareCompositionSwitch(compositionId, project) {
+  if (session.hasTextDrafts) throw Error('Finish or cancel the active edit first');
+  if (editorPicker || fontRequest || documents.saving || documents.transitioning)
+    throw Error('Finish the current operation first');
+  const owner = session,
+    bridge = variableBridge || createVariableDocumentPreparer(),
+    action = {
+      owner,
+      bridge,
+      switching: true,
+      ownedBridge: !variableBridge,
+      revision: owner.state.expectedRevision,
+      projectRevision: owner.projectRevision,
+      sourceId: owner.activeCompositionId,
+      generation: documents.generation,
+      operation: documents.operation,
+      controller: new AbortController(),
+    };
+  variableAction = action;
+  notify('Preparing variable text… Escape cancels');
+  try {
+    const token = await owner.prepareCompositionSwitch(compositionId, bridge, {
+      signal: action.controller.signal,
+    });
+    if (variableAction !== action) return false;
+    if (
+      session !== owner ||
+      owner.state.expectedRevision !== action.revision ||
+      owner.projectRevision !== action.projectRevision ||
+      owner.activeCompositionId !== action.sourceId ||
+      documents.generation !== action.generation ||
+      documents.operation !== action.operation ||
+      documents.saving ||
+      documents.transitioning ||
+      editorPicker ||
+      fontRequest ||
+      owner.hasTextDrafts ||
+      documents.hasDraft()
+    )
+      throw Error('Document changed while preparing; select the Composition again');
+    owner.commitPreparedCompositionSwitch(token, { beforeCommit: beforeCompositionSwitch });
+    variableBridge = bridge;
+    variableAction = null;
+    notify('');
+    return finishCompositionSwitch(project);
+  } catch (error) {
+    if (variableAction !== action) return false;
+    cancelVariableAction();
+    throw Error(variableError(error));
+  }
 }
 function renderCompositionTablist() {
   const compositions = session.projectSnapshot().compositions,
@@ -9626,12 +9691,11 @@ function focusCompositionTab(compositionId) {
   for (const item of tabs) item.tabIndex = item === tab ? 0 : -1;
   tab.focus();
 }
-function activateCompositionTab(compositionId) {
+async function activateCompositionTab(compositionId) {
   try {
-    switchActiveComposition(compositionId);
+    await switchActiveComposition(compositionId);
   } catch (error) {
     notify(error.message, true);
-    render();
   }
   focusCompositionTab(session.activeCompositionId);
 }

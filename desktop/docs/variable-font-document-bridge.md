@@ -53,6 +53,13 @@ A finished worker is released, allowing another document preparer to acquire the
 single global worker slot. A failed or canceled replacement never drops the active
 bank. Callers must not retain unlimited borrowed preview font maps/snapshots.
 
+For a multi-Composition project, Open prepares the active Composition. When a tab
+needs other runs, the Composition owner prepares that target in the same bridge,
+constructs the target Session against the candidate bank, and rechecks the owner,
+project revision, active Composition and edit state before publishing the bank and
+switch together. Cancellation, failure and stale results retain the current bank and
+view. Switching remains a view operation and does not alter project History.
+
 ## Atomic Session commands
 
 Existing `dispatch` remains synchronous. It never performs worker RPC, imports

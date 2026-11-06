@@ -192,6 +192,7 @@ export class CompositionSessionOwner {
   #historyViewCache = new WeakMap();
   #historyView = null;
   #prepared = null;
+  #preparedCompositionSwitch = null;
 
   constructor(
     project,
@@ -324,10 +325,10 @@ export class CompositionSessionOwner {
     return prepared;
   }
 
-  #makeSession(project, compositionId) {
+  #makeSession(project, compositionId, fonts = this.#fonts) {
     let session;
     session = new this.#CommandSession(this.#documentFor(project, compositionId), {
-      fonts: this.#fonts,
+      fonts,
       busy: this.#busy,
       retainHistory: false,
       retainColorClipboardForProjectContext: (nextProject, nextCompositionId) =>
@@ -355,12 +356,12 @@ export class CompositionSessionOwner {
     return session;
   }
 
-  #assertQuiescent() {
+  #assertQuiescent({ allowTextDrafts = false } = {}) {
     if (
       this.#busy() ||
       this.#session.hasGesture ||
       this.#session.hasTextComposition ||
-      this.#session.hasTextDrafts
+      (!allowTextDrafts && this.#session.hasTextDrafts)
     )
       throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
   }
@@ -662,14 +663,112 @@ export class CompositionSessionOwner {
     this.#session.cancelPrepared?.(bridge);
   }
 
-  switchComposition(compositionId) {
+  #assertCompositionSwitchCurrent(request) {
+    if (
+      this.#session !== request.session ||
+      this.#activeCompositionId !== request.sourceId ||
+      this.#history.revision !== request.projectRevision ||
+      !this.#history.doc.compositions.some((entry) => entry.id === request.targetId)
+    )
+      throw Error('STALE_REVISION: Composition changed');
+  }
+
+  switchComposition(compositionId, { beforeCommit = () => {} } = {}) {
     if (!this.#history.doc.compositions.some((entry) => entry.id === compositionId))
       throw Error('Unknown active Composition ID');
     if (compositionId === this.#activeCompositionId) return false;
-    this.#assertQuiescent();
+    const request = {
+      session: this.#session,
+      sourceId: this.#activeCompositionId,
+      targetId: compositionId,
+      projectRevision: this.#history.revision,
+    };
+    // Construct first: an unprepared target must not discard the current view/draft.
     const nextSession = this.#makeSession(this.#history.doc, compositionId);
+    this.#assertCompositionSwitchCurrent(request);
+    this.#assertQuiescent({ allowTextDrafts: true });
+    beforeCommit();
+    this.#assertCompositionSwitchCurrent(request);
+    this.#assertQuiescent();
     this.#activeCompositionId = compositionId;
     this.#session = nextSession;
+    return true;
+  }
+
+  async prepareCompositionSwitch(compositionId, bridge, options = {}) {
+    if (!this.#history.doc.compositions.some((entry) => entry.id === compositionId))
+      throw Error('Unknown active Composition ID');
+    if (compositionId === this.#activeCompositionId) return null;
+    const request = {
+      session: this.#session,
+      sourceId: this.#activeCompositionId,
+      targetId: compositionId,
+      projectRevision: this.#history.revision,
+      bridge,
+      ticket: null,
+    };
+    this.#preparedCompositionSwitch = request;
+    try {
+      const document = this.#documentFor(this.#history.doc, compositionId);
+      request.ticket = await bridge.prepareDocument(document, options);
+      if (this.#preparedCompositionSwitch !== request) throw Error('STALE_OPERATION');
+      this.#assertCompositionSwitchCurrent(request);
+      bridge.assertFresh(request.ticket);
+      request.token = Object.freeze({});
+      return request.token;
+    } catch (error) {
+      if (this.#preparedCompositionSwitch === request) this.#preparedCompositionSwitch = null;
+      // Never invalidate a newer operation's ticket on the same bridge.
+      if (request.ticket) {
+        try {
+          bridge.assertFresh(request.ticket);
+          bridge.cancel();
+        } catch {
+          // The ticket has already been canceled or superseded.
+        }
+      }
+      throw error;
+    }
+  }
+
+  cancelPreparedCompositionSwitch(bridge) {
+    const request = this.#preparedCompositionSwitch;
+    if (!request || request.bridge !== bridge) return;
+    this.#preparedCompositionSwitch = null;
+    if (request.ticket) {
+      try {
+        bridge.assertFresh(request.ticket);
+        bridge.cancel();
+      } catch {
+        // The ticket has already been canceled or superseded.
+      }
+    }
+  }
+
+  commitPreparedCompositionSwitch(token, { beforeCommit = () => {} } = {}) {
+    const request = this.#preparedCompositionSwitch;
+    if (!request || request.token !== token) throw Error('STALE_OPERATION');
+    const { bridge, ticket, targetId } = request;
+    this.#assertCompositionSwitchCurrent(request);
+    bridge.assertFresh(ticket);
+    let preview = true;
+    const nextSession = this.#makeSession(this.#history.doc, targetId, () =>
+      preview ? { ...this.#fonts(), ...bridge.preparedFonts(ticket) } : this.#fonts(),
+    );
+    this.#assertCompositionSwitchCurrent(request);
+    bridge.assertFresh(ticket);
+    this.#assertQuiescent({ allowTextDrafts: true });
+    beforeCommit();
+    if (this.#preparedCompositionSwitch !== request) throw Error('STALE_OPERATION');
+    this.#assertCompositionSwitchCurrent(request);
+    this.#assertQuiescent();
+    bridge.assertFresh(ticket);
+    // No fallible work follows activation; publish the bank and tab together.
+    bridge.activate(ticket);
+    preview = false;
+    this.#activeCompositionId = targetId;
+    this.#session = nextSession;
+    this.#preparedCompositionSwitch = null;
     return true;
   }
 

@@ -33,6 +33,18 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
   });
   const records = [],
     terminated = [];
+  let nextPreparationGate = null;
+  const gateNextPreparation = () => {
+    let release, ready;
+    const gate = {
+      ready: new Promise((resolve) => (ready = resolve)),
+      wait: new Promise((resolve) => (release = resolve)),
+      release: () => release(),
+      markReady: () => ready(),
+    };
+    nextPreparationGate = gate;
+    return gate;
+  };
   win.makeVariablePreparerForTest = () => {
     const bridge = createVariableDocumentPreparer({
       workerFactory: () => {
@@ -52,6 +64,17 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
     });
     const record = { bridge, disposals: 0 },
       dispose = bridge.dispose.bind(bridge);
+    const prepareDocument = bridge.prepareDocument.bind(bridge);
+    bridge.prepareDocument = async (...args) => {
+      const gate = nextPreparationGate;
+      nextPreparationGate = null;
+      const ticket = await prepareDocument(...args);
+      if (gate) {
+        gate.markReady();
+        await gate.wait;
+      }
+      return ticket;
+    };
     bridge.dispose = () => {
       record.disposals++;
       dispose();
@@ -79,6 +102,7 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
     window.editForTest = (type, payload = {}) => preparedChange(type, payload, 'Text updated');
     window.liveBridgeForTest = () => variableBridge;
     window.variableBusyForTest = () => !!variableAction;
+    window.textDraftForTest = id => session.textDraftSnapshot(id);
     window.openStateForTest = () => ({project:session.projectSnapshot(), command:session.state,
       file:window.nect.fileState, past:history.past, future:history.future,
       activeLayer, selected, selection:[...selection], artworkTarget,
@@ -322,6 +346,163 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
       await waitFor(() => !win.variableBusyForTest() && win.nect.compositions.length === 2);
       click(`[role="tab"][data-active-composition="${second}"]`);
       assert.equal(win.openStateForTest().activeLayer, secondRectangle);
+    },
+  );
+
+  await t.test(
+    'Composition tabs prepare a saved variable target without losing the active view or bank',
+    async () => {
+      const buildProject = (secondText = 'AV') => {
+        const first = blankDocument(),
+          second = blankDocument();
+        const firstText = node('Text'),
+          targetText = node('Text');
+        for (const [doc, text, value] of [
+          [first, firstText, 'AA'],
+          [second, targetText, secondText],
+        ]) {
+          Object.assign(text, {
+            font: asset.id,
+            text: value,
+            variation: { version: 1, fontId: asset.id, axes: {} },
+          });
+          doc.layers[0].nodes.push(text);
+          doc.layers[0].nodes[0].params.path.source = text.id;
+        }
+        first.fontAssets = { [asset.id]: asset.asset };
+        const project = migrateLegacyDocumentToCompositionProject(first);
+        const other = migrateLegacyDocumentToCompositionProject(second).compositions[0];
+        other.id = 'variable-tab-second';
+        project.compositions.push(other);
+        return {
+          project,
+          firstId: project.compositions[0].id,
+          secondId: other.id,
+          firstLayer: first.layers[0].id,
+          firstText: firstText.id,
+          targetText: targetText.id,
+        };
+      };
+      const clickTab = (id) => {
+        const tab = win.document.querySelector(`[role="tab"][data-active-composition="${id}"]`);
+        assert.ok(tab);
+        tab.click();
+      };
+      const waitFor = async (predicate) => {
+        const deadline = Date.now() + 15000;
+        while (!predicate()) {
+          if (Date.now() >= deadline) throw Error('Variable Composition test timed out');
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+      };
+      const current = () => ({
+        view: win.openStateForTest(),
+        svg: win.nect.export(),
+        bank: win.liveBridgeForTest().stats().active,
+      });
+
+      const invalid = buildProject('ffi');
+      await win.openForTest(invalid.project);
+      const beforeFailure = current();
+      clickTab(invalid.secondId);
+      await waitFor(() => !win.variableBusyForTest());
+      assert.deepEqual(current(), beforeFailure);
+      assert.equal(win.nect.activeCompositionId, invalid.firstId);
+
+      const fixture = buildProject();
+      await win.openForTest(fixture.project);
+      const beforeCancel = current();
+      let gate = gateNextPreparation();
+      clickTab(fixture.secondId);
+      await gate.ready;
+      win.document.dispatchEvent(
+        new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
+      gate.release();
+      await waitFor(() => !win.variableBusyForTest());
+      assert.deepEqual(current(), beforeCancel);
+      assert.equal(win.nect.activeCompositionId, fixture.firstId);
+
+      gate = gateNextPreparation();
+      clickTab(fixture.secondId);
+      await gate.ready;
+      clickTab(fixture.secondId);
+      assert.equal(win.variableBusyForTest(), true);
+      assert.deepEqual(current(), beforeCancel);
+      gate.release();
+      await waitFor(
+        () => !win.variableBusyForTest() && win.nect.activeCompositionId === fixture.secondId,
+      );
+      assert.doesNotMatch(win.document.querySelector('.status .message').textContent, /Preparing/);
+      assert.deepEqual(win.nect.projectSnapshot(), beforeCancel.view.project);
+      assert.deepEqual(win.nect.fileState, beforeCancel.view.file);
+      assert.deepEqual(win.openStateForTest().past, beforeCancel.view.past);
+      assert.deepEqual(win.openStateForTest().future, beforeCancel.view.future);
+      const originalSvg = win.nect.export();
+      assert.ok(
+        await win.editForTest('set-text-content', { nodeId: fixture.targetText, text: 'AW' }),
+      );
+      const editedSvg = win.nect.export();
+      assert.notEqual(editedSvg, originalSvg);
+      assert.ok(await win.editForTest('undo'));
+      assert.equal(win.nect.export(), originalSvg);
+      assert.ok(await win.editForTest('redo'));
+      assert.equal(win.nect.export(), editedSvg);
+      clickTab(fixture.firstId);
+      await waitFor(
+        () => !win.variableBusyForTest() && win.nect.activeCompositionId === fixture.firstId,
+      );
+      clickTab(fixture.secondId);
+      await waitFor(
+        () => !win.variableBusyForTest() && win.nect.activeCompositionId === fixture.secondId,
+      );
+      assert.equal(win.nect.export(), editedSvg);
+
+      await win.openForTest(fixture.project);
+      gate = gateNextPreparation();
+      clickTab(fixture.secondId);
+      await gate.ready;
+      let draft = win.nect.dispatch({
+        ...win.nect.commandState,
+        type: 'begin-text-draft',
+        payload: { layerId: fixture.firstLayer, nodeId: fixture.firstText },
+      });
+      draft = win.nect.dispatch({
+        ...win.nect.commandState,
+        type: 'stage-text-draft',
+        payload: {
+          draftId: draft.draftId,
+          expectedDraftRevision: draft.draftRevision,
+          action: 'edit',
+          previousRaw: 'AA',
+          nextRaw: 'AAA',
+          selectionStart: 3,
+          selectionEnd: 3,
+          inputType: 'insertText',
+        },
+      });
+      const draftBefore = win.textDraftForTest(draft.draftId),
+        beforeDraft = current();
+      gate.release();
+      await waitFor(() => !win.variableBusyForTest());
+      assert.equal(win.nect.activeCompositionId, fixture.firstId);
+      assert.deepEqual(win.textDraftForTest(draft.draftId), draftBefore);
+      assert.deepEqual(current(), beforeDraft);
+      win.nect.dispatch({
+        ...win.nect.commandState,
+        type: 'cancel-text-draft',
+        payload: { draftId: draft.draftId },
+      });
+
+      gate = gateNextPreparation();
+      clickTab(fixture.secondId);
+      await gate.ready;
+      await win.openForTest(migrateLegacyDocumentToCompositionProject(blankDocument()));
+      const replacement = win.openStateForTest();
+      gate.release();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.deepEqual(win.openStateForTest(), replacement);
+      assert.equal(win.liveBridgeForTest(), null);
     },
   );
 });
