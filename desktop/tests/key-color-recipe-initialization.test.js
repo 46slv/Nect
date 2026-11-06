@@ -1265,6 +1265,28 @@ for (const kind of ['document', 'composition']) {
         ? { sourceText: sourceBefore, compositionId: sourceLayer.id }
         : { sourceProject: project, compositionIds: [project.compositions[0].id] };
     const type = kind === 'document' ? 'import-composition' : 'import-project-compositions';
+    {
+      const target = fixture(kind, legacyDocument());
+      target.send('initialize-key-color-recipe', request());
+      target.send('set-document-settings', { key: 'width', value: 961 });
+      let afterUndo;
+      const reentrant = new Proxy(
+        { ...payload, captureLiveColors: true },
+        {
+          getOwnPropertyDescriptor(object, key) {
+            if (key === 'captureLiveColors') {
+              target.send('undo');
+              afterUndo = captured(target.session);
+            }
+            return Reflect.getOwnPropertyDescriptor(object, key);
+          },
+        },
+      );
+      assert.throws(() => target.send(type, reentrant), /STALE_(SESSION|REVISION)/);
+      assert.ok(afterUndo);
+      assert.deepEqual(captured(target.session), afterUndo);
+      assert.equal(target.session.historyView.future.length, 1);
+    }
     const noPacket = fixture(kind, legacyDocument());
     withRedo(noPacket);
     const noPacketBefore = captured(noPacket.session);
@@ -1293,6 +1315,24 @@ for (const kind of ['document', 'composition']) {
     );
     assert.deepEqual(captured(noLiveTarget.session), noLiveBefore);
     if (kind === 'composition') {
+      const hiddenBinding = structuredClone(project);
+      const hiddenColor = hiddenBinding.compositions[0].layers[0].nodes.find(
+        (entry) => entry.name === 'C1 fixture',
+      ).params.color;
+      hiddenColor.value = { hex: '#FF00FF', alpha: 0.8 };
+      Object.defineProperty(hiddenColor, 'colorSlotId', { enumerable: false });
+      const target = fixture(kind, legacyDocument());
+      target.send('initialize-key-color-recipe', request());
+      withRedo(target);
+      const before = captured(target.session);
+      assert.throws(
+        () =>
+          target.send(type, { ...payload, sourceProject: hiddenBinding, captureLiveColors: true }),
+        /binding/i,
+      );
+      assert.deepEqual(captured(target.session), before);
+      assert.equal(Object.getOwnPropertyDescriptor(hiddenColor, 'colorSlotId').enumerable, false);
+
       const malformed = structuredClone(project);
       malformed.compositions[0].layers[0].nodes.find(
         (entry) => entry.id === color.id,
@@ -1300,10 +1340,6 @@ for (const kind of ['document', 'composition']) {
       // The outer codec alone accepts this fallback; Capture must not repair it.
       assert.doesNotThrow(() => validateCompositionProject(malformed));
       const malformedBefore = JSON.stringify(malformed);
-      const target = fixture(kind, legacyDocument());
-      target.send('initialize-key-color-recipe', request());
-      withRedo(target);
-      const before = captured(target.session);
       assert.throws(() =>
         target.send(type, { ...payload, sourceProject: malformed, captureLiveColors: true }),
       );
@@ -1316,6 +1352,53 @@ for (const kind of ['document', 'composition']) {
         /projection/i,
       );
       assert.deepEqual(captured(target.session), before);
+
+      // A shared, unreferenced image is validated once even when several
+      // selected Compositions need independent Document validation.
+      const many = structuredClone(project);
+      const imageData =
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+      many.imageAssets = {
+        'image-capture-test': {
+          name: 'capture.png',
+          mime: 'image/png',
+          width: 1,
+          height: 1,
+          data: imageData,
+        },
+      };
+      for (let i = 0; i < 3; i++) {
+        const extra = blankDocument();
+        many.compositions.push({
+          id: `capture-extra-${i}`,
+          name: `Extra ${i}`,
+          width: extra.width,
+          height: extra.height,
+          layers: extra.layers,
+          editor: extra.editor,
+        });
+      }
+      const manyBefore = JSON.stringify(many);
+      const image = many.imageAssets['image-capture-test'];
+      const selected = many.compositions.map((item) => item.id);
+      const atob = globalThis.atob;
+      let decodes = 0;
+      try {
+        globalThis.atob = (data) => {
+          if (data === imageData) decodes++;
+          return atob(data);
+        };
+        target.send(type, {
+          sourceProject: many,
+          compositionIds: selected,
+          captureLiveColors: true,
+        });
+      } finally {
+        globalThis.atob = atob;
+      }
+      assert.equal(decodes, 1);
+      assert.equal(JSON.stringify(many), manyBefore);
+      assert.equal(Object.isFrozen(image), false);
     }
     for (const mode of ['retained', 'live']) {
       const target = fixture(kind, legacyDocument());

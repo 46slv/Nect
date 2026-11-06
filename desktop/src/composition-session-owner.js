@@ -226,11 +226,14 @@ export class CompositionSessionOwner {
     }
   }
 
-  #commitProject(candidate, activeCompositionId = this.#activeCompositionId, operation) {
+  #commitProject(candidate, activeCompositionId = this.#activeCompositionId, operation, precommit) {
     validateCompositionProject(candidate);
     if (!candidate.compositions.some((entry) => entry.id === activeCompositionId))
       throw Error('Unknown active Composition ID');
-    if (this.#sameDocument(this.#history.doc, candidate)) return false;
+    if (this.#sameDocument(this.#history.doc, candidate)) {
+      precommit?.();
+      return false;
+    }
 
     // Match initial Open validation, including inactive imported Documents,
     // before changing project History or the active session.
@@ -248,6 +251,7 @@ export class CompositionSessionOwner {
             busy: this.#busy,
             retainHistory: false,
           });
+    precommit?.();
     this.#applyProjectEdit((history) => {
       replaceRecord(history, candidate);
     });
@@ -515,18 +519,40 @@ export class CompositionSessionOwner {
       assertFreshCompositionEntityIds(this.#history.doc, proposedIds);
     }
     if (command?.type === 'import-project-compositions') {
+      const session = this.#session;
+      const document = this.#history.doc;
+      const revision = this.#history.revision;
+      const sessionRevision = session.state.expectedRevision;
+      const compositionId = this.#activeCompositionId;
+      const assertCurrent = () => {
+        const checkRevision = () => {
+          if (this.#session !== session || this.#activeCompositionId !== compositionId)
+            throw Error('STALE_SESSION: document changed');
+          if (
+            this.#history.doc !== document ||
+            this.#history.revision !== revision ||
+            session.state.expectedRevision !== sessionRevision
+          )
+            throw Error('STALE_REVISION: document changed');
+        };
+        checkRevision();
+        this.#assertQuiescent();
+        checkRevision();
+      };
       this.#assertCurrentCommand(command);
-      this.#assertQuiescent();
+      assertCurrent();
       const prepared = prepareProjectCompositionsImport(
-        this.#history.doc,
+        document,
         command.payload.sourceProject,
         command.payload.compositionIds,
         command.payload,
       );
+      assertCurrent();
       const changed = this.#commitProject(
         prepared.project,
         prepared.compositionIds[0],
         'import-project-compositions',
+        assertCurrent,
       );
       return {
         ...this.state,

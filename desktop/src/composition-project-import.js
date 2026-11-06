@@ -48,22 +48,37 @@ export function prepareProjectCompositionsImport(
     });
 
   if (captureLiveColors) {
+    // Structured cloning omits non-enumerable properties. A direct JS caller
+    // must not lose a valid Color binding and silently import its fallback.
+    for (const composition of sourceCompositions)
+      for (const layer of composition.layers)
+        for (const node of layer.nodes)
+          for (const q of Object.values(node.params || {})) {
+            if (q?.type !== 'Color') continue;
+            const binding = Object.getOwnPropertyDescriptor(q, 'colorSlotId');
+            if (binding && !binding.enumerable)
+              throw Error('Unsupported non-enumerable Color binding');
+          }
     // The outer project codec validates binding IDs, but not every Color
     // fallback. Validate each selected source Document before Capture can
     // replace a malformed fallback with a valid resolved literal.
-    const projectFields = { ...sourceProject };
-    delete projectFields.compositionSchemaVersion;
-    delete projectFields.compositions;
-    for (const composition of sourceCompositions)
-      validate(
-        structuredClone({
-          ...projectFields,
-          width: composition.width,
-          height: composition.height,
-          ...(composition.editor === undefined ? {} : { editor: composition.editor }),
-          layers: composition.layers,
-        }),
-      );
+    const fields = { ...sourceProject };
+    delete fields.compositionSchemaVersion;
+    delete fields.compositions;
+    // Keep one detached copy of shared assets across projections. The core
+    // validator freezes verified asset records and caches image validation by
+    // identity; cloning those records per Composition repeats PNG decoding.
+    const projectFields = structuredClone(fields);
+    for (const source of sourceCompositions) {
+      const composition = structuredClone(source);
+      validate({
+        ...projectFields,
+        width: composition.width,
+        height: composition.height,
+        ...(composition.editor === undefined ? {} : { editor: composition.editor }),
+        layers: composition.layers,
+      });
+    }
   }
 
   for (const composition of sourceCompositions)
