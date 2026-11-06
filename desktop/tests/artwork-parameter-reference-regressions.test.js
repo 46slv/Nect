@@ -9,6 +9,7 @@ import {
   evaluate,
   validate,
   serialize,
+  deserialize,
   previewColorExpression,
   expressionReferenceTargetsForDocument,
   CommandSession,
@@ -242,6 +243,326 @@ test('switching operations validates a newly active foreign property even withou
   send(session, 'redo');
   doc = session.snapshot();
   assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue(resample.id, 'spacing'), 2);
+});
+
+test('newly active Resample spacing rejects a preexisting direct-read error', () => {
+  const f = fixture(),
+    resample = node('Resample Path');
+  resample.id = 'resample';
+  resample.operation = 'count';
+  resample.params.spacing.expression = `1 / ${qualified}`;
+  f.driver.params.value.value = 0;
+  f.a.nodes.push(resample);
+  f.doc.schemaVersion = 62;
+  const session = new CommandSession(f.doc),
+    target = {
+      layerId: 'art-a',
+      nodeId: resample.id,
+      operation: 'spacing',
+    };
+  assert.throws(() => evaluate(f.a, {}, {}, f.doc).run(resample.id), /Connect a Path input/i);
+  assert.throws(
+    () => evaluate(f.a, {}, {}, f.doc).parameterValue(resample.id, 'spacing'),
+    /finite|zero|divide/i,
+  );
+  expectAtomicFailure(session, () => send(session, 'set-operation', target), /finite|zero|divide/i);
+  send(session, 'set-parameter', { layerId: 'art-b', nodeId: 'driver', key: 'value', value: 2 });
+  send(session, 'set-operation', target);
+  let doc = deserialize(serialize(session.snapshot()));
+  assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue(resample.id, 'spacing'), 0.5);
+  assert.throws(
+    () => evaluate(doc.layers[0], {}, {}, doc).run(resample.id),
+    /Connect a Path input/i,
+  );
+  send(session, 'undo');
+  assert.equal(
+    session.snapshot().layers[0].nodes.find((n) => n.id === resample.id).operation,
+    'count',
+  );
+  send(session, 'redo');
+  doc = session.snapshot();
+  assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue(resample.id, 'spacing'), 0.5);
+});
+
+test('activating Pucker manual center rejects an already-invalid foreign property atomically', () => {
+  const f = fixture(),
+    pucker = node('Pucker & Bloat');
+  pucker.id = 'pucker';
+  pucker.params.center.expression = `1 / ${qualified}; 0`;
+  f.a.nodes.push(pucker);
+  f.driver.params.value.value = 0;
+  f.doc.schemaVersion = 62;
+  const session = new CommandSession(f.doc),
+    target = { layerId: 'art-a', nodeId: pucker.id, key: 'autoCenter' };
+  assert.throws(
+    () => evaluate(f.a, {}, {}, f.doc).parameterValue(pucker.id, 'center'),
+    /finite|zero|divide/i,
+  );
+  assert.throws(() => evaluate(f.a, {}, {}, f.doc).run(pucker.id), /Connect a Path input/i);
+  send(session, 'set-parameter', { layerId: 'art-a', nodeId: 'sink', key: 'value', value: 11 });
+  send(session, 'undo');
+  expectAtomicFailure(
+    session,
+    () => send(session, 'set-parameter', { ...target, value: false }),
+    /finite|zero|divide/i,
+  );
+  send(session, 'redo');
+  assert.equal(
+    session.snapshot().layers[0].nodes.find((n) => n.id === 'sink').params.value.value,
+    11,
+  );
+  send(session, 'set-parameter', { layerId: 'art-b', nodeId: 'driver', key: 'value', value: 2 });
+  send(session, 'set-parameter', { ...target, value: false });
+  let doc = deserialize(serialize(session.snapshot()));
+  assert.equal(doc.layers[0].nodes.find((n) => n.id === pucker.id).params.autoCenter.value, false);
+  assert.deepEqual(
+    evaluate(doc.layers[0], {}, {}, doc).parameterValue(pucker.id, 'center'),
+    [0.5, 0],
+  );
+  assert.throws(() => evaluate(doc.layers[0], {}, {}, doc).run(pucker.id), /Connect a Path input/i);
+  send(session, 'undo');
+  assert.equal(
+    session.snapshot().layers[0].nodes.find((n) => n.id === pucker.id).params.autoCenter.value,
+    true,
+  );
+  send(session, 'redo');
+  doc = session.snapshot();
+  assert.deepEqual(
+    evaluate(doc.layers[0], {}, {}, doc).parameterValue(pucker.id, 'center'),
+    [0.5, 0],
+  );
+});
+
+test('restoring bypass activates foreign controls without excusing an old direct-read error', () => {
+  const f = fixture(),
+    pucker = node('Pucker & Bloat');
+  pucker.id = 'pucker';
+  pucker.bypassed = true;
+  pucker.params.amount.expression = `1 / ${qualified}`;
+  f.a.nodes.push(pucker);
+  f.driver.params.value.value = 0;
+  f.doc.schemaVersion = 62;
+  const session = new CommandSession(f.doc),
+    target = { layerId: 'art-a', nodeId: pucker.id, bypassed: false };
+  assert.throws(
+    () => evaluate(f.a, {}, {}, f.doc).parameterValue(pucker.id, 'amount'),
+    /finite|zero|divide/i,
+  );
+  expectAtomicFailure(
+    session,
+    () => send(session, 'set-node-bypassed', target),
+    /finite|zero|divide/i,
+  );
+  send(session, 'set-parameter', { layerId: 'art-b', nodeId: 'driver', key: 'value', value: 2 });
+  send(session, 'set-node-bypassed', target);
+  let doc = session.snapshot();
+  assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue(pucker.id, 'amount'), 0.5);
+  send(session, 'undo');
+  assert.equal(session.snapshot().layers[0].nodes.find((n) => n.id === pucker.id).bypassed, true);
+  send(session, 'redo');
+  doc = deserialize(serialize(session.snapshot()));
+  assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue(pucker.id, 'amount'), 0.5);
+});
+
+test('connecting a Boolean input validates newly effective foreign controls', () => {
+  const f = fixture(),
+    pucker = node('Pucker & Bloat'),
+    toggle = node('Toggle');
+  pucker.id = 'pucker';
+  toggle.id = 'toggle';
+  toggle.params.value.value = false;
+  pucker.params.center.expression = `1 / ${qualified}; 0`;
+  f.a.nodes.push(pucker, toggle);
+  f.driver.params.value.value = 0;
+  f.doc.schemaVersion = 62;
+  const session = new CommandSession(f.doc),
+    target = {
+      layerId: 'art-a',
+      nodeId: pucker.id,
+      key: 'autoCenter',
+      sourceId: toggle.id,
+    };
+  send(session, 'set-parameter', { layerId: 'art-a', nodeId: 'sink', key: 'value', value: 11 });
+  send(session, 'undo');
+  expectAtomicFailure(session, () => send(session, 'connect', target), /finite|zero|divide/i);
+  send(session, 'redo');
+  send(session, 'set-parameter', { layerId: 'art-b', nodeId: 'driver', key: 'value', value: 2 });
+  send(session, 'connect', target);
+  let doc = session.snapshot();
+  assert.deepEqual(
+    evaluate(doc.layers[0], {}, {}, doc).parameterValue(pucker.id, 'center'),
+    [0.5, 0],
+  );
+  send(session, 'undo');
+  assert.equal(
+    session.snapshot().layers[0].nodes.find((n) => n.id === pucker.id).params.autoCenter.source,
+    undefined,
+  );
+  send(session, 'redo');
+  doc = deserialize(serialize(session.snapshot()));
+  assert.equal(
+    doc.layers[0].nodes.find((n) => n.id === pucker.id).params.autoCenter.source,
+    toggle.id,
+  );
+});
+
+test('an upstream Boolean edit validates only a newly effective conditional input', () => {
+  const f = fixture(),
+    pucker = node('Pucker & Bloat'),
+    toggle = node('Toggle');
+  pucker.id = 'pucker';
+  toggle.id = 'toggle';
+  toggle.params.value.value = true;
+  pucker.params.center.expression = `1 / ${qualified}; 0`;
+  f.a.nodes.push(pucker, toggle);
+  f.driver.params.value.value = 0;
+  f.doc.schemaVersion = 62;
+  const session = new CommandSession(f.doc),
+    wire = {
+      layerId: 'art-a',
+      nodeId: pucker.id,
+      key: 'autoCenter',
+      sourceId: toggle.id,
+    },
+    control = { layerId: 'art-a', nodeId: toggle.id, key: 'value' };
+  // A true source leaves center inactive, even though its direct read fails.
+  send(session, 'connect', wire);
+  let doc = session.snapshot();
+  assert.throws(() => evaluate(doc.layers[0], {}, {}, doc).run(pucker.id), /Connect a Path input/i);
+  send(session, 'set-parameter', { layerId: 'art-a', nodeId: 'sink', key: 'value', value: 11 });
+  send(session, 'undo');
+  expectAtomicFailure(
+    session,
+    () => send(session, 'set-parameter', { ...control, value: false }),
+    /finite|zero|divide/i,
+  );
+  send(session, 'redo');
+  send(session, 'set-parameter', { layerId: 'art-b', nodeId: 'driver', key: 'value', value: 2 });
+  send(session, 'set-parameter', { ...control, value: false });
+  doc = deserialize(serialize(session.snapshot()));
+  assert.deepEqual(
+    evaluate(doc.layers[0], {}, {}, doc).parameterValue(pucker.id, 'center'),
+    [0.5, 0],
+  );
+  send(session, 'undo');
+  assert.equal(
+    session.snapshot().layers[0].nodes.find((n) => n.id === toggle.id).params.value.value,
+    true,
+  );
+  send(session, 'redo');
+  assert.equal(
+    session.snapshot().layers[0].nodes.find((n) => n.id === toggle.id).params.value.value,
+    false,
+  );
+});
+
+test('an upstream Boolean edit activates a driven Transform width using the same rule', () => {
+  const f = fixture(),
+    transform = node('Transform'),
+    toggle = node('Toggle');
+  transform.id = 'transform';
+  toggle.id = 'toggle';
+  toggle.params.value.value = true;
+  transform.params.uniformScale = {
+    type: 'Boolean',
+    value: true,
+    source: toggle.id,
+    expression: '',
+    locked: false,
+  };
+  transform.params.scaleWidth = {
+    type: 'Scalar',
+    value: 1,
+    expression: `1 / ${qualified}`,
+    locked: false,
+  };
+  f.a.nodes.push(transform, toggle);
+  f.driver.params.value.value = 0;
+  f.doc.schemaVersion = 62;
+  const session = new CommandSession(f.doc),
+    control = {
+      layerId: 'art-a',
+      nodeId: toggle.id,
+      key: 'value',
+    };
+  expectAtomicFailure(
+    session,
+    () => send(session, 'set-parameter', { ...control, value: false }),
+    /finite|zero|divide/i,
+  );
+  send(session, 'set-parameter', { layerId: 'art-b', nodeId: 'driver', key: 'value', value: 2 });
+  send(session, 'set-parameter', { ...control, value: false });
+  let doc = session.snapshot();
+  assert.equal(
+    evaluate(doc.layers[0], {}, {}, doc).parameterValue(transform.id, 'scaleWidth'),
+    0.5,
+  );
+  send(session, 'undo');
+  assert.equal(
+    session.snapshot().layers[0].nodes.find((n) => n.id === toggle.id).params.value.value,
+    true,
+  );
+  send(session, 'redo');
+  doc = deserialize(serialize(session.snapshot()));
+  assert.equal(
+    evaluate(doc.layers[0], {}, {}, doc).parameterValue(transform.id, 'scaleWidth'),
+    0.5,
+  );
+});
+
+test('activating a property with a missing foreign target preserves the dangling diagnostic', () => {
+  const f = fixture(),
+    pucker = node('Pucker & Bloat');
+  pucker.id = 'pucker';
+  pucker.params.center.expression = 'ref(artwork, "missing-art", "missing-value", "value"); 0';
+  f.a.nodes.push(pucker);
+  f.doc.schemaVersion = 62;
+  const session = new CommandSession(f.doc);
+  send(session, 'set-parameter', {
+    layerId: 'art-a',
+    nodeId: pucker.id,
+    key: 'autoCenter',
+    value: false,
+  });
+  let doc = deserialize(serialize(session.snapshot()));
+  assert.throws(
+    () => evaluate(doc.layers[0], {}, {}, doc).parameterValue(pucker.id, 'center'),
+    /missing/i,
+  );
+  send(session, 'undo');
+  assert.equal(
+    session.snapshot().layers[0].nodes.find((n) => n.id === pucker.id).params.autoCenter.value,
+    true,
+  );
+  send(session, 'redo');
+  doc = session.snapshot();
+  assert.equal(doc.layers[0].nodes.find((n) => n.id === pucker.id).params.autoCenter.value, false);
+});
+
+test('legacy same-Artwork incomplete Pucker edits retain their previous behavior', () => {
+  const f = fixture(),
+    pucker = node('Pucker & Bloat'),
+    driver = node('Value');
+  pucker.id = 'pucker';
+  driver.id = 'local-driver';
+  driver.params.value.value = 0;
+  pucker.params.center.expression = '1 / ref("local-driver", "value"); 0';
+  f.a.nodes.push(pucker, driver);
+  f.doc.schemaVersion = 61;
+  const session = new CommandSession(f.doc);
+  send(session, 'set-parameter', {
+    layerId: 'art-a',
+    nodeId: pucker.id,
+    key: 'autoCenter',
+    value: false,
+  });
+  const doc = deserialize(serialize(session.snapshot()));
+  assert.equal(doc.schemaVersion, 61);
+  assert.equal(doc.layers[0].nodes.find((n) => n.id === pucker.id).params.autoCenter.value, false);
+  assert.throws(
+    () => evaluate(doc.layers[0], {}, {}, doc).parameterValue(pucker.id, 'center'),
+    /finite|zero|divide/i,
+  );
 });
 
 test('a foreign consumer validates an inactive Resample property when its source changes', () => {

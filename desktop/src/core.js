@@ -4504,7 +4504,7 @@ export function evaluate(
 // Session commits and previews are the common boundary for source edits,
 // including gestures and prepared commands. A dangling identity cannot be
 // revived by an allocator, and affected cross-layer controls remain valid.
-function foreignAffectedVertices(before, candidate) {
+function foreignAffectedVertices(before, candidate, fonts) {
   const nodeKey = (layerId, nodeId) => `${layerId}\0${nodeId}`;
   const entries = (doc) =>
     new Map(doc.layers.flatMap((layer) => layer.nodes.map((n) => [nodeKey(layer.id, n.id), n])));
@@ -4595,7 +4595,8 @@ function foreignAffectedVertices(before, candidate) {
       }
   const queue = [],
     seen = new Set(),
-    affected = new Map();
+    affected = new Map(),
+    activatedVertices = new Set();
   const outputFields = (n) => {
     const { params, points, edits, ...fields } = n;
     return JSON.stringify({
@@ -4609,28 +4610,10 @@ function foreignAffectedVertices(before, candidate) {
       newNode = current.get(owner);
     const wholeNode = changedAll.has(owner) || !oldNode || !newNode;
     const outputChanged = wholeNode || outputFields(oldNode) !== outputFields(newNode);
-    const activated = new Set();
-    if (!wholeNode && outputChanged)
-      for (const key of byNode.get(owner) || []) {
-        const vertex = vertices.get(key);
-        if (vertex.key !== undefined) continue;
-        const previous = new Set(priorGraph.edges(vertex).map(priorGraph.keyOf));
-        for (const dependency of candidateGraph.edges(vertex)) {
-          const dependencyKey = candidateGraph.keyOf(dependency);
-          if (
-            dependency.key !== undefined &&
-            dependency.layerId === vertex.layerId &&
-            dependency.nodeId === vertex.nodeId &&
-            !previous.has(dependencyKey)
-          )
-            activated.add(dependencyKey);
-        }
-      }
     for (const key of byNode.get(owner) || []) {
       const vertex = vertices.get(key);
       const vertexChanged =
         wholeNode ||
-        activated.has(key) ||
         (vertex.key === undefined
           ? outputChanged
           : JSON.stringify(priorGraph.parameter(oldNode, vertex.key)) !==
@@ -4639,6 +4622,88 @@ function foreignAffectedVertices(before, candidate) {
       const foreign = dependsOnForeign.has(key);
       queue.push({ key, foreign });
       if (foreign) affected.set(key, vertex);
+    }
+  }
+  // A changed Boolean source can switch a downstream node's effective inputs
+  // even when that node's authored descriptor and static graph are unchanged.
+  // Resolve only Boolean wires which actually change its input set, in short-
+  // lived lazy frames, and ask the existing input selector on detached views.
+  const frames = new WeakMap();
+  const frame = (doc, layer) => {
+    let layerFrames = frames.get(doc);
+    if (!layerFrames) {
+      layerFrames = new Map();
+      frames.set(doc, layerFrames);
+    }
+    if (!layerFrames.has(layer.id))
+      layerFrames.set(
+        layer.id,
+        evaluate(layer, resolveFonts(doc, fonts), doc.imageAssets, doc, null, true),
+      );
+    return layerFrames.get(layer.id);
+  };
+  const inputKeys = (n, port) =>
+    new Set(
+      (n.type === 'Text' && port === 'position'
+        ? [['position', n.params.position]]
+        : evaluatedParameters(n)
+      ).map(([key]) => key),
+    );
+  const sameKeys = (a, b) => a.size === b.size && [...a].every((key) => b.has(key));
+  const literalView = (n, key, value) => ({
+    ...n,
+    params: {
+      ...n.params,
+      [key]: { ...n.params[key], value, source: undefined, sourcePort: undefined, expression: '' },
+    },
+  });
+  const effectiveInputs = (doc, graph, vertex) => {
+    const n = graph.nodes.get(vertex.layerId)?.get(vertex.nodeId),
+      layer = graph.layers.get(vertex.layerId);
+    if (!n || !outputType(n, vertex.port)) return new Set();
+    let view = n;
+    for (const [key, q] of Object.entries(n.params)) {
+      if (q.type !== 'Boolean' || !q.source) continue;
+      if (
+        sameKeys(
+          inputKeys(literalView(view, key, true), vertex.port),
+          inputKeys(literalView(view, key, false), vertex.port),
+        )
+      )
+        continue;
+      try {
+        view = literalView(view, key, frame(doc, layer).parameterValue(n.id, key));
+      } catch {
+        // Keep existing missing or unresolved-input behavior; the ordinary
+        // evaluator and command validation own that diagnostic.
+        return null;
+      }
+    }
+    return inputKeys(view, vertex.port);
+  };
+  const reachable = new Set(queue.map((item) => item.key)),
+    reachableQueue = [...reachable];
+  for (let i = 0; i < reachableQueue.length; i++)
+    for (const edge of reverse.get(reachableQueue[i]) || [])
+      if (!reachable.has(edge.consumer)) {
+        reachable.add(edge.consumer);
+        reachableQueue.push(edge.consumer);
+      }
+  for (const key of reachableQueue) {
+    const vertex = vertices.get(key);
+    if (vertex.key !== undefined || !dependsOnForeign.has(key)) continue;
+    const oldInputs = effectiveInputs(before, priorGraph, vertex),
+      newInputs = effectiveInputs(candidate, candidateGraph, vertex);
+    if (!oldInputs || !newInputs) continue;
+    for (const name of newInputs) {
+      if (oldInputs.has(name)) continue;
+      const property = candidateGraph.property(vertex.layerId, vertex.nodeId, name),
+        propertyKey = candidateGraph.keyOf(property);
+      activatedVertices.add(propertyKey);
+      if (dependsOnForeign.has(propertyKey)) {
+        affected.set(propertyKey, property);
+        queue.push({ key: propertyKey, foreign: true });
+      }
     }
   }
   for (let i = 0; i < queue.length; i++) {
@@ -4655,6 +4720,7 @@ function foreignAffectedVertices(before, candidate) {
   return {
     affected: [...affected.values()].filter((v) => current.has(nodeKey(v.layerId, v.nodeId))),
     candidateGraph,
+    activatedVertices,
   };
 }
 function assertArtworkReferenceTransition(before, candidate, fonts = {}) {
@@ -4686,7 +4752,11 @@ function assertArtworkReferenceTransition(before, candidate, fonts = {}) {
     )
       throw Error('New identity would retarget a missing Artwork reference');
 
-  const { affected, candidateGraph } = foreignAffectedVertices(before, candidate);
+  const { affected, candidateGraph, activatedVertices } = foreignAffectedVertices(
+    before,
+    candidate,
+    fonts,
+  );
   if (!affected.length) return;
   const currentFonts = resolveFonts(candidate, fonts),
     oldFonts = resolveFonts(before, fonts),
@@ -4758,7 +4828,11 @@ function assertArtworkReferenceTransition(before, candidate, fonts = {}) {
           value = evaluation.parameterValue(n.id, vertex.key);
           resolved = true;
         },
-        (e) => e.parameterValue(n.id, vertex.key),
+        // The property may already have been invalid when read directly while
+        // inactive. That must not excuse making it an effective output input.
+        activatedVertices.has(candidateGraph.keyOf(vertex))
+          ? null
+          : (e) => e.parameterValue(n.id, vertex.key),
       );
       if (resolved && n.type !== 'Text' && !(n.type === 'Trim Path' && !n.params.path?.source)) {
         const projected = projectedNodes.get(n.id),
