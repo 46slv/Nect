@@ -10546,7 +10546,15 @@ app.addEventListener('click', async (e) => {
       input.value = q.expression || '';
       if (q.type === 'Color')
         dialog.querySelector('[data-insert-reference]').textContent = 'Insert reference…';
-      const expressionEnvelope = session.state;
+      const expressionOwner = session,
+        expressionEnvelope = expressionOwner.state,
+        expressionRevision = expressionOwner.projectRevision,
+        expressionComposition = expressionOwner.activeCompositionId,
+        expressionGeneration = documents.generation,
+        expressionStatus = document.createElement('p');
+      expressionStatus.setAttribute('role', 'alert');
+      expressionStatus.hidden = true;
+      dialog.querySelector('[data-confirm]').parentElement.before(expressionStatus);
       if (q.type === 'Color') {
         const check = (event) => {
           if (!event?.isComposing) colorDraftValidity(input, nn.id, f.dataset.key);
@@ -10613,6 +10621,20 @@ app.addEventListener('click', async (e) => {
       for (const button of dialog.querySelectorAll('[data-confirm], [data-cancel]'))
         button.onmousedown = (event) => event.preventDefault();
       dialog.querySelector('[data-confirm]').onclick = () => {
+        if (
+          session !== expressionOwner ||
+          documents.generation !== expressionGeneration ||
+          session.projectRevision !== expressionRevision ||
+          session.activeCompositionId !== expressionComposition ||
+          current().id !== payload.layerId ||
+          session.state.sessionId !== expressionEnvelope.sessionId ||
+          session.state.expectedRevision !== expressionEnvelope.expectedRevision
+        ) {
+          expressionStatus.textContent =
+            'Document changed. Close and reopen the expression editor.';
+          expressionStatus.hidden = false;
+          return;
+        }
         if (q.type === 'Color' && !colorDraftValidity(input, nn.id, f.dataset.key)) {
           input.reportValidity();
           return;
@@ -10623,7 +10645,7 @@ app.addEventListener('click', async (e) => {
             { ...payload, expression: input.value },
             'Parameter updated',
             false,
-            q.type === 'Color' ? expressionEnvelope : session.state,
+            expressionEnvelope,
           )
         )
           closeEditorDialog(dialog);
