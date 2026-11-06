@@ -216,6 +216,36 @@ try {
   assert.deepEqual(await snapshot(), edited);
   assert.deepEqual(await resultColor(), newColor);
 
+  // A missing Color source exposes the same diagnostic as numeric references.
+  await page.locator('[role="tab"][data-active-composition="source-comp"]').click();
+  await page.evaluate(() =>
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'delete-node',
+      payload: { layerId: 'foreign-art', nodeId: 'foreign-color' },
+    }),
+  );
+  await page.locator('[role="tab"][data-active-composition="target-comp"]').click();
+  await selectNode('target-fill');
+  const unavailable = field('target-fill', 'color').locator('.parameter-result');
+  assert.match(await unavailable.innerText(), /Cannot evaluate/);
+  const diagnostic = await unavailable.getAttribute('title');
+  assert.match(diagnostic, /missing/i);
+  assert.equal(await unavailable.getAttribute('aria-description'), diagnostic);
+  assert.equal(
+    await field('target-fill', 'color').locator('[data-expression]').inputValue(),
+    remote,
+  );
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), edited);
+  assert.deepEqual(await resultColor(), newColor);
+  assert.equal(await unavailable.getAttribute('title'), null);
+  await activateCommand(page, 'redo');
+  assert.match(await unavailable.getAttribute('aria-description'), /missing/i);
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), edited);
+  assert.deepEqual(await resultColor(), newColor);
+
   const pending = page.waitForEvent('download');
   await activateCommand(page, 'save-as');
   const path = resolve('test-results/qualified-color-reference/project.json');

@@ -4691,14 +4691,19 @@ function field(n, key, q, inspector = false) {
       base = driven ? ' data-color-base' : '';
     const inputs = `<button type="button" class="node-color-swatch" data-hsl-picker-open${base} aria-haspopup="dialog" aria-label="Edit ${esc(n.name + ' ' + name + (driven ? ' base' : ''))} color (HSL)" style="background:${esc(color.hex)}" ${disabled ? 'disabled' : ''}></button>${n.type === 'Keyer' && key === 'keyColor' ? '' : `<input type="number" ${driven ? '' : 'data-scrub-step="0.01"'} data-color="alpha"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} alpha" title="Alpha" min="0" max="1" step="0.01" value="${color.alpha}" ${disabled ? 'disabled' : ''}>`}`;
     if (driven) {
-      let result;
+      let result,
+        resultError = '';
       try {
         const effective = renderEvaluation.parameterValue(n.id, key);
         result = `${effective.hex}  alpha ${effective.alpha}`;
-      } catch {
+      } catch (error) {
         result = 'Cannot evaluate';
+        resultError = error?.message || '';
       }
-      control = `<div class="authored-control"><div class="base-inputs"><div class="base-component" role="group" aria-label="${esc(n.name + ' ' + name)} base"><span>Base</span>${inputs}</div></div><output class="parameter-result" aria-label="${esc(name)} result">${q.source ? 'Connected result' : 'Result'} ${esc(result)}</output>${q.expression ? `<label class="parameter-expression">${q.source ? 'Expression paused by connection' : 'Expression'}<input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${disabled ? 'disabled' : ''}></label>` : ''}</div>`;
+      const diagnostic = resultError
+        ? ` title="${esc(resultError)}" aria-description="${esc(resultError)}"`
+        : '';
+      control = `<div class="authored-control"><div class="base-inputs"><div class="base-component" role="group" aria-label="${esc(n.name + ' ' + name)} base"><span>Base</span>${inputs}</div></div><output class="parameter-result" aria-label="${esc(name)} result"${diagnostic}>${q.source ? 'Connected result' : 'Result'} ${esc(result)}</output>${q.expression ? `<label class="parameter-expression">${q.source ? 'Expression paused by connection' : 'Expression'}<input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${disabled ? 'disabled' : ''}></label>` : ''}</div>`;
     } else control = inputs;
     control += sharedColors.bindingControl(n, key, q, current().id);
     if (n.type === 'Keyer' && key === 'keyColor')
