@@ -186,6 +186,155 @@ for (const route of [['Convert to Path'], ['Fill', 'Convert to Path'], ['Text to
   });
 }
 
+for (const route of [
+  'bypassed painted Transform',
+  'Polar Transform',
+  'zero-gap Dash Path',
+  'zero-radius Corner Round',
+]) {
+  test(`${route} retains authored Remap points through duplicate and history`, () => {
+    const f = fixture('Curve', ({ doc, layer, source, remap }) => {
+      if (route === 'bypassed painted Transform') {
+        doc.schemaVersion = 31;
+        const paint = node('Fill'),
+          transform = node('Transform'),
+          convert = node('Convert to Path');
+        layer.nodes.push(paint, transform, convert);
+        connect(layer, source.id, paint.id, 'path');
+        connect(layer, paint.id, transform.id, 'path');
+        transform.bypassed = true;
+        connect(layer, transform.id, convert.id, 'path');
+        connect(layer, convert.id, remap.id, 'path');
+        assert.notEqual(evaluate(layer).run(transform.id).kind, 'painted-group');
+      } else {
+        const kind =
+            route === 'Polar Transform'
+              ? route
+              : route === 'zero-gap Dash Path'
+                ? 'Dash Path'
+                : 'Corner Round',
+          effect = node(kind);
+        layer.nodes.push(effect);
+        connect(layer, source.id, effect.id, 'path');
+        if (kind !== 'Polar Transform') {
+          const driver = node('Value');
+          driver.params.value.value = 0;
+          layer.nodes.push(driver);
+          connect(layer, driver.id, effect.id, kind === 'Dash Path' ? 'gapLength' : 'radius');
+        }
+        connect(layer, effect.id, remap.id, 'path');
+      }
+    });
+    const before = serializeCompositionProject(f.owner.projectSnapshot()),
+      result = f.send('duplicate-layer', { layerId: f.layerId }),
+      doc = f.owner.activeDocument(),
+      original = doc.layers.find((layer) => layer.id === f.layerId),
+      copy = doc.layers.find((layer) => layer.id === result.layerId),
+      originalPath = evaluate(original).path,
+      copiedPath = evaluate(copy).path;
+    assert.notEqual(copiedPath.remapSuspended, true);
+    assert.equal(
+      copy.nodes.find((item) => item.type === 'Path Remap').edits[0].pointId,
+      copy.nodes.find((item) => item.type === 'Curve').points[0].id,
+    );
+    assert.deepEqual(
+      copiedPath.contours[0].points[0].position,
+      originalPath.contours[0].points[0].position,
+    );
+    if (route === 'zero-gap Dash Path' || route === 'zero-radius Corner Round') {
+      const effect = copy.nodes.find(
+          (item) => item.type === (route === 'zero-gap Dash Path' ? 'Dash Path' : 'Corner Round'),
+        ),
+        driver = copy.nodes.find((item) => item.type === 'Value'),
+        key = route === 'zero-gap Dash Path' ? 'gapLength' : 'radius';
+      assert.equal(effect.params[key].source, driver.id);
+      assert.notEqual(
+        effect.params[key].value,
+        0,
+        'the effective zero comes from the copied driver',
+      );
+    }
+    const after = serializeCompositionProject(f.owner.projectSnapshot());
+    f.send('undo');
+    assert.equal(serializeCompositionProject(f.owner.projectSnapshot()), before);
+    f.send('redo');
+    assert.equal(serializeCompositionProject(f.owner.projectSnapshot()), after);
+    const reopened = createCompositionSessionOwner(deserializeCompositionProject(after));
+    assert.deepEqual(
+      evaluate(reopened.activeDocument().layers[1]).path.contours[0].points[0].position,
+      originalPath.contours[0].points[0].position,
+    );
+  });
+}
+
+for (const kind of ['Dash Path', 'Corner Round']) {
+  test(`${kind} nonzero generated points still refuse without history changes`, () => {
+    const f = fixture('Curve', ({ layer, source, remap }) => {
+      const effect = node(kind),
+        driver = node('Value'),
+        key = kind === 'Dash Path' ? 'gapLength' : 'radius';
+      effect.params[key].value = 0;
+      driver.params.value.value = 5;
+      layer.nodes.push(effect, driver);
+      connect(layer, source.id, effect.id, 'path');
+      connect(layer, driver.id, effect.id, key);
+      connect(layer, effect.id, remap.id, 'path');
+    });
+    f.send('set-document-settings', { key: 'width', value: 1200 });
+    f.send('undo');
+    const before = serializeCompositionProject(f.owner.projectSnapshot()),
+      state = f.owner.state,
+      redo = f.owner.historyView.redoToken;
+    assert.throws(() => f.send('duplicate-layer', { layerId: f.layerId }), /Path Remap.*binding/);
+    assert.equal(serializeCompositionProject(f.owner.projectSnapshot()), before);
+    assert.deepEqual(f.owner.state, state);
+    assert.strictEqual(f.owner.historyView.redoToken, redo);
+  });
+}
+
+for (const kind of ['Polar Transform', 'Dash Path', 'Corner Round']) {
+  test(`${kind} keeps an already stale fingerprint suspended`, () => {
+    const original = fixture('Curve', ({ layer, source, remap }) => {
+      const effect = node(kind);
+      if (kind === 'Dash Path') effect.params.gapLength.value = 0;
+      if (kind === 'Corner Round') effect.params.radius.value = 0;
+      layer.nodes.push(effect);
+      connect(layer, source.id, effect.id, 'path');
+      connect(layer, effect.id, remap.id, 'path');
+    });
+    const f = reopenOwner(original.owner, (composition) => {
+      composition.layers[0].nodes.find(
+        (item) => item.id === original.remapId,
+      ).edits[0].fingerprint = 'old-fingerprint';
+    });
+    assert.equal(evaluate(f.owner.activeDocument().layers[0]).path.remapSuspended, true);
+    const result = f.send('duplicate-layer', { layerId: original.layerId }),
+      copy = f.owner.activeDocument().layers.find((layer) => layer.id === result.layerId),
+      edit = copy.nodes.find((item) => item.type === 'Path Remap').edits[0];
+    assert.equal(edit.fingerprint, 'old-fingerprint');
+    assert.equal(evaluate(copy).path.remapSuspended, true);
+  });
+}
+
+test('bypassed Mask still generates a painted group and refuses a Remap copy', () => {
+  const f = fixture('Curve', ({ doc, layer, source, remap }) => {
+    doc.schemaVersion = 35;
+    const paint = node('Fill'),
+      mask = node('Mask'),
+      convert = node('Convert to Path');
+    layer.nodes.push(paint, mask, convert);
+    connect(layer, source.id, paint.id, 'path');
+    connect(layer, paint.id, mask.id, 'path');
+    mask.bypassed = true;
+    connect(layer, mask.id, convert.id, 'path');
+    connect(layer, convert.id, remap.id, 'path');
+    assert.equal(evaluate(layer).run(mask.id).kind, 'painted-group');
+  });
+  const before = serializeCompositionProject(f.owner.projectSnapshot());
+  assert.throws(() => f.send('duplicate-layer', { layerId: f.layerId }), /Path Remap.*binding/);
+  assert.equal(serializeCompositionProject(f.owner.projectSnapshot()), before);
+});
+
 test('a painted-group conversion does not infer a generated point mapping', () => {
   const f = fixture('Curve', ({ doc, layer, source, remap }) => {
     doc.schemaVersion = 31;
@@ -236,11 +385,9 @@ for (const type of ['Curve', 'Multi Path', 'Circle', 'Polygon', 'Star']) {
     const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc), {
         fonts: () => fonts,
       }),
-      result = owner.dispatch({
-        ...owner.state,
-        type: 'duplicate-layer',
-        payload: { layerId: layer.id },
-      }),
+      send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload }),
+      before = serializeCompositionProject(owner.projectSnapshot()),
+      result = send('duplicate-layer', { layerId: layer.id }),
       after = owner.activeDocument(),
       copy = after.layers.find((item) => item.id === result.layerId),
       copiedPath = copy.nodes.find((item) => item.type === type),
@@ -259,10 +406,19 @@ for (const type of ['Curve', 'Multi Path', 'Circle', 'Polygon', 'Star']) {
       assert.match(evaluate(after.layers[0], fonts).error, /TEXT_PATH_UNSTABLE/);
       assert.equal(evaluate(copy, fonts).error, evaluate(after.layers[0], fonts).error);
     } else assert.equal(svg(copy), svg(after.layers[0]));
+    const saved = serializeCompositionProject(owner.projectSnapshot());
+    send('undo');
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+    send('redo');
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), saved);
   });
 }
 
-for (const route of ['driven zero Offset', 'plain Fill and Convert']) {
+for (const route of [
+  'driven zero Offset',
+  'plain Fill and Convert',
+  'bypassed painted Transform',
+]) {
   test(`Text attachment retains its contour through ${route}`, () => {
     const fonts = { default: parseFont(fontBytes('../public/fonts/DejaVuSans.ttf')) },
       doc = blankDocument(),
@@ -289,7 +445,16 @@ for (const route of ['driven zero Offset', 'plain Fill and Convert']) {
         convert = node('Convert to Path');
       layer.nodes.push(paint, convert);
       connect(layer, curve.id, paint.id, 'path');
-      connect(layer, paint.id, convert.id, 'path');
+      let input = paint;
+      if (route === 'bypassed painted Transform') {
+        doc.schemaVersion = 31;
+        const transform = node('Transform');
+        layer.nodes.push(transform);
+        connect(layer, paint.id, transform.id, 'path');
+        transform.bypassed = true;
+        input = transform;
+      }
+      connect(layer, input.id, convert.id, 'path');
       target = convert;
     }
     text.pathAttachment = {
@@ -304,11 +469,9 @@ for (const route of ['driven zero Offset', 'plain Fill and Convert']) {
     const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc), {
         fonts: () => fonts,
       }),
-      result = owner.dispatch({
-        ...owner.state,
-        type: 'duplicate-layer',
-        payload: { layerId: layer.id },
-      }),
+      send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload }),
+      before = serializeCompositionProject(owner.projectSnapshot()),
+      result = send('duplicate-layer', { layerId: layer.id }),
       after = owner.activeDocument(),
       copy = after.layers.find((item) => item.id === result.layerId),
       copiedCurve = copy.nodes.find((item) => item.type === 'Curve'),
@@ -320,6 +483,11 @@ for (const route of ['driven zero Offset', 'plain Fill and Convert']) {
         fonts,
       );
     assert.equal(svg(copy), svg(after.layers[0]));
+    const saved = serializeCompositionProject(owner.projectSnapshot());
+    send('undo');
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+    send('redo');
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), saved);
   });
 }
 

@@ -306,6 +306,47 @@ export function duplicateArtworkLayer(doc, layerId, options) {
   return { layerId: staged.layerId, outputNodeId: staged.outputNodeId };
 }
 
+// Return only an input edge whose evaluated operation retains its point IDs.
+// A bypassed Mask still creates a painted group; a bypassed painted Transform
+// can instead pass plain geometry through. Inspect the actual output, not just
+// the socket's declared type, before accepting a painted bypass.
+function identityPathInput(source, node, evaluation, remapPoints = false) {
+  if (node.bypassed) {
+    const contract = bypassContract(node, source);
+    if (!contract.supported || !['Path', 'PaintedPath'].includes(contract.type)) return null;
+    return isPaintedGroup(evaluation.run(node.id)) ? null : contract.input;
+  }
+  if (['Transform', 'Path Remap', 'Text to Path'].includes(node.type)) {
+    if (node.type === 'Transform' && isPaintedGroup(evaluation.run(node.id))) return null;
+    return 'path';
+  }
+  if (
+    [
+      'Convert to Path',
+      'Fill',
+      'Stroke',
+      'Linear Gradient Fill',
+      'Radial Gradient Fill',
+      'Angular Gradient Fill',
+    ].includes(node.type)
+  ) {
+    const input = evaluation.run(node.params.path.source, node.params.path.sourcePort);
+    return isPaintedGroup(input) ? null : 'path';
+  }
+  if (node.type === 'Closed Path Offset' && evaluation.parameterValue(node.id, 'amount') === 0)
+    return 'path';
+  // These operators mark their result unstable, so Text attachments remain
+  // unsupported. The Remap guard separately checks their fingerprints.
+  if (remapPoints) {
+    if (node.type === 'Polar Transform') return 'path';
+    if (node.type === 'Dash Path' && evaluation.parameterValue(node.id, 'gapLength') === 0)
+      return 'path';
+    if (node.type === 'Corner Round' && evaluation.parameterValue(node.id, 'radius') === 0)
+      return 'path';
+  }
+  return null;
+}
+
 // A copied authored point has a provable identity only through operators that
 // retain their input point IDs. Never infer a generated ID from a prefix,
 // position or point order. Other routes can still pass if their evaluated ID
@@ -323,31 +364,8 @@ function copiedAuthoredPoints(source, copy, evaluation, inputId) {
     if (['Curve', 'Multi Path'].includes(original.type) && !original.bypassed) {
       return new Map(original.points.map((point, index) => [point.id, duplicate.points[index].id]));
     }
-    let input;
-    if (original.bypassed) {
-      const contract = bypassContract(original, source);
-      if (!contract.supported || contract.type !== 'Path') return null;
-      input = contract.input;
-    } else if (['Transform', 'Path Remap', 'Text to Path'].includes(original.type)) input = 'path';
-    else if (
-      [
-        'Convert to Path',
-        'Fill',
-        'Stroke',
-        'Linear Gradient Fill',
-        'Radial Gradient Fill',
-        'Angular Gradient Fill',
-      ].includes(original.type)
-    ) {
-      const value = evaluation.run(original.params.path.source, original.params.path.sourcePort);
-      if (isPaintedGroup(value)) return null;
-      input = 'path';
-    } else if (
-      original.type === 'Closed Path Offset' &&
-      evaluation.parameterValue(original.id, 'amount') === 0
-    )
-      input = 'path';
-    else return null;
+    const input = identityPathInput(source, original, evaluation, true);
+    if (!input) return null;
     const next = original.params?.[input];
     const copiedNext = duplicate.params?.[input];
     const nextPair = nodes.get(next?.source);
@@ -526,28 +544,8 @@ function copiedAttachmentContour(source, copy, nodeIds, contours, evaluation, st
         ? `${copied.id}:${n.type}:${contourId.slice(prefix.length)}`
         : null;
     }
-    let input;
-    if (n.bypassed) {
-      const contract = bypassContract(n, source);
-      if (!contract.supported || contract.type !== 'Path') return null;
-      input = contract.input;
-    } else if (['Transform', 'Path Remap', 'Text to Path'].includes(n.type)) input = 'path';
-    else if (
-      [
-        'Convert to Path',
-        'Fill',
-        'Stroke',
-        'Linear Gradient Fill',
-        'Radial Gradient Fill',
-        'Angular Gradient Fill',
-      ].includes(n.type)
-    ) {
-      const inputValue = evaluation.run(n.params.path.source, n.params.path.sourcePort);
-      if (isPaintedGroup(inputValue)) return null;
-      input = 'path';
-    } else if (n.type === 'Closed Path Offset' && evaluation.parameterValue(n.id, 'amount') === 0)
-      input = 'path';
-    else return null;
+    const input = identityPathInput(source, n, evaluation);
+    if (!input) return null;
     const next = n.params[input];
     if (
       next?.sourcePort !== undefined ||
