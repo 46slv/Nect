@@ -103,8 +103,10 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
     window.liveBridgeForTest = () => variableBridge;
     window.variableBusyForTest = () => !!variableAction;
     window.textDraftForTest = id => session.textDraftSnapshot(id);
+    window.openColorUsesForTest = id => openDirectColorUses(id, null);
     window.openStateForTest = () => ({project:session.projectSnapshot(), command:session.state,
       file:window.nect.fileState, past:history.past, future:history.future,
+      historyState:session.historyState,
       activeLayer, selected, selection:[...selection], artworkTarget,
       artworkSelection:[...artworkSelection], pointSelection:{nodeId:pointSelection.nodeId, ids:[...pointSelection.ids]}});
     while (!bundledFont) await new Promise(resolve => setTimeout(resolve,10));
@@ -275,6 +277,186 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
     },
   );
 
+  await t.test('inline name and focus survive a delayed Composition switch', async () => {
+    const first = blankDocument(),
+      second = blankDocument(),
+      text = node('Text');
+    Object.assign(text, {
+      font: asset.id,
+      text: 'AV',
+      variation: { version: 1, fontId: asset.id, axes: {} },
+    });
+    second.layers[0].nodes.push(text);
+    first.fontAssets = { [asset.id]: asset.asset };
+    const project = migrateLegacyDocumentToCompositionProject(first);
+    const target = migrateLegacyDocumentToCompositionProject(second).compositions[0];
+    target.id = 'name-race-second';
+    project.compositions.push(target);
+    await win.openForTest(project);
+    const before = win.openStateForTest();
+    const gate = gateNextPreparation();
+    win.document.querySelector('[role="tab"][data-active-composition="name-race-second"]').click();
+    await gate.ready;
+    const title = win.document.querySelector(`[data-rename-node="${first.layers[0].nodes[0].id}"]`);
+    title.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'F2', bubbles: true }));
+    const input = win.document.querySelector('[data-rename-name]');
+    input.value = 'AVX';
+    input.dispatchEvent(new win.Event('input', { bubbles: true }));
+    input.setSelectionRange(2, 2);
+    gate.release();
+    while (win.variableBusyForTest()) await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(win.nect.activeCompositionId, project.compositions[0].id);
+    assert.equal(win.document.querySelector('[data-rename-name]'), input);
+    assert.equal(input.value, 'AVX');
+    assert.equal(win.document.activeElement, input);
+    assert.equal(input.selectionStart, 2);
+    assert.deepEqual(win.openStateForTest().project, before.project);
+    assert.deepEqual(win.openStateForTest().file, before.file);
+    assert.deepEqual(win.openStateForTest().historyState, before.historyState);
+    input.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+    const again = gateNextPreparation();
+    win.document.querySelector('[role="tab"][data-active-composition="name-race-second"]').click();
+    await again.ready;
+    const otherInput = win.document.createElement('textarea');
+    otherInput.value = 'Uncommitted';
+    win.document.body.append(otherInput);
+    otherInput.focus();
+    otherInput.setSelectionRange(3, 3);
+    otherInput.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    again.release();
+    while (win.variableBusyForTest()) await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(win.nect.activeCompositionId, project.compositions[0].id);
+    assert.equal(win.document.activeElement, otherInput);
+    assert.equal(otherInput.selectionStart, 3);
+    assert.equal(otherInput.value, 'Uncommitted');
+    otherInput.remove();
+  });
+
+  await t.test('direct Color use waits for the variable target before selecting it', async () => {
+    const first = blankDocument(),
+      second = blankDocument(),
+      text = node('Text'),
+      color = node('Color');
+    Object.assign(text, {
+      font: asset.id,
+      text: 'AV',
+      variation: { version: 1, fontId: asset.id, axes: {} },
+    });
+    second.layers[0].nodes.push(text, color);
+    first.schemaVersion = 54;
+    first.fontAssets = { [asset.id]: asset.asset };
+    first.colorSlots = [{ id: 'brand', name: 'Brand', value: { hex: '#112233', alpha: 1 } }];
+    const project = migrateLegacyDocumentToCompositionProject(first);
+    const target = migrateLegacyDocumentToCompositionProject(second).compositions[0];
+    target.id = 'color-race-second';
+    target.layers[0].nodes.find((entry) => entry.id === color.id).params.value.colorSlotId =
+      'brand';
+    project.compositions.push(target);
+    await win.openForTest(project);
+    win.nect.dispatch({
+      ...win.nect.commandState,
+      type: 'set-color-slot',
+      payload: { slotId: 'brand', value: { hex: '#445566', alpha: 1 } },
+    });
+    win.nect.dispatch({ ...win.nect.commandState, type: 'undo' });
+    win.openColorUsesForTest('brand');
+    const gate = gateNextPreparation(),
+      before = win.openStateForTest();
+    win.document.querySelector('[data-color-uses-list] button').click();
+    await gate.ready;
+    const pending = win.openStateForTest();
+    gate.release();
+    while (win.variableBusyForTest()) await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(pending.activeLayer, before.activeLayer);
+    assert.equal(pending.selected, before.selected);
+    assert.equal(win.nect.activeCompositionId, target.id);
+    assert.equal(win.openStateForTest().selected, color.id);
+    assert.deepEqual(win.openStateForTest().project, before.project);
+    assert.deepEqual(win.openStateForTest().file, before.file);
+    assert.deepEqual(win.openStateForTest().historyState, before.historyState);
+
+    assert.ok(await win.editForTest('redo'));
+    assert.equal(win.nect.projectSnapshot().colorSlots[0].value.hex, '#445566');
+    assert.ok(await win.editForTest('undo'));
+    assert.deepEqual(win.nect.projectSnapshot(), before.project);
+
+    const invalid = structuredClone(project);
+    invalid.compositions[1].layers[0].nodes.find((entry) => entry.id === text.id).text = 'ffi';
+    await win.openForTest(invalid);
+    win.openColorUsesForTest('brand');
+    const failed = win.openStateForTest(),
+      failedSvg = win.nect.export(),
+      failedBank = win.liveBridgeForTest().stats().active;
+    win.document.querySelector('[data-color-uses-list] button').click();
+    while (win.variableBusyForTest()) await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(win.document.querySelector('.shared-color-uses-dialog').open, true);
+    assert.match(
+      win.document.querySelector('[data-color-uses-status]').textContent,
+      /supports simple/,
+    );
+    assert.deepEqual(win.openStateForTest(), failed);
+    assert.equal(win.nect.export(), failedSvg);
+    assert.deepEqual(win.liveBridgeForTest().stats().active, failedBank);
+    win.document.querySelector('[data-color-uses-close]').click();
+
+    await win.openForTest(project);
+    win.openColorUsesForTest('brand');
+    const canceled = win.openStateForTest(),
+      canceledSvg = win.nect.export(),
+      canceledBank = win.liveBridgeForTest().stats().active;
+    const canceledGate = gateNextPreparation();
+    win.document.querySelector('[data-color-uses-list] button').click();
+    await canceledGate.ready;
+    win.document.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    canceledGate.release();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(win.document.querySelector('.shared-color-uses-dialog').open, true);
+    assert.deepEqual(win.openStateForTest(), canceled);
+    assert.equal(win.nect.export(), canceledSvg);
+    assert.deepEqual(win.liveBridgeForTest().stats().active, canceledBank);
+    win.document.querySelector('[data-color-uses-close]').click();
+
+    await win.openForTest(project);
+    win.openColorUsesForTest('brand');
+    const changedGate = gateNextPreparation();
+    win.document.querySelector('[data-color-uses-list] button').click();
+    await changedGate.ready;
+    const name = win.nect.compositions[0].name;
+    win.nect.dispatch({
+      ...win.nect.commandState,
+      type: 'rename-composition',
+      payload: {
+        compositionId: project.compositions[0].id,
+        name: 'New name',
+        expectedName: name,
+        expectedProjectRevision: win.nect.projectRevision,
+      },
+    });
+    const changed = win.openStateForTest();
+    changedGate.release();
+    while (win.variableBusyForTest()) await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(win.nect.activeCompositionId, project.compositions[0].id);
+    assert.deepEqual(win.openStateForTest(), changed);
+    assert.match(win.document.querySelector('[data-color-uses-status]').textContent, /changed/i);
+    win.document.querySelector('[data-color-uses-close]').click();
+
+    const staticProject = structuredClone(project);
+    staticProject.fontAssets = {};
+    staticProject.compositions[1].layers[0].nodes =
+      staticProject.compositions[1].layers[0].nodes.filter((entry) => entry.id !== text.id);
+    await win.openForTest(staticProject);
+    win.openColorUsesForTest('brand');
+    win.document.querySelector('[data-color-uses-list] button').click();
+    assert.equal(win.nect.activeCompositionId, target.id);
+    assert.equal(win.openStateForTest().selected, color.id);
+  });
+
   await t.test(
     'prepared Composition deletion retains the latest per-Composition selection',
     async () => {
@@ -430,6 +612,9 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
       assert.equal(win.variableBusyForTest(), true);
       assert.deepEqual(current(), beforeCancel);
       gate.release();
+      await waitFor(() => !win.variableBusyForTest());
+      assert.deepEqual(current(), beforeCancel);
+      clickTab(fixture.secondId);
       await waitFor(
         () => !win.variableBusyForTest() && win.nect.activeCompositionId === fixture.secondId,
       );

@@ -6,9 +6,9 @@ main-thread fallback, or migrate static geometry to a new shaping engine.
 
 ## Stored contract
 
-Only explicitly opted-in schema 25 documents may contain variable assets. New
-ordinary/static documents still use schema 24; schema 1–24 static migrations and
-parsing remain on their prior route.
+Variable assets require schema 25 or later, including currently supported newer
+schemas. The original opt-in introduced schema 25; older static documents retain
+their existing migration and parsing route.
 
 - `fontAssets[id]`: existing `name`, `fileName`, and full base64 `data`, with
   `kind: "variable-glyf-v1"`. No copied per-instance font bytes or generated outlines.
