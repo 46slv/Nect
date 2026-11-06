@@ -78,8 +78,25 @@ export function translateArtworkMoves(doc, moves) {
       const next = value.map((v, axis) => v + delta[axis]);
       if (!next.every(Number.isFinite))
         throw Error('Artwork translation must keep every position finite');
-      plan.push([inputs[i], next]);
+      plan.push({ input: inputs[i], next, target: t });
     }
   }
-  for (const [input, next] of plan) input.value = next;
+  // JSON has no object aliases, but a programmatic caller can share a
+  // descriptor or any of its parents with other artwork or metadata. Detach
+  // the complete Boolean target path only after every move has passed preflight.
+  for (const entry of plan) {
+    if (!entry.target.canvasOnly) continue;
+    const layerIndex = doc.layers.findIndex((layer) => layer.id === entry.target.layerId);
+    const originalLayer = doc.layers[layerIndex];
+    const nodeIndex = originalLayer.nodes.findIndex((node) => node.id === entry.target.nodeId);
+    const originalNode = originalLayer.nodes[nodeIndex];
+    const copiedNode = { ...originalNode, params: { ...originalNode.params } };
+    copiedNode.params[entry.target.parameter] = { ...entry.input };
+    const copiedLayer = { ...originalLayer, nodes: [...originalLayer.nodes] };
+    copiedLayer.nodes[nodeIndex] = copiedNode;
+    doc.layers = [...doc.layers];
+    doc.layers[layerIndex] = copiedLayer;
+    entry.input = copiedNode.params[entry.target.parameter];
+  }
+  for (const { input, next } of plan) input.value = next;
 }

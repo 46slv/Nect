@@ -44,6 +44,24 @@ function fixture({ transformed = true } = {}) {
 function command(session, type, payload = {}) {
   return session.dispatch({ ...session.state, type, payload });
 }
+function projectFixture(f) {
+  const project = migrateLegacyDocumentToCompositionProject(f.doc);
+  project.compositions[0].id = 'mark-composition';
+  const other = blankDocument(),
+    consumer = node('Value');
+  other.layers[0].nodes.push(consumer);
+  project.compositions.push({
+    id: 'other-composition',
+    name: 'Other',
+    width: other.width,
+    height: other.height,
+    layers: other.layers,
+    editor: other.editor,
+  });
+  project.schemaVersion = 65;
+  project.compositionSchemaVersion = 2;
+  return { project, otherLayerId: other.layers[0].id, consumerId: consumer.id };
+}
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-6, `${a} != ${b}`);
 
 test('Canvas translation moves only a dedicated Boolean terminal Transform and round-trips', () => {
@@ -128,6 +146,463 @@ test('the new route is limited to movement; existing copy and alignment contract
     resolveArtworkAlignment(f.doc, [f.l.id], { reference: 'artboard' }).supported,
     false,
   );
+});
+
+test('collapsed rotated Boolean transforms reject the whole selection and preserve Redo', () => {
+  for (const [uniform, scale, width] of [
+    [false, 1, 0],
+    [false, 0, 1],
+    [true, 0, 1],
+  ]) {
+    const f = fixture(),
+      other = blankLayer('Other');
+    const shape = node('Rectangle'),
+      fill = node('Fill');
+    other.nodes.unshift(shape, fill);
+    connect(other, shape.id, fill.id, 'path');
+    connect(other, fill.id, other.output, 'path');
+    f.doc.layers.push(other);
+    f.transform.params.rotation.value = 45;
+    f.transform.params.scale.value = scale;
+    f.transform.params.uniformScale = {
+      type: 'Boolean',
+      value: uniform,
+      expression: '',
+      locked: false,
+    };
+    f.transform.params.scaleWidth = { type: 'Scalar', value: width, expression: '', locked: false };
+    const session = new CommandSession(f.doc);
+    command(session, 'set-document-settings', { key: 'width', value: 961 });
+    command(session, 'undo');
+    const before = session.snapshot(),
+      state = session.state;
+    assert.equal(resolveArtworkMoveSelection(before, [f.l.id]).code, 'empty-output');
+    assert.throws(() =>
+      command(session, 'translate-artworks', { layerIds: [other.id, f.l.id], delta: [3, 4] }),
+    );
+    assert.deepEqual(session.snapshot(), before);
+    assert.deepEqual(session.state, state);
+    command(session, 'redo');
+    assert.equal(session.snapshot().width, 961);
+  }
+  for (const [uniform, scale, width] of [
+    [true, 1, 0],
+    [false, -1, -0.25],
+  ]) {
+    const f = fixture();
+    f.transform.params.rotation.value = 45;
+    f.transform.params.scale.value = scale;
+    f.transform.params.uniformScale = {
+      type: 'Boolean',
+      value: uniform,
+      expression: '',
+      locked: false,
+    };
+    f.transform.params.scaleWidth = { type: 'Scalar', value: width, expression: '', locked: false };
+    assert.equal(resolveArtworkMoveSelection(f.doc, [f.l.id]).supported, true);
+  }
+});
+
+test('a move cannot change aliased artwork or metadata descriptors', () => {
+  for (const where of ['other-artwork', 'own-anchor']) {
+    const f = fixture();
+    if (where === 'other-artwork') {
+      const other = blankLayer('Other'),
+        shape = node('Rectangle'),
+        fill = node('Fill');
+      shape.params.center = f.transform.params.offset;
+      other.nodes.unshift(shape, fill);
+      connect(other, shape.id, fill.id, 'path');
+      connect(other, fill.id, other.output, 'path');
+      f.doc.layers.push(other);
+    } else {
+      f.transform.params.anchor = f.transform.params.offset;
+      f.transform.metadata = { shared: f.transform.params.offset };
+    }
+    f.doc.metadata = {
+      layers: f.doc.layers,
+      layer: f.l,
+      nodes: f.l.nodes,
+      node: f.transform,
+      params: f.transform.params,
+      descriptor: f.transform.params.offset,
+    };
+    const session = new CommandSession(f.doc);
+    command(session, 'set-document-settings', { key: 'width', value: 961 });
+    command(session, 'undo');
+    const before = session.snapshot();
+    const beforeState = session.state;
+    command(session, 'translate-artworks', { layerIds: [f.l.id], delta: [0, 0] });
+    assert.deepEqual(session.snapshot(), before);
+    assert.deepEqual(session.state, beforeState);
+    assert.equal(session.historyView.future.length, 1);
+    assert.equal(resolveArtworkMoveSelection(before, [f.l.id]).supported, true, where);
+    command(session, 'translate-artworks', { layerIds: [f.l.id], delta: [5, 9] });
+    const after = session.snapshot(),
+      moved = after.layers[0].nodes.find((n) => n.id === f.transform.id);
+    assert.deepEqual(moved.params.offset.value, [5, 9]);
+    assert.deepEqual(after.metadata, before.metadata);
+    assert.deepEqual(
+      moved.params.anchor,
+      before.layers[0].nodes.find((n) => n.id === f.transform.id).params.anchor,
+    );
+    if (where === 'own-anchor')
+      assert.deepEqual(
+        moved.metadata,
+        before.layers[0].nodes.find((n) => n.id === f.transform.id).metadata,
+      );
+    else assert.deepEqual(after.layers[1], before.layers[1]);
+    command(session, 'undo');
+    assert.deepEqual(session.snapshot(), before);
+    command(session, 'redo');
+    assert.deepEqual(session.snapshot(), after);
+  }
+});
+
+test('Composition owner moves an aliased Boolean target without changing the other artwork', () => {
+  const f = fixture(),
+    other = blankLayer('Other'),
+    shape = node('Rectangle'),
+    fill = node('Fill');
+  shape.params.center = f.transform.params.offset;
+  other.nodes.unshift(shape, fill);
+  connect(other, shape.id, fill.id, 'path');
+  connect(other, fill.id, other.output, 'path');
+  f.doc.layers.push(other);
+  const project = migrateLegacyDocumentToCompositionProject(f.doc);
+  project.compositions[0].layers[1].nodes.find((n) => n.id === shape.id).params.center =
+    project.compositions[0].layers[0].nodes.find((n) => n.id === f.transform.id).params.offset;
+  const owner = createCompositionSessionOwner(project);
+  const initial = owner.snapshot();
+  assert.equal(
+    initial.layers[0].nodes.find((n) => n.id === f.transform.id).params.offset,
+    initial.layers[1].nodes.find((n) => n.id === shape.id).params.center,
+  );
+  const before = owner.projectSnapshot();
+  command(owner, 'translate-artworks', { layerIds: [f.l.id], delta: [5, 9] });
+  const after = owner.projectSnapshot();
+  assert.deepEqual(after.compositions[0].layers[1], before.compositions[0].layers[1]);
+  assert.deepEqual(
+    after.compositions[0].layers[0].nodes.find((n) => n.id === f.transform.id).params.offset.value,
+    [5, 9],
+  );
+  command(owner, 'undo');
+  assert.deepEqual(owner.projectSnapshot(), before);
+  command(owner, 'redo');
+  assert.deepEqual(owner.projectSnapshot(), after);
+});
+
+test('mixed Boolean moves detach each target sharing a descriptor and preserve metadata', () => {
+  const first = fixture(),
+    second = fixture();
+  second.transform.params.offset = first.transform.params.offset;
+  first.doc.layers.push(second.l);
+  first.doc.metadata = {
+    layers: first.doc.layers,
+    first: first.l,
+    second: second.l,
+    offset: first.transform.params.offset,
+  };
+  const session = new CommandSession(first.doc),
+    before = session.snapshot();
+  command(session, 'translate-artworks', { layerIds: [first.l.id, second.l.id], delta: [5, 9] });
+  const after = session.snapshot();
+  for (const f of [first, second])
+    assert.deepEqual(
+      after.layers.find((l) => l.id === f.l.id).nodes.find((n) => n.id === f.transform.id).params
+        .offset.value,
+      [5, 9],
+    );
+  assert.deepEqual(after.metadata, before.metadata);
+  command(session, 'undo');
+  assert.deepEqual(session.snapshot(), before);
+  command(session, 'redo');
+  assert.deepEqual(session.snapshot(), after);
+});
+
+test('owner callback reentry cannot commit a move based on an obsolete project or gesture', () => {
+  for (const phase of ['translate', 'begin', 'update', 'commit']) {
+    const f = fixture(),
+      { project, otherLayerId, consumerId } = projectFixture(f);
+    let owner,
+      armed = false,
+      token = null,
+      nested = null;
+    const notifications = [];
+    owner = createCompositionSessionOwner(project, {
+      onCommitted: (event) => notifications.push(event),
+      fonts: () => {
+        if (armed) {
+          armed = false;
+          if (token) command(owner, 'cancel-gesture', { gestureId: token.gestureId });
+          owner.switchComposition('other-composition');
+          command(owner, 'set-parameter-expression', {
+            layerId: otherLayerId,
+            nodeId: consumerId,
+            key: 'value',
+            expression: `ref(componentComposition, "mark-composition", "${f.l.id}", "${f.transform.id}", "offset", "x")`,
+          });
+          owner.switchComposition('mark-composition');
+          nested = {
+            project: owner.projectSnapshot(),
+            state: owner.state,
+            history: owner.historyState,
+          };
+        }
+        return {};
+      },
+    });
+    if (phase === 'update' || phase === 'commit') {
+      token = command(owner, 'begin-gesture', {
+        target: { kind: 'artwork-translate', layerIds: [f.l.id] },
+      });
+      if (phase === 'commit')
+        token = command(owner, 'update-gesture', {
+          gestureId: token.gestureId,
+          expectedPreviewRevision: token.expectedPreviewRevision,
+          update: { delta: [8, 0] },
+        });
+    }
+    notifications.length = 0;
+    armed = true;
+    const invoke = () =>
+      phase === 'translate'
+        ? command(owner, 'translate-artworks', { layerIds: [f.l.id], delta: [8, 0] })
+        : phase === 'begin'
+          ? command(owner, 'begin-gesture', {
+              target: { kind: 'artwork-translate', layerIds: [f.l.id] },
+            })
+          : command(owner, `${phase}-gesture`, {
+              gestureId: token.gestureId,
+              expectedPreviewRevision: token.expectedPreviewRevision,
+              ...(phase === 'update' ? { update: { delta: [8, 0] } } : {}),
+            });
+    assert.throws(invoke, /STALE_(SESSION|REVISION|GESTURE)/, phase);
+    assert.ok(nested, phase);
+    assert.deepEqual(owner.projectSnapshot(), nested.project, phase);
+    assert.deepEqual(owner.state, nested.state, phase);
+    assert.deepEqual(owner.historyState, nested.history, phase);
+    assert.equal(owner.hasGesture, false, phase);
+    assert.equal(notifications.length, 1, phase);
+    assert.equal(resolveArtworkMoveSelection(owner.snapshot(), [f.l.id]).supported, false, phase);
+  }
+});
+
+test('standalone callback reentry keeps the nested edit and emits only its notification', () => {
+  const f = fixture(),
+    notifications = [];
+  let session,
+    armed = false;
+  session = new CommandSession(f.doc, {
+    onCommitted: (event) => notifications.push(event),
+    fonts: () => {
+      if (armed) {
+        armed = false;
+        command(session, 'set-document-settings', { key: 'width', value: 961 });
+      }
+      return {};
+    },
+  });
+  armed = true;
+  assert.throws(
+    () => command(session, 'translate-artworks', { layerIds: [f.l.id], delta: [8, 0] }),
+    /STALE_REVISION/,
+  );
+  assert.equal(session.snapshot().width, 961);
+  assert.deepEqual(
+    session.snapshot().layers[0].nodes.find((n) => n.id === f.transform.id).params.offset.value,
+    [0, 0],
+  );
+  assert.equal(notifications.length, 1);
+});
+
+test('owner precommit callback cannot overwrite a nested project-only edit', () => {
+  const f = fixture(),
+    { project } = projectFixture(f);
+  let owner,
+    armed = false,
+    calls = 0,
+    nested = null;
+  const notifications = [];
+  owner = createCompositionSessionOwner(project, {
+    onCommitted: (event) => notifications.push(event),
+    fonts: () => {
+      if (armed && ++calls === 4) {
+        armed = false;
+        owner.renameComposition('other-composition', 'Renamed');
+        nested = {
+          project: owner.projectSnapshot(),
+          state: owner.state,
+          history: owner.historyState,
+        };
+      }
+      return {};
+    },
+  });
+  armed = true;
+  assert.throws(
+    () => command(owner, 'translate-artworks', { layerIds: [f.l.id], delta: [8, 0] }),
+    /STALE_(SESSION|REVISION)/,
+  );
+  assert.ok(nested);
+  assert.deepEqual(owner.projectSnapshot(), nested.project);
+  assert.deepEqual(owner.state, nested.state);
+  assert.deepEqual(owner.historyState, nested.history);
+  assert.equal(notifications.length, 1);
+});
+
+test('the final move authority check cannot overwrite a reentrant Session edit', () => {
+  const f = fixture();
+  let session,
+    calls = 0;
+  session = new CommandSession(f.doc, {
+    captureArtworkMoveAuthority: () => () => {
+      if (++calls === 2) command(session, 'set-document-settings', { key: 'width', value: 961 });
+    },
+  });
+  assert.throws(
+    () => command(session, 'translate-artworks', { layerIds: [f.l.id], delta: [8, 0] }),
+    /STALE_REVISION/,
+  );
+  assert.equal(session.snapshot().width, 961);
+  assert.deepEqual(
+    session.snapshot().layers[0].nodes.find((n) => n.id === f.transform.id).params.offset.value,
+    [0, 0],
+  );
+});
+
+test('an artwork gesture cannot resume after its project binding changes at the same revision', () => {
+  const f = fixture(),
+    { project, otherLayerId, consumerId } = projectFixture(f);
+  f.doc.schemaVersion = 65;
+  const session = new CommandSession(f.doc);
+  session.setProjectContext(project, 'mark-composition');
+  command(session, 'set-document-settings', { key: 'width', value: 961 });
+  command(session, 'undo');
+  let token = command(session, 'begin-gesture', {
+    target: { kind: 'artwork-translate', layerIds: [f.l.id] },
+  });
+  token = command(session, 'update-gesture', {
+    gestureId: token.gestureId,
+    expectedPreviewRevision: token.expectedPreviewRevision,
+    update: { delta: [8, 0] },
+  });
+  const changedProject = structuredClone(project);
+  changedProject.compositions[1].layers
+    .find((l) => l.id === otherLayerId)
+    .nodes.find((n) => n.id === consumerId).params.value.expression =
+    `ref(componentComposition, "mark-composition", "${f.l.id}", "${f.transform.id}", "offset", "x")`;
+  session.setProjectContext(changedProject, 'mark-composition');
+  const before = session.snapshot(),
+    state = session.state;
+  assert.throws(
+    () =>
+      command(session, 'commit-gesture', {
+        gestureId: token.gestureId,
+        expectedPreviewRevision: token.expectedPreviewRevision,
+      }),
+    /STALE_(SESSION|REVISION|GESTURE)/,
+  );
+  assert.deepEqual(session.snapshot(), before);
+  assert.deepEqual(session.state, state);
+  command(session, 'cancel-gesture', { gestureId: token.gestureId });
+  command(session, 'redo');
+  assert.equal(session.snapshot().width, 961);
+});
+
+test('a changed project binding rejects the next artwork preview', () => {
+  const f = fixture(),
+    { project } = projectFixture(f);
+  f.doc.schemaVersion = 65;
+  const session = new CommandSession(f.doc);
+  session.setProjectContext(project, 'mark-composition');
+  const token = command(session, 'begin-gesture', {
+    target: { kind: 'artwork-translate', layerIds: [f.l.id] },
+  });
+  session.setProjectContext(structuredClone(project), 'mark-composition');
+  const before = session.snapshot(),
+    state = session.state;
+  assert.throws(
+    () =>
+      command(session, 'update-gesture', {
+        gestureId: token.gestureId,
+        expectedPreviewRevision: token.expectedPreviewRevision,
+        update: { delta: [8, 0] },
+      }),
+    /STALE_GESTURE/,
+  );
+  assert.deepEqual(session.snapshot(), before);
+  assert.deepEqual(session.state, state);
+  command(session, 'cancel-gesture', { gestureId: token.gestureId });
+});
+
+test('a nested gesture cancellation remains cancelled without committing or clearing Redo', () => {
+  const f = fixture(),
+    notifications = [];
+  let session,
+    token,
+    armed = false;
+  session = new CommandSession(f.doc, {
+    onCommitted: (event) => notifications.push(event),
+    fonts: () => {
+      if (armed) {
+        armed = false;
+        command(session, 'cancel-gesture', { gestureId: token.gestureId });
+      }
+      return {};
+    },
+  });
+  command(session, 'set-document-settings', { key: 'width', value: 961 });
+  command(session, 'undo');
+  token = command(session, 'begin-gesture', {
+    target: { kind: 'artwork-translate', layerIds: [f.l.id] },
+  });
+  token = command(session, 'update-gesture', {
+    gestureId: token.gestureId,
+    expectedPreviewRevision: token.expectedPreviewRevision,
+    update: { delta: [8, 0] },
+  });
+  const before = session.snapshot(),
+    state = session.state;
+  notifications.length = 0;
+  armed = true;
+  assert.throws(
+    () =>
+      command(session, 'commit-gesture', {
+        gestureId: token.gestureId,
+        expectedPreviewRevision: token.expectedPreviewRevision,
+      }),
+    /STALE_GESTURE/,
+  );
+  assert.deepEqual(session.snapshot(), before);
+  assert.deepEqual(session.state, state);
+  assert.equal(session.hasGesture, false);
+  assert.equal(notifications.length, 0);
+  command(session, 'redo');
+  assert.equal(session.snapshot().width, 961);
+});
+
+test('translation that overflows the affine result or collapses its geometry is atomic', () => {
+  for (const [anchor, delta] of [
+    [1e308, 1e308],
+    [0, 1e19],
+  ]) {
+    const f = fixture();
+    f.transform.params.anchor.value = [anchor, 0];
+    const session = new CommandSession(f.doc);
+    command(session, 'set-document-settings', { key: 'width', value: 961 });
+    command(session, 'undo');
+    const before = session.snapshot(),
+      state = session.state;
+    assert.equal(resolveArtworkMoveSelection(before, [f.l.id]).supported, true);
+    assert.throws(() =>
+      command(session, 'translate-artworks', { layerIds: [f.l.id], delta: [delta, 0] }),
+    );
+    assert.deepEqual(session.snapshot(), before);
+    assert.deepEqual(session.state, state);
+    command(session, 'redo');
+    assert.equal(session.snapshot().width, 961);
+  }
 });
 
 test('missing Transform, driven or locked movement and shared output reject without changing Redo', () => {

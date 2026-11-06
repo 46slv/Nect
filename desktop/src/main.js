@@ -6185,7 +6185,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
       ...duplication,
       reason:
         artworkSelection.size === 1
-          ? 'Use Duplicate layer from the artwork context menu.'
+          ? 'Duplicate in place is unavailable for this artwork.'
           : 'Duplicate in place is unavailable for this selection.',
     };
   snapLayerBounds = collectSnapLayerBounds(

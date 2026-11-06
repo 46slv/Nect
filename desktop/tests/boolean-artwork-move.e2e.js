@@ -100,7 +100,10 @@ try {
   await ensureWorkspacePanel(page, 'inspector');
   assert.match(await page.locator('.artwork-move-status').innerText(), /Drag artwork/);
   assert.equal(await page.locator('[data-duplicate-artwork]').isDisabled(), true);
-  assert.match(await page.locator('.artwork-duplicate-status').innerText(), /context menu/);
+  assert.match(
+    await page.locator('.artwork-duplicate-status').innerText(),
+    /unavailable for this artwork/,
+  );
   const hit = await screen([320, 260]);
   assert.equal(
     await page.evaluate(
@@ -272,6 +275,30 @@ try {
   );
   await page.locator('[data-action="undo"]').click();
   assert.deepEqual(await snapshot(), edited);
+  await page.evaluate(() => {
+    const send = (type, payload) =>
+      window.nect.dispatch({ ...window.nect.commandState, type, payload });
+    const target = { layerId: 'boolean-layer', nodeId: 'boolean-transform' };
+    send('set-transform-control', { ...target, key: 'uniformScale', value: false });
+    send('set-transform-control', { ...target, key: 'scaleWidth', value: 0 });
+    send('set-transform-control', { ...target, key: 'rotation', value: 45 });
+    send('set-document-settings', { key: 'width', value: 961 });
+    send('undo', {});
+  });
+  await ensureWorkspacePanel(page, 'layers');
+  await page.locator('[data-select-layer="boolean-layer"]').click();
+  await ensureWorkspacePanel(page, 'inspector');
+  await page.waitForFunction(() =>
+    document.querySelector('.artwork-move-status')?.textContent.includes('nonzero area'),
+  );
+  const collapsed = await snapshot(),
+    collapsedState = await state();
+  await page.locator('.canvas-stage').focus();
+  await page.keyboard.press('ArrowRight');
+  assert.deepEqual(await snapshot(), collapsed);
+  assert.deepEqual(await state(), collapsedState);
+  await page.locator('[data-action="redo"]').click();
+  assert.equal((await snapshot()).width, 961);
   assert.deepEqual(errors, []);
   console.log(
     'PASS: Boolean Canvas move, Session parity, cancellation, history, strict duplication, exports and reopen.',

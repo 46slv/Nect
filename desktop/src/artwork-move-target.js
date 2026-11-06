@@ -1,4 +1,4 @@
-import { transformExtensions } from './transform-affine.js';
+import { transformExtensions, transformValues } from './transform-affine.js';
 import {
   definitions,
   evaluate,
@@ -370,6 +370,14 @@ export function resolveArtworkMoveTarget(
   // clone so neither document state nor its evaluation cache is touched.
   let value, bounds;
   try {
+    if (canvasOnly) {
+      const { scale, scaleWidth } = transformValues(
+        transform,
+        (key) => transform.params[key].value,
+      );
+      if (scale === 0 || scaleWidth === 0)
+        return unsupported('empty-output', 'The final artwork has no nonzero area.');
+    }
     const result = evaluate(
       structuredClone(layer),
       fonts,

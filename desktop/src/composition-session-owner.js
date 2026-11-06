@@ -313,10 +313,21 @@ export class CompositionSessionOwner {
   }
 
   #makeSession(project, compositionId) {
-    return new this.#CommandSession(this.#documentFor(project, compositionId), {
+    let session;
+    session = new this.#CommandSession(this.#documentFor(project, compositionId), {
       fonts: this.#fonts,
       busy: this.#busy,
       retainHistory: false,
+      captureArtworkMoveAuthority: () => {
+        const revision = this.#history.revision;
+        const assertCurrent = () => {
+          if (this.#session !== session || this.#activeCompositionId !== compositionId)
+            throw Error('STALE_SESSION: document changed');
+          if (this.#history.revision !== revision) throw Error('STALE_REVISION: document changed');
+        };
+        assertCurrent();
+        return assertCurrent;
+      },
       beforeCandidateCommit: (before, candidate) => {
         assertProjectIdentityChangeSafe(this.#history.doc, compositionId, before, candidate);
         // Validate the whole projection before the inner Session commits;
@@ -325,6 +336,7 @@ export class CompositionSessionOwner {
         this.#assertProjectReferenceTransition(this.#history.doc, next, this.#fonts());
       },
     });
+    return session;
   }
 
   #assertQuiescent() {
@@ -701,14 +713,29 @@ export class CompositionSessionOwner {
     const session = this.#session;
     const compositionId = this.#activeCompositionId;
     const revision = session.state.expectedRevision;
+    const projectRevision = this.#history.revision;
+    const artworkMove =
+      command?.type === 'translate-artworks' ||
+      (command?.type === 'begin-gesture' &&
+        command.payload?.target?.kind === 'artwork-translate') ||
+      (['update-gesture', 'commit-gesture'].includes(command?.type) &&
+        session.gestureState?.kind === 'artwork-translate');
+    const assertOwnerCurrent = () => {
+      if (this.#session !== session || this.#activeCompositionId !== compositionId)
+        throw Error('STALE_SESSION: document changed');
+      if (this.#history.revision !== projectRevision)
+        throw Error('STALE_REVISION: document changed');
+    };
     try {
       const result = session.dispatch(command);
+      if (artworkMove) assertOwnerCurrent();
       if (session.state.expectedRevision !== revision) {
         const candidate = this.#projectWithDocument(
           this.#history.doc,
           compositionId,
           session.snapshot(),
         );
+        if (artworkMove) assertOwnerCurrent();
         this.#applyProjectEdit((history) => {
           replaceRecord(history, candidate);
         });
@@ -721,7 +748,13 @@ export class CompositionSessionOwner {
       // The core command has committed before the project adapter runs. If its
       // project-level validation rejects, replace that session from the
       // unchanged project snapshot so a failed adapter cannot leak an edit.
-      if (session.state.expectedRevision !== revision) {
+      if (
+        session.state.expectedRevision !== revision &&
+        (!artworkMove ||
+          (this.#session === session &&
+            this.#activeCompositionId === compositionId &&
+            this.#history.revision === projectRevision))
+      ) {
         this.#session = this.#makeSession(this.#history.doc, compositionId);
       }
       throw error;
