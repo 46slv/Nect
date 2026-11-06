@@ -2,6 +2,7 @@ import { sampleLuminanceGrid } from './luminance-field.js';
 import { sampleImageLuminanceGrid } from './image-luminance-field.js';
 import { prepareLuminanceMask } from './luminance-mask.js';
 import { selectLuminanceCenters, luminanceInstanceSettings } from './luminance-instances.js';
+import { roundTripLegacyPointPathV1 } from './legacy-point-path-adapter.js';
 
 // A procedural Path of disconnected anchors. Per-point transforms are derived
 // data consumed directly by Instance on Points, never a second authored model.
@@ -50,5 +51,5 @@ export function luminanceToPoints(source, options) {
       ],
     });
   }
-  return { contours };
+  return roundTripLegacyPointPathV1({ contours });
 }
