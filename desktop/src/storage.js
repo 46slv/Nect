@@ -94,15 +94,19 @@ export async function registerClose(handler) {
     if (pending) return;
     pending = true;
     let finishing = false;
+    let accepted = false;
     const finish = async () => {
       if (finishing) throw Error('Close is already finishing');
       finishing = true;
       await invoke('finish_close');
     };
     try {
-      if ((await handler(finish)) && !finishing) await finish();
+      if (await handler(finish)) {
+        if (!finishing) await finish();
+        accepted = true;
+      }
     } finally {
-      pending = false;
+      if (!accepted) pending = false;
     }
   };
   await invoke('enable_close_guard', { channel });

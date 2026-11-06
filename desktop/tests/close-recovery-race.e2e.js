@@ -12,79 +12,97 @@ const browser = await chromium.launch({
   headless: true,
   chromiumSandbox: true,
 });
-async function fixture() {
+async function fixture({ holdRegistration = false, holdFontCatalog = false } = {}) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.addInitScript(() => {
-    window.isTauri = true;
-    window.closeCalls = 0;
-    window.chooseCalls = 0;
-    window.chooseResult = 'discard';
-    window.holdRecovery = false;
-    window.holdFinish = false;
-    let nextId = 0;
-    window.__TAURI_INTERNALS__ = {
-      transformCallback: () => ++nextId,
-      unregisterCallback: () => {},
-      invoke: async (command, args = {}) => {
-        if (command === 'enable_close_guard') {
-          window.closeChannel = args.channel;
-          return null;
-        }
-        if (command === 'finish_close') {
-          window.closeCalls++;
-          if (window.holdFinish)
-            await new Promise((resolve, reject) => {
-              window.releaseFinish = resolve;
-              window.rejectFinish = reject;
+  await page.addInitScript(
+    ({ holdRegistration, holdFontCatalog }) => {
+      window.isTauri = true;
+      window.closeCalls = 0;
+      window.chooseCalls = 0;
+      window.chooseResult = 'discard';
+      window.holdRecovery = false;
+      window.holdFinish = false;
+      let nextId = 0;
+      window.__TAURI_INTERNALS__ = {
+        transformCallback: () => ++nextId,
+        unregisterCallback: () => {},
+        invoke: async (command, args = {}) => {
+          if (command === 'enable_close_guard') {
+            window.closeChannel = args.channel;
+            if (holdRegistration)
+              await new Promise((resolve, reject) => {
+                window.releaseGuard = resolve;
+                window.rejectGuard = reject;
+              });
+            return null;
+          }
+          if (command === 'finish_close') {
+            window.closeCalls++;
+            if (window.holdFinish)
+              await new Promise((resolve, reject) => {
+                window.releaseFinish = resolve;
+                window.rejectFinish = reject;
+              });
+            return null;
+          }
+          if (command === 'choose_unsaved') {
+            window.chooseCalls++;
+            return window.chooseResult;
+          }
+          if (command === 'begin_recovery') return `fixture-${++nextId}`;
+          if (command === 'write_recovery') {
+            if (window.holdRecovery)
+              await new Promise((resolve) => {
+                window.releaseRecovery = resolve;
+              });
+            if (window.failRecovery) throw Error('fixture recovery failed');
+            return Date.now();
+          }
+          if (command === 'save_project') {
+            if (window.holdSave)
+              await new Promise((resolve) => {
+                window.releaseSave = resolve;
+              });
+            return ['fixture-save', 'fixture.nect', args.operation];
+          }
+          if (command === 'open_project')
+            return new Promise((resolve) => {
+              window.releaseOpen = resolve;
             });
-          return null;
-        }
-        if (command === 'choose_unsaved') {
-          window.chooseCalls++;
-          return window.chooseResult;
-        }
-        if (command === 'begin_recovery') return `fixture-${++nextId}`;
-        if (command === 'write_recovery') {
-          if (window.holdRecovery)
+          if (command === 'list_system_fonts') {
+            if (holdFontCatalog)
+              await new Promise((resolve) => {
+                window.releaseFontCatalog = resolve;
+              });
+            window.fontCatalogCompleted = true;
+            return [['fixture', 'Fixture font', null]];
+          }
+          if (command === 'read_system_font') {
             await new Promise((resolve) => {
-              window.releaseRecovery = resolve;
+              window.releaseFont = resolve;
             });
-          if (window.failRecovery) throw Error('fixture recovery failed');
-          return Date.now();
-        }
-        if (command === 'save_project') {
-          if (window.holdSave)
-            await new Promise((resolve) => {
-              window.releaseSave = resolve;
-            });
-          return ['fixture-save', 'fixture.nect', args.operation];
-        }
-        if (command === 'open_project')
-          return new Promise((resolve) => {
-            window.releaseOpen = resolve;
-          });
-        if (command === 'list_system_fonts') return [['fixture', 'Fixture font', null]];
-        if (command === 'read_system_font') {
-          await new Promise((resolve) => {
-            window.releaseFont = resolve;
-          });
-          const bytes = await (await fetch('/fonts/DejaVuSans.ttf')).arrayBuffer();
-          window.fontReadCompleted = true;
-          return Array.from(new Uint8Array(bytes));
-        }
-        if (['list_recovery', 'list_os_outline_fonts', 'list_desktop_font_faces'].includes(command))
-          return [];
-        if (command === 'release_project') {
-          window.releaseCalls = (window.releaseCalls || 0) + 1;
-          return null;
-        }
-        if (command === 'acknowledge_recovery') return null;
-        throw Error(`Unexpected fixture IPC: ${command}`);
-      },
-    };
-  });
+            const bytes = await (await fetch('/fonts/DejaVuSans.ttf')).arrayBuffer();
+            window.fontReadCompleted = true;
+            return Array.from(new Uint8Array(bytes));
+          }
+          if (command === 'list_recovery') {
+            window.recoveryListCalls = (window.recoveryListCalls || 0) + 1;
+            return [];
+          }
+          if (['list_os_outline_fonts', 'list_desktop_font_faces'].includes(command)) return [];
+          if (command === 'release_project') {
+            window.releaseCalls = (window.releaseCalls || 0) + 1;
+            return null;
+          }
+          if (command === 'acknowledge_recovery') return null;
+          throw Error(`Unexpected fixture IPC: ${command}`);
+        },
+      };
+    },
+    { holdRegistration, holdFontCatalog },
+  );
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5234');
   await page.waitForFunction(() => window.nect && window.closeChannel);
   await page.waitForFunction(
@@ -117,8 +135,8 @@ async function releaseRecovery(page) {
     window.releaseRecovery();
   });
 }
-async function run(name, action) {
-  const { page, errors } = await fixture();
+async function run(name, action, options) {
+  const { page, errors } = await fixture(options);
   try {
     await action(page);
     assert.deepEqual(errors, [], name);
@@ -129,6 +147,100 @@ async function run(name, action) {
 }
 
 try {
+  await run(
+    'registration blocks input until ready and defers recovery',
+    async (page) => {
+      const before = await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot()));
+      const tool = await page.locator('[data-tool="Circle"]').boundingBox();
+      await page.mouse.click(tool.x + tool.width / 2, tool.y + tool.height / 2);
+      await page.mouse.click(700, 400);
+      const blocked = await page.evaluate(() => {
+        let dispatch = false,
+          load = false;
+        try {
+          window.nect.dispatch({
+            ...window.nect.commandState,
+            type: 'set-document-settings',
+            payload: { key: 'width', value: 961 },
+          });
+        } catch {
+          dispatch = true;
+        }
+        try {
+          window.nect.load(JSON.stringify(window.nect.projectSnapshot()));
+        } catch {
+          load = true;
+        }
+        return {
+          dispatch,
+          load,
+          inert: document.body.inert,
+          recovery: window.recoveryListCalls || 0,
+        };
+      });
+      assert.deepEqual(blocked, { dispatch: true, load: true, inert: true, recovery: 0 });
+      assert.equal(
+        await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot())),
+        before,
+      );
+      await page.evaluate(() => window.releaseGuard());
+      await page.waitForFunction(() => !document.body.inert && window.recoveryListCalls === 1);
+      await page.evaluate(() =>
+        window.nect.dispatch({
+          ...window.nect.commandState,
+          type: 'set-document-settings',
+          payload: { key: 'width', value: 961 },
+        }),
+      );
+      assert.equal(await page.evaluate(() => window.nect.document.width), 961);
+    },
+    { holdRegistration: true },
+  );
+
+  await run(
+    'registration failure remains visibly blocked and can safely close',
+    async (page) => {
+      await page.evaluate(() => window.rejectGuard(Error('fixture registration failed')));
+      await page.waitForFunction(() =>
+        document.body.textContent.includes('Close protection unavailable. Restart Nect.'),
+      );
+      assert.equal(await page.evaluate(() => document.body.inert), true);
+      assert.equal(await page.evaluate(() => window.recoveryListCalls || 0), 0);
+      await closeRequest(page);
+      await page.waitForFunction(() => window.closeDone);
+      assert.equal(await page.evaluate(() => window.closeCalls), 1);
+      assert.equal(await page.evaluate(() => window.chooseCalls), 0);
+    },
+    { holdRegistration: true },
+  );
+
+  await run(
+    'Close during registration stays locked through failed finish then starts recovery',
+    async (page) => {
+      await page.evaluate(() => {
+        window.holdFinish = true;
+      });
+      await closeRequest(page);
+      await page.waitForFunction(() => window.closeCalls === 1);
+      await page.evaluate(() => window.releaseGuard());
+      assert.equal(await page.evaluate(() => document.body.inert), true);
+      assert.equal(await page.evaluate(() => window.recoveryListCalls || 0), 0);
+      await page.evaluate(() => window.rejectFinish(Error('fixture close failed')));
+      await page.waitForFunction(
+        () => window.closeDone && !document.body.inert && window.recoveryListCalls === 1,
+      );
+      await page.evaluate(() =>
+        window.nect.dispatch({
+          ...window.nect.commandState,
+          type: 'set-document-settings',
+          payload: { key: 'width', value: 961 },
+        }),
+      );
+      assert.equal(await page.evaluate(() => window.nect.document.width), 961);
+    },
+    { holdRegistration: true },
+  );
+
   await run('later commit invalidates the close approval', async (page) => {
     await holdDirtyRecovery(page);
     await closeRequest(page);
@@ -144,6 +256,21 @@ try {
     await page.waitForFunction(() => window.closeDone);
     assert.equal(await page.evaluate(() => window.closeCalls), 0);
     assert.equal(await page.evaluate(() => window.nect.document.height), 701);
+  });
+
+  await run('a later Composition rename draft remains editable', async (page) => {
+    await holdDirtyRecovery(page);
+    await closeRequest(page);
+    await page.waitForFunction(() => window.chooseCalls === 1);
+    await page.evaluate(() => document.querySelector('[data-action="rename-composition"]').click());
+    const input = page.locator('.composition-rename-dialog[open] [data-composition-name]');
+    await input.fill('Uncommitted name');
+    await releaseRecovery(page);
+    await page.waitForFunction(() => window.closeDone);
+    assert.equal(await page.evaluate(() => window.closeCalls), 0);
+    assert.equal(await input.inputValue(), 'Uncommitted name');
+    await input.press('Enter');
+    assert.equal(await page.evaluate(() => window.nect.compositions[0].name), 'Uncommitted name');
   });
 
   await run('later Session text draft remains editable', async (page) => {
@@ -306,6 +433,20 @@ try {
     await releaseRecovery(page);
     await page.waitForFunction(() => window.closeDone);
     assert.equal(await page.evaluate(() => window.closeCalls), 1);
+    assert.equal(await page.evaluate(() => document.body.inert), true);
+    assert.equal(
+      await page.evaluate(() => {
+        try {
+          window.nect.dispatch({ ...window.nect.commandState, type: 'undo' });
+          return false;
+        } catch {
+          return true;
+        }
+      }),
+      true,
+    );
+    await page.evaluate(() => window.closeChannel.onmessage());
+    assert.equal(await page.evaluate(() => window.closeCalls), 1);
   });
 
   await run('Cancel does not wait for recovery or close', async (page) => {
@@ -352,6 +493,20 @@ try {
       return { dispatch, load, inert: document.body.inert };
     });
     assert.deepEqual(blocked, { dispatch: true, load: true, inert: true });
+    await page.evaluate(() => {
+      const dialog = document.createElement('dialog');
+      dialog.innerHTML = '<input aria-label="late input">';
+      document.body.append(dialog);
+      dialog.showModal();
+      dialog.querySelector('input').focus();
+      window.lateDialog = dialog;
+    });
+    await page.keyboard.type('must not be entered');
+    assert.equal(await page.locator('[aria-label="late input"]').inputValue(), '');
+    await page.evaluate(() => {
+      window.lateDialog.close();
+      window.lateDialog.remove();
+    });
     await page.mouse.click(100, 100);
     assert.equal(await page.evaluate(() => window.closeCalls), 1);
     await page.evaluate(() => window.rejectFinish(Error('fixture close failed')));
@@ -405,7 +560,36 @@ try {
     },
   );
 
-  await run('a pending installed-font read cannot commit during finish IPC', async (page) => {
+  await run(
+    'a delayed font catalog render preserves Canvas focus after failed close',
+    async (page) => {
+      await page.waitForFunction(() => typeof window.releaseFontCatalog === 'function');
+      await page.evaluate(() => {
+        document.querySelector('.canvas-stage').focus();
+        window.holdFinish = true;
+      });
+      assert.equal(
+        await page.locator('.canvas-stage').evaluate((el) => document.activeElement === el),
+        true,
+      );
+      await closeRequest(page);
+      await page.waitForFunction(() => window.closeCalls === 1);
+      await page.evaluate(() => window.releaseFontCatalog());
+      await page.waitForFunction(() => window.fontCatalogCompleted);
+      await page.evaluate(() => window.rejectFinish(Error('fixture close failed')));
+      await page.waitForFunction(() => window.closeDone);
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      );
+      assert.equal(
+        await page.locator('.canvas-stage').evaluate((el) => document.activeElement === el),
+        true,
+      );
+    },
+    { holdFontCatalog: true },
+  );
+
+  await run('a pending installed-font picker blocks close and can finish', async (page) => {
     await page.evaluate(async () => {
       const core = await import('/src/core.js');
       const model = await import('/src/composition-project-model.js');
@@ -424,23 +608,17 @@ try {
     await page.locator('.search-panel .picker-option').click();
     await page.locator('.search-panel .picker-apply').click();
     await page.waitForFunction(() => typeof window.releaseFont === 'function');
-    await page.evaluate(() => {
-      window.holdFinish = true;
-      window.projectBeforeFinish = JSON.stringify(window.nect.projectSnapshot());
-    });
     await closeRequest(page);
-    await page.waitForFunction(() => window.closeCalls === 1);
+    await page.waitForFunction(() => window.closeDone);
+    assert.equal(await page.evaluate(() => window.closeCalls), 0);
     await page.evaluate(() => window.releaseFont());
     await page.waitForFunction(() => window.fontReadCompleted);
-    await page.waitForFunction(() =>
-      /font.*(reject|error|not applied)|finish or cancel/i.test(document.body.textContent),
+    await page.waitForFunction(() => !document.querySelector('dialog[aria-label="Font"]'));
+    assert.ok(
+      await page.evaluate(
+        () => window.nect.document.layers[0].nodes.find((n) => n.id === window.textNode).font,
+      ),
     );
-    assert.equal(
-      await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot())),
-      await page.evaluate(() => window.projectBeforeFinish),
-    );
-    await page.evaluate(() => window.releaseFinish());
-    await page.waitForFunction(() => window.closeDone);
   });
 } finally {
   await browser.close();
