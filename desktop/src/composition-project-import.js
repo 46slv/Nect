@@ -3,13 +3,21 @@ import {
   colorImportSchemaVersion,
   readCaptureLiveColors,
 } from './color-slots.js';
-import { validateCompositionProject } from './composition-project-model.js';
+import {
+  validateCompositionProject,
+  assertNoLegacyArtworkReferencePromotion,
+} from './composition-project-model.js';
 import { expressionReferencesForSchema, validate } from './core.js';
 import {
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
   CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
+  ARTWORK_REFERENCE_SCHEMA_VERSION,
   nodesCurvePointReferenceVersion,
+  nodesHaveArtworkReferences,
+  nodesHaveArtworkReferenceSyntax,
+  reserveDanglingArtworkReferenceIds,
+  assertNoImportedArtworkReferenceRebind,
   nodesHaveLegacyCurveHandleReference,
   expressionParameters,
 } from './curve-point-reference.js';
@@ -45,6 +53,22 @@ export function prepareProjectCompositionsImport(
   if (sourceCompositions.length !== requested.size)
     throw Object.assign(Error('Missing source Composition'), {
       code: 'COMPOSITION_SOURCE_MISSING',
+    });
+  const sourceLayers = sourceCompositions.flatMap((composition) => composition.layers);
+  const destinationLayers = current.compositions.flatMap((composition) => composition.layers);
+  const importsArtworkReferences =
+    sourceProject.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION &&
+    sourceLayers.some((layer) => nodesHaveArtworkReferences(layer.nodes));
+  if (importsArtworkReferences) assertNoLegacyArtworkReferencePromotion(current);
+  if (
+    sourceProject.schemaVersion < ARTWORK_REFERENCE_SCHEMA_VERSION &&
+    current.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION &&
+    sourceLayers.some((layer) => nodesHaveArtworkReferenceSyntax(layer.nodes))
+  )
+    throw Error('Legacy opaque Artwork reference text cannot be promoted to schemaVersion 62');
+  if (sourceProject.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
+    assertNoImportedArtworkReferenceRebind(sourceLayers, destinationLayers, {
+      outerComposition: true,
     });
 
   if (captureLiveColors) {
@@ -98,10 +122,12 @@ export function prepareProjectCompositionsImport(
       'Legacy unresolved Curve handle expression cannot be imported into schemaVersion 61',
     );
 
-  const occupied = collectIds(current),
-    compositions = sourceCompositions.map((item) =>
-      remapIds(item, collectIds(item), occupied, sourceProject.schemaVersion),
-    );
+  const occupied = collectIds(current);
+  if (current.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
+    reserveDanglingArtworkReferenceIds(destinationLayers, occupied);
+  const compositions = sourceCompositions.map((item) =>
+    remapIds(item, collectIds(item), occupied, sourceProject.schemaVersion),
+  );
   const colors = importColorSlots(
     current,
     sourceProject,
@@ -132,7 +158,13 @@ export function prepareProjectCompositionsImport(
         referenceVersion,
         nodesCurvePointReferenceVersion(layer.nodes, sourceProject.schemaVersion),
       );
+  if (importsArtworkReferences) referenceVersion = ARTWORK_REFERENCE_SCHEMA_VERSION;
   let colorSourceVersion = sourceProject.schemaVersion;
+  if (
+    colorSourceVersion === ARTWORK_REFERENCE_SCHEMA_VERSION &&
+    referenceVersion < ARTWORK_REFERENCE_SCHEMA_VERSION
+  )
+    colorSourceVersion--;
   if (
     colorSourceVersion === CURVE_HANDLE_REFERENCE_SCHEMA_VERSION &&
     referenceVersion < CURVE_HANDLE_REFERENCE_SCHEMA_VERSION

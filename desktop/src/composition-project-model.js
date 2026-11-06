@@ -1,10 +1,15 @@
 import { validateColorSlots, validateColorSlotBinding } from './color-slots.js';
 import {
+  ARTWORK_REFERENCE_SCHEMA_VERSION,
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
   MAX_DOCUMENT_SCHEMA_VERSION,
   nodesKnownCurvePointReferenceVersion,
+  nodesHaveArtworkReferenceSyntax,
+  expressionParameters,
+  hasArtworkReferenceSyntax,
 } from './curve-point-reference.js';
+import { qualifiedReferencesForCodec } from './expression-parser.js';
 const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,180}$/;
 const MAX_DIMENSION = 100000;
 export const MAX_COMPOSITIONS = 100;
@@ -208,6 +213,54 @@ function assertCompositionProjectFields(project) {
       for (const q of Object.values(node.params || {})) validateColorSlotBinding(q, slots);
   assertGlobalEntityIds(project);
   assertLayerReferenceScope(project);
+  if (project.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION) {
+    const layerOwners = new Map(
+      project.compositions.flatMap((composition) =>
+        composition.layers.map((layer) => [layer.id, composition.id]),
+      ),
+    );
+    const nodeOwners = new Map(
+      project.compositions.flatMap((composition) =>
+        composition.layers.flatMap((layer) => layer.nodes.map((node) => [node.id, layer.id])),
+      ),
+    );
+    for (const composition of project.compositions)
+      for (const layer of composition.layers)
+        for (const node of layer.nodes)
+          for (const q of expressionParameters(node, { includeUnsupported: true })) {
+            if (!hasArtworkReferenceSyntax(q.expression)) continue;
+            for (const ref of qualifiedReferencesForCodec(q)) {
+              if (!ref.layerId) continue;
+              if (ref.layerId === layer.id)
+                throw Error('Artwork reference requires a different layer');
+              if (layerOwners.has(ref.layerId) && layerOwners.get(ref.layerId) !== composition.id)
+                throw Error('Artwork reference cannot cross outer Compositions');
+              if (nodeOwners.has(ref.nodeId) && nodeOwners.get(ref.nodeId) !== ref.layerId)
+                throw Error('Artwork reference node is in a different layer');
+            }
+          }
+    if (
+      (project.nodePresets || []).some((preset) =>
+        nodesHaveArtworkReferenceSyntax(preset.nodes || []),
+      )
+    )
+      throw Error('Node presets do not support Artwork references');
+  }
+}
+
+// Version promotion must not turn previously opaque wrapper text into a live
+// dependency, including text in inactive Compositions and connected sockets.
+export function assertNoLegacyArtworkReferencePromotion(project) {
+  if (project.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION) return;
+  if (
+    project.compositions.some((composition) =>
+      composition.layers.some((layer) => nodesHaveArtworkReferenceSyntax(layer.nodes)),
+    ) ||
+    (project.nodePresets || []).some((preset) =>
+      nodesHaveArtworkReferenceSyntax(preset.nodes || []),
+    )
+  )
+    throw Error('Legacy opaque Artwork reference text cannot be promoted to schemaVersion 62');
 }
 
 function assertLayerReferenceScope(project) {
@@ -356,6 +409,8 @@ export function applyActiveCompositionDocument(project, compositionId, editedDoc
   delete projectFields.compositions;
   Object.assign(projectFields, editedProjectFields);
   projectFields.schemaVersion = Math.max(base.schemaVersion, edited.schemaVersion);
+  if (projectFields.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
+    assertNoLegacyArtworkReferencePromotion(base);
   // This optional project-global packet can be explicitly cleared through the
   // active Document projection. Do not resurrect it from the base globals.
   if (!Object.hasOwn(editedProjectFields, 'keyColorRecipe')) delete projectFields.keyColorRecipe;

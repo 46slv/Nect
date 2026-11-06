@@ -1,7 +1,13 @@
+import { expression } from './expression-parser.js';
+export { expression } from './expression-parser.js';
 import { JOIN_SLOT_LIMIT, validJoinSlotOrder } from './join-slots-protocol.js';
 import {
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
   CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
+  ARTWORK_REFERENCE_SCHEMA_VERSION,
+  artworkExpressionReferences,
+  hasArtworkReferenceSyntax,
+  nodesHaveArtworkReferences,
   assertNoAccidentalCurvePointRebind,
   assertNoExternalPointReferenceRebind,
   curvePointReference,
@@ -1010,6 +1016,7 @@ function parameterDependencies(entries) {
       : q.expression
         ? parameterExpressionUses(q).map((ref) => ({
             source: ref.nodeId,
+            ...(ref.layerId ? { layerId: ref.layerId } : {}),
             parameterKey: ref.key,
             component: ref.component,
             ...(q.type === 'Color' ? { parameterType: ref.type } : {}),
@@ -1101,6 +1108,7 @@ function assertAcyclic(layer) {
     if (!n) return;
     active.add(id);
     for (const dep of nodeDependencies(n)) {
+      if (dep.layerId) continue;
       if (!byId.has(dep.source) && n.type !== 'Reference' && !dep.parameterKey)
         throw Error('Missing source node');
       visit(dep.source);
@@ -1109,6 +1117,73 @@ function assertAcyclic(layer) {
     seen.add(id);
   }
   for (const n of layer.nodes) visit(n.id);
+}
+// A parameter read does not read its node's output. In particular, reading a
+// Composition Reference's Position must not evaluate its referenced output,
+// and Text's Position port must not evaluate its path or outline.
+function documentDependencyGraph(doc) {
+  const layers = new Map(doc.layers.map((layer) => [layer.id, layer]));
+  const nodes = new Map(
+    doc.layers.map((layer) => [layer.id, new Map(layer.nodes.map((n) => [n.id, n]))]),
+  );
+  const output = (layerId, nodeId, port) => ({ layerId, nodeId, port });
+  const property = (layerId, nodeId, key) => ({ layerId, nodeId, key });
+  const keyOf = (v) =>
+    `${v.layerId}\0${v.nodeId}\0${v.key === undefined ? `out:${v.port || ''}` : `param:${v.key}`}`;
+  function edges(v) {
+    const layer = layers.get(v.layerId),
+      n = nodes.get(v.layerId)?.get(v.nodeId);
+    if (!n) return [];
+    if (v.key !== undefined) {
+      let key = v.key;
+      if (isTransform(n) && !n.params[key] && key === 'position') key = 'anchor';
+      if (isTransform(n) && !n.params[key] && key === 'scaleWidth') key = 'scale';
+      const q = parameter(n, key);
+      if (!q) return [];
+      if (q.source) return [output(layer.id, q.source, q.sourcePort)];
+      if (!q.expression) return [];
+      return parameterExpressionUses(q).map((ref) =>
+        property(ref.layerId || layer.id, ref.nodeId, ref.key),
+      );
+    }
+    const positionOnly = n.type === 'Text' && v.port === 'position';
+    const entries = positionOnly ? [['position', n.params.position]] : evaluatedParameters(n);
+    const result = entries.map(([key]) => property(layer.id, n.id, key));
+    if (!positionOnly) {
+      const reference = referenceDependency(n);
+      if (reference) result.push(output(layer.id, reference.source, reference.sourcePort));
+      if (n.type === 'Text' && n.pathAttachment)
+        result.push(output(layer.id, n.pathAttachment.nodeId));
+      if (['Composition Reference', 'SVG'].includes(n.type) && n.compositionReference) {
+        const target = layers.get(n.compositionReference.compositionId);
+        if (target) result.push(output(target.id, target.output));
+      }
+    }
+    return result;
+  }
+  return { layers, nodes, output, property, keyOf, edges };
+}
+function assertDocumentReferenceAcyclic(doc) {
+  const graph = documentDependencyGraph(doc);
+  const seen = new Set(),
+    active = new Set();
+  function visit(vertex) {
+    const key = graph.keyOf(vertex);
+    if (active.has(key)) throw Error('Connection would create a cycle across Artwork layers');
+    if (seen.has(key)) return;
+    if (!graph.nodes.get(vertex.layerId)?.has(vertex.nodeId)) return;
+    if (active.size >= 512) throw Error('Graph depth exceeds the supported limit');
+    active.add(key);
+    for (const dep of graph.edges(vertex)) visit(dep);
+    active.delete(key);
+    seen.add(key);
+  }
+  for (const layer of doc.layers)
+    for (const n of layer.nodes) {
+      visit(graph.output(layer.id, n.id));
+      if (n.type === 'Text') visit(graph.output(layer.id, n.id, 'position'));
+      for (const [key] of parameters(n)) visit(graph.property(layer.id, n.id, key));
+    }
 }
 export function setReference(layer, nodeId, target) {
   const n = layer.nodes.find((n) => n.id === nodeId);
@@ -1249,6 +1324,8 @@ function presetName(name) {
 function validateNodePreset(doc, preset) {
   if (!Array.isArray(preset.nodes) || !preset.nodes.length || preset.nodes.length >= 2000)
     throw Error('Preset must contain 1–1999 source/effect nodes');
+  if (nodesHaveArtworkReferences(preset.nodes))
+    throw Error('Node presets do not support Artwork references');
   const ids = new Set(preset.nodes.map((n) => n.id));
   for (const n of preset.nodes) {
     if (['Output', 'Image Output', 'Composition Reference', 'SVG'].includes(n.type))
@@ -1650,96 +1727,6 @@ export function parameter(n, key) {
     return p('Path', null);
   return transformParameter(n, key);
 }
-export function expression(source, resolveReference, referencesOnly = false, baseValue) {
-  if (source.length > 4096) throw Error('Expression exceeds 4096 characters');
-  const tokens =
-    source.match(
-      /"[a-zA-Z0-9:_.-]+"|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|[a-zA-Z]+|[()+\-*/%,]/g,
-    ) || [];
-  if (tokens.join('') !== source.replace(/\s/g, '')) throw Error('Unsupported expression syntax');
-  let i = 0;
-  const funcs = {
-    sin: Math.sin,
-    cos: Math.cos,
-    tan: Math.tan,
-    abs: Math.abs,
-    sqrt: Math.sqrt,
-    min: Math.min,
-    max: Math.max,
-    round: Math.round,
-  };
-  function atom() {
-    let t = tokens[i++];
-    if (t === '-') return -atom();
-    if (t === '+') return atom();
-    if (t === '(') {
-      let v = parse(0);
-      if (tokens[i++] !== ')') throw Error('Missing closing parenthesis');
-      return v;
-    }
-    if (t === 'pi') return Math.PI;
-    if (t === 'e') return Math.E;
-    if (t === 'value') {
-      if (referencesOnly) return 0;
-      assertValue('Scalar', baseValue);
-      return baseValue;
-    }
-    if (t === 'ref') {
-      if (tokens[i++] !== '(') throw Error('Reference requires parentheses');
-      const readString = () => {
-        const token = tokens[i++];
-        if (!token || !/^"[a-zA-Z0-9:_.-]+"$/.test(token))
-          throw Error('Reference requires quoted IDs and parameter keys');
-        return token.slice(1, -1);
-      };
-      const nodeId = readString();
-      if (!nodeIdPattern.test(nodeId) || tokens[i++] !== ',') throw Error('Invalid reference');
-      const key = readString();
-      let component;
-      if (tokens[i] === ',') {
-        i++;
-        component = readString();
-      }
-      if (component !== undefined && !['x', 'y', 'length'].includes(component))
-        throw Error('Reference component must be x, y or length');
-      if (component === 'length' && !curvePointReference(key, component))
-        throw Object.assign(Error('Reference length requires a Curve handle key'), {
-          code: 'EXPRESSION_INVALID_LENGTH_REFERENCE',
-        });
-      if (tokens[i++] !== ')') throw Error('Invalid reference arguments');
-      if (!resolveReference) throw Error('Reference requires a composition');
-      return resolveReference({ nodeId, key, component });
-    }
-    if (Object.hasOwn(funcs, t)) {
-      if (tokens[i++] !== '(') throw Error('Function requires parentheses');
-      let args = [parse(0)];
-      while (tokens[i] === ',') {
-        i++;
-        args.push(parse(0));
-      }
-      if (tokens[i++] !== ')') throw Error('Missing closing parenthesis');
-      return funcs[t](...args);
-    }
-    if (t && /^\d|^\./.test(t)) return Number(t);
-    throw Error('Expected a number');
-  }
-  function parse(min) {
-    let v = atom();
-    while (i < tokens.length) {
-      let op = tokens[i],
-        prec = { '+': 1, '-': 1, '*': 2, '/': 2, '%': 2 }[op];
-      if (!prec || prec < min) break;
-      i++;
-      let r = parse(prec + 1);
-      v = op === '+' ? v + r : op === '-' ? v - r : op === '*' ? v * r : op === '/' ? v / r : v % r;
-    }
-    return v;
-  }
-  let result = parse(0);
-  if (i !== tokens.length || (!referencesOnly && !Number.isFinite(result)))
-    throw Error('Expression must produce a finite number');
-  return result;
-}
 // Only bare value is new syntax; a quoted parameter key named "value" is not.
 function usesBaseValue(source) {
   return /\bvalue\b/.test(source.replace(/"[^"]*"/g, ''));
@@ -1803,6 +1790,12 @@ function parameterExpressionUses(q) {
 // Validate against the source Document's grammar before a wrapped import can
 // raise its version. Missing owners do not make new syntax legal in old files.
 export function expressionReferencesForSchema(q, schemaVersion, { preserveOpaque = false } = {}) {
+  if (
+    preserveOpaque &&
+    schemaVersion < ARTWORK_REFERENCE_SCHEMA_VERSION &&
+    hasArtworkReferenceSyntax(q.expression)
+  )
+    return [];
   let refs;
   try {
     refs = parameterExpressionUses(q);
@@ -1812,6 +1805,12 @@ export function expressionReferencesForSchema(q, schemaVersion, { preserveOpaque
     if (preserveOpaque && error.code !== 'EXPRESSION_INVALID_LENGTH_REFERENCE') return [];
     throw error;
   }
+  if (schemaVersion < ARTWORK_REFERENCE_SCHEMA_VERSION && refs.some((ref) => ref.layerId))
+    throw Error(`Artwork references require schemaVersion ${ARTWORK_REFERENCE_SCHEMA_VERSION}`);
+  if (!['Scalar', 'Vector2', 'Color'].includes(q.type) && refs.some((ref) => ref.layerId))
+    throw Error('Artwork reference requires a numeric expression parameter');
+  if (refs.some((ref) => ref.layerId && ref.type === 'Color'))
+    throw Error('Artwork references require a numeric parameter');
   if (
     schemaVersion < CURVE_HANDLE_REFERENCE_SCHEMA_VERSION &&
     refs.some((ref) => ref.component === 'length')
@@ -1872,11 +1871,7 @@ export function previewColorExpression(
   q.expression = source;
   assertAcyclic(draft);
   const evaluation = evaluate(draft, fonts, imageAssets, documentContext);
-  const resolve = (ref, type = 'Scalar') => {
-    const target = referenceParameter(draft, ref, type),
-      value = evaluation.parameterValue(target.id, ref.key);
-    return projectReferenceValue(ref, value);
-  };
+  const resolve = (ref, type = 'Scalar') => evaluation.resolveReference(ref, type);
   return source
     ? parameterExpression(q, resolve, parameterBaseValue(draft, n, key, q))
     : clone(parameterBaseValue(draft, n, key, q));
@@ -1887,6 +1882,11 @@ function parameterReferenceText(nodeId, key, component) {
 }
 export function parameterReferenceExpression(nodeId, key, component) {
   const text = parameterReferenceText(nodeId, key, component);
+  expression(text, () => 0, true);
+  return text;
+}
+export function artworkParameterReferenceExpression(layerId, nodeId, key, component) {
+  const text = `ref(artwork, ${JSON.stringify(layerId)}, ${JSON.stringify(nodeId)}, ${JSON.stringify(key)}${component ? `, ${JSON.stringify(component)}` : ''})`;
   expression(text, () => 0, true);
   return text;
 }
@@ -1910,6 +1910,8 @@ export function expressionReferences(source) {
   return refs;
 }
 function referenceParameter(layer, ref, type = 'Scalar') {
+  if (ref.layerId && type !== 'Scalar')
+    throw Error('Artwork references require a numeric parameter');
   const target = layer.nodes.find((n) => n.id === ref.nodeId);
   if (!target)
     throw Object.assign(Error(`Expression reference target is missing: ${ref.nodeId}`), {
@@ -2004,6 +2006,47 @@ export function expressionReferenceTargets(layer, nodeId, type = 'Scalar') {
         })),
       ),
     );
+}
+export function expressionReferenceTargetsForDocument(doc, layerId, nodeId, type = 'Scalar') {
+  const layer = doc?.layers?.find((item) => item.id === layerId);
+  if (!layer || !layer.nodes.some((n) => n.id === nodeId)) return [];
+  const graph = documentDependencyGraph(doc);
+  const reachesTarget = (vertex, seen = new Set()) => {
+    if (vertex.layerId === layerId && vertex.nodeId === nodeId) return true;
+    const key = graph.keyOf(vertex);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return graph.edges(vertex).some((dep) => reachesTarget(dep, seen));
+  };
+  const local = expressionReferenceTargets(layer, nodeId, type)
+    .filter((target) => !reachesTarget(graph.property(layer.id, target.nodeId, target.key)))
+    .map((target) => ({
+      ...target,
+      layerId: layer.id,
+      layerName: layer.name,
+    }));
+  if (type === 'Color') return local;
+  return local.concat(
+    doc.layers
+      .filter((item) => item.id !== layerId)
+      .flatMap((sourceLayer) =>
+        expressionReferenceTargets(sourceLayer, nodeId, type)
+          .filter(
+            (target) => !reachesTarget(graph.property(sourceLayer.id, target.nodeId, target.key)),
+          )
+          .map((target) => ({
+            ...target,
+            layerId: sourceLayer.id,
+            layerName: sourceLayer.name,
+            expression: artworkParameterReferenceExpression(
+              sourceLayer.id,
+              target.nodeId,
+              target.key,
+              target.component,
+            ),
+          })),
+      ),
+  );
 }
 function assertValue(type, value) {
   if (
@@ -2696,8 +2739,17 @@ export function evaluate(
   imageAssets = {},
   documentContext = null,
   compositionContext = null,
+  lazy = false,
 ) {
-  const context = compositionContext || { active: new Set(), results: new Map() };
+  const context = compositionContext || {
+    frames: new Map(),
+    activeNodes: new Set(),
+    readingParameters: new Set(),
+    depth: 0,
+  };
+  const frameFor = (target) =>
+    context.frames.get(target.id) ||
+    evaluate(target, fonts, imageAssets, documentContext, context, true);
   function referencedOutput(n) {
     const targetId = n.compositionReference?.compositionId;
     if (!targetId)
@@ -2705,27 +2757,14 @@ export function evaluate(
         code: 'COMPOSITION_TARGET_UNSET',
       });
     if (!documentContext) throw Error('Composition reference requires its document');
-    if (targetId === layer.id || context.active.has(targetId))
-      throw Error('Composition reference cycle detected');
+    if (targetId === layer.id) throw Error('Composition reference cycle detected');
     const target = documentContext.layers.find((l) => l.id === targetId);
     if (!target)
       throw Object.assign(Error(`Missing Composition: ${targetId}`), {
         code: 'COMPOSITION_TARGET_MISSING',
       });
-    if (!context.results.has(targetId)) {
-      context.active.add(layer.id);
-      context.active.add(targetId);
-      try {
-        context.results.set(
-          targetId,
-          evaluate(target, fonts, imageAssets, documentContext, context),
-        );
-      } finally {
-        context.active.delete(targetId);
-        context.active.delete(layer.id);
-      }
-    }
-    const result = context.results.get(targetId);
+    const result = frameFor(target);
+    result.ensureOutput();
     if (result.error)
       throw Object.assign(Error(`${target.name}: ${result.error}`), { code: result.errorCode });
     warnings.push(...result.warnings.map((message) => `${target.name}: ${message}`));
@@ -2738,7 +2777,7 @@ export function evaluate(
   }
   const values = new Map(),
     warnings = [],
-    active = new Set(),
+    active = context.activeNodes,
     versions = new Map(),
     textLayouts = new Map();
   let computed = 0,
@@ -2805,10 +2844,27 @@ export function evaluate(
   // and dependencies, so reading Position never requires font/outline generation.
   const outputKey = (id, port) =>
     byId.get(id)?.type === 'Text' && port === 'position' ? `${id}\0position` : id;
-  const readingParameters = new Set();
+  const readingParameters = context.readingParameters;
   function resolveExpressionReference(ref, type = 'Scalar') {
-    const target = referenceParameter(layer, ref, type),
-      value = readParameter(target, ref.key);
+    if (
+      ref.layerId &&
+      documentContext &&
+      (!Number.isInteger(documentContext.schemaVersion) ||
+        documentContext.schemaVersion < ARTWORK_REFERENCE_SCHEMA_VERSION)
+    )
+      throw Error(`Artwork references require schemaVersion ${ARTWORK_REFERENCE_SCHEMA_VERSION}`);
+    const sourceLayer = ref.layerId
+      ? documentContext?.layers.find((item) => item.id === ref.layerId)
+      : layer;
+    if (!sourceLayer)
+      throw Object.assign(Error(`Expression reference artwork is missing: ${ref.layerId}`), {
+        code: 'EXPRESSION_REFERENCE_MISSING',
+      });
+    const target = referenceParameter(sourceLayer, ref, type),
+      value =
+        sourceLayer === layer
+          ? readParameter(target, ref.key)
+          : frameFor(sourceLayer).parameterValue(target.id, ref.key);
     return projectReferenceValue(ref, value);
   }
   function indexParameters(n) {
@@ -2818,14 +2874,17 @@ export function evaluate(
     return indexed;
   }
   function readParameter(n, key, indexed) {
-    const id = `${n.id}\0${key}`;
+    const id = `${layer.id}\0${n.id}\0${key}`;
     if (readingParameters.has(id)) throw Error('Expression reference cycle detected');
     if (readingParameters.size >= 256) throw Error('Expression reference depth exceeds 256');
+    if (context.depth >= 512) throw Error('Evaluation depth exceeds the supported limit');
     readingParameters.add(id);
+    context.depth++;
     try {
       return readParameterValue(n, key, indexed);
     } finally {
       readingParameters.delete(id);
+      context.depth--;
     }
   }
   // Preserve only exact authored identity, never infer it from a display value.
@@ -2881,11 +2940,14 @@ export function evaluate(
     const key = outputKey(id, port),
       positionOutput = key !== id;
     if (values.has(key)) return values.get(key);
-    if (active.has(id)) throw Error('Cycle detected');
+    const activeKey = `${layer.id}\0${id}`;
+    if (active.has(activeKey)) throw Error('Cycle detected');
     if (active.size >= 256) throw Error('Graph depth exceeds 256 nodes');
+    if (context.depth >= 512) throw Error('Evaluation depth exceeds the supported limit');
     let n = byId.get(id);
     if (!n) throw Error('Missing source node');
-    active.add(id);
+    active.add(activeKey);
+    context.depth++;
     try {
       const inputs = positionOutput ? [['position', n.params.position]] : evaluatedParameters(n);
       const deps = positionOutput ? parameterDependencies(inputs) : nodeDependencies(n, true);
@@ -2901,6 +2963,7 @@ export function evaluate(
             resolveExpressionReference(
               {
                 nodeId: dep.source,
+                ...(dep.layerId ? { layerId: dep.layerId } : {}),
                 key: dep.parameterKey,
                 component: dep.component,
               },
@@ -3012,7 +3075,6 @@ export function evaluate(
             : cloneEvaluated(existing.value);
         values.set(key, result);
         versions.set(key, existing.version);
-        active.delete(id);
         warnings.push(...existing.warnings);
         if (!positionOutput && existing.textLayout) textLayouts.set(id, clone(existing.textLayout));
         return result;
@@ -4256,7 +4318,6 @@ export function evaluate(
             ]),
           ).values(),
         ];
-      active.delete(id);
       values.set(key, result);
       const version = ++revision;
       versions.set(key, version);
@@ -4272,27 +4333,32 @@ export function evaluate(
       });
       return result;
     } finally {
-      active.delete(id);
+      active.delete(activeKey);
+      context.depth--;
     }
   }
-  let path = null,
-    error = null,
-    errorCode;
-  try {
-    path = run(layer.output);
-  } catch (e) {
-    error = e.message;
-    errorCode = e.code;
-  }
+  let outputEvaluated = false;
   for (const key of cache.keys()) if (!byId.has(key.split('\0')[0])) cache.delete(key);
-  return {
-    path,
-    outputRevision: versions.get(outputKey(layer.output)),
-    error,
-    ...(errorCode ? { errorCode } : {}),
+  const result = {
+    path: null,
+    outputRevision: undefined,
+    error: null,
+    ensureOutput() {
+      if (outputEvaluated) return;
+      try {
+        result.path = run(layer.output);
+      } catch (e) {
+        result.error = e.message;
+        if (e.code) result.errorCode = e.code;
+      }
+      result.outputRevision = versions.get(outputKey(layer.output));
+      outputEvaluated = true;
+      result.stats = { computed, reused };
+    },
     warnings,
     values,
     run,
+    resolveReference: resolveExpressionReference,
     parameterValue(id, key) {
       const n = byId.get(id);
       if (!n) throw Error('Missing node');
@@ -4348,6 +4414,155 @@ export function evaluate(
     },
     stats: { computed, reused },
   };
+  context.frames.set(layer.id, result);
+  if (!lazy) result.ensureOutput();
+  return result;
+}
+// Session commits and previews are the common boundary for source edits,
+// including gestures and prepared commands. A dangling identity cannot be
+// revived by an allocator, and affected cross-layer controls remain valid.
+function assertArtworkReferenceTransition(before, candidate, fonts = {}) {
+  const allRefs = (doc) =>
+    doc.layers.flatMap((layer) =>
+      layer.nodes.flatMap((n) =>
+        parameters(n).flatMap(([, q]) =>
+          typeof q.expression === 'string' ? artworkExpressionReferences(q.expression) : [],
+        ),
+      ),
+    );
+  const previous = allRefs(before),
+    next = allRefs(candidate);
+  if (!previous.length && !next.length) return;
+  const refKey = (ref) => `${ref.layerId}\0${ref.nodeId}\0${ref.key}\0${ref.component || ''}`;
+  const remaining = new Set(next.map(refKey));
+  const resolvedIdentity = (doc, ref) => {
+    const layer = doc.layers.find((item) => item.id === ref.layerId);
+    const owner = layer?.nodes.find((item) => item.id === ref.nodeId);
+    if (!owner) return false;
+    const point = curvePointReference(ref.key, ref.component);
+    return !point || (owner.type === 'Curve' && owner.points.some((item) => item.id === point.id));
+  };
+  for (const ref of previous)
+    if (
+      remaining.has(refKey(ref)) &&
+      !resolvedIdentity(before, ref) &&
+      resolvedIdentity(candidate, ref)
+    )
+      throw Error('New identity would retarget a missing Artwork reference');
+
+  const currentFonts = resolveFonts(candidate, fonts),
+    oldFonts = resolveFonts(before, fonts),
+    effective = cloneDocument(candidate),
+    affected = new Set();
+  const nodeKey = (layerId, nodeId) => `${layerId}\0${nodeId}`;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const layer of candidate.layers)
+      for (const n of layer.nodes) {
+        const key = nodeKey(layer.id, n.id);
+        if (affected.has(key)) continue;
+        const deps = nodeDependencies(n, true);
+        const target = ['Composition Reference', 'SVG'].includes(n.type)
+          ? candidate.layers.find((item) => item.id === n.compositionReference?.compositionId)
+          : null;
+        if (
+          deps.some((dep) => dep.layerId || affected.has(nodeKey(layer.id, dep.source))) ||
+          (target && affected.has(nodeKey(target.id, target.output)))
+        ) {
+          affected.add(key);
+          changed = true;
+        }
+      }
+  }
+  for (const layer of candidate.layers) {
+    const old = before.layers.find((item) => item.id === layer.id);
+    const projectedLayer = effective.layers.find((item) => item.id === layer.id);
+    const evaluation = evaluate(layer, currentFonts, candidate.imageAssets, candidate);
+    let oldEvaluation;
+    const check = (now, was) => {
+      try {
+        now();
+      } catch (error) {
+        if (isMissingReferenceTarget(error)) return;
+        if (old && was) {
+          oldEvaluation ||= evaluate(old, oldFonts, before.imageAssets, before);
+          try {
+            was(oldEvaluation);
+          } catch (prior) {
+            if (prior.message === error.message) return;
+          }
+        }
+        throw error;
+      }
+    };
+    for (const n of layer.nodes) {
+      if (affected.has(nodeKey(layer.id, n.id))) {
+        const projected = projectedLayer.nodes.find((item) => item.id === n.id);
+        for (const [key, q] of parameters(n)) {
+          if (!['Scalar', 'Vector2', 'Color'].includes(q.type)) continue;
+          let value,
+            resolved = false;
+          check(
+            () => {
+              value = evaluation.parameterValue(n.id, key);
+              resolved = true;
+            },
+            (e) => e.parameterValue(n.id, key),
+          );
+          if (resolved) {
+            const target = parameter(projected, key);
+            if (target) target.value = clone(value);
+          }
+        }
+        check(
+          () => evaluation.run(n.id),
+          (e) => e.run(n.id),
+        );
+      }
+      for (const [key, q] of parameters(n))
+        if (q.expression && !q.source && artworkExpressionReferences(q.expression).length)
+          check(
+            () => evaluation.parameterValue(n.id, key),
+            (e) => e.parameterValue(n.id, key),
+          );
+      if (n.type === 'Geometry Repeater' && n.operation === 'ae-2d' && !n.bypassed)
+        check(
+          () =>
+            assertRepeaterControls(
+              (key) => evaluation.parameterValue(n.id, key),
+              isMissingReferenceTarget,
+            ),
+          (e) =>
+            assertRepeaterControls((key) => e.parameterValue(n.id, key), isMissingReferenceTarget),
+        );
+      if (isTransform(n))
+        check(
+          () => assertTransformControls(evaluation, n),
+          (e) => {
+            const prior = old.nodes.find((item) => item.id === n.id);
+            if (prior) assertTransformControls(e, prior);
+          },
+        );
+      if (n.type === 'Mask' && n.params.feather)
+        check(
+          () => maskFeather(evaluation.parameterValue(n.id, 'feather')),
+          (e) => maskFeather(e.parameterValue(n.id, 'feather')),
+        );
+    }
+    assertClosedOffsetChange(
+      layer,
+      old,
+      currentFonts,
+      candidate.imageAssets,
+      oldFonts,
+      candidate,
+      before,
+    );
+  }
+  // Reuse the same hard domain checks as saved values on a detached projection
+  // of the affected effective values; authored fallbacks are never changed.
+  validate(effective);
 }
 // All attached/wrapped text is checked, even when it is not the displayed Output. A failed
 // edit leaves authored state/history unchanged; pre-existing diagnosed errors can be repaired.
@@ -4385,7 +4600,14 @@ export function assertTextPathChange(
     }
   }
 }
-export function setTextPathAttachment(layer, nodeId, attachment, fonts = {}, imageAssets = {}) {
+export function setTextPathAttachment(
+  layer,
+  nodeId,
+  attachment,
+  fonts = {},
+  imageAssets = {},
+  documentContext = null,
+) {
   const n = layer.nodes.find((n) => n.id === nodeId);
   if (n?.type !== 'Text') throw Error('Select a Text node');
   const old = n.pathAttachment;
@@ -4396,7 +4618,7 @@ export function setTextPathAttachment(layer, nodeId, attachment, fonts = {}, ima
       n.pathAttachment = clone(attachment);
     }
     assertAcyclic(layer);
-    if (attachment !== null) evaluate(layer, fonts, imageAssets).run(nodeId);
+    if (attachment !== null) evaluate(layer, fonts, imageAssets, documentContext).run(nodeId);
   } catch (error) {
     if (old === undefined) delete n.pathAttachment;
     else n.pathAttachment = old;
@@ -4404,7 +4626,14 @@ export function setTextPathAttachment(layer, nodeId, attachment, fonts = {}, ima
   }
 }
 /** Set or remove composition width atomically; source text and character identities stay untouched. */
-export function setTextWrap(layer, nodeId, wrap, fonts = {}, imageAssets = {}) {
+export function setTextWrap(
+  layer,
+  nodeId,
+  wrap,
+  fonts = {},
+  imageAssets = {},
+  documentContext = null,
+) {
   const n = layer.nodes.find((n) => n.id === nodeId);
   if (n?.type !== 'Text') throw Error('Select a Text node');
   if (layer.locked) throw Error('Composition is locked');
@@ -4414,7 +4643,7 @@ export function setTextWrap(layer, nodeId, wrap, fonts = {}, imageAssets = {}) {
     else {
       validateTextWrap(wrap, n.writingMode, n.pathAttachment);
       n.textWrap = clone(wrap);
-      evaluate(layer, fonts, imageAssets).run(nodeId);
+      evaluate(layer, fonts, imageAssets, documentContext).run(nodeId);
     }
   } catch (error) {
     if (old === undefined) delete n.textWrap;
@@ -4422,8 +4651,14 @@ export function setTextWrap(layer, nodeId, wrap, fonts = {}, imageAssets = {}) {
     throw error;
   }
 }
-export function textPathTargets(layer, textId, fonts = {}, imageAssets = {}) {
-  const result = evaluate(layer, fonts, imageAssets),
+export function textPathTargets(
+  layer,
+  textId,
+  fonts = {},
+  imageAssets = {},
+  documentContext = null,
+) {
+  const result = evaluate(layer, fonts, imageAssets, documentContext),
     targets = [];
   for (const n of layer.nodes) {
     if (n.id === textId || outputType(n) !== 'Path' || n.type === 'Text') continue;
@@ -4767,7 +5002,8 @@ export function validate(doc) {
       doc.schemaVersion !== KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION &&
       doc.schemaVersion !== LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION &&
       doc.schemaVersion !== CURVE_POINT_REFERENCE_SCHEMA_VERSION &&
-      doc.schemaVersion !== CURVE_HANDLE_REFERENCE_SCHEMA_VERSION)
+      doc.schemaVersion !== CURVE_HANDLE_REFERENCE_SCHEMA_VERSION &&
+      doc.schemaVersion !== ARTWORK_REFERENCE_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   const colorSlots = validateColorSlots(doc);
@@ -5375,6 +5611,7 @@ export function validate(doc) {
   // Cross-layer references are forbidden, while genuinely deleted IDs remain
   // loadable as diagnosed dangling targets rather than silently losing the link.
   const owners = new Map(doc.layers.flatMap((l) => l.nodes.map((n) => [n.id, l.id])));
+  const layersById = new Map(doc.layers.map((layer) => [layer.id, layer]));
   for (const l of doc.layers) {
     const localNodes = new Map(l.nodes.map((item) => [item.id, item]));
     for (const n of l.nodes)
@@ -5394,15 +5631,19 @@ export function validate(doc) {
       for (const [, q] of parameters(n))
         if (q.expression) {
           for (const ref of expressionReferencesForSchema(q, sourceSchemaVersion)) {
-            if (owners.has(ref.nodeId) && owners.get(ref.nodeId) !== l.id)
+            if (ref.layerId === l.id) throw Error('Artwork reference requires a different layer');
+            if (owners.has(ref.nodeId) && owners.get(ref.nodeId) !== (ref.layerId || l.id))
               throw Error('Expression reference target must be in the same layer');
-            const owner = localNodes.get(ref.nodeId);
+            const sourceLayer = ref.layerId ? layersById.get(ref.layerId) : l;
+            const owner = ref.layerId
+              ? sourceLayer?.nodes.find((item) => item.id === ref.nodeId)
+              : localNodes.get(ref.nodeId);
             const pointRef = owner?.type === 'Curve' && curvePointReference(ref.key, ref.component);
             if (pointRef && sourceSchemaVersion < pointRef.schemaVersion)
               throw Error(`Curve point references require schemaVersion ${pointRef.schemaVersion}`);
             if (owner) {
               try {
-                referenceParameter(l, ref, ref.type);
+                referenceParameter(sourceLayer, ref, ref.type);
               } catch (error) {
                 if (error.code !== 'EXPRESSION_REFERENCE_MISSING') throw error;
               }
@@ -5412,6 +5653,11 @@ export function validate(doc) {
     assertAcyclic(l);
   }
   assertCompositionAcyclic(doc);
+  if (
+    sourceSchemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION &&
+    doc.layers.some((layer) => nodesHaveArtworkReferences(layer.nodes))
+  )
+    assertDocumentReferenceAcyclic(doc);
   const hasNodeType = (type) =>
     doc.layers.some((layer) => layer.nodes.some((n) => n.type === type));
   const hasImageLuminanceConnection = doc.layers.some((layer) => {
@@ -6492,6 +6738,7 @@ export class CommandSession {
         );
       } else appendPenArtwork(candidate, layer);
       assertNoAccidentalCurvePointRebind(draft.base, candidate, this.#nodeClipboard);
+      assertArtworkReferenceTransition(draft.base, candidate, this.#fonts());
       const encoded = serialize(candidate);
       if (encoded === serialize(draft.base)) {
         this.#gesture = null;
@@ -6547,6 +6794,7 @@ export class CommandSession {
       candidate.layers[candidate.layers.findIndex((l) => l.id === layer.id)] = layer;
     else candidate.layers.push(layer);
     assertNoAccidentalCurvePointRebind(draft.base, candidate, this.#nodeClipboard);
+    assertArtworkReferenceTransition(draft.base, candidate, this.#fonts());
     validate(candidate);
     if (draft.resuming)
       assertClosedOffsetChange(
@@ -6666,6 +6914,10 @@ export class CommandSession {
     if (p.type === 'undo' || p.type === 'redo') this.#history[p.type]();
     else if (!sameDocument(this.#history.doc, p.candidate)) {
       assertNoAccidentalCurvePointRebind(this.#history.doc, p.candidate, this.#nodeClipboard);
+      assertArtworkReferenceTransition(this.#history.doc, p.candidate, {
+        ...this.#fonts(),
+        ...p.bridge.preparedFonts(p.ticket),
+      });
       this.#history.apply(() => {
         this.#history.doc = p.candidate;
       });
@@ -6728,6 +6980,7 @@ export class CommandSession {
       );
       assertCurrent();
       assertNoAccidentalCurvePointRebind(document, imported, this.#nodeClipboard);
+      assertArtworkReferenceTransition(document, imported, this.#fonts());
       assertCurrent();
       this.#history.apply(() => {
         this.#history.doc = imported;
@@ -6871,6 +7124,7 @@ export class CommandSession {
       if (draft.target.kind === 'pen') throw Error('Use Pen point and path commands');
       if (type === 'update-gesture') {
         const candidate = this.#gestureCandidate(draft.base, draft.target, payload.update);
+        assertArtworkReferenceTransition(draft.base, candidate, this.#fonts());
         draft.candidate = candidate;
         draft.update = clone(payload.update);
         draft.version++;
@@ -6882,6 +7136,7 @@ export class CommandSession {
         draft.candidate = this.#gestureCandidate(draft.base, draft.target, draft.update);
       validate(draft.candidate);
       assertNoAccidentalCurvePointRebind(draft.base, draft.candidate, this.#nodeClipboard);
+      assertArtworkReferenceTransition(draft.base, draft.candidate, this.#fonts());
       assertVariableDocumentReady(draft.candidate, resolveFonts(draft.candidate, this.#fonts()));
       const revision = this.#history.revision;
       if (!sameDocument(this.#history.doc, draft.candidate))
@@ -7034,6 +7289,7 @@ export class CommandSession {
     );
     assertVariableDocumentReady(candidate, resolveFonts(candidate, this.#fonts()));
     assertNoAccidentalCurvePointRebind(this.#history.doc, candidate, this.#nodeClipboard);
+    assertArtworkReferenceTransition(this.#history.doc, candidate, this.#fonts());
     const revision = this.#history.revision;
     if (!sameDocument(this.#history.doc, candidate))
       this.#history.apply(() => {
@@ -7399,6 +7655,22 @@ export class CommandSession {
       if (source.bypassed) throw Error('Enable Text before baking');
       if (parameters(source).some(([, q]) => q.locked))
         throw Error('Text has locked parameters; unlock before baking');
+      if (
+        before.layers.some(
+          (otherLayer) =>
+            otherLayer.id !== layer.id &&
+            otherLayer.nodes.some((n) =>
+              parameters(n).some(
+                ([, q]) =>
+                  q.expression &&
+                  artworkExpressionReferences(q.expression).some(
+                    (ref) => ref.layerId === layer.id && ref.nodeId === source.id,
+                  ),
+              ),
+            ),
+        )
+      )
+        throw Error('Text parameter references are in use; disconnect them before baking');
       for (const other of layer.nodes) {
         if (other.id === source.id) continue;
         if (
@@ -8075,6 +8347,8 @@ export class CommandSession {
       result = { nodeId: created.id };
     } else if (type === 'paste-nodes') {
       const clipboard = this.#nodeClipboard;
+      if (clipboard && nodesHaveArtworkReferences(clipboard.nodes))
+        throw Error('Pasting nodes with Artwork references is not supported');
       if (!clipboard)
         throw Error(
           'Node clipboard is empty. Copy in this document’s graph; OS/other-document paste is not supported',
@@ -8652,6 +8926,7 @@ export class CommandSession {
             { ...target, output: node.id },
             resolveFonts(candidate, baseFonts),
             candidate.imageAssets,
+            candidate,
           );
           if (preflight.error) throw Error(preflight.error);
         }
@@ -8668,6 +8943,7 @@ export class CommandSession {
             settings.pathAttachment,
             resolveFonts(candidate, baseFonts),
             candidate.imageAssets,
+            candidate,
           );
         if (Object.hasOwn(settings, 'textWrap'))
           setTextWrap(
@@ -8676,6 +8952,7 @@ export class CommandSession {
             settings.textWrap,
             resolveFonts(candidate, baseFonts),
             candidate.imageAssets,
+            candidate,
           );
       } else if (type === 'set-character-style') {
         updateTextTypography(
@@ -8708,6 +8985,8 @@ export class CommandSession {
         const preflight = evaluate(
           { ...target, output: node.id },
           resolveFonts(candidate, baseFonts),
+          candidate.imageAssets,
+          candidate,
         );
         if (preflight.error) throw Error(preflight.error);
         serialize(candidate);
@@ -8742,7 +9021,15 @@ export class CommandSession {
           q.expression = payload.expression;
           if (q.expression)
             for (const ref of parameterExpressionUses(q)) {
-              const owner = target.nodes.find((item) => item.id === ref.nodeId),
+              if (ref.layerId)
+                candidate.schemaVersion = Math.max(
+                  candidate.schemaVersion,
+                  ARTWORK_REFERENCE_SCHEMA_VERSION,
+                );
+              const sourceLayer = ref.layerId
+                ? candidate.layers.find((item) => item.id === ref.layerId)
+                : target;
+              const owner = sourceLayer?.nodes.find((item) => item.id === ref.nodeId),
                 pointRef = owner?.type === 'Curve' && curvePointReference(ref.key, ref.component);
               if (pointRef)
                 candidate.schemaVersion = Math.max(candidate.schemaVersion, pointRef.schemaVersion);
@@ -8756,17 +9043,15 @@ export class CommandSession {
             candidate.schemaVersion = Math.max(candidate.schemaVersion, 26);
           if (payload.expression) {
             assertAcyclic(target);
+            if (candidate.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
+              assertDocumentReferenceAcyclic(candidate);
             const evaluation = evaluate(
               target,
               resolveFonts(candidate, this.#fonts()),
               candidate.imageAssets,
               candidate,
             );
-            const resolve = (ref, type = 'Scalar') => {
-              const referenced = referenceParameter(target, ref, type);
-              const value = evaluation.parameterValue(referenced.id, ref.key);
-              return projectReferenceValue(ref, value);
-            };
+            const resolve = (ref, type = 'Scalar') => evaluation.resolveReference(ref, type);
             const value = parameterExpression(
               q,
               resolve,

@@ -20,6 +20,8 @@ Applying a detached node preset or pasting copied nodes rejects atomically if a 
 
 The helper is shared by Project Composition import, legacy composition import and node, layer and artwork duplication. Tests exercise the Session routes, Undo/Redo, Curve movement and missing targets, numeric evaluation after collisions, project JSON re-open, frozen inputs and unchanged-reference controls. No filesystem save/reopen, native dialog, rendering pixels or WebView2 UI acceptance is claimed.
 
+Document schema 62 adds the disjoint qualified form `ref(artwork, "layer-id", "node-id", "key"[, "x"/"y"/"length"])`. Both Composition import routes allocate the full selected layer/node/point mapping before rewriting these references. The legacy layer import includes referenced Artwork layers in its dependency closure. A missing target remains missing; an import that would bind it to an unrelated existing Artwork is refused. Existing schema 61 and earlier wrapper text that happened to contain this previously invalid syntax remains opaque and cannot be promoted to schema 62 without resolving the ambiguity.
+
 Validated JSON inputs may contain shared JavaScript objects without cycles. Import copies each JSON occurrence independently before remapping, so a descriptor alias cannot propagate an internal expression change into metadata or another layer. JSON primitives, including negative zero, and literal own keys remain intact. This adds no accepted input form or parser rule.
 
 From desktop:

@@ -1,11 +1,13 @@
 import {
   validateCompositionProject,
   assertFreshCompositionEntityIds,
+  assertNoLegacyArtworkReferencePromotion,
 } from './composition-project-model.js';
 import { keyColorRecipeInitializationSlotIds } from './key-color-recipe-document.js';
 import { assertColorSlotUnused } from './color-slots.js';
 import { prepareProjectCompositionsImport } from './composition-project-import.js';
 import {
+  ARTWORK_REFERENCE_SCHEMA_VERSION,
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
 } from './curve-point-reference.js';
@@ -26,6 +28,8 @@ function documentFor(project, compositionId, cloneDocument) {
 function projectWithDocument(project, compositionId, document) {
   const { width, height, layers, editor, ...shared } = document;
   shared.schemaVersion = Math.max(project.schemaVersion, shared.schemaVersion);
+  if (shared.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
+    assertNoLegacyArtworkReferencePromotion(project);
   const candidate = {
     ...shared,
     compositionSchemaVersion:
