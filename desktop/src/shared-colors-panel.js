@@ -85,12 +85,21 @@ export function createSharedColorsPanel({
     const status = app.querySelector('[data-shared-color-action-status]');
     if (status) status.textContent = message;
   }
+  function discardInvalidName() {
+    const input = app.ownerDocument.activeElement;
+    if (invalidName(input)) input.value = input.defaultValue;
+  }
   function keepInvalidNameFocused(event) {
+    const active = app.ownerDocument.activeElement;
+    const otherColorTarget =
+      event.target.closest?.('.shared-colors-panel') && event.target !== active;
     if (
-      !event.target.closest?.(
-        '[data-shared-color-delete],[data-shared-color-sort],[data-shared-color-find],[data-shared-color-filter]',
-      ) ||
-      !invalidName(app.ownerDocument.activeElement)
+      !invalidName(active) ||
+      event.target.closest?.('[data-shared-color-close],[data-workspace-panel="colors"]') ||
+      (!otherColorTarget &&
+        !event.target.closest?.(
+          '[data-workspace-panel],[data-shared-color-paste],[data-viewer-mode="viewers"],[data-action="align-panel"],[data-action="asset-library"]',
+        ))
     )
       return false;
     event.preventDefault();
@@ -338,6 +347,8 @@ export function createSharedColorsPanel({
     'pointerdown',
     (event) => {
       if (keepActiveEditFocused(event) || keepInvalidNameFocused(event)) return;
+      if (event.target.closest?.('[data-shared-color-close],[data-workspace-panel="colors"]'))
+        discardInvalidName();
       // Opening the separate experimental draft must not finish a legacy live
       // gesture. Prevent native blur/change before it can commit the old field.
       if (event.target.closest?.('[data-key-color-recipe-open]')) {
@@ -434,6 +445,7 @@ export function createSharedColorsPanel({
   });
   function close() {
     if (hasActiveComposition()) return;
+    discardInvalidName();
     literalScrub.stop();
     chroma.reset();
     if (externalVisibility) {
@@ -458,6 +470,8 @@ export function createSharedColorsPanel({
     'click',
     (event) => {
       if (keepActiveEditFocused(event)) return;
+      if (event.target.closest?.('[data-shared-color-close],[data-workspace-panel="colors"]'))
+        discardInvalidName();
       keepInvalidNameFocused(event);
     },
     true,
@@ -854,7 +868,11 @@ export function createSharedColorsPanel({
       return hasActiveComposition();
     },
     get canDeactivate() {
-      return !hasActiveComposition() && activeColorPointer === null;
+      return (
+        !hasActiveComposition() &&
+        activeColorPointer === null &&
+        !invalidName(app.ownerDocument.activeElement)
+      );
     },
     get editing() {
       return chroma.editing;

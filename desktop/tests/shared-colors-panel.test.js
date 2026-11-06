@@ -242,6 +242,25 @@ test('panel starts closed and add dispatches a typed command with the current Se
   assert.deepEqual(s.model.colorSlots[0].value, { hex: '#112233', alpha: 0.4 });
 });
 
+test('an invalid focused name blocks workspace deactivation until corrected or explicitly closed', (t) => {
+  const s = setup(t);
+  s.panel.toggle();
+  const input = s.app.querySelector(
+    '[data-shared-color-row="slot-a"] [data-shared-color-edit="name"]',
+  );
+  input.focus();
+  input.value = '   ';
+  assert.equal(s.panel.canDeactivate, false);
+  assert.equal(s.calls.length, 0);
+  input.value = 'Valid';
+  assert.equal(s.panel.canDeactivate, true);
+  input.value = '   ';
+  s.fire(s.app.querySelector('[data-shared-color-close]'), 'click');
+  assert.equal(s.panel.open, false);
+  assert.deepEqual(s.calls, []);
+  assert.equal(s.model.colorSlots[0].name, 'Primary');
+});
+
 test('name, hex and alpha edits preserve exact slot identity and untouched color components', (t) => {
   const s = setup(t);
   s.panel.toggle();

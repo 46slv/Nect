@@ -245,6 +245,31 @@ try {
     assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
     assert.match(await page.locator('[data-shared-color-action-status]').textContent(), /name/i);
   }
+  for (const selector of [
+    '[data-workspace-panel="assets"]',
+    '[data-workspace-panel="layers"]',
+    '.viewer-tabs [data-viewer-mode="viewers"]',
+    '[data-shared-color-add]',
+    '[data-key-color-recipe-open]',
+    '[data-shared-color-row="used"] [data-shared-color-edit="hsl-h"]',
+  ]) {
+    const target = page.locator(selector);
+    await target.click();
+    await target.evaluate((element) => element.click());
+    assert.equal(
+      await keyboardName.evaluate((element) => element === document.activeElement),
+      true,
+    );
+    assert.equal(await keyboardName.inputValue(), '   ');
+    assert.equal(
+      await page.locator('[data-workspace-panel="colors"]').getAttribute('aria-expanded'),
+      'true',
+    );
+    assert.equal(await page.locator('.canvas-wrap').getAttribute('data-viewer-mode'), 'artwork');
+    assert.deepEqual(await snapshot(), beforeKeyboard);
+    assert.deepEqual(await state(), keyboardState);
+    assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  }
   await page.keyboard.press('Escape');
   assert.equal(
     await page.locator('[data-workspace-panel="colors"]').getAttribute('aria-expanded'),
@@ -255,6 +280,26 @@ try {
   assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
   await colors();
   assert.equal(await keyboardName.inputValue(), 'Brand');
+  for (const [selector, synthetic] of [
+    ['[data-shared-color-close]', false],
+    ['[data-workspace-panel="colors"]', false],
+    ['[data-shared-color-close]', true],
+    ['[data-workspace-panel="colors"]', true],
+  ]) {
+    await keyboardName.focus();
+    await keyboardName.fill('   ');
+    if (synthetic) await page.locator(selector).evaluate((element) => element.click());
+    else await page.locator(selector).click();
+    assert.equal(
+      await page.locator('[data-workspace-panel="colors"]').getAttribute('aria-expanded'),
+      'false',
+    );
+    assert.deepEqual(await snapshot(), beforeKeyboard);
+    assert.deepEqual(await state(), keyboardState);
+    assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+    await colors();
+    assert.equal(await keyboardName.inputValue(), 'Brand');
+  }
   await keyboardName.focus();
   await keyboardName.fill('Keyboard');
   await page.keyboard.press('Tab');
