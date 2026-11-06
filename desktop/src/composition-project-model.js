@@ -1,6 +1,10 @@
 import { validateColorSlots, validateColorSlotBinding } from './color-slots.js';
 import {
   ARTWORK_REFERENCE_SCHEMA_VERSION,
+  COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
+  hasCompositionPropertyReferenceSyntax,
+  nodesHaveCompositionPropertyReferenceSyntax,
+  allExpressionParameters,
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
   CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
@@ -232,7 +236,7 @@ function assertCompositionProjectFields(project) {
           for (const q of expressionParameters(node, { includeUnsupported: true })) {
             if (!hasArtworkReferenceSyntax(q.expression)) continue;
             for (const ref of qualifiedReferencesForCodec(q)) {
-              if (!ref.layerId) continue;
+              if (!ref.layerId || ref.compositionId) continue;
               if (ref.layerId === layer.id)
                 throw Error('Artwork reference requires a different layer');
               if (layerOwners.has(ref.layerId) && layerOwners.get(ref.layerId) !== composition.id)
@@ -248,6 +252,78 @@ function assertCompositionProjectFields(project) {
     )
       throw Error('Node presets do not support Artwork references');
   }
+  if (project.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION) {
+    const compositions = new Map(project.compositions.map((c) => [c.id, c]));
+    const layerOwners = new Map(
+      project.compositions.flatMap((c) => c.layers.map((l) => [l.id, c.id])),
+    );
+    const nodeOwners = new Map(
+      project.compositions.flatMap((c) =>
+        c.layers.flatMap((l) => l.nodes.map((n) => [n.id, l.id])),
+      ),
+    );
+    for (const composition of project.compositions)
+      for (const layer of composition.layers)
+        for (const node of layer.nodes)
+          for (const q of allExpressionParameters(node)) {
+            if (!hasCompositionPropertyReferenceSyntax(q.expression)) continue;
+            if (!['Scalar', 'Color'].includes(q.type))
+              throw Error('Composition references require a Scalar expression');
+            for (const ref of qualifiedReferencesForCodec(q)) {
+              if (!ref.compositionId) continue;
+              if (ref.type !== 'Scalar' || ref.component !== undefined)
+                throw Error('Composition references require a Scalar property');
+              if (ref.compositionId === composition.id)
+                throw Error('Composition reference requires a different outer Composition');
+              if (
+                layerOwners.has(ref.layerId) &&
+                layerOwners.get(ref.layerId) !== ref.compositionId
+              )
+                throw Error('Composition reference Artwork is in a different Composition');
+              if (nodeOwners.has(ref.nodeId) && nodeOwners.get(ref.nodeId) !== ref.layerId)
+                throw Error('Composition reference node is in a different Artwork');
+              const target = compositions
+                .get(ref.compositionId)
+                ?.layers.find((l) => l.id === ref.layerId);
+              if (
+                target &&
+                !target.nodes.some((n) => n.id === ref.nodeId) &&
+                nodeOwners.has(ref.nodeId)
+              )
+                throw Error('Composition reference node is in a different Artwork');
+            }
+          }
+    if (
+      (project.nodePresets || []).some((preset) =>
+        nodesHaveCompositionPropertyReferenceSyntax(preset.nodes || []),
+      )
+    )
+      throw Error('Node presets do not support Composition property references');
+  }
+}
+
+export function assertNoLegacyCompositionPropertyReferencePromotion(project) {
+  if (project.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION) return;
+  if (
+    project.compositions.some((composition) =>
+      composition.layers.some((layer) => nodesHaveCompositionPropertyReferenceSyntax(layer.nodes)),
+    ) ||
+    (project.nodePresets || []).some((preset) =>
+      nodesHaveCompositionPropertyReferenceSyntax(preset.nodes || []),
+    )
+  )
+    throw Error('Legacy opaque Composition reference text cannot be promoted to schemaVersion 63');
+}
+
+export function assertNoLegacyCompositionPropertyDocumentPromotion(document) {
+  if (document.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION) return;
+  if (
+    document.layers.some((layer) => nodesHaveCompositionPropertyReferenceSyntax(layer.nodes)) ||
+    (document.nodePresets || []).some((preset) =>
+      nodesHaveCompositionPropertyReferenceSyntax(preset.nodes || []),
+    )
+  )
+    throw Error('Legacy opaque Composition reference text cannot be promoted to schemaVersion 63');
 }
 
 // Version promotion must not turn previously opaque wrapper text into a live
@@ -443,6 +519,10 @@ export function applyActiveCompositionDocument(project, compositionId, editedDoc
   delete projectFields.compositions;
   Object.assign(projectFields, editedProjectFields);
   projectFields.schemaVersion = Math.max(base.schemaVersion, edited.schemaVersion);
+  if (projectFields.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION) {
+    assertNoLegacyCompositionPropertyReferencePromotion(base);
+    assertNoLegacyCompositionPropertyDocumentPromotion(edited);
+  }
   if (projectFields.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION) {
     assertNoLegacyArtworkReferencePromotion(base);
     assertNoLegacyArtworkDocumentPromotion(edited);

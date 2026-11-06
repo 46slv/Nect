@@ -2,6 +2,8 @@ import { characterPositionStatus, uid, validate } from './core.js';
 import {
   artworkReferencesInLayers,
   ARTWORK_REFERENCE_SCHEMA_VERSION,
+  COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
+  nodesHaveCompositionPropertyReferenceSyntax,
   danglingExpressionIds,
   remapExpressionReferences,
   remapArtworkExpressionReferences,
@@ -43,6 +45,15 @@ export function resolveArtworkDuplicateTarget(doc, layerId, options = {}, moveme
     const layer = doc.layers.find((layer) => layer.id === layerId),
       route = new Set(move.target.route.map(({ nodeId }) => nodeId));
     const selected = new Set(options.selectedLayerIds || [layerId]);
+    if (
+      doc.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
+      layer &&
+      nodesHaveCompositionPropertyReferenceSyntax(layer.nodes)
+    )
+      return unsupported(
+        'composition-property-reference',
+        'Duplicating artwork with Composition property references is not supported.',
+      );
     if (
       doc.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION &&
       layer &&
@@ -267,6 +278,11 @@ export function duplicateArtworkLayer(doc, layerId, options) {
 export function duplicateLayerGeneric(doc, layerId) {
   const source = doc?.layers?.find((layer) => layer.id === layerId);
   if (!source) throw Error('Layer is unavailable; select it again');
+  if (
+    doc.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
+    nodesHaveCompositionPropertyReferenceSyntax(source.nodes)
+  )
+    throw Error('Duplicating artwork with Composition property references is not supported');
   if (source.locked) throw Error('Unlock this layer before duplicating it.');
   if (doc.layers.length >= 100) throw Error('Duplicate requires fewer than 100 layers.');
   // Documents are JSON trees, but programmatic clients can share descriptor

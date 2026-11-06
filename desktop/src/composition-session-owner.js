@@ -2,6 +2,8 @@ import {
   validateCompositionProject,
   assertFreshCompositionEntityIds,
   assertNoLegacyArtworkReferencePromotion,
+  assertNoLegacyCompositionPropertyReferencePromotion,
+  assertNoLegacyCompositionPropertyDocumentPromotion,
   assertNoLegacyHandleReferencePromotion,
 } from './composition-project-model.js';
 import { keyColorRecipeInitializationSlotIds } from './key-color-recipe-document.js';
@@ -9,6 +11,7 @@ import { assertColorSlotUnused } from './color-slots.js';
 import { prepareProjectCompositionsImport } from './composition-project-import.js';
 import {
   ARTWORK_REFERENCE_SCHEMA_VERSION,
+  COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
   CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
@@ -70,6 +73,10 @@ function documentFor(project, compositionId, cloneDocument) {
 function projectWithDocument(project, compositionId, document) {
   const { width, height, layers, editor, ...shared } = document;
   shared.schemaVersion = Math.max(project.schemaVersion, shared.schemaVersion);
+  if (shared.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION) {
+    assertNoLegacyCompositionPropertyReferencePromotion(project);
+    assertNoLegacyCompositionPropertyDocumentPromotion(document);
+  }
   if (shared.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
     assertNoLegacyArtworkReferencePromotion(project);
   if (shared.schemaVersion >= CURVE_HANDLE_REFERENCE_SCHEMA_VERSION)
@@ -124,6 +131,8 @@ export class CompositionSessionOwner {
   #sameDocument;
   #uid;
   #validateDocument;
+  #bindProjectDocumentContext;
+  #assertProjectReferenceTransition;
   #fonts;
   #busy;
   #onCommitted;
@@ -141,6 +150,8 @@ export class CompositionSessionOwner {
       sameDocument,
       uid,
       validateDocument,
+      bindProjectDocumentContext = (doc) => doc,
+      assertProjectReferenceTransition = () => {},
       activeCompositionId,
       fonts = () => ({}),
       busy = () => false,
@@ -165,6 +176,9 @@ export class CompositionSessionOwner {
     this.#sameDocument = sameDocument;
     this.#uid = uid;
     this.#validateDocument = validateDocument;
+    this.#bindProjectDocumentContext = bindProjectDocumentContext;
+    this.#assertProjectReferenceTransition = assertProjectReferenceTransition;
+    this.#assertProjectReferenceTransition(project, project, fonts());
     this.#history = new this.#History(project);
     this.#fonts = fonts;
     this.#busy = busy;
@@ -180,7 +194,11 @@ export class CompositionSessionOwner {
   }
 
   #documentFor(project, compositionId) {
-    return documentFor(project, compositionId, this.#cloneDocument);
+    return this.#bindProjectDocumentContext(
+      documentFor(project, compositionId, this.#cloneDocument),
+      project,
+      compositionId,
+    );
   }
 
   #documentView(project, compositionId) {
@@ -241,7 +259,8 @@ export class CompositionSessionOwner {
         assertProjectIdentityChangeSafe(this.#history.doc, compositionId, before, candidate);
         // Validate the whole projection before the inner Session commits;
         // a new identity or reference can affect an inactive Composition.
-        projectWithDocument(this.#history.doc, compositionId, candidate);
+        const next = projectWithDocument(this.#history.doc, compositionId, candidate);
+        this.#assertProjectReferenceTransition(this.#history.doc, next, this.#fonts());
       },
     });
   }
@@ -282,6 +301,7 @@ export class CompositionSessionOwner {
 
   #commitProject(candidate, activeCompositionId = this.#activeCompositionId, operation, precommit) {
     validateCompositionProject(candidate);
+    this.#assertProjectReferenceTransition(this.#history.doc, candidate, this.#fonts());
     if (!candidate.compositions.some((entry) => entry.id === activeCompositionId))
       throw Error('Unknown active Composition ID');
     if (this.#sameDocument(this.#history.doc, candidate)) {
@@ -307,6 +327,7 @@ export class CompositionSessionOwner {
     });
     this.#activeCompositionId = activeCompositionId;
     this.#session = nextSession;
+    this.#session.setProjectContext?.(this.#history.doc, activeCompositionId);
     this.#notifyCommitted(operation);
     return true;
   }
@@ -327,6 +348,7 @@ export class CompositionSessionOwner {
     this.#history[direction]();
     this.#activeCompositionId = activeCompositionId;
     this.#session = nextSession;
+    this.#session.setProjectContext?.(this.#history.doc, activeCompositionId);
     this.#notifyCommitted(direction);
     return { ...this.state, changed: true, projectRevision: this.#history.revision };
   }
@@ -514,6 +536,7 @@ export class CompositionSessionOwner {
         this.#applyProjectEdit((history) => {
           replaceRecord(history, candidate);
         });
+        this.#session.setProjectContext?.(this.#history.doc, prepared.compositionId);
         this.#notifyCommitted('edit');
       }
       this.#prepared = null;
@@ -623,6 +646,7 @@ export class CompositionSessionOwner {
         this.#applyProjectEdit((history) => {
           replaceRecord(history, candidate);
         });
+        this.#session.setProjectContext?.(this.#history.doc, compositionId);
         this.#notifyCommitted('edit');
         return { ...result, projectRevision: this.#history.revision };
       }

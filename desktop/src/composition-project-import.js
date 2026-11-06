@@ -14,6 +14,8 @@ import {
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
   CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
   ARTWORK_REFERENCE_SCHEMA_VERSION,
+  COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
+  nodesHaveCompositionPropertyReferenceSyntax,
   nodesCurvePointReferenceVersion,
   nodesHaveArtworkReferences,
   nodesHaveArtworkReferenceSyntax,
@@ -57,6 +59,19 @@ export function prepareProjectCompositionsImport(
     });
   const sourceLayers = sourceCompositions.flatMap((composition) => composition.layers);
   const destinationLayers = current.compositions.flatMap((composition) => composition.layers);
+  const hasCompositionSyntax = sourceLayers.some((layer) =>
+    nodesHaveCompositionPropertyReferenceSyntax(layer.nodes),
+  );
+  if (
+    hasCompositionSyntax &&
+    sourceProject.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION
+  )
+    throw Error('Import of Composition property references is not supported');
+  if (
+    hasCompositionSyntax &&
+    current.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION
+  )
+    throw Error('Legacy opaque Composition reference text cannot be promoted to schemaVersion 63');
   const importsArtworkReferences =
     sourceProject.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION &&
     sourceLayers.some((layer) => nodesHaveArtworkReferences(layer.nodes));
@@ -169,7 +184,7 @@ export function prepareProjectCompositionsImport(
         nodesCurvePointReferenceVersion(layer.nodes, sourceProject.schemaVersion),
       );
   if (importsArtworkReferences) referenceVersion = ARTWORK_REFERENCE_SCHEMA_VERSION;
-  let colorSourceVersion = sourceProject.schemaVersion;
+  let colorSourceVersion = Math.min(sourceProject.schemaVersion, ARTWORK_REFERENCE_SCHEMA_VERSION);
   if (
     colorSourceVersion === ARTWORK_REFERENCE_SCHEMA_VERSION &&
     referenceVersion < ARTWORK_REFERENCE_SCHEMA_VERSION
