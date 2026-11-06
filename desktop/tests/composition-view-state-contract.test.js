@@ -6,12 +6,19 @@ const source = await readFile(new URL('../src/main.js', import.meta.url), 'utf8'
   css = await readFile(new URL('../src/style.css', import.meta.url), 'utf8');
 
 test('Composition activation saves and restores window state without a document command', () => {
-  const start = source.indexOf('function switchActiveComposition(compositionId) {'),
-    end = source.indexOf('function addComposition()', start),
+  const start = source.indexOf('function finishCompositionSwitch('),
+    end = source.indexOf('function renderCompositionTablist()', start),
     flow = source.slice(start, end);
   assert.ok(start >= 0 && end > start);
   assert.match(flow, /saveCompositionViewState\(\)/);
-  assert.match(flow, /session\.switchComposition\(compositionId\)/);
+  assert.match(
+    flow,
+    /session\.switchComposition\(compositionId,\s*\{\s*beforeCommit:\s*beforeCompositionSwitch\s*\}\)/,
+  );
+  assert.match(
+    flow,
+    /owner\.commitPreparedCompositionSwitch\(token,\s*\{\s*beforeCommit:\s*beforeCompositionSwitch\s*\}\)/,
+  );
   assert.match(flow, /compositionViewStates\.prune\(project\.compositions\)/);
   assert.match(flow, /restoreCompositionViewState\(\)/);
   assert.match(flow, /render\(false, null, graphScroll\)/);
@@ -60,7 +67,7 @@ test('Composition tablist exposes accessible selection, keyboard activation, and
     /case 'ArrowRight':[\s\S]*?case 'ArrowLeft':[\s\S]*?case 'Home':[\s\S]*?case 'End':/,
   );
   assert.match(source, /case 'Enter':[\s\S]*?case ' '/);
-  assert.match(source, /function switchActiveComposition\(compositionId\)/);
+  assert.match(source, /activateCompositionTab\(tab\.dataset\.activeComposition\)/);
   const tabStyles = css.match(/\.composition-tabs\s*\{([^}]*)\}/)?.[1],
     tabButtonStyles = css.match(/\.composition-tab\s*\{([^}]*)\}/)?.[1];
   assert.ok(tabStyles);

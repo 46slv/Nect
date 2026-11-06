@@ -115,6 +115,7 @@ export const browserTestFiles = Object.freeze([
   'tests/boolean-artwork-move.e2e.js',
   'tests/composition-rename.e2e.js',
   'tests/composition-delete.e2e.js',
+  'tests/variable-composition-switch.e2e.js',
   'tests/close-recovery-race.e2e.js',
 ]);
 

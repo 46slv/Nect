@@ -1257,8 +1257,10 @@ const fontsFromBridge = (bridge) => ({
 const activeFonts = () => fontsFromBridge(variableBridge);
 function cancelVariableAction() {
   variableAction?.controller.abort();
-  variableAction?.owner.cancelPrepared(variableAction.bridge);
-  if (variableAction?.opening) variableAction.bridge.dispose();
+  if (variableAction?.switching)
+    variableAction.owner.cancelPreparedCompositionSwitch(variableAction.bridge);
+  else variableAction?.owner.cancelPrepared(variableAction.bridge);
+  if (variableAction?.opening || variableAction?.ownedBridge) variableAction.bridge.dispose();
   variableAction = null;
   variablePreviewFonts = null;
   fontPreview = null;
@@ -1386,10 +1388,11 @@ document.addEventListener(
     if (event.key !== 'Escape' || (!variableAction && !fontRequest?.variable)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
+    const switching = variableAction?.switching;
     cancelVariableAction();
     if (fontRequest?.variable) fontRequest = null;
     notify('Variable font preparation cancelled; current document preserved');
-    render();
+    if (!switching) render();
   },
   true,
 );
@@ -7845,27 +7848,55 @@ function sameSourceRoot(a, b) {
     a.port === b.port
   );
 }
-function sourceNavigationBusy(allowedDialog = null) {
-  // Conservatively require leaving an editor control explicitly, even for a clean value.
-  // This runs on pointerdown, BEFORE a button could blur/commit that control.
+function controlHasUncommittedValue(control) {
+  if (hslPicker.element?.contains(control)) return hslPicker.hasDraft;
+  if (control.matches('select')) {
+    const options = [...control.options];
+    if (control.multiple)
+      return options.some((option) => option.selected !== option.hasAttribute('selected'));
+    const initial =
+      options.filter((option) => option.hasAttribute('selected')).at(-1) ||
+      options.find((option) => !option.disabled && !option.parentElement?.disabled);
+    return control.value !== (initial?.value ?? '');
+  }
+  if (control.matches('input[type="checkbox"],input[type="radio"]'))
+    return control.checked !== control.hasAttribute('checked');
+  if (control.matches('input,textarea'))
+    return control.value !== control.defaultValue || !!control.validity?.badInput;
+  return true;
+}
+function sourceNavigationBusy(
+  allowedDialog = null,
+  allowedAction = null,
+  allowCleanControl = false,
+) {
+  // Source navigation normally requires leaving even a clean control. Tab switching
+  // may leave a clean control, but must check dirty values before pointerdown blurs it.
+  const activeControl = editingControl(document.activeElement);
   return !!(
     navigationBusy() ||
     penDraft ||
     nameEdit ||
     canvasTextEdit ||
     editorPicker ||
-    variableAction ||
+    (variableAction && variableAction !== allowedAction) ||
     session.hasGesture ||
     session.hasTextComposition ||
     layoutDraft ||
     gridOpacityDraft ||
     [...document.querySelectorAll('dialog[open]')].some((dialog) => dialog !== allowedDialog) ||
-    (editingControl(document.activeElement) && !allowedDialog?.contains(document.activeElement)) ||
+    (activeControl &&
+      !allowedDialog?.contains(document.activeElement) &&
+      (!allowCleanControl || controlHasUncommittedValue(activeControl))) ||
     [...textDrafts.values()].some((draft) => draft.state.changed)
   );
 }
 
-function colorUseNavigationBusy(allowedDialog = null) {
+function colorUseNavigationBusy(
+  allowedDialog = null,
+  allowedAction = null,
+  allowCleanControl = false,
+) {
   const pendingRemaps = new Set(
     [...remapBatches].filter(([, batch]) => batch.selected.size).map(([id]) => id),
   );
@@ -7875,9 +7906,13 @@ function colorUseNavigationBusy(allowedDialog = null) {
       layer.nodes.some((node) => node.type === 'Path Remap' && pendingRemaps.has(node.id)),
     );
   return !!(
-    sourceNavigationBusy(allowedDialog) ||
+    sourceNavigationBusy(allowedDialog, allowedAction, allowCleanControl) ||
     documents.hasDraft() ||
     sharedColors.editing ||
+    (hslPicker.element && (!allowCleanControl || hslPicker.hasDraft)) ||
+    (pointSpacingDraft &&
+      current().nodes.some((node) => node.id === pointSpacingDraft.nodeId) &&
+      pointAlignmentActions.get(pointSpacingDraft.nodeId)?.token === pointSpacingDraft.token) ||
     session.hasTextDrafts ||
     hasOwnedRemap
   );
@@ -7906,9 +7941,11 @@ function openDirectColorUses(slotId, anchor) {
     pageLabel = dialog.querySelector('[data-color-uses-page]'),
     paging = dialog.querySelector('.shared-color-uses-paging');
   let page = 0,
-    navigating = false;
+    navigating = null;
   const pageSize = 100;
-  function goTo(use) {
+  async function goTo(use) {
+    if (navigating) return;
+    let request;
     try {
       if (
         session !== owner ||
@@ -7919,20 +7956,59 @@ function openDirectColorUses(slotId, anchor) {
         colorUseNavigationBusy(dialog)
       )
         throw Error('The project or current edit changed. Close and find uses again.');
-      const currentProject = session.projectSnapshot(),
-        composition = currentProject.compositions.find((entry) => entry.id === use.compositionId),
-        layer = composition?.layers.find((entry) => entry.id === use.layerId),
-        node = layer?.nodes.find((entry) => entry.id === use.nodeId),
-        parameter = node?.params?.[use.key];
+      const target = () => {
+        const currentProject = session.projectSnapshot(),
+          composition = currentProject.compositions.find((entry) => entry.id === use.compositionId),
+          layer = composition?.layers.find((entry) => entry.id === use.layerId),
+          node = layer?.nodes.find((entry) => entry.id === use.nodeId),
+          parameter = node?.params?.[use.key];
+        if (
+          !currentProject.colorSlots?.some((entry) => entry.id === slotId) ||
+          parameter?.type !== 'Color' ||
+          parameter.colorSlotId !== slotId
+        )
+          throw Error('This direct use is no longer available. Close and find uses again.');
+        return { composition, layer, node };
+      };
+      let { composition, layer, node } = target();
+      const view = () =>
+          JSON.stringify([
+            activeLayer,
+            selected,
+            [...selection],
+            artworkTarget,
+            [...artworkSelection],
+          ]),
+        originalView = view();
+      request = { interactionEpoch: compositionInteractionEpoch };
+      navigating = request;
+      if (session.activeCompositionId !== composition.id) {
+        const switching = switchActiveComposition(composition.id, {
+          allowedDialog: dialog,
+          isCurrent: () => navigating === request && dialog.open && view() === originalView,
+        });
+        if (switching && typeof switching.then === 'function') {
+          request.action = variableAction;
+          if (!(await switching)) {
+            if (navigating === request) navigating = null;
+            return;
+          }
+        }
+      }
       if (
-        !currentProject.colorSlots?.some((entry) => entry.id === slotId) ||
-        parameter?.type !== 'Color' ||
-        parameter.colorSlotId !== slotId
+        navigating !== request ||
+        !dialog.open ||
+        session !== owner ||
+        documents.generation !== generation ||
+        session.projectRevision !== revision ||
+        compositionInteractionEpoch !== request.interactionEpoch ||
+        session.activeCompositionId !== use.compositionId ||
+        colorUseNavigationBusy(dialog)
       )
-        throw Error('This direct use is no longer available. Close and find uses again.');
+        throw Error('The project or current edit changed. Close and find uses again.');
+      ({ composition, layer, node } = target());
       navigating = true;
       dialog.close('selected');
-      if (session.activeCompositionId !== composition.id) switchActiveComposition(composition.id);
       activeLayer = layer.id;
       selected = node.id;
       selection = new Set([node.id]);
@@ -7944,15 +8020,20 @@ function openDirectColorUses(slotId, anchor) {
       render();
       if (workspacePanels.active.right !== 'inspector')
         workspacePanels.select('inspector', { focus: false });
-      revealNode(node.id);
+      const revealEpoch = compositionInteractionEpoch;
       requestAnimationFrame(() => {
         if (
           session !== owner ||
+          documents.generation !== generation ||
           session.projectRevision !== revision ||
           session.activeCompositionId !== composition.id ||
-          selected !== node.id
+          selected !== node.id ||
+          compositionInteractionEpoch !== revealEpoch
         )
           return;
+        [...document.querySelectorAll('.graph .node')]
+          .find((entry) => entry.dataset.id === node.id)
+          ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         const field = [...app.querySelectorAll('.inspector .field[data-node][data-key]')].find(
           (entry) => entry.dataset.node === node.id && entry.dataset.key === use.key,
         );
@@ -7975,6 +8056,7 @@ function openDirectColorUses(slotId, anchor) {
         (focusTarget || field).focus({ preventScroll: true });
       });
     } catch (error) {
+      if (navigating === request) navigating = null;
       if (dialog.open) status.textContent = error.message;
       else notify(error.message, true);
     }
@@ -8035,7 +8117,11 @@ function openDirectColorUses(slotId, anchor) {
     .querySelector('[data-color-uses-close]')
     .addEventListener('click', () => dialog.close('cancel'));
   dialog.addEventListener('close', () => {
-    if (!navigating && anchor?.isConnected) anchor.focus({ preventScroll: true });
+    const completed = navigating === true,
+      action = navigating?.action;
+    navigating = null;
+    if (action && variableAction === action) cancelVariableAction();
+    if (!completed && anchor?.isConnected) anchor.focus({ preventScroll: true });
   });
   drawPage();
   showEditorDialog(dialog);
@@ -9609,21 +9695,95 @@ function restoreCompositionViewState() {
   viewerState = state.viewerState;
   return state.graphScroll;
 }
-function switchActiveComposition(compositionId) {
-  if (variableAction) throw Error('Finish or cancel variable font preparation first');
-  if (documents.hasDraft()) throw Error('Finish or cancel the active edit first');
-  if (compositionId === session.activeCompositionId) return false;
-  const project = session.projectSnapshot();
-  if (!project.compositions.some((composition) => composition.id === compositionId))
-    throw Error('Unknown active Composition ID');
-  saveCompositionViewState();
-  resetTransient();
-  if (!session.switchComposition(compositionId)) return false;
+function finishCompositionSwitch(project) {
   compositionViewStates.prune(project.compositions);
   const graphScroll = restoreCompositionViewState();
   render(false, null, graphScroll);
   updateDocumentStatus();
   return true;
+}
+function beforeCompositionSwitch() {
+  saveCompositionViewState();
+  resetTransient();
+}
+let compositionInteractionEpoch = 0;
+for (const type of ['pointerdown', 'click', 'keydown', 'input', 'focusin'])
+  document.addEventListener(type, () => compositionInteractionEpoch++, true);
+
+function compositionSwitchBusy(allowedDialog = null, allowedAction = null) {
+  return !!(
+    compositionActionBusy(allowedDialog, allowedAction, true) ||
+    colorUseNavigationBusy(allowedDialog, allowedAction, true) ||
+    editorPicker ||
+    fontRequest ||
+    documents.saving ||
+    documents.transitioning
+  );
+}
+function switchActiveComposition(
+  compositionId,
+  { allowedDialog = null, isCurrent = () => true } = {},
+) {
+  if (compositionSwitchBusy(allowedDialog))
+    throw Error('Finish or cancel the current edit before changing compositions');
+  if (compositionId === session.activeCompositionId) return false;
+  const project = session.projectSnapshot();
+  if (!project.compositions.some((composition) => composition.id === compositionId))
+    throw Error('Unknown active Composition ID');
+  let switched;
+  try {
+    switched = session.switchComposition(compositionId, { beforeCommit: beforeCompositionSwitch });
+  } catch (error) {
+    if (error.code !== 'PREPARATION_REQUIRED') throw error;
+    return prepareCompositionSwitch(compositionId, project, { allowedDialog, isCurrent });
+  }
+  return switched ? finishCompositionSwitch(project) : false;
+}
+async function prepareCompositionSwitch(compositionId, project, { allowedDialog, isCurrent }) {
+  const owner = session,
+    bridge = variableBridge || createVariableDocumentPreparer(),
+    action = {
+      owner,
+      bridge,
+      switching: true,
+      ownedBridge: !variableBridge,
+      revision: owner.state.expectedRevision,
+      projectRevision: owner.projectRevision,
+      sourceId: owner.activeCompositionId,
+      generation: documents.generation,
+      operation: documents.operation,
+      interactionEpoch: compositionInteractionEpoch,
+      controller: new AbortController(),
+    };
+  variableAction = action;
+  notify('Preparing variable text… Escape cancels');
+  try {
+    const token = await owner.prepareCompositionSwitch(compositionId, bridge, {
+      signal: action.controller.signal,
+    });
+    if (variableAction !== action) return false;
+    if (
+      session !== owner ||
+      owner.state.expectedRevision !== action.revision ||
+      owner.projectRevision !== action.projectRevision ||
+      owner.activeCompositionId !== action.sourceId ||
+      documents.generation !== action.generation ||
+      documents.operation !== action.operation ||
+      compositionInteractionEpoch !== action.interactionEpoch ||
+      !isCurrent() ||
+      compositionSwitchBusy(allowedDialog, action)
+    )
+      throw Error('Document changed while preparing; select the Composition again');
+    owner.commitPreparedCompositionSwitch(token, { beforeCommit: beforeCompositionSwitch });
+    variableBridge = bridge;
+    variableAction = null;
+    notify('');
+    return finishCompositionSwitch(project);
+  } catch (error) {
+    if (variableAction !== action) return false;
+    cancelVariableAction();
+    throw Error(variableError(error));
+  }
 }
 function renderCompositionTablist() {
   const compositions = session.projectSnapshot().compositions,
@@ -9674,15 +9834,34 @@ function focusCompositionTab(compositionId) {
   for (const item of tabs) item.tabIndex = item === tab ? 0 : -1;
   tab.focus();
 }
-function activateCompositionTab(compositionId) {
+async function activateCompositionTab(compositionId) {
+  const initialFocus = document.activeElement,
+    initialInteractionEpoch = compositionInteractionEpoch;
+  const focusWasTab = initialFocus?.matches?.('[role="tab"][data-active-composition]');
   try {
-    switchActiveComposition(compositionId);
+    if (!(await switchActiveComposition(compositionId))) return;
+    if (
+      focusWasTab &&
+      compositionInteractionEpoch === initialInteractionEpoch &&
+      (document.activeElement === initialFocus || document.activeElement === document.body)
+    )
+      focusCompositionTab(session.activeCompositionId);
   } catch (error) {
     notify(error.message, true);
-    render();
   }
-  focusCompositionTab(session.activeCompositionId);
 }
+for (const type of ['pointerdown', 'click'])
+  app.addEventListener(
+    type,
+    (event) => {
+      if (!event.target.closest?.('[role="tab"][data-active-composition]')) return;
+      if (!compositionSwitchBusy()) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      notify('Finish or cancel the current edit before changing compositions', true);
+    },
+    true,
+  );
 app.addEventListener('keydown', (event) => {
   const tab = event.target.closest?.('[role="tab"][data-active-composition]');
   if (!tab || event.altKey || event.ctrlKey || event.metaKey) return;
@@ -9735,12 +9914,16 @@ function addComposition() {
   render(false, null, graphScroll);
   updateDocumentStatus();
 }
-function compositionActionBusy(allowedDialog = null) {
+function compositionActionBusy(
+  allowedDialog = null,
+  allowedAction = null,
+  allowCleanControl = false,
+) {
   const pointNode =
       pointDeltaDraft && current().nodes.find((item) => item.id === pointDeltaDraft.nodeId),
     selectedPoints = pointNode ? selectedPointIds(pointNode) : [];
   return !!(
-    sourceNavigationBusy(allowedDialog) ||
+    sourceNavigationBusy(allowedDialog, allowedAction, allowCleanControl) ||
     documents.hasDraft() ||
     sharedColors.editing ||
     (selectedPoints.length &&
@@ -9812,7 +9995,8 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
   input.value = target.name;
   const initialInputValue = input.value;
   let composingName = false,
-    committed = false;
+    committed = false,
+    settled = false;
   dialog.addEventListener('compositionstart', () => {
     composingName = true;
   });
@@ -9820,7 +10004,8 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
     composingName = false;
   });
   dialog.addEventListener('cancel', (event) => {
-    if (composingName) event.preventDefault();
+    event.preventDefault();
+    if (!composingName) closeDialog();
   });
   dialog.addEventListener('keydown', (event) => {
     if (
@@ -9833,7 +10018,7 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
     status.textContent = '';
   });
   dialog.querySelector('[data-cancel]').addEventListener('click', () => {
-    if (!composingName) dialog.close();
+    if (!composingName) closeDialog();
   });
   dialog.querySelector('form').addEventListener('submit', (event) => {
     event.preventDefault();
@@ -9857,7 +10042,7 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
       // Text inputs can sanitize an existing CR/LF name for display. Treat the
       // unchanged displayed value as a no-op without rewriting the saved name.
       if (name === initialInputValue) {
-        dialog.close();
+        closeDialog();
         return;
       }
       const priorUI = selectionSnapshot(true);
@@ -9876,12 +10061,14 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
         selectionHistory.set(history.past.at(-1), priorUI);
         selectionHistory.set(history.doc, selectionSnapshot(true));
       }
-      dialog.close();
+      closeDialog();
     } catch (error) {
       status.textContent = error.message;
     }
   });
-  dialog.addEventListener('close', () => {
+  function finishDialog() {
+    if (settled) return;
+    settled = true;
     dialog.remove();
     if (committed) {
       render();
@@ -9902,7 +10089,14 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
     );
     if (tab) focusCompositionTab(compositionId);
     else app.querySelector('header .command-menu > summary')?.focus({ preventScroll: true });
-  });
+  }
+  function closeDialog() {
+    dialog.close();
+    // Native close events are queued. Finish now so a later close task cannot
+    // rerender or restore focus over the user's next keyboard/pointer action.
+    finishDialog();
+  }
+  dialog.addEventListener('close', finishDialog);
   document.body.append(dialog);
   dialog.showModal();
   input.focus();
