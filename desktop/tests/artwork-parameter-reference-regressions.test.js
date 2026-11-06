@@ -13,6 +13,7 @@ import {
   previewColorExpression,
   expressionReferenceTargetsForDocument,
   CommandSession,
+  nodeDependencies,
   parameter,
   booleanPendingInputKey,
 } from '../src/core.js';
@@ -47,6 +48,79 @@ function fixture() {
 }
 const send = (session, type, payload = {}) => session.dispatch({ ...session.state, type, payload });
 const qualified = 'ref(artwork, "art-b", "driver", "value")';
+
+function localWireMetadataFixture(cycle = false) {
+  const doc = blankDocument(),
+    layer = doc.layers[0],
+    a = node('Value'),
+    b = node('Value');
+  layer.id = 'local-artwork';
+  a.id = 'wire-a';
+  b.id = 'wire-b';
+  a.params.value.value = 7;
+  b.params.value.source = a.id;
+  a.params.value.layerId = 'extension-metadata';
+  b.params.value.layerId = 'extension-metadata';
+  if (cycle) a.params.value.source = b.id;
+  layer.nodes.push(a, b);
+  return { doc, layer, a, b };
+}
+
+test('local wire metadata cannot hide a cycle during validation or reopen', () => {
+  const f = localWireMetadataFixture(true);
+  assert.throws(() => validate(f.doc), /cycle/i);
+  assert.throws(() => new CommandSession(f.doc), /cycle/i);
+  assert.throws(() => deserialize(JSON.stringify(f.doc)), /cycle/i);
+});
+
+for (const kind of ['document', 'composition']) {
+  test(`${kind} rejects a metadata-bearing local wire cycle without consuming Redo`, () => {
+    const f = localWireMetadataFixture();
+    const session =
+      kind === 'document'
+        ? new CommandSession(f.doc)
+        : createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(f.doc));
+    send(session, 'set-document-settings', { key: 'width', value: f.doc.width + 1 });
+    send(session, 'undo');
+    const before = session.snapshot(),
+      state = session.state,
+      future = session.historyView.future;
+    assert.throws(
+      () =>
+        send(session, 'connect', {
+          layerId: f.layer.id,
+          nodeId: f.a.id,
+          key: 'value',
+          sourceId: f.b.id,
+        }),
+      /cycle/i,
+    );
+    assert.deepEqual(session.snapshot(), before);
+    assert.deepEqual(session.state, state);
+    assert.deepEqual(session.historyView.future, future);
+    send(session, 'redo');
+    assert.equal(session.snapshot().width, f.doc.width + 1);
+  });
+}
+
+test('local wire extension metadata is not interpreted as an Artwork address', () => {
+  const f = localWireMetadataFixture();
+  f.b.params.value.parameterKey = 'value';
+  assert.equal(
+    nodeDependencies(f.b).find((dep) => dep.source === f.a.id),
+    f.b.params.value,
+  );
+  const saved = serialize(f.doc),
+    doc = deserialize(saved),
+    layer = doc.layers[0];
+  assert.equal(evaluate(layer, {}, {}, doc).run(f.b.id), 7);
+  assert.equal(layer.nodes.find((n) => n.id === f.b.id).params.value.layerId, 'extension-metadata');
+  const session = new CommandSession(doc);
+  send(session, 'set-parameter', { layerId: layer.id, nodeId: f.a.id, key: 'value', value: 9 });
+  const edited = session.snapshot();
+  assert.equal(evaluate(edited.layers[0], {}, {}, edited).run(f.b.id), 9);
+});
+
 function testFont() {
   const bytes = fs.readFileSync(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url));
   return parseFont(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));

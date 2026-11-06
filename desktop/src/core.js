@@ -1011,27 +1011,35 @@ function referenceDependency(n) {
     ? { source: n.reference.nodeId, sourcePort: referencePort(n.reference) }
     : null;
 }
-function parameterDependencies(entries) {
-  return entries.flatMap(([, q]) =>
-    q.source
-      ? [q]
-      : q.expression
-        ? parameterExpressionUses(q).map((ref) => ({
-            source: ref.nodeId,
-            ...(ref.layerId ? { layerId: ref.layerId } : {}),
-            parameterKey: ref.key,
-            component: ref.component,
-            ...(q.type === 'Color' ? { parameterType: ref.type } : {}),
-          }))
-        : [],
-  );
+function parameterDependencies(entries, connected = null) {
+  return entries.flatMap(([, q]) => {
+    if (q.source) {
+      connected?.add(q);
+      return [q];
+    }
+    return q.expression
+      ? parameterExpressionUses(q).map((ref) => ({
+          source: ref.nodeId,
+          ...(ref.layerId ? { layerId: ref.layerId } : {}),
+          parameterKey: ref.key,
+          component: ref.component,
+          ...(q.type === 'Color' ? { parameterType: ref.type } : {}),
+        }))
+      : [];
+  });
 }
-export function nodeDependencies(n, activeOnly = false) {
-  const deps = parameterDependencies(activeOnly ? evaluatedParameters(n) : parameters(n));
+function collectNodeDependencies(n, activeOnly = false, connected = null) {
+  const deps = parameterDependencies(
+    activeOnly ? evaluatedParameters(n) : parameters(n),
+    connected,
+  );
   const reference = referenceDependency(n);
   if (reference) deps.push(reference);
   if (n.type === 'Text' && n.pathAttachment) deps.push({ source: n.pathAttachment.nodeId });
   return deps;
+}
+export function nodeDependencies(n, activeOnly = false) {
+  return collectNodeDependencies(n, activeOnly);
 }
 // Reuse the graph's parameter/reference/expression dependency contract. Inactive
 // edges are intentionally included: retained edits must remain safe on re-enable.
@@ -1109,8 +1117,11 @@ function assertAcyclic(layer) {
     // Deleted Reference targets remain explicitly dangling and can be saved/undone.
     if (!n) return;
     active.add(id);
-    for (const dep of nodeDependencies(n)) {
-      if (dep.layerId) continue;
+    // Socket descriptors can carry arbitrary authored metadata, including a
+    // field named layerId. Only parsed expression edges are qualified.
+    const connected = new Set();
+    for (const dep of collectNodeDependencies(n, false, connected)) {
+      if (dep.layerId && !connected.has(dep)) continue;
       if (!byId.has(dep.source) && n.type !== 'Reference' && !dep.parameterKey)
         throw Error('Missing source node');
       visit(dep.source);
@@ -3032,7 +3043,10 @@ export function evaluate(
     context.depth++;
     try {
       const inputs = positionOutput ? [['position', n.params.position]] : evaluatedParameters(n);
-      const deps = positionOutput ? parameterDependencies(inputs) : nodeDependencies(n, true);
+      const connected = new Set();
+      const deps = positionOutput
+        ? parameterDependencies(inputs, connected)
+        : collectNodeDependencies(n, true, connected);
       if (n.type === 'Reference') referenceTarget(layer, n);
       const external = ['Composition Reference', 'SVG'].includes(n.type)
         ? referencedOutput(n)
@@ -3045,7 +3059,7 @@ export function evaluate(
             resolveExpressionReference(
               {
                 nodeId: dep.source,
-                ...(dep.layerId ? { layerId: dep.layerId } : {}),
+                ...(dep.layerId && !connected.has(dep) ? { layerId: dep.layerId } : {}),
                 key: dep.parameterKey,
                 component: dep.component,
               },
