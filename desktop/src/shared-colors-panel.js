@@ -49,6 +49,22 @@ export function createSharedColorsPanel({
     event.stopImmediatePropagation();
     return true;
   }
+  function keepInvalidNameFocused(event) {
+    const input = app.ownerDocument.activeElement;
+    if (
+      !event.target.closest?.('[data-shared-color-delete]') ||
+      !input?.matches?.('.shared-colors-panel [data-shared-color-edit="name"]') ||
+      (input.value.trim() && input.value.length <= 128)
+    )
+      return false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const message = 'Enter a shared color name before deleting';
+    notify(message, true);
+    const status = app.querySelector('[data-shared-color-action-status]');
+    if (status) status.textContent = message;
+    return true;
+  }
   app.addEventListener(
     'compositionstart',
     (event) => {
@@ -135,10 +151,7 @@ export function createSharedColorsPanel({
     live,
     renderPreview: patchPreview,
   });
-  function patchPreview(rebaseFrom = null) {
-    const host = app.querySelector('.shared-colors-panel');
-    if (!host) return;
-    const next = controller.createView();
+  function rebaseControls(rebaseFrom) {
     const state = getSession().state;
     if (
       rebaseFrom &&
@@ -153,6 +166,12 @@ export function createSharedColorsPanel({
           control.dataset.sharedColorRevision = String(state.expectedRevision);
       }
     }
+  }
+  function patchPreview(rebaseFrom = null) {
+    const host = app.querySelector('.shared-colors-panel');
+    if (!host) return;
+    const next = controller.createView();
+    rebaseControls(rebaseFrom);
     host.dataset.sharedColorSession = next.dataset.sharedColorSession;
     host.dataset.sharedColorRevision = next.dataset.sharedColorRevision;
     const replaceContents = (selector) => {
@@ -285,7 +304,7 @@ export function createSharedColorsPanel({
   app.addEventListener(
     'pointerdown',
     (event) => {
-      if (keepActiveEditFocused(event)) return;
+      if (keepActiveEditFocused(event) || keepInvalidNameFocused(event)) return;
       // Opening the separate experimental draft must not finish a legacy live
       // gesture. Prevent native blur/change before it can commit the old field.
       if (event.target.closest?.('[data-key-color-recipe-open]')) {
@@ -402,7 +421,14 @@ export function createSharedColorsPanel({
       render();
     }
   }
-  app.addEventListener('click', keepActiveEditFocused, true);
+  app.addEventListener(
+    'click',
+    (event) => {
+      if (keepActiveEditFocused(event)) return;
+      keepInvalidNameFocused(event);
+    },
+    true,
+  );
   function closeCopyMenu(row) {
     const actions = row?.querySelector('[data-shared-color-copy-actions]'),
       trigger = row?.querySelector('[data-shared-color-copy-toggle]');
@@ -593,8 +619,11 @@ export function createSharedColorsPanel({
         slotId = el.closest('[data-shared-color-row]')?.dataset.sharedColorRow;
       const slot = getDocument().colorSlots?.find((s) => s.id === slotId);
       if (!slot) throw Error('Shared color is no longer available');
-      if (kind === 'name') dispatch('rename-color-slot', { slotId, name: el.value }, state);
-      else {
+      if (kind === 'name') {
+        const owner = getSession();
+        const result = dispatch('rename-color-slot', { slotId, name: el.value }, state);
+        if (result?.changed && owner === getSession()) rebaseControls(state);
+      } else {
         const value = { ...slot.value };
         if (kind === 'hex') value.hex = el.value;
         else if (kind.startsWith('hsl-'))
