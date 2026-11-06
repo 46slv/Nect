@@ -15,6 +15,8 @@ import {
   CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
+  QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
+  nodesHaveQualifiedColorReferenceSyntax,
   nodesHaveCompositionPropertyReferenceSyntax,
   nodesCurvePointReferenceVersion,
   nodesHaveArtworkReferences,
@@ -59,6 +61,18 @@ export function prepareProjectCompositionsImport(
     });
   const sourceLayers = sourceCompositions.flatMap((composition) => composition.layers);
   const destinationLayers = current.compositions.flatMap((composition) => composition.layers);
+  const hasQualifiedColorSyntax = sourceLayers.some((layer) =>
+    nodesHaveQualifiedColorReferenceSyntax(layer.nodes),
+  );
+  if (
+    hasQualifiedColorSyntax &&
+    sourceProject.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION
+  )
+    throw Error('Import of qualified Color references is not supported');
+  if (hasQualifiedColorSyntax && current.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION)
+    throw Error(
+      'Legacy opaque qualified Color reference text cannot be promoted to schemaVersion 64',
+    );
   const hasCompositionSyntax = sourceLayers.some((layer) =>
     nodesHaveCompositionPropertyReferenceSyntax(layer.nodes),
   );

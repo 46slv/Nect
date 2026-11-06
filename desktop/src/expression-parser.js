@@ -45,8 +45,9 @@ export function expression(source, resolveReference, referencesOnly = false, bas
           throw Error('Reference requires quoted IDs and parameter keys');
         return token.slice(1, -1);
       };
-      let layerId, compositionId;
-      if (tokens[i] === 'composition') {
+      let layerId, compositionId, qualifier;
+      if (tokens[i] === 'composition' || tokens[i] === 'colorComposition') {
+        if (tokens[i] === 'colorComposition') qualifier = 'colorComposition';
         i++;
         if (tokens[i++] !== ',') throw Error('Invalid composition reference');
         compositionId = readString();
@@ -55,7 +56,8 @@ export function expression(source, resolveReference, referencesOnly = false, bas
         layerId = readString();
         if (!nodeIdPattern.test(layerId) || tokens[i++] !== ',')
           throw Error('Invalid composition reference');
-      } else if (tokens[i] === 'artwork') {
+      } else if (tokens[i] === 'artwork' || tokens[i] === 'colorArtwork') {
+        if (tokens[i] === 'colorArtwork') qualifier = 'colorArtwork';
         i++;
         if (tokens[i++] !== ',') throw Error('Invalid artwork reference');
         layerId = readString();
@@ -70,6 +72,8 @@ export function expression(source, resolveReference, referencesOnly = false, bas
         i++;
         component = readString();
       }
+      if (qualifier && component !== undefined)
+        throw Error('Qualified Color references cannot select a component');
       if (compositionId && component !== undefined)
         throw Error('Composition references require a Scalar property');
       if (component !== undefined && !['x', 'y', 'length'].includes(component))
@@ -83,6 +87,7 @@ export function expression(source, resolveReference, referencesOnly = false, bas
       return resolveReference({
         ...(compositionId ? { compositionId } : {}),
         ...(layerId ? { layerId } : {}),
+        ...(qualifier ? { qualifier } : {}),
         nodeId,
         key,
         component,
@@ -133,6 +138,7 @@ export function qualifiedReferencesForCodec(q) {
     expression(
       source,
       (ref) => {
+        if (ref.qualifier) throw Error('Qualified Color references require a Color expression');
         refs.push({ ...ref, type: 'Scalar' });
         return 0;
       },
@@ -141,22 +147,25 @@ export function qualifiedReferencesForCodec(q) {
     return refs.length === before ? expression(source) : 0.5;
   };
   if (q.type === 'Color') {
-    if (!usesColorOperations(q.expression))
-      throw Error('Artwork references require a numeric parameter');
     const dummy = { hex: '#000000', alpha: 1 };
-    colorExpression(q.expression, dummy, {
-      reference: (source) =>
-        expression(
-          source,
-          (ref) => {
-            if (ref.layerId) throw Error('Qualified references require a numeric parameter');
-            refs.push({ ...ref, type: 'Color' });
-            return dummy;
-          },
-          true,
-        ),
-      scalar,
-    });
+    const reference = (source) =>
+      expression(
+        source,
+        (ref) => {
+          if (ref.layerId && !ref.qualifier)
+            throw Error('Qualified numeric references require a numeric parameter');
+          refs.push({ ...ref, type: 'Color' });
+          return dummy;
+        },
+        true,
+      );
+    if (usesColorOperations(q.expression))
+      colorExpression(q.expression, dummy, { reference, scalar });
+    else {
+      if (!/^ref\s*\([^()]*\)$/.test(q.expression.trim()))
+        throw Error('Color expression requires a single Color reference');
+      reference(q.expression);
+    }
   } else {
     const parts = q.expression.split(';');
     if (parts.length !== (q.type === 'Vector2' ? 2 : 1)) throw Error('Invalid numeric expression');
@@ -164,6 +173,7 @@ export function qualifiedReferencesForCodec(q) {
       expression(
         part,
         (ref) => {
+          if (ref.qualifier) throw Error('Qualified Color references require a Color expression');
           refs.push({ ...ref, type: 'Scalar' });
           return 0;
         },
