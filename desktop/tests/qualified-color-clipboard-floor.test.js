@@ -10,7 +10,12 @@ import {
   deserialize,
 } from '../src/core.js';
 import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
-import { migrateLegacyDocumentToCompositionProject } from '../src/composition-project-model.js';
+import {
+  migrateLegacyDocumentToCompositionProject,
+  serializeCompositionProject,
+  deserializeCompositionProject,
+  applyActiveCompositionDocument,
+} from '../src/composition-project-model.js';
 
 function fixture(version = 60) {
   const a = blankDocument(),
@@ -172,9 +177,10 @@ test('a paused missing-owner handle length still requires schema 61', () => {
 });
 
 test('promotion from copied references refuses inactive opaque text and preserves Redo', () => {
-  for (const [version, expression] of [
-    [60, 'ref("curve", "point.handleA", "length")'],
-    [61, 'ref(artwork, "art-extra", "extra-value", "value")'],
+  for (const [version, expression, opaqueKind] of [
+    [60, 'ref("curve", "point.handleA", "length")', 'existing-owner'],
+    [60, 'ref("curve", "point.handleA", "length")', 'missing-length'],
+    [61, 'ref(artwork, "art-extra", "extra-value", "value")', 'artwork'],
   ]) {
     const original = fixture(version),
       session = boundSession(original);
@@ -187,13 +193,19 @@ test('promotion from copied references refuses inactive opaque text and preserve
       layer = withOpaque.compositions[1].layers[0];
     const holder = node('Value');
     holder.id = 'opaque-holder';
-    if (version === 60) {
+    if (opaqueKind === 'existing-owner') {
       const curve = node('Curve');
       curve.id = 'legacy-curve';
       layer.nodes.push(curve);
       holder.params.value.expression = 'ref("legacy-curve", "missing.handleA", "x")';
-    } else holder.params.value.expression = 'ref(artwork, malformed';
+    } else if (opaqueKind === 'missing-length')
+      holder.params.value.expression = 'ref("deleted-curve", "deleted-point.handleA", "length")';
+    else holder.params.value.expression = 'ref(artwork, malformed';
     layer.nodes.push(holder);
+    assert.deepEqual(
+      deserializeCompositionProject(serializeCompositionProject(withOpaque)),
+      withOpaque,
+    );
     session.setProjectContext(withOpaque, 'comp-a');
     const before = session.snapshot(),
       state = session.state,
@@ -204,5 +216,33 @@ test('promotion from copied references refuses inactive opaque text and preserve
     assert.equal(session.historyView.future.length, future);
     send(session, 'redo');
     assert.equal(session.snapshot().schemaVersion, 64);
+  }
+});
+
+test('missing-owner handle x/y remain diagnosed when an independent copy promotes 60 to 61', () => {
+  for (const axis of ['x', 'y']) {
+    const original = fixture(60),
+      session = boundSession(original);
+    promote(session);
+    setExpr(session, 'sink', 'value', 'ref("curve", "point.handleA", "length")');
+    send(session, 'copy-nodes', { layerId: 'art-a', nodeIds: ['sink'] });
+    send(session, 'undo');
+    send(session, 'undo');
+    const withOpaque = structuredClone(original),
+      layer = withOpaque.compositions[1].layers[0];
+    const holder = node('Value');
+    holder.id = 'missing-holder';
+    holder.params.value.expression = `ref("deleted-curve", "deleted-point.handleA", "${axis}")`;
+    layer.nodes.push(holder);
+    session.setProjectContext(withOpaque, 'comp-a');
+    send(session, 'paste-nodes', { layerId: 'art-a' });
+    assert.equal(session.snapshot().schemaVersion, 61);
+    const next = applyActiveCompositionDocument(withOpaque, 'comp-a', session.snapshot());
+    const retained = next.compositions[1].layers[0].nodes.find((n) => n.id === 'missing-holder');
+    assert.equal(retained.params.value.expression, holder.params.value.expression);
+    assert.equal(
+      deserializeCompositionProject(serializeCompositionProject(next)).schemaVersion,
+      61,
+    );
   }
 });

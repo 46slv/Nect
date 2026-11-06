@@ -295,7 +295,11 @@ export function nodesHaveLegacyCurveHandleReference(nodes) {
     expressionParameters(node, { includeUnsupported: true }).some((q) =>
       [...q.expression.matchAll(pointRefArguments)].some((match) => {
         const ref = curvePointReference(match[2], match[3]);
-        return owners.get(match[1])?.type === 'Curve' && ref?.field !== 'position' && !!ref;
+        return (
+          !!ref &&
+          ref.field !== 'position' &&
+          (match[3] === 'length' || owners.get(match[1])?.type === 'Curve')
+        );
       }),
     ),
   );
