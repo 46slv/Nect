@@ -31,4 +31,12 @@ These are fixed-placement surface adapters, not a general profile system, indepe
 
 Each existing adapter declares its fixed supported side; the controller checks the declaration against that capability before it reads preferences or attaches DOM. This is not a movable-placement policy: a different side is rejected. Assets owns its body portal and in-flight work; Shared Colors owns its input/IME draft, app-level events and Session envelope; the host owns focus, pointer and drawer visibility. The Colors adapter consults that owner while composition or a color pointer is active, and its input guard protects the focused draft before pointer blur and Viewer activation. When a name change occurs during a pointer transition, the existing deferred-render path keeps the destination alive until the click finishes. Synthetic-composition and pointer behavior has been checked in Windows Chrome; physical IME and native WebView2 remain unverified. This bounded check does not establish general surface relocation or asynchronous file-work safety.
 
+Assets likewise protects its focused composing search/metadata input before a
+panel transition, and keeps a focused search editable when initial folder
+discovery starts a refresh. A sandboxed Chrome fixture also delays the asset
+read after a real drag, switches Composition, and confirms the old request is
+rejected without changing either Composition or pending Redo. A fresh drag to the
+new Composition succeeds in one Undo/Redo for both canvas and graph. Its folder
+IPC is synthetic; this is not native file-dialog or physical IME acceptance.
+
 `attach` checks the new root and its required canvas, right panel and tools before detaching the current host. An incomplete target leaves the previous host and queued restoration in place. This does not reconstruct DOM that a caller already removed, or implement arbitrary surface relocation or active-edit migration.

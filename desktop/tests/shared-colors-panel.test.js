@@ -435,7 +435,7 @@ test('binding availability follows locked, sourced and expression-owned paramete
     'a persisted binding still exposes an unlink control',
   );
   s.panel.toggle();
-  assert.match(s.app.querySelector('.shared-colors-panel').textContent, /Add a color/);
+  assert.match(s.app.querySelector('.shared-colors-panel').textContent, /No saved colors/);
 });
 
 test('stale Session and revision controls reject add, edit and bind without dispatch', async (t) => {

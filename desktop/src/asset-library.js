@@ -8,9 +8,14 @@ import { exportSVG } from './core.js';
 const browserRoots = new Map();
 let mounted;
 let closeMounted;
+const composingInputs = new WeakSet();
 export const getAssetLibraryPanel = () => mounted || null;
+export function canDeactivateAssetLibrary() {
+  const active = mounted?.ownerDocument.activeElement;
+  return !(active && mounted.contains(active) && composingInputs.has(active));
+}
 export function closeAssetLibrary() {
-  closeMounted?.();
+  if (canDeactivateAssetLibrary()) closeMounted?.();
 }
 const MAX_FILE = 12_000_000;
 function relativePath(path) {
@@ -89,12 +94,31 @@ export function mountAssetLibrary({
     listing = null,
     selected = null,
     busy = false,
+    searchDuringRefresh = false,
     shown = 48,
     choiceSequence = 0;
   const prepared = new Map();
   let dragTicket = null;
   const dragType = 'application/x-nect-library-ticket';
   let folderPickIntent = null;
+  panel.addEventListener('compositionstart', (event) => composingInputs.add(event.target), true);
+  panel.addEventListener('compositionend', (event) => composingInputs.delete(event.target), true);
+  function guardComposingTransition(event) {
+    if (canDeactivateAssetLibrary()) return;
+    const target = event.target;
+    if (
+      target === panel.ownerDocument.activeElement ||
+      (!panel.contains(target) &&
+        !target.closest?.(
+          '[data-workspace-panel],[data-viewer-mode="viewers"],[data-action="align-panel"],[data-action="asset-library"]',
+        ))
+    )
+      return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+  document.addEventListener('pointerdown', guardComposingTransition, true);
+  document.addEventListener('click', guardComposingTransition, true);
   const header = element('header');
   header.append(element('strong', 'Graphic assets'));
   const close = element('button', 'Close', { 'aria-label': 'Close assets' });
@@ -170,7 +194,8 @@ export function mountAssetLibrary({
   }
   function buttons() {
     grid.inert = busy;
-    search.disabled = hierarchy.disabled = more.disabled = busy;
+    search.disabled = busy && !searchDuringRefresh;
+    hierarchy.disabled = more.disabled = busy;
     for (const field of Object.values(fields)) field.disabled = busy;
     place.disabled = busy || !selected || !!selected.error;
     graph.disabled = place.disabled;
@@ -188,6 +213,8 @@ export function mountAssetLibrary({
     mounted = null;
     closeMounted = null;
     document.removeEventListener('keydown', keydown);
+    document.removeEventListener('pointerdown', guardComposingTransition, true);
+    document.removeEventListener('click', guardComposingTransition, true);
     document.removeEventListener('dragover', dragover);
     document.removeEventListener('drop', drop);
     dragTicket = null;
@@ -196,6 +223,13 @@ export function mountAssetLibrary({
   }
   closeMounted = closePanel;
   function keydown(e) {
+    if (!canDeactivateAssetLibrary()) {
+      if (e.key === 'Tab' && !e.defaultPrevented) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+      return;
+    }
     // Native Escape cancels an in-flight drag; it must not destroy the source panel.
     if (e.key === 'Escape' && dragTicket) return;
     if (
@@ -388,6 +422,9 @@ export function mountAssetLibrary({
       buttons();
       return;
     }
+    // Folder discovery can settle while the user is already typing. Keep that
+    // field focused and apply its latest query when the listing arrives.
+    searchDuringRefresh = panel.ownerDocument.activeElement === search;
     busy = true;
     buttons();
     message('Reading folder…');
@@ -414,6 +451,7 @@ export function mountAssetLibrary({
       if (alive) message(String(error.message || error), true);
     } finally {
       busy = false;
+      searchDuringRefresh = false;
       if (alive) buttons();
     }
   }
@@ -556,6 +594,7 @@ export function mountAssetLibrary({
   search.oninput = () => {
     folderRegistrationError = null;
     shown = 48;
+    if (busy && searchDuringRefresh) return;
     drawItems();
   };
   hierarchy.onchange = () => {

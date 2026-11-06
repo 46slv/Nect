@@ -47,6 +47,9 @@ The opt-in Key color trial has a separate, versioned recipe contract.
 - Sort by name changes only this panel's view while the project remains open.
   The toggle restores registry order; opening a different project resets it.
   It does not alter saved slots, palette order, History or coverage calculations.
+- Find filters the saved-color rows by name in the current project view. Matching
+  ignores case and Unicode composition differences; closing Find restores every
+  row. The query resets when another project opens and never changes saved data.
 
 Validation is split deliberately: controller DOM tests and core command tests
 cover routing/identity/history; the browser acceptance checks actual panel and
