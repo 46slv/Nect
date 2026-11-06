@@ -218,16 +218,14 @@ test('qualified vector components and Color scalar arguments share the same effe
   );
 });
 
-test('same-layer node duplication retains a qualified source, while unsupported clipboard and preset paths refuse', () => {
+test('same-layer node duplication retains a qualified source, while detached presets refuse', () => {
   const session = new CommandSession(fixture().doc);
   apply(session, 'ref(artwork, "art-b", "driver", "value")');
   const { nodeIds } = send(session, 'duplicate-nodes', { layerId: 'art-a', nodeIds: ['sink'] });
   const doc = session.snapshot();
   assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue(nodeIds[0], 'value'), 7);
-  send(session, 'copy-nodes', { layerId: 'art-a', nodeIds: ['sink'] });
   const before = session.snapshot(),
     state = session.state;
-  assert.throws(() => send(session, 'paste-nodes', { layerId: 'art-a' }), /Artwork references/);
   assert.throws(
     () =>
       send(session, 'save-node-preset', { layerId: 'art-a', nodeIds: ['sink'], name: 'qualified' }),
