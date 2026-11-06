@@ -39,7 +39,12 @@ function captureArray(value, expectedLength, maximumLength) {
   for (let index = 0; index < length; index++) {
     const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
     if (!descriptor || !Object.hasOwn(descriptor, 'value')) return null;
-    result.push(descriptor.value);
+    Object.defineProperty(result, index, {
+      value: descriptor.value,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
   }
   return result;
 }
@@ -169,7 +174,12 @@ export function evaluateSampleFieldV1(fieldInput, contextInput) {
   for (let index = 0; index < inputs.length; index++) {
     const point = vector(inputs[index]);
     if (!point) throw Error(`${LABEL} requires finite Position vectors`);
-    values.push(point);
+    Object.defineProperty(values, index, {
+      value: point,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
   }
   return {
     kind: 'Varying',
