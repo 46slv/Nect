@@ -109,31 +109,56 @@ export function expressionCompletions(value, start, end, targets = [], parameter
       text: name,
       terms: [name],
     })),
-    ...targets
-      .filter((target) => (color ? target.type === 'Color' : target.type !== 'Color'))
-      .map((target) => ({
-        id: target.expression,
-        label: target.contextLabel ? `${target.contextLabel} · ${target.label}` : target.label,
-        detail: `${target.type === 'Color' ? 'Color' : target.component === 'length' ? 'Vector2 length → Scalar' : target.component ? `Vector2.${target.component.toUpperCase()} → Scalar` : 'Scalar'} · ${target.nodeId}`,
-        text: target.expression,
-        terms: [
-          target.name,
-          target.key,
-          `${target.key}.${target.component || ''}`,
-          ...(target.pointOrdinal ? [`point${target.pointOrdinal}`] : []),
-          ...(target.contextLabel ? [target.contextLabel] : []),
-          ...(target.contextSearchTerms || []),
-          'ref',
-          ...target.name.split(/\s+/),
-        ],
-      })),
   ];
-  return candidates
-    .filter((candidate) =>
-      candidate.terms.some((term) => term.toLocaleLowerCase().startsWith(context.prefix)),
+  const starts = (term) => term.toLocaleLowerCase().startsWith(context.prefix),
+    nameMatches = new Map(),
+    contextMatches = new Map();
+  const matchesName = (name) => {
+    if (!name) return false;
+    if (!nameMatches.has(name))
+      nameMatches.set(name, starts(name) || name.split(/\s+/).some(starts));
+    return nameMatches.get(name);
+  };
+  const matchesContext = (terms) => {
+    if (!terms) return false;
+    if (!contextMatches.has(terms)) contextMatches.set(terms, terms.some(starts));
+    return contextMatches.get(terms);
+  };
+  const result = candidates.filter((candidate) => candidate.terms.some(starts)).slice(0, 12);
+  for (const target of targets) {
+    if (result.length === 12) break;
+    if (color ? target.type !== 'Color' : target.type === 'Color') continue;
+    if (
+      !matchesName(target.name) &&
+      !starts(target.key) &&
+      !starts(`${target.key}.${target.component || ''}`) &&
+      !(target.pointOrdinal && starts(`point${target.pointOrdinal}`)) &&
+      !(target.contextLabel && starts(target.contextLabel)) &&
+      !matchesName(target.contextSearchText) &&
+      !matchesContext(target.contextSearchTerms) &&
+      !starts('ref')
     )
-    .slice(0, 12)
-    .map((candidate) => ({ ...candidate, ...context }));
+      continue;
+    result.push({
+      id: target.expression,
+      label: target.contextLabel ? `${target.contextLabel} · ${target.label}` : target.label,
+      detail: `${target.type === 'Color' ? 'Color' : target.component === 'length' ? 'Vector2 length → Scalar' : target.component ? `Vector2.${target.component.toUpperCase()} → Scalar` : 'Scalar'} · ${target.nodeId}`,
+      text: target.expression,
+      ...(typeof target.fullName === 'function' ? { fullName: target.fullName } : {}),
+      terms: [
+        target.name,
+        target.key,
+        `${target.key}.${target.component || ''}`,
+        ...(target.pointOrdinal ? [`point${target.pointOrdinal}`] : []),
+        ...(target.contextLabel ? [target.contextLabel] : []),
+        ...(target.contextSearchTerms || []),
+        ...(target.contextSearchText ? [target.contextSearchText] : []),
+        'ref',
+        ...target.name.split(/\s+/),
+      ],
+    });
+  }
+  return result.map((candidate) => ({ ...candidate, ...context }));
 }
 
 let nextId = 0;
@@ -178,6 +203,11 @@ export function attachExpressionCompletion(input, getTargets, parameterType = 'S
       option.id = `${list.id}-${index}`;
       option.setAttribute('role', 'option');
       option.setAttribute('aria-selected', String(index === active));
+      if (typeof item.fullName === 'function') {
+        const fullName = item.fullName();
+        option.title = fullName;
+        option.setAttribute('aria-description', fullName);
+      }
       const label = doc.createElement('strong'),
         detail = doc.createElement('small');
       label.textContent = item.label;

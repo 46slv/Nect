@@ -569,6 +569,11 @@ function openSearchPanel({
       name.textContent =
         families && item.metadata?.subfamily ? item.metadata.subfamily : item.label;
       row.setAttribute('aria-label', `${item.label}${item.detail ? ` · ${item.detail}` : ''}`);
+      if (typeof item.fullName === 'function') {
+        const fullName = item.fullName();
+        row.title = fullName;
+        row.setAttribute('aria-description', fullName);
+      }
       row.append(name);
       if (item.detail) {
         const detail = document.createElement('small');
@@ -4362,10 +4367,11 @@ function colorDraftValidity(input, nodeId, key) {
   return !error;
 }
 function editorExpressionTargets(nodeId, type) {
+  const display = expressionTargetDisplay(history.doc, current().id);
   return [
     ...expressionReferenceTargets(current(), nodeId, type),
     ...(type === 'Color' ? expressionReferenceTargets(current(), nodeId) : []),
-  ];
+  ].map(display.completion);
 }
 function transformUniformScale(n) {
   try {
@@ -10582,6 +10588,7 @@ app.addEventListener('click', async (e) => {
           title: 'Parameter references',
           action: 'Insert',
           maxVisible: 100,
+          filterItems: targetDisplay.filter,
           rankItems: (items, query) => {
             const ordinal = /(?:^|\s)point\s+(\d+)(?=\s|$)/i.exec(query.normalize('NFKC'));
             if (!ordinal) return items;
