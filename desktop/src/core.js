@@ -6698,24 +6698,38 @@ export class CommandSession {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload))
       throw Error('Invalid command payload');
     if (type === 'import-composition') {
-      if (
-        this.#busy() ||
-        this.#gesture ||
-        this.hasTextComposition ||
-        [...this.#textDrafts.values()].some(
-          (draft) => draft.revision === this.#history.revision && draft.state.changed,
+      const document = this.#history.doc;
+      const revision = this.#history.revision;
+      const assertCurrent = () => {
+        const checkRevision = () => {
+          if (this.#history.revision !== revision || this.#history.doc !== document)
+            throw Error('STALE_REVISION: document changed');
+        };
+        checkRevision();
+        if (
+          this.#busy() ||
+          this.#gesture ||
+          this.hasTextComposition ||
+          [...this.#textDrafts.values()].some(
+            (draft) => draft.revision === this.#history.revision && draft.state.changed,
+          )
         )
-      )
-        throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+          throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+        checkRevision();
+      };
+      assertCurrent();
       if (typeof payload.sourceText !== 'string' || typeof payload.compositionId !== 'string')
         throw Error('Invalid composition import payload');
       const imported = prepareCompositionImport(
-        this.#history.doc,
+        document,
         payload.sourceText,
         payload.compositionId,
+        payload,
       );
-      assertNoAccidentalCurvePointRebind(this.#history.doc, imported, this.#nodeClipboard);
-      this.#history.apply((candidate) => {
+      assertCurrent();
+      assertNoAccidentalCurvePointRebind(document, imported, this.#nodeClipboard);
+      assertCurrent();
+      this.#history.apply(() => {
         this.#history.doc = imported;
       });
       return this.state;

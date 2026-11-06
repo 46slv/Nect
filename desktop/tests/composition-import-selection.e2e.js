@@ -414,10 +414,135 @@ try {
   await dialog.locator('button[value="cancel"]').click();
   assert.deepEqual(await snapshot(), full);
   assert.deepEqual(await state(), fullState);
+
+  // A conflicting packet keeps normal Enter disabled; Capture is a separate choice.
+  await page.evaluate((value) => window.nect.load(JSON.stringify(value)), beforeConflict);
+  await page.evaluate(() => {
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: window.nect.document.width + 1 },
+    });
+    window.nect.dispatch({ ...window.nect.commandState, type: 'undo' });
+  });
+  const beforeCapture = await snapshot(),
+    beforeCaptureState = await state();
+  for (const dismiss of ['cancel', 'escape']) {
+    await openImport();
+    assert.equal(await dialog.locator('[data-composition-capture]').isEnabled(), true);
+    await choices().last().uncheck();
+    if (dismiss === 'cancel') await dialog.locator('button[value="cancel"]').click();
+    else await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'detached' });
+    assert.deepEqual(await snapshot(), beforeCapture);
+    assert.deepEqual(await state(), beforeCaptureState);
+    assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  }
+  await openImport();
+  assert.equal(await dialog.locator('button[value="import"]').isDisabled(), true);
+  const capture = dialog.locator('[data-composition-capture]');
+  assert.equal(await capture.isVisible(), true);
+  assert.equal(await capture.isEnabled(), true);
+  assert.match(
+    await dialog.locator('output').textContent(),
+    /local values.*source stays unchanged/i,
+  );
+  await choices().first().focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await dialog.isVisible(), true);
+  assert.deepEqual(await snapshot(), beforeCapture);
+  assert.deepEqual(await state(), beforeCaptureState);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await dialog.locator('[data-composition-select-none]').click();
+  assert.equal(await capture.isVisible(), false);
+  await choices().nth(0).check();
+  await choices().nth(1).check();
+  assert.equal(await capture.isEnabled(), true);
+  await page.screenshot({ path: resolve(output, 'capture-conflict-1000x650.png') });
+  await page.setViewportSize({ width: 420, height: 520 });
+  await capture.scrollIntoViewIfNeeded();
+  const captureHit = await capture.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return (
+      document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === element
+    );
+  });
+  assert.equal(captureHit, true);
+  await page.screenshot({ path: resolve(output, 'capture-conflict-narrow.png') });
+  await capture.click();
+  await dialog.waitFor({ state: 'detached' });
+  await page.waitForFunction(
+    (count) => window.nect.projectSnapshot().compositions.length === count,
+    beforeCapture.compositions.length + 2,
+  );
+  const captured = await snapshot();
+  assert.deepEqual(captured.keyColorRecipe, beforeCapture.keyColorRecipe);
+  assert.deepEqual(captured.colorSlots, beforeCapture.colorSlots);
+  const capturedValue = source.colorSlots.find((slot) => slot.id === 'fresh-derived').value;
+  for (const composition of captured.compositions.slice(-2)) {
+    const color = composition.layers[0].nodes.find((entry) => entry.type === 'Fill').params.color;
+    assert.equal(color.colorSlotId, undefined);
+    assert.deepEqual(color.value, capturedValue);
+  }
+  assert.equal(serializeCompositionProject(source), sourceText);
+  await page.setViewportSize({ width: 1000, height: 650 });
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), beforeCapture);
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await snapshot(), captured);
+  const captureDownload = page.waitForEvent('download');
+  await activateCommand(page, 'save-as');
+  const captureFile = resolve(output, 'captured-local-colors.json');
+  await (await captureDownload).saveAs(captureFile);
+  assert.deepEqual(JSON.parse(await readFile(captureFile, 'utf8')), captured);
+  const captureChooser = page.waitForEvent('filechooser');
+  await activateCommand(page, 'open');
+  await (await captureChooser).setFiles(captureFile);
+  await page.waitForFunction(
+    (expected) => JSON.stringify(window.nect.projectSnapshot()) === expected,
+    JSON.stringify(captured),
+  );
+  const reopenedPalette = (await snapshot()).keyColorRecipe.committedSnapshot;
+  await page.evaluate(
+    (revision) =>
+      window.nect.dispatch({
+        ...window.nect.commandState,
+        type: 'edit-live-key-color-recipe',
+        payload: { expectedPaletteRevision: revision, keyColor: { hex: '#A04030', alpha: 1 } },
+      }),
+    reopenedPalette.revision,
+  );
+  const afterDestinationEdit = await snapshot();
+  for (const composition of afterDestinationEdit.compositions.slice(-2)) {
+    const color = composition.layers[0].nodes.find((entry) => entry.type === 'Fill').params.color;
+    assert.equal(color.colorSlotId, undefined);
+    assert.deepEqual(color.value, capturedValue);
+  }
+  await page.evaluate(() =>
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: window.nect.document.width + 1 },
+    }),
+  );
+  await openImport();
+  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'undo' }));
+  const beforeStaleCapture = await snapshot(),
+    beforeStaleCaptureState = await state();
+  await dialog.locator('[data-composition-capture]').click();
+  await dialog.waitFor({ state: 'detached' });
+  await page.waitForFunction(() =>
+    document
+      .querySelector('.status .message')
+      ?.textContent.includes('Project changed while reading'),
+  );
+  assert.deepEqual(await snapshot(), beforeStaleCapture);
+  assert.deepEqual(await state(), beforeStaleCaptureState);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
   assert.equal(serializeCompositionProject(source), sourceText);
   assert.deepEqual(errors, []);
   console.log(
-    'PASS selected linked Compositions: one palette, collision remap, history, conflict, stale owner and browser reopen',
+    'PASS selected Compositions: linked import, explicit local Capture, history, stale owner and browser reopen',
   );
 } finally {
   await browser.close();

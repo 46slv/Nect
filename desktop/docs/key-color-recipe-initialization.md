@@ -154,9 +154,16 @@ slot copies the complete linked palette into a destination without an existing
 key-color packet. Slot identities and every binding are remapped together on
 collision; the imported palette receives a fresh identity. Saved values, solver,
 semantics and revision are preserved without recomputation, and the import is one
-Undo. A destination with any existing key-color packet rejects that import rather
-than overwriting it. The dialog identifies the full palette addition and old-reader
-incompatibility. When the selected source does not reference the live palette,
+Undo. Normal import into a destination with any existing key-color packet rejects
+rather than overwriting it. In that conflict only, the separate “Capture Key colors
+& import” action explicitly replaces each selected Artwork's live Key-color
+binding with its exact current local HEX/alpha value. Other shared colors retain
+the ordinary import/remapping behavior; the destination packet and the source
+remain unchanged. This intentionally does not preserve the captured relation.
+Both Session import routes use one Undo step, and source Compositions are fully
+validated before their bound values are converted. The dialog identifies the
+full palette addition and old-reader incompatibility for normal linked import.
+When the selected source does not reference the live palette,
 ordinary import is retained and schema59 alone does not unnecessarily upgrade an
 older destination. The trial does not supply final presets, a full-precision Field
 evaluator or palette migration.

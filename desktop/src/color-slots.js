@@ -494,17 +494,37 @@ export function colorImportSchemaVersion(source, importedColors) {
     : source.schemaVersion;
 }
 
-export function importColorSlots(current, source, layers, occupied) {
+export function readCaptureLiveColors(options) {
+  if (!options || typeof options !== 'object' || Array.isArray(options))
+    throw Error('Invalid linked Color import choice');
+  const choice = Object.getOwnPropertyDescriptor(options, 'captureLiveColors');
+  if (!choice) return false;
+  if (!choice.enumerable || !Object.hasOwn(choice, 'value') || typeof choice.value !== 'boolean')
+    throw Error('Invalid linked Color import choice');
+  return choice.value;
+}
+
+export function importColorSlots(current, source, layers, occupied, captureLiveColors = false) {
+  if (typeof captureLiveColors !== 'boolean') throw Error('Invalid linked Color import choice');
   const sourceSlots = validateColorSlots(source),
-    refs = new Set();
-  walkColorBindings(layers, (q) => refs.add(q.colorSlotId));
-  const importingLive = importsLiveKeyColors(source, layers);
-  if (importingLive && Object.hasOwn(current, 'keyColorRecipe'))
+    refs = new Set(),
+    importingLive = importsLiveKeyColors(source, layers),
+    hasDestinationPacket = Object.hasOwn(current, 'keyColorRecipe');
+  if (captureLiveColors && (!importingLive || !hasDestinationPacket))
+    throw Error('Capture requires conflicting linked Key colors');
+  if (importingLive && hasDestinationPacket && !captureLiveColors)
     throw Object.assign(
       Error('This project already has Key colors. Unbind the source colors before import.'),
       { code: 'LIVE_COLOR_IMPORT_CONFLICT' },
     );
-  if (importingLive) {
+  const capturedIds = captureLiveColors ? liveKeyColorSlotIds(source) : new Set();
+  walkColorBindings(layers, (q) => {
+    if (capturedIds.has(q.colorSlotId)) {
+      q.value = { ...sourceSlots.get(q.colorSlotId).value };
+      delete q.colorSlotId;
+    } else refs.add(q.colorSlotId);
+  });
+  if (importingLive && !captureLiveColors) {
     // paletteId is not among the entity keys gathered by collectIds.
     occupied.add(source.keyColorRecipe.committedSnapshot.paletteId);
     for (const row of source.keyColorRecipe.committedSnapshot.resolved) refs.add(row.id);
@@ -526,7 +546,7 @@ export function importColorSlots(current, source, layers, occupied) {
   });
   if (result.length > 256) throw Error('Imported Color slot budget exceeded');
   let keyColorRecipe;
-  if (importingLive) {
+  if (importingLive && !captureLiveColors) {
     keyColorRecipe = structuredClone(source.keyColorRecipe);
     const snapshot = keyColorRecipe.committedSnapshot;
     const originalPaletteId = snapshot.paletteId;

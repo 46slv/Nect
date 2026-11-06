@@ -1089,6 +1089,7 @@ dialog::backdrop {
 }
 .composition-import-dialog footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
 }
@@ -3288,6 +3289,16 @@ input[data-scrub-step].scrubbing {
 .shared-colors-heading {
   font-size: 12px;
   margin: 10px 0 6px;
+}
+.shared-colors-list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+[data-shared-color-sort][aria-pressed='true'] {
+  background: #dae3e9;
+  border-color: var(--selection);
 }
 .auto-chroma-controls > label {
   display: flex;

@@ -44,6 +44,9 @@ The opt-in Key color trial has a separate, versioned recipe contract.
   old document controls and old revisions cannot mutate the current document.
 - Shared slots and bindings are document/project data and survive JSON reopen.
   Panel visibility is local view state, not an authored document setting.
+- Sort by name changes only this panel's view while the project remains open.
+  The toggle restores registry order; opening a different project resets it.
+  It does not alter saved slots, palette order, History or coverage calculations.
 
 Validation is split deliberately: controller DOM tests and core command tests
 cover routing/identity/history; the browser acceptance checks actual panel and

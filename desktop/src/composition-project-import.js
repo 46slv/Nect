@@ -1,6 +1,10 @@
-import { importColorSlots, colorImportSchemaVersion } from './color-slots.js';
+import {
+  importColorSlots,
+  colorImportSchemaVersion,
+  readCaptureLiveColors,
+} from './color-slots.js';
 import { validateCompositionProject } from './composition-project-model.js';
-import { expressionReferencesForSchema } from './core.js';
+import { expressionReferencesForSchema, validate } from './core.js';
 import {
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
@@ -17,7 +21,13 @@ import {
   remapIds,
 } from './project-import-remap.js';
 
-export function prepareProjectCompositionsImport(current, sourceProject, compositionIds) {
+export function prepareProjectCompositionsImport(
+  current,
+  sourceProject,
+  compositionIds,
+  options = {},
+) {
+  const captureLiveColors = readCaptureLiveColors(options);
   validateCompositionProject(current);
   validateCompositionProject(sourceProject);
   const selectedIds = compositionIds ?? sourceProject.compositions.map((item) => item.id);
@@ -36,6 +46,40 @@ export function prepareProjectCompositionsImport(current, sourceProject, composi
     throw Object.assign(Error('Missing source Composition'), {
       code: 'COMPOSITION_SOURCE_MISSING',
     });
+
+  if (captureLiveColors) {
+    // Structured cloning omits non-enumerable properties. A direct JS caller
+    // must not lose a valid Color binding and silently import its fallback.
+    for (const composition of sourceCompositions)
+      for (const layer of composition.layers)
+        for (const node of layer.nodes)
+          for (const q of Object.values(node.params || {})) {
+            if (q?.type !== 'Color') continue;
+            const binding = Object.getOwnPropertyDescriptor(q, 'colorSlotId');
+            if (binding && !binding.enumerable)
+              throw Error('Unsupported non-enumerable Color binding');
+          }
+    // The outer project codec validates binding IDs, but not every Color
+    // fallback. Validate each selected source Document before Capture can
+    // replace a malformed fallback with a valid resolved literal.
+    const fields = { ...sourceProject };
+    delete fields.compositionSchemaVersion;
+    delete fields.compositions;
+    // Keep one detached copy of shared assets across projections. The core
+    // validator freezes verified asset records and caches image validation by
+    // identity; cloning those records per Composition repeats PNG decoding.
+    const projectFields = structuredClone(fields);
+    for (const source of sourceCompositions) {
+      const composition = structuredClone(source);
+      validate({
+        ...projectFields,
+        width: composition.width,
+        height: composition.height,
+        ...(composition.editor === undefined ? {} : { editor: composition.editor }),
+        layers: composition.layers,
+      });
+    }
+  }
 
   for (const composition of sourceCompositions)
     for (const layer of composition.layers)
@@ -63,6 +107,7 @@ export function prepareProjectCompositionsImport(current, sourceProject, composi
     sourceProject,
     compositions.flatMap((composition) => composition.layers),
     occupied,
+    captureLiveColors,
   );
   const references = collectAssetReferences(compositions);
   const fonts = mergeAssetRegistry(
@@ -115,7 +160,7 @@ export function prepareProjectCompositionsImport(current, sourceProject, composi
   return { project, compositionIds: compositions.map((item) => item.id) };
 }
 
-export function prepareProjectCompositionImport(current, sourceProject, compositionId) {
-  const result = prepareProjectCompositionsImport(current, sourceProject, [compositionId]);
+export function prepareProjectCompositionImport(current, sourceProject, compositionId, options) {
+  const result = prepareProjectCompositionsImport(current, sourceProject, [compositionId], options);
   return { project: result.project, compositionId: result.compositionIds[0] };
 }

@@ -135,6 +135,74 @@ function reopen(s) {
   }
 }
 
+test('Capture of a legacy Document follows its existing referenced-Layer closure', () => {
+  const source = fixture('document');
+  source.send('initialize-live-key-color-recipe', request());
+  const doc = source.session.snapshot(),
+    dependency = blankDocument().layers[0];
+  const color = node('Color');
+  color.name = 'Dependency color';
+  color.params.value.colorSlotId = 'fresh-key';
+  dependency.nodes.push(color);
+  const reference = node('Composition Reference');
+  reference.compositionReference = { compositionId: dependency.id };
+  doc.layers[0].nodes.push(reference);
+  doc.layers.push(dependency);
+  const sourceText = serialize(doc);
+  const target = fixture('document');
+  target.send('initialize-key-color-recipe', request());
+  const before = captured(target.session);
+  target.send('import-composition', {
+    sourceText,
+    compositionId: doc.layers[0].id,
+    captureLiveColors: true,
+  });
+  const imported = target.session.snapshot();
+  assert.equal(imported.layers.length, 3);
+  const capturedColor = imported.layers
+    .flatMap((layer) => layer.nodes)
+    .find((entry) => entry.name === 'Dependency color');
+  assert.equal(capturedColor.params.value.colorSlotId, undefined);
+  assert.deepEqual(capturedColor.params.value.value, { hex: '#aBcD09', alpha: 0 });
+  target.send('undo');
+  assert.equal(captured(target.session).document, before.document);
+  assert.equal(serialize(doc), sourceText);
+});
+
+test('preset-only live references do not make Capture applicable', () => {
+  const source = fixture('document', legacyDocument());
+  source.send('initialize-live-key-color-recipe', request());
+  const layer = source.session.snapshot().layers[0],
+    color = layer.nodes.find((entry) => entry.type === 'Color');
+  source.send('bind-color-slot', {
+    layerId: layer.id,
+    nodeId: color.id,
+    key: 'value',
+    slotId: 'fresh-derived',
+  });
+  source.send('save-node-preset', {
+    layerId: layer.id,
+    nodeIds: [color.id],
+    name: 'Saved linked color',
+  });
+  source.send('unbind-color-slot', { layerId: layer.id, nodeId: color.id, key: 'value' });
+  const project = migrateLegacyDocumentToCompositionProject(source.session.snapshot());
+  const target = fixture('composition');
+  target.send('initialize-key-color-recipe', request());
+  withRedo(target);
+  const before = captured(target.session);
+  assert.throws(
+    () =>
+      target.send('import-project-compositions', {
+        sourceProject: project,
+        compositionIds: [project.compositions[0].id],
+        captureLiveColors: true,
+      }),
+    /requires conflicting/i,
+  );
+  assert.deepEqual(captured(target.session), before);
+});
+
 for (const kind of ['document', 'composition']) {
   test(`${kind}: explicit initialization appends exact IDs/names/alpha0 and receipt in one Undo`, () => {
     const f = fixture(kind),
@@ -1155,6 +1223,305 @@ for (const kind of ['document', 'composition']) {
     assert.throws(() => sendImport(target), /budget/i);
     assert.deepEqual(captured(target.session), before);
     assert.equal(serialize(source.session.snapshot()), sourceBefore);
+  });
+
+  test(`${kind}: explicit capture imports live Color bindings as local values without replacing the destination packet`, () => {
+    const sourceDocument = legacyDocument();
+    const sourceColor = sourceDocument.layers[0].nodes.find((entry) => entry.type === 'Color');
+    sourceColor.name = 'Linked fixture';
+    sourceColor.locked = true;
+    sourceColor.extension = { colorSlotId: 'fresh-derived' };
+    sourceDocument.layers[0].visible = false;
+    const ordinary = node('Color');
+    ordinary.name = 'Legacy fixture';
+    ordinary.params.value.colorSlotId = 'legacy';
+    const sourceFill = node('Fill');
+    sourceFill.name = 'C1 fixture';
+    sourceFill.params.color.value = null;
+    sourceDocument.layers[0].nodes.push(ordinary, sourceFill);
+    const source = fixture('document', sourceDocument);
+    source.send('initialize-live-key-color-recipe', request());
+    const sourceLayer = source.session.snapshot().layers[0];
+    const color = sourceLayer.nodes.find((entry) => entry.name === 'Linked fixture');
+    source.send('bind-color-slot', {
+      layerId: sourceLayer.id,
+      nodeId: color.id,
+      key: 'value',
+      slotId: 'fresh-derived',
+    });
+    source.send('bind-color-slot', {
+      layerId: sourceLayer.id,
+      nodeId: sourceFill.id,
+      key: 'color',
+      slotId: 'fresh-key',
+    });
+    const sourceDoc = source.session.snapshot();
+    const sourceBefore = serialize(sourceDoc);
+    const sourceValue = sourceDoc.colorSlots.find((slot) => slot.id === 'fresh-derived').value;
+    const sourceKey = sourceDoc.colorSlots.find((slot) => slot.id === 'fresh-key').value;
+    const project = migrateLegacyDocumentToCompositionProject(sourceDoc);
+    const payload =
+      kind === 'document'
+        ? { sourceText: sourceBefore, compositionId: sourceLayer.id }
+        : { sourceProject: project, compositionIds: [project.compositions[0].id] };
+    const type = kind === 'document' ? 'import-composition' : 'import-project-compositions';
+    {
+      const target = fixture(kind, legacyDocument());
+      target.send('initialize-key-color-recipe', request());
+      target.send('set-document-settings', { key: 'width', value: 961 });
+      let afterUndo;
+      const reentrant = new Proxy(
+        { ...payload, captureLiveColors: true },
+        {
+          getOwnPropertyDescriptor(object, key) {
+            if (key === 'captureLiveColors') {
+              target.send('undo');
+              afterUndo = captured(target.session);
+            }
+            return Reflect.getOwnPropertyDescriptor(object, key);
+          },
+        },
+      );
+      assert.throws(() => target.send(type, reentrant), /STALE_(SESSION|REVISION)/);
+      assert.ok(afterUndo);
+      assert.deepEqual(captured(target.session), afterUndo);
+      assert.equal(target.session.historyView.future.length, 1);
+    }
+    const noPacket = fixture(kind, legacyDocument());
+    withRedo(noPacket);
+    const noPacketBefore = captured(noPacket.session);
+    assert.throws(
+      () => noPacket.send(type, { ...payload, captureLiveColors: true }),
+      /requires conflicting/i,
+    );
+    assert.deepEqual(captured(noPacket.session), noPacketBefore);
+    const noLiveDocument = structuredClone(sourceDoc);
+    for (const entry of noLiveDocument.layers[0].nodes)
+      for (const q of Object.values(entry.params || {}))
+        if (q.colorSlotId === 'fresh-key' || q.colorSlotId === 'fresh-derived')
+          delete q.colorSlotId;
+    const noLiveProject = migrateLegacyDocumentToCompositionProject(noLiveDocument);
+    const noLivePayload =
+      kind === 'document'
+        ? { sourceText: serialize(noLiveDocument), compositionId: sourceLayer.id }
+        : { sourceProject: noLiveProject, compositionIds: [noLiveProject.compositions[0].id] };
+    const noLiveTarget = fixture(kind, legacyDocument());
+    noLiveTarget.send('initialize-key-color-recipe', request());
+    withRedo(noLiveTarget);
+    const noLiveBefore = captured(noLiveTarget.session);
+    assert.throws(
+      () => noLiveTarget.send(type, { ...noLivePayload, captureLiveColors: true }),
+      /requires conflicting/i,
+    );
+    assert.deepEqual(captured(noLiveTarget.session), noLiveBefore);
+    if (kind === 'composition') {
+      const hiddenBinding = structuredClone(project);
+      const hiddenColor = hiddenBinding.compositions[0].layers[0].nodes.find(
+        (entry) => entry.name === 'C1 fixture',
+      ).params.color;
+      hiddenColor.value = { hex: '#FF00FF', alpha: 0.8 };
+      Object.defineProperty(hiddenColor, 'colorSlotId', { enumerable: false });
+      const target = fixture(kind, legacyDocument());
+      target.send('initialize-key-color-recipe', request());
+      withRedo(target);
+      const before = captured(target.session);
+      assert.throws(
+        () =>
+          target.send(type, { ...payload, sourceProject: hiddenBinding, captureLiveColors: true }),
+        /binding/i,
+      );
+      assert.deepEqual(captured(target.session), before);
+      assert.equal(Object.getOwnPropertyDescriptor(hiddenColor, 'colorSlotId').enumerable, false);
+
+      const malformed = structuredClone(project);
+      malformed.compositions[0].layers[0].nodes.find(
+        (entry) => entry.id === color.id,
+      ).params.value.value = { hex: '#bad', alpha: 1 };
+      // The outer codec alone accepts this fallback; Capture must not repair it.
+      assert.doesNotThrow(() => validateCompositionProject(malformed));
+      const malformedBefore = JSON.stringify(malformed);
+      assert.throws(() =>
+        target.send(type, { ...payload, sourceProject: malformed, captureLiveColors: true }),
+      );
+      assert.deepEqual(captured(target.session), before);
+      assert.equal(JSON.stringify(malformed), malformedBefore);
+      const mismatch = structuredClone(project);
+      mismatch.colorSlots.find((slot) => slot.id === 'fresh-derived').value.hex = '#000000';
+      assert.throws(
+        () => target.send(type, { ...payload, sourceProject: mismatch, captureLiveColors: true }),
+        /projection/i,
+      );
+      assert.deepEqual(captured(target.session), before);
+
+      // A shared, unreferenced image is validated once even when several
+      // selected Compositions need independent Document validation.
+      const many = structuredClone(project);
+      const imageData =
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+      many.imageAssets = {
+        'image-capture-test': {
+          name: 'capture.png',
+          mime: 'image/png',
+          width: 1,
+          height: 1,
+          data: imageData,
+        },
+      };
+      for (let i = 0; i < 3; i++) {
+        const extra = blankDocument();
+        many.compositions.push({
+          id: `capture-extra-${i}`,
+          name: `Extra ${i}`,
+          width: extra.width,
+          height: extra.height,
+          layers: extra.layers,
+          editor: extra.editor,
+        });
+      }
+      const manyBefore = JSON.stringify(many);
+      const image = many.imageAssets['image-capture-test'];
+      const selected = many.compositions.map((item) => item.id);
+      const atob = globalThis.atob;
+      let decodes = 0;
+      try {
+        globalThis.atob = (data) => {
+          if (data === imageData) decodes++;
+          return atob(data);
+        };
+        target.send(type, {
+          sourceProject: many,
+          compositionIds: selected,
+          captureLiveColors: true,
+        });
+      } finally {
+        globalThis.atob = atob;
+      }
+      assert.equal(decodes, 1);
+      assert.equal(JSON.stringify(many), manyBefore);
+      assert.equal(Object.isFrozen(image), false);
+    }
+    for (const mode of ['retained', 'live']) {
+      const target = fixture(kind, legacyDocument());
+      target.send(
+        mode === 'live' ? 'initialize-live-key-color-recipe' : 'initialize-key-color-recipe',
+        request(),
+      );
+      withRedo(target);
+      const before = captured(target.session),
+        beforeDoc = target.session.snapshot();
+      assert.throws(() => target.send(type, { ...payload, captureLiveColors: 'yes' }), /choice/i);
+      assert.deepEqual(captured(target.session), before);
+      let getterCalls = 0;
+      const accessor = { ...payload };
+      Object.defineProperty(accessor, 'captureLiveColors', {
+        enumerable: true,
+        get() {
+          getterCalls++;
+          return true;
+        },
+      });
+      assert.throws(() => target.send(type, accessor), /choice/i);
+      assert.equal(getterCalls, 0);
+      const hidden = { ...payload };
+      Object.defineProperty(hidden, 'captureLiveColors', { enumerable: false, value: true });
+      assert.throws(() => target.send(type, hidden), /choice/i);
+      assert.throws(
+        () => target.send(type, { ...payload, captureLiveColors: false }),
+        (error) => error.code === 'LIVE_COLOR_IMPORT_CONFLICT',
+      );
+      const inherited = Object.assign(Object.create({ captureLiveColors: true }), payload);
+      assert.throws(
+        () => target.send(type, inherited),
+        (error) => error.code === 'LIVE_COLOR_IMPORT_CONFLICT',
+      );
+      assert.deepEqual(captured(target.session), before);
+      target.send(type, { ...payload, captureLiveColors: true });
+      const after = captured(target.session),
+        imported = target.session.snapshot();
+      const importedCompositionId = target.session.activeCompositionId;
+      assert.equal(imported.schemaVersion, mode === 'live' ? 59 : 58);
+      const importedLayer = kind === 'document' ? imported.layers.at(-1) : imported.layers[0];
+      const importedColor = importedLayer.nodes.find((entry) => entry.name === 'Linked fixture');
+      const importedFill = importedLayer.nodes.find((entry) => entry.name === 'C1 fixture');
+      const importedOrdinary = importedLayer.nodes.find((entry) => entry.name === 'Legacy fixture');
+      assert.equal(importedColor.params.value.colorSlotId, undefined);
+      assert.deepEqual(importedColor.params.value.value, sourceValue);
+      assert.equal(importedLayer.visible, false);
+      assert.equal(importedColor.locked, true);
+      assert.deepEqual(importedColor.extension, { colorSlotId: 'fresh-derived' });
+      assert.equal(importedFill.params.color.colorSlotId, undefined);
+      assert.deepEqual(importedFill.params.color.value, sourceKey);
+      assert.notEqual(importedOrdinary.params.value.colorSlotId, 'legacy');
+      assert.deepEqual(
+        imported.colorSlots.find((slot) => slot.id === importedOrdinary.params.value.colorSlotId)
+          .value,
+        sourceDoc.colorSlots.find((slot) => slot.id === 'legacy').value,
+      );
+      assert.deepEqual(
+        evaluate(importedLayer, {}, imported.imageAssets, imported).run(importedColor.id),
+        sourceValue,
+      );
+      assert.deepEqual(imported.keyColorRecipe, beforeDoc.keyColorRecipe);
+      for (const slot of beforeDoc.colorSlots)
+        assert.deepEqual(
+          imported.colorSlots.find((item) => item.id === slot.id),
+          slot,
+        );
+      assert.equal(serialize(source.session.snapshot()), sourceBefore);
+      reopen(target.session);
+      const reloaded =
+        kind === 'document'
+          ? new CommandSession(deserialize(serialize(imported)))
+          : createCompositionSessionOwner(
+              deserializeCompositionProject(
+                serializeCompositionProject(target.session.projectSnapshot()),
+              ),
+              { activeCompositionId: importedCompositionId },
+            );
+      const reloadedDoc = reloaded.snapshot();
+      const reloadedLayer = kind === 'document' ? reloadedDoc.layers.at(-1) : reloadedDoc.layers[0];
+      assert.deepEqual(
+        evaluate(reloadedLayer, {}, reloadedDoc.imageAssets, reloadedDoc).run(importedColor.id),
+        sourceValue,
+      );
+      if (mode === 'live') {
+        const palette = reloadedDoc.keyColorRecipe.committedSnapshot;
+        reloaded.dispatch({
+          ...reloaded.state,
+          type: 'edit-live-key-color-recipe',
+          payload: {
+            expectedPaletteRevision: palette.revision,
+            keyColor: { hex: '#D04030', alpha: 1 },
+          },
+        });
+        const changed = reloaded.snapshot(),
+          changedLayer = kind === 'document' ? changed.layers.at(-1) : changed.layers[0];
+        assert.deepEqual(
+          evaluate(changedLayer, {}, changed.imageAssets, changed).run(importedColor.id),
+          sourceValue,
+        );
+      }
+      target.send('undo');
+      assert.equal(captured(target.session).document, before.document);
+      assert.equal(captured(target.session).project, before.project);
+      target.send('redo');
+      if (kind === 'composition') target.session.switchComposition(importedCompositionId);
+      assert.equal(captured(target.session).document, after.document);
+      assert.equal(captured(target.session).project, after.project);
+      if (mode === 'live') {
+        const palette = target.session.snapshot().keyColorRecipe.committedSnapshot;
+        target.send('edit-live-key-color-recipe', {
+          expectedPaletteRevision: palette.revision,
+          keyColor: { hex: '#D04030', alpha: 1 },
+        });
+        const changed = target.session.snapshot();
+        const layer = kind === 'document' ? changed.layers.at(-1) : changed.layers[0];
+        assert.deepEqual(
+          evaluate(layer, {}, changed.imageAssets, changed).run(importedColor.id),
+          sourceValue,
+        );
+      }
+    }
   });
 
   test(`${kind}: source with no selected live reference retains the destination packet`, () => {
