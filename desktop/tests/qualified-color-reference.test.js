@@ -309,6 +309,38 @@ test('qualified Color imports and copies refuse atomically', () => {
     );
 });
 
+test('a mixed Artwork and Composition Color copy is refused as a whole', () => {
+  const owner = fixture();
+  apply(owner, artworkRef);
+  const second = send(owner, 'create-node', { layerId: 'target-art', nodeType: 'Fill' }).nodeId;
+  send(owner, 'set-parameter-expression', {
+    layerId: 'target-art',
+    nodeId: second,
+    key: 'color',
+    expression: compositionRef,
+  });
+  const local = send(owner, 'create-node', { layerId: 'target-art', nodeType: 'Color' }).nodeId;
+  send(owner, 'set-document-settings', { key: 'width', value: 961 });
+  send(owner, 'undo');
+  send(owner, 'copy-nodes', { layerId: 'target-art', nodeIds: [local] });
+  const before = owner.projectSnapshot(),
+    state = owner.state,
+    history = owner.historyState;
+  assert.throws(
+    () =>
+      send(owner, 'copy-nodes', {
+        layerId: 'target-art',
+        nodeIds: ['target-fill', second],
+      }),
+    /not supported/i,
+  );
+  assert.deepEqual(owner.projectSnapshot(), before);
+  assert.deepEqual(owner.state, state);
+  assert.deepEqual(owner.historyState, history);
+  const id = send(owner, 'paste-nodes', { layerId: 'target-art' }).nodeIds[0];
+  assert.equal(owner.snapshot().layers[0].nodes.find((entry) => entry.id === id).type, 'Color');
+});
+
 test('Artwork Color expression follows a connected source, expression and legacy Fill fallback', () => {
   const owner = fixture();
   const project = owner.projectSnapshot();

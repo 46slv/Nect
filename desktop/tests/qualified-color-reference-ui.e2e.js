@@ -152,6 +152,33 @@ try {
   assert.equal(local, 'ref(colorArtwork, "local-art", "local-color", "value")');
   assert.deepEqual(await resultColor(), { hex: '#1248ac', alpha: 0.7 });
 
+  // Graph Copy/Paste retains an explicit same-project Artwork Color source.
+  await selectNode('target-fill');
+  await page.locator('.graph-scroll').focus();
+  await page.keyboard.press('Control+c');
+  assert.match(await page.locator('.status').innerText(), /external input/i);
+  const beforePaste = await snapshot();
+  await page.keyboard.press('Control+v');
+  await page.waitForFunction(
+    () => window.nect.document.layers[0].nodes.filter((n) => n.type === 'Fill').length === 2,
+  );
+  const withPaste = await snapshot(),
+    pasted = withPaste.compositions[0].layers[0].nodes.find(
+      (n) => n.type === 'Fill' && n.id !== 'target-fill',
+    );
+  assert.equal(pasted.params.color.expression, local);
+  assert.equal(pasted.params.color.colorSlotId, undefined);
+  assert.deepEqual(
+    await page.evaluate((id) => window.nect.evaluate().parameterValue(id, 'color'), pasted.id),
+    { hex: '#1248ac', alpha: 0.7 },
+  );
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), beforePaste);
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await snapshot(), withPaste);
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), beforePaste);
+
   await selectNode('target-fill');
   const remote = await chooseReference('source-comp foreign-art foreign-color value', {
     keyboard: true,

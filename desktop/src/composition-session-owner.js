@@ -330,6 +330,10 @@ export class CompositionSessionOwner {
       fonts: this.#fonts,
       busy: this.#busy,
       retainHistory: false,
+      retainColorClipboardForProjectContext: (nextProject, nextCompositionId) =>
+        this.#session === session &&
+        this.#history.doc === nextProject &&
+        this.#activeCompositionId === nextCompositionId,
       captureArtworkMoveAuthority: () => {
         const revision = this.#history.revision;
         const assertCurrent = () => {
@@ -785,6 +789,7 @@ export class CompositionSessionOwner {
         command.payload?.target?.kind === 'artwork-translate') ||
       (['update-gesture', 'commit-gesture'].includes(command?.type) &&
         session.gestureState?.kind === 'artwork-translate');
+    const guardedTransfer = artworkMove || command?.type === 'paste-nodes';
     const assertOwnerCurrent = () => {
       if (this.#session !== session || this.#activeCompositionId !== compositionId)
         throw Error('STALE_SESSION: document changed');
@@ -793,14 +798,14 @@ export class CompositionSessionOwner {
     };
     try {
       const result = session.dispatch(command);
-      if (artworkMove) assertOwnerCurrent();
+      if (guardedTransfer) assertOwnerCurrent();
       if (session.state.expectedRevision !== revision) {
         const candidate = this.#projectWithDocument(
           this.#history.doc,
           compositionId,
           session.snapshot(),
         );
-        if (artworkMove) assertOwnerCurrent();
+        if (guardedTransfer) assertOwnerCurrent();
         this.#applyProjectEdit((history) => {
           replaceRecord(history, candidate);
         });
@@ -815,7 +820,7 @@ export class CompositionSessionOwner {
       // unchanged project snapshot so a failed adapter cannot leak an edit.
       if (
         session.state.expectedRevision !== revision &&
-        (!artworkMove ||
+        (!guardedTransfer ||
           (this.#session === session &&
             this.#activeCompositionId === compositionId &&
             this.#history.revision === projectRevision))
