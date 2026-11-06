@@ -4,7 +4,7 @@ const graphemes =
   typeof Intl === 'object' && typeof Intl.Segmenter === 'function'
     ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
     : null;
-function displayPart(value) {
+export function boundedDisplayPart(value) {
   if (value.length <= 32) return { text: value, truncated: false };
   const sample = [];
   for (const character of value) {
@@ -30,14 +30,14 @@ export function directSharedColorUses(project, slotId) {
     throw Error('Shared color is no longer available');
   const uses = [];
   for (const composition of project.compositions) {
-    const compositionName = displayPart(composition.name);
+    const compositionName = boundedDisplayPart(composition.name);
     for (const layer of composition.layers) {
-      const layerName = displayPart(layer.name);
+      const layerName = boundedDisplayPart(layer.name);
       for (const node of layer.nodes) {
-        const nodeName = displayPart(node.name);
+        const nodeName = boundedDisplayPart(node.name);
         for (const [key, parameter] of Object.entries(node.params || {}))
           if (parameter?.type === 'Color' && parameter.colorSlotId === slotId) {
-            const parameterName = displayPart(key);
+            const parameterName = boundedDisplayPart(key);
             uses.push({
               compositionId: composition.id,
               layerId: layer.id,

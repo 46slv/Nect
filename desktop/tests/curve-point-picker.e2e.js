@@ -242,6 +242,75 @@ try {
   assert.equal(await expressionInput.inputValue(), 'ref("curve", "anchor-target.position", "x")');
   await expressionDialog.locator('[data-confirm]').click();
 
+  // Long authored names remain searchable in full without expanding every row.
+  const longNames = structuredClone(small),
+    longLayer = longNames.layers[0],
+    longFirst = longLayer.nodes.find((item) => item.id === 'picker-curve'),
+    longSecond = longLayer.nodes.find((item) => item.id === 'picker-curve-b'),
+    prefix = 'Contour '.repeat(12498);
+  longFirst.name = `${prefix}FirstTail`;
+  longSecond.name = `${prefix}SecondTail`;
+  await page.evaluate((text) => window.nect.load(text), serialize(longNames));
+  await page.locator('.node[data-id="picker-transform"] .node-head strong').click();
+  await field.locator('[data-fx]').click();
+  await expressionInput.fill('SecondTail');
+  const longSuggestion = page.getByRole('option').filter({ hasText: 'Point 1 · X' }).first();
+  assert.ok((await longSuggestion.innerText()).length < 200);
+  assert.equal(await longSuggestion.getAttribute('aria-description'), longSecond.name);
+  await longSuggestion.click();
+  assert.equal(
+    await expressionInput.inputValue(),
+    'ref("picker-curve-b", "other-point-1.position", "x")',
+  );
+  await expressionInput.fill('');
+  await expressionDialog.locator('[data-insert-reference]').click();
+  const longSearch = picker.getByRole('combobox', { name: 'Parameter references search' });
+  await longSearch.fill('SecondTail Point 1');
+  assert.equal(await picker.locator('.picker-option').count(), 8);
+  const longRow = picker.locator('.picker-option').filter({ hasText: 'Point 1 · X' }).first();
+  assert.ok((await longRow.innerText()).length < 200);
+  assert.equal(await longRow.getAttribute('aria-description'), longSecond.name);
+  assert.equal(await longRow.getAttribute('title'), longSecond.name);
+  await page.setViewportSize({ width: 1000, height: 650 });
+  await page.screenshot({ path: resolve(output, 'long-name-picker.png') });
+  await longRow.click();
+  await longSearch.press('Enter');
+  assert.equal(
+    await expressionInput.inputValue(),
+    'ref("picker-curve-b", "other-point-1.position", "x")',
+  );
+  await expressionDialog.locator('[data-cancel]').click();
+
+  const longLarge = structuredClone(doc),
+    longLargeCurve = longLarge.layers[0].nodes.find((item) => item.id === 'picker-curve');
+  longLargeCurve.name = `${prefix}LargeTail`;
+  await page.evaluate((text) => window.nect.load(text), serialize(longLarge));
+  await page.locator('.node[data-id="picker-transform"] .node-head strong').click();
+  await field.locator('[data-fx]').click();
+  const longOpenStart = Date.now();
+  await expressionDialog.locator('[data-insert-reference]').click();
+  assert.equal(await picker.locator('.picker-option').count(), 100);
+  const longOpenMs = Date.now() - longOpenStart,
+    longLargeSearch = picker.getByRole('combobox', { name: 'Parameter references search' }),
+    longSearchStart = Date.now();
+  await longLargeSearch.fill(`LargeTail point-${pointCount}.position`);
+  assert.equal(await picker.locator('.picker-option').count(), 2);
+  assert.ok((await picker.locator('.picker-option').first().innerText()).length < 200);
+  assert.equal(
+    await picker.locator('.picker-option').first().getAttribute('aria-description'),
+    longLargeCurve.name,
+  );
+  console.log(
+    JSON.stringify({
+      longNameLength: longLargeCurve.name.length,
+      points: pointCount,
+      longOpenMs,
+      longSearchMs: Date.now() - longSearchStart,
+    }),
+  );
+  await picker.locator('.picker-cancel').click();
+  await expressionDialog.locator('[data-cancel]').click();
+
   // Compare against the connected large-Curve route that previously spent
   // most of its load time repeatedly searching every point parameter.
   const connected = structuredClone(doc),

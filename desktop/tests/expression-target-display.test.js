@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { expressionTargetDisplay } from '../src/expression-target-display.js';
+import { expressionCompletions } from '../src/expression-completion.js';
 
 test('Artwork context distinguishes duplicate names without changing reference identity', () => {
   const document = {
@@ -27,6 +28,7 @@ test('Artwork context distinguishes duplicate names without changing reference i
     nodeId: 'curve-1',
     name: 'Curve',
     key: 'point-1.position',
+    component: 'x',
     pointOrdinal: 1,
     label: 'Curve · Point 1 · X',
     expression: 'ref(artwork, "artwork-1234", "curve-1", "point-1.position", "x")',
@@ -64,4 +66,51 @@ test('Artwork context distinguishes duplicate names without changing reference i
   assert.equal(display.completion(local), local);
   assert.equal(display.picker(local).label, local.label);
   assert.equal(display.picker(local).id, local.expression);
+});
+
+test('long Artwork and node names stay bounded, searchable and available in full', () => {
+  const layerName = `${'Artwork '.repeat(12000)}LayerTail`,
+    nodeName = `${'Contour '.repeat(12000)}NodeTail`,
+    otherLayerName = `${'Artwork '.repeat(12000)}OtherTail`,
+    document = {
+      layers: [
+        { id: 'local', name: 'Local', nodes: [] },
+        { id: 'source-a', name: layerName, nodes: [{ id: 'curve-a', name: nodeName }] },
+        { id: 'source-b', name: otherLayerName, nodes: [{ id: 'curve-b', name: 'Curve' }] },
+      ],
+    },
+    display = expressionTargetDisplay(document, 'local'),
+    makeTarget = (index) => ({
+      layerId: 'source-a',
+      layerName,
+      nodeId: 'curve-a',
+      name: nodeName,
+      key: `point-${index}.position`,
+      component: 'x',
+      pointOrdinal: index,
+      label: `${nodeName} · Point ${index} · X`,
+      expression: `ref(artwork, "source-a", "curve-a", "point-${index}.position", "x")`,
+    }),
+    targets = Array.from({ length: 1000 }, (_, index) => makeTarget(index + 1)),
+    rows = targets.map(display.picker);
+  assert.ok(rows.every((row) => row.label.length < 140));
+  assert.equal(rows[0].fullName, rows[999].fullName);
+  assert.equal(rows[0].fullName(), `${layerName} · ${nodeName}`);
+  assert.equal(display.filter(rows, 'LayerTail NodeTail').length, 1000);
+  assert.equal(display.filter(rows, 'OtherTail').length, 0);
+  assert.equal(display.filter(rows, 'source-a point-1000.position')[0].id, targets[999].expression);
+  const completions = targets.map(display.completion);
+  const prefix = 'NodeTail';
+  assert.equal(
+    expressionCompletions(prefix, prefix.length, prefix.length, completions)[0].text,
+    targets[0].expression,
+  );
+  assert.ok(
+    expressionCompletions(prefix, prefix.length, prefix.length, completions)[0].label.length < 140,
+  );
+  const layerPrefix = 'LayerTail';
+  assert.equal(
+    expressionCompletions(layerPrefix, layerPrefix.length, layerPrefix.length, completions)[0].text,
+    targets[0].expression,
+  );
 });
