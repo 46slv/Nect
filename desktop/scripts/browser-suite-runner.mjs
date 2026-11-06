@@ -96,6 +96,7 @@ export const browserTestFiles = Object.freeze([
   'tests/workspace-stack.e2e.js',
   'tests/workspace-tools-placement.e2e.js',
   'tests/shared-color-delete.e2e.js',
+  'tests/shared-color-order.e2e.js',
   'tests/shared-color-copy.e2e.js',
   'tests/curve-point-reference-ui.e2e.js',
   'tests/curve-handle-reference-ui.e2e.js',

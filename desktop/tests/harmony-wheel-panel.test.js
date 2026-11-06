@@ -1089,7 +1089,7 @@ test('palette status and one existing action row lead the draft; saved colors re
   assert.equal(state(), 'saved');
   assert.equal(s.query('[data-chroma-state]').getAttribute('role'), 'status');
   assert.equal(s.query('.shared-color-list').getAttribute('aria-label'), 'Saved shared colors');
-  assert.equal(s.query('.shared-color-list').firstElementChild.textContent, 'Saved colors');
+  assert.equal(s.query('.shared-colors-heading').textContent, 'Saved colors');
   uniqueActions(false);
   s.change('[data-wheel-setting="hueRotation"]', 75);
   assert.equal(state(), 'draft');
