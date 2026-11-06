@@ -1,4 +1,11 @@
-import { characterPositionStatus, uid, validate } from './core.js';
+import {
+  bypassContract,
+  characterPositionStatus,
+  evaluate,
+  remapFingerprintMatches,
+  uid,
+  validate,
+} from './core.js';
 import {
   artworkReferencesInLayers,
   ARTWORK_REFERENCE_SCHEMA_VERSION,
@@ -296,6 +303,170 @@ export function duplicateArtworkLayer(doc, layerId, options) {
   return { layerId: staged.layerId, outputNodeId: staged.outputNodeId };
 }
 
+// A copied authored point has a provable identity only through operators that
+// retain their input point IDs. Never infer a generated ID from a prefix,
+// position or point order. Other routes can still pass if their evaluated ID
+// remains unchanged in the copy.
+function copiedAuthoredPoints(source, copy, evaluation, inputId) {
+  const nodes = new Map(source.nodes.map((node, index) => [node.id, { node, index }]));
+  const seen = new Set();
+  let id = inputId;
+  while (id && !seen.has(id)) {
+    seen.add(id);
+    const pair = nodes.get(id);
+    if (!pair) return null;
+    const original = pair.node,
+      duplicate = copy.nodes[pair.index];
+    if (['Curve', 'Multi Path'].includes(original.type) && !original.bypassed) {
+      return new Map(original.points.map((point, index) => [point.id, duplicate.points[index].id]));
+    }
+    let input;
+    if (original.bypassed) {
+      const contract = bypassContract(original, source);
+      if (!contract.supported || contract.type !== 'Path') return null;
+      input = contract.input;
+    } else if (['Transform', 'Path Remap'].includes(original.type)) input = 'path';
+    else if (
+      original.type === 'Closed Path Offset' &&
+      evaluation.parameterValue(original.id, 'amount') === 0
+    )
+      input = 'path';
+    else return null;
+    const next = original.params?.[input];
+    const copiedNext = duplicate.params?.[input];
+    const nextPair = nodes.get(next?.source);
+    if (
+      next?.sourcePort !== undefined ||
+      copiedNext?.sourcePort !== undefined ||
+      !nextPair ||
+      copiedNext?.source !== copy.nodes[nextPair.index].id
+    )
+      return null;
+    id = next.source;
+  }
+  return null;
+}
+
+function indexedPathPoints(path) {
+  if (!Array.isArray(path?.contours)) throw Error('input did not evaluate to a Path');
+  const points = new Map();
+  for (const contour of path.contours)
+    for (const point of contour.points) {
+      if (points.has(point.id)) points.set(point.id, null);
+      else points.set(point.id, point);
+    }
+  return points;
+}
+
+function pointGeometry(point) {
+  return JSON.stringify([point.position, point.handleA, point.handleB]);
+}
+
+// Check the evaluator's actual binding and fingerprint rules on isolated
+// snapshots before any layer or History entry is committed. A suspended edit
+// may remain suspended, but must never become bound to a different point.
+function assertCopiedRemapBindings(doc, source, copy, index) {
+  const remaps = source.nodes
+    .map((node, index) => ({ node, index }))
+    .filter(({ node }) => node.type === 'Path Remap' && node.edits.length);
+  if (!remaps.length) return;
+
+  const originalDocument = candidateDocument(doc),
+    copiedDocument = candidateDocument(doc),
+    original = originalDocument.layers.find((layer) => layer.id === source.id);
+  copiedDocument.layers.splice(index, 0, copy);
+  const originalEvaluation = evaluate(
+    original,
+    {},
+    originalDocument.imageAssets || {},
+    originalDocument,
+    null,
+    true,
+  );
+  const checks = [];
+  for (const { node: sourceNode, index: nodeIndex } of remaps) {
+    const node = original.nodes[nodeIndex],
+      copiedNode = copy.nodes[nodeIndex];
+    try {
+      const input = originalEvaluation.run(node.params.path.source, node.params.path.sourcePort),
+        points = indexedPathPoints(input),
+        authoredPoints = copiedAuthoredPoints(
+          original,
+          copy,
+          originalEvaluation,
+          node.params.path.source,
+        );
+      for (const [editIndex, edit] of node.edits.entries()) {
+        const oldPoint = points.get(edit.pointId);
+        if (points.has(edit.pointId) && !oldPoint) throw Error('point ID is ambiguous');
+        const mapped = oldPoint && authoredPoints?.get(edit.pointId);
+        const copiedEdit = copiedNode.edits[editIndex];
+        copiedEdit.pointId = mapped || edit.pointId;
+        if (edit.fingerprint === undefined) delete copiedEdit.fingerprint;
+        else copiedEdit.fingerprint = edit.fingerprint;
+        checks.push({ node, copiedNode, edit, copiedEdit, input, oldPoint });
+      }
+    } catch (error) {
+      throw Error(
+        `Cannot duplicate Path Remap “${sourceNode.name}”: unable to verify its input (${error.message}).`,
+      );
+    }
+  }
+
+  const copiedEvaluation = evaluate(
+      copy,
+      {},
+      copiedDocument.imageAssets || {},
+      copiedDocument,
+      null,
+      true,
+    ),
+    inputs = new Map(),
+    outputs = new Map();
+  for (const check of checks) {
+    const { node, copiedNode, edit, copiedEdit, input, oldPoint } = check;
+    try {
+      if (!inputs.has(copiedNode.id)) {
+        const path = copiedEvaluation.run(
+          copiedNode.params.path.source,
+          copiedNode.params.path.sourcePort,
+        );
+        inputs.set(copiedNode.id, { path, points: indexedPathPoints(path) });
+      }
+      const copiedInput = inputs.get(copiedNode.id),
+        copiedPoint = copiedInput.points.get(copiedEdit.pointId);
+      if (copiedInput.points.has(copiedEdit.pointId) && !copiedPoint)
+        throw Error('copied point ID is ambiguous');
+      const active =
+          !!oldPoint && (!input.unstable || remapFingerprintMatches(input, edit.fingerprint)),
+        copiedActive =
+          !!copiedPoint &&
+          (!copiedInput.path.unstable ||
+            remapFingerprintMatches(copiedInput.path, copiedEdit.fingerprint));
+      if ((!oldPoint && copiedPoint) || active !== copiedActive)
+        throw Error('the copied point binding would change or become suspended');
+      if (!active) continue;
+      if (!outputs.has(node.id))
+        outputs.set(node.id, {
+          original: indexedPathPoints(originalEvaluation.run(node.id)),
+          copied: indexedPathPoints(copiedEvaluation.run(copiedNode.id)),
+        });
+      const output = outputs.get(node.id),
+        oldResult = output.original.get(edit.pointId),
+        copiedResult = output.copied.get(copiedEdit.pointId);
+      if (
+        !oldResult ||
+        !copiedResult ||
+        pointGeometry(oldPoint) !== pointGeometry(copiedPoint) ||
+        pointGeometry(oldResult) !== pointGeometry(copiedResult)
+      )
+        throw Error('the copied point or its applied correction would differ');
+    } catch (error) {
+      throw Error(`Cannot duplicate Path Remap “${node.name}”: ${error.message}.`);
+    }
+  }
+}
+
 /** Generic layer duplication for the layer-panel command surface. */
 export function duplicateLayerGeneric(doc, layerId) {
   const source = doc?.layers?.find((layer) => layer.id === layerId);
@@ -334,7 +505,7 @@ export function duplicateLayerGeneric(doc, layerId) {
   const collect = (value) => {
     if (!value || typeof value !== 'object') return;
     if (typeof value.id === 'string') ids.set(value.id, null);
-    for (const child of Object.values(value)) collect(child);
+    for (const [key, child] of Object.entries(value)) if (key !== 'metadata') collect(child);
   };
   collect(layer);
   for (const oldId of ids.keys()) {
@@ -347,6 +518,7 @@ export function duplicateLayerGeneric(doc, layerId) {
   const remap = (value) => {
     if (!value || typeof value !== 'object') return;
     for (const [key, child] of Object.entries(value)) {
+      if (key === 'metadata') continue;
       if (key === 'id' && typeof child === 'string') value[key] = ids.get(child) || child;
       else if (typeof child === 'string' && ids.has(child)) value[key] = ids.get(child);
       else remap(child);
@@ -359,6 +531,7 @@ export function duplicateLayerGeneric(doc, layerId) {
   });
   layer.name = `${source.name} copy`;
   const index = doc.layers.indexOf(source) + 1;
+  assertCopiedRemapBindings(doc, source, layer, index);
   const candidate = candidateDocument(doc);
   candidate.layers.splice(index, 0, structuredClone(layer));
   validate(candidate);
