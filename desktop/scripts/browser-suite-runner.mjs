@@ -94,6 +94,7 @@ export const browserTestFiles = Object.freeze([
   'tests/png-ppi-scrub.e2e.js',
   'tests/hsl-popover-numeric-scrub.e2e.js',
   'tests/asset-library-bootstrap.e2e.js',
+  'tests/asset-drag-composition-stale.e2e.js',
   'tests/workspace-stack.e2e.js',
   'tests/workspace-tools-placement.e2e.js',
   'tests/shared-color-delete.e2e.js',

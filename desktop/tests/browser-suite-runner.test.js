@@ -132,6 +132,7 @@ test('browser runner preserves all 55 original scripts, arguments, order, and CS
     'tests/png-ppi-scrub.e2e.js',
     'tests/hsl-popover-numeric-scrub.e2e.js',
     'tests/asset-library-bootstrap.e2e.js',
+    'tests/asset-drag-composition-stale.e2e.js',
     'tests/workspace-stack.e2e.js',
     'tests/workspace-tools-placement.e2e.js',
     'tests/shared-color-delete.e2e.js',
@@ -145,8 +146,8 @@ test('browser runner preserves all 55 original scripts, arguments, order, and CS
     'tests/composition-import-selection.e2e.js',
     'tests/shared-color-uses.e2e.js',
   ]);
-  assert.equal(browserTestFiles.length, 103);
-  assert.equal(new Set(browserTestFiles).size, 103);
+  assert.equal(browserTestFiles.length, 104);
+  assert.equal(new Set(browserTestFiles).size, 104);
   assert.ok(Object.isFrozen(browserTestFiles));
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(

@@ -9109,9 +9109,12 @@ function openAssetLibrary(focus = true) {
       layerId: current().id,
     }),
     insert: (request, payload) => {
+      const state = session.state;
       if (
         session !== request.owner ||
         request.generation !== documents.generation ||
+        state.sessionId !== request.envelope.sessionId ||
+        state.expectedRevision !== request.envelope.expectedRevision ||
         documents.hasDraft() ||
         readDocument() !== request.before ||
         (payload.route === 'graph' && current().id !== request.layerId)
