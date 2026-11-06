@@ -728,3 +728,222 @@ test('qualified Color expression preserves editable Base and one-step Undo/Redo'
   assert.deepEqual(q.value, { hex: '#112233', alpha: 0.2 });
   assert.equal(q.expression, artworkRef);
 });
+
+import { CommandSession } from '../src/core.js';
+
+test('copy after qualified Color edit does not promote an unrelated node after Undo', () => {
+  const doc = blankDocument();
+  doc.schemaVersion = 63;
+  const target = doc.layers[0],
+    source = blankLayer('Source');
+  target.id = 'copy-target';
+  source.id = 'copy-source';
+  const fill = node('Fill'),
+    color = node('Color'),
+    value = node('Value');
+  fill.id = 'copy-fill';
+  color.id = 'copy-color';
+  value.id = 'copy-value';
+  target.nodes.push(fill, value);
+  source.nodes.push(color);
+  doc.layers.push(source);
+  const session = new CommandSession(doc),
+    send = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
+  send('set-parameter-expression', {
+    layerId: target.id,
+    nodeId: fill.id,
+    key: 'color',
+    expression: 'ref(colorArtwork, "copy-source", "copy-color", "value")',
+  });
+  assert.equal(session.snapshot().schemaVersion, 64);
+  send('copy-nodes', { layerId: target.id, nodeIds: [value.id] });
+  send('undo');
+  assert.equal(session.snapshot().schemaVersion, 63);
+  const before = session.snapshot();
+  const id = send('paste-nodes', { layerId: target.id }).nodeIds[0];
+  const pasted = session.snapshot();
+  assert.equal(pasted.schemaVersion, 63);
+  assert.equal(pasted.layers[0].nodes.find((n) => n.id === id).type, 'Value');
+  send('undo');
+  assert.deepEqual(session.snapshot(), before);
+  send('redo');
+  assert.deepEqual(session.snapshot(), pasted);
+});
+
+test('numeric Artwork references copied from a Color schema 64 document retain their required version', () => {
+  const doc = blankDocument();
+  doc.schemaVersion = 61;
+  const target = doc.layers[0],
+    source = blankLayer('Source');
+  target.id = 'copy-target';
+  source.id = 'copy-source';
+  const fill = node('Fill'),
+    color = node('Color'),
+    sink = node('Value'),
+    driver = node('Value');
+  fill.id = 'copy-fill';
+  color.id = 'copy-color';
+  sink.id = 'copy-sink';
+  driver.id = 'copy-driver';
+  driver.params.value.value = 17;
+  target.nodes.push(fill, sink);
+  source.nodes.push(color, driver);
+  doc.layers.push(source);
+  const session = new CommandSession(doc),
+    send = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
+  const numeric = 'ref(artwork, "copy-source", "copy-driver", "value")';
+  send('set-parameter-expression', {
+    layerId: target.id,
+    nodeId: sink.id,
+    key: 'value',
+    expression: numeric,
+  });
+  assert.equal(session.snapshot().schemaVersion, 62);
+  send('set-parameter-expression', {
+    layerId: target.id,
+    nodeId: fill.id,
+    key: 'color',
+    expression: 'ref(colorArtwork, "copy-source", "copy-color", "value")',
+  });
+  send('copy-nodes', { layerId: target.id, nodeIds: [sink.id] });
+  send('undo');
+  send('undo');
+  assert.equal(session.snapshot().schemaVersion, 61);
+  const id = send('paste-nodes', { layerId: target.id }).nodeIds[0],
+    after = session.snapshot();
+  assert.equal(after.schemaVersion, 62);
+  assert.equal(after.layers[0].nodes.find((n) => n.id === id).params.value.expression, numeric);
+  assert.equal(
+    evaluate(after.layers[0], {}, after.imageAssets, after).parameterValue(id, 'value'),
+    17,
+  );
+  send('undo');
+  assert.equal(session.snapshot().schemaVersion, 61);
+  send('redo');
+  assert.equal(session.snapshot().schemaVersion, 62);
+});
+
+test('schema 64 clipboard still refuses a dormant numeric Composition reference', () => {
+  const base = fixture().projectSnapshot(),
+    target = base.compositions[0].layers[0],
+    foreign = base.compositions[1].layers[0];
+  const sink = node('Value'),
+    input = node('Value'),
+    driver = node('Value');
+  sink.id = 'scalar-sink';
+  input.id = 'scalar-input';
+  driver.id = 'scalar-driver';
+  target.nodes.push(sink, input);
+  foreign.nodes.push(driver);
+  const owner = createCompositionSessionOwner(base);
+  send(owner, 'set-parameter-expression', {
+    layerId: 'target-art',
+    nodeId: 'scalar-sink',
+    key: 'value',
+    expression: 'ref(composition, "source-comp", "foreign-art", "scalar-driver", "value")',
+  });
+  send(owner, 'connect', {
+    layerId: 'target-art',
+    nodeId: 'scalar-sink',
+    key: 'value',
+    sourceId: 'scalar-input',
+  });
+  apply(owner, artworkRef);
+  assert.equal(owner.projectSnapshot().schemaVersion, 64);
+  const before = owner.projectSnapshot(),
+    state = owner.state,
+    history = owner.historyState;
+  assert.throws(
+    () => send(owner, 'copy-nodes', { layerId: 'target-art', nodeIds: ['scalar-sink'] }),
+    /Composition property references/i,
+  );
+  assert.deepEqual(owner.projectSnapshot(), before);
+  assert.deepEqual(owner.state, state);
+  assert.deepEqual(owner.historyState, history);
+});
+
+test('Curve handle reference copied from schema 64 retains its supported version and value', () => {
+  const doc = blankDocument();
+  doc.schemaVersion = 60;
+  const target = doc.layers[0],
+    source = blankLayer('Source');
+  target.id = 'copy-target';
+  source.id = 'copy-source';
+  const fill = node('Fill'),
+    color = node('Color'),
+    sink = node('Value'),
+    curve = node('Curve');
+  fill.id = 'copy-fill';
+  color.id = 'copy-color';
+  sink.id = 'copy-sink';
+  curve.id = 'copy-curve';
+  curve.points[0].id = 'copy-point';
+  curve.points[0].handleA.value = [3, 4];
+  target.nodes.push(fill, sink, curve);
+  source.nodes.push(color);
+  doc.layers.push(source);
+  const session = new CommandSession(doc),
+    send = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
+  const numeric = 'ref("copy-curve", "copy-point.handleA", "length")';
+  send('set-parameter-expression', {
+    layerId: target.id,
+    nodeId: sink.id,
+    key: 'value',
+    expression: numeric,
+  });
+  assert.equal(session.snapshot().schemaVersion, 61);
+  send('set-parameter-expression', {
+    layerId: target.id,
+    nodeId: fill.id,
+    key: 'color',
+    expression: 'ref(colorArtwork, "copy-source", "copy-color", "value")',
+  });
+  send('copy-nodes', { layerId: target.id, nodeIds: [sink.id] });
+  send('undo');
+  send('undo');
+  assert.equal(session.snapshot().schemaVersion, 60);
+  const id = send('paste-nodes', { layerId: target.id }).nodeIds[0],
+    after = session.snapshot();
+  assert.ok(after.schemaVersion >= 61 && after.schemaVersion <= 62);
+  assert.equal(
+    evaluate(after.layers[0], {}, after.imageAssets, after).parameterValue(id, 'value'),
+    5,
+  );
+});
+
+test('copy after Undo keeps inactive schema 63 opaque Color text uninterpreted', () => {
+  const project = fixture().projectSnapshot();
+  project.schemaVersion = 63;
+  project.compositionSchemaVersion = 2;
+  const opaque = project.compositions[1].layers[0].nodes.find((n) => n.id === 'foreign-color');
+  opaque.params.metadata = {
+    type: 'String',
+    value: 'opaque',
+    expression: 'ref(colorArtwork, "missing", "missing", "value")',
+  };
+  const active = activeCompositionDocument(project, 'target-comp'),
+    value = node('Value');
+  value.id = 'plain-copy';
+  active.layers[0].nodes.push(value);
+  const session = new CommandSession(active),
+    send = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
+  send('set-parameter-expression', {
+    layerId: 'target-art',
+    nodeId: 'target-fill',
+    key: 'color',
+    expression: artworkRef,
+  });
+  send('copy-nodes', { layerId: 'target-art', nodeIds: [value.id] });
+  send('undo');
+  send('paste-nodes', { layerId: 'target-art' });
+  assert.equal(session.snapshot().schemaVersion, 63);
+  const updated = applyActiveCompositionDocument(project, 'target-comp', session.snapshot());
+  assert.equal(updated.schemaVersion, 63);
+  assert.deepEqual(updated.compositions[1], project.compositions[1]);
+  const lied = session.snapshot();
+  lied.schemaVersion = 64;
+  assert.throws(
+    () => applyActiveCompositionDocument(project, 'target-comp', lied),
+    /opaque.*Color/i,
+  );
+});
