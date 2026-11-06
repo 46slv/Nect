@@ -17444,6 +17444,7 @@ function closeHasPendingEdits() {
   return !!(
     documents.hasDraft() ||
     document.querySelector('dialog[open]') ||
+    hslPicker.element ||
     sharedColors.editing ||
     variableAction ||
     nameEdit ||
@@ -17459,11 +17460,30 @@ function closeHasPendingEdits() {
   );
 }
 let startupRecoveryPending = desktop;
+let startupRecoveryAcceptancePending = true;
 function startRecoveryWhenReady() {
   if (!startupRecoveryPending || !closeGuardReady || closeFinalizing) return;
   startupRecoveryPending = false;
   showRecoveryCopies(true).catch((error) => {
     recovery.report(recovery.current, { phase: 'failed', error: error.message || String(error) });
+  });
+}
+function startRecoveryAcceptanceWhenReady() {
+  if (
+    typeof __NECT_RECOVERY_ACCEPTANCE_BUILD__ === 'undefined' ||
+    !__NECT_RECOVERY_ACCEPTANCE_BUILD__ ||
+    !startupRecoveryAcceptancePending ||
+    closeInputBlocked() ||
+    !window.nect
+  )
+    return;
+  startupRecoveryAcceptancePending = false;
+  void import('./recovery-acceptance-test.js').then(({ runRecoveryAcceptance }) => {
+    if (closeInputBlocked()) {
+      startupRecoveryAcceptancePending = true;
+      return;
+    }
+    return runRecoveryAcceptance(recovery, window.nect);
   });
 }
 async function finishProtectedClose(finishClose) {
@@ -17494,6 +17514,7 @@ async function finishProtectedClose(finishClose) {
       }
       if (needsRender) scheduleRender();
       startRecoveryWhenReady();
+      startRecoveryAcceptanceWhenReady();
     }
   }
   return true;
@@ -17553,6 +17574,7 @@ registerClose(async (finishClose) => {
     closeGuardReady = true;
     if (!closeFinalizing) document.body.inert = startupBodyInert;
     startRecoveryWhenReady();
+    startRecoveryAcceptanceWhenReady();
   })
   .catch(() => {
     notify('Close protection unavailable. Restart Nect.', true);
@@ -17807,11 +17829,4 @@ document.addEventListener('keydown', (event) => {
 });
 
 // Compile-time only. Vite removes this branch and module from ordinary builds.
-if (
-  typeof __NECT_RECOVERY_ACCEPTANCE_BUILD__ !== 'undefined' &&
-  __NECT_RECOVERY_ACCEPTANCE_BUILD__
-) {
-  void import('./recovery-acceptance-test.js').then(({ runRecoveryAcceptance }) =>
-    runRecoveryAcceptance(recovery, window.nect),
-  );
-}
+startRecoveryAcceptanceWhenReady();

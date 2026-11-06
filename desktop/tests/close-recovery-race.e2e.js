@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
+import { createServer } from 'vite';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 
 // Real UI and storage adapter, with controllable native IPC and no native window.
@@ -12,10 +13,22 @@ const browser = await chromium.launch({
   headless: true,
   chromiumSandbox: true,
 });
-async function fixture({ holdRegistration = false, holdFontCatalog = false } = {}) {
+async function fixture({
+  holdRegistration = false,
+  holdFontCatalog = false,
+  baseURL,
+  acceptanceStub = false,
+} = {}) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
+  if (acceptanceStub)
+    await page.route('**/src/recovery-acceptance-test.js*', (route) =>
+      route.fulfill({
+        contentType: 'text/javascript',
+        body: 'export function runRecoveryAcceptance(_recovery, api) { window.acceptanceCount = (window.acceptanceCount || 0) + 1; api.load(JSON.stringify(api.projectSnapshot())); window.acceptanceLoaded = true; }',
+      }),
+    );
   await page.addInitScript(
     ({ holdRegistration, holdFontCatalog }) => {
       window.isTauri = true;
@@ -103,7 +116,7 @@ async function fixture({ holdRegistration = false, holdFontCatalog = false } = {
     },
     { holdRegistration, holdFontCatalog },
   );
-  await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5234');
+  await page.goto(baseURL || process.env.BASE_URL || 'http://127.0.0.1:5234');
   await page.waitForFunction(() => window.nect && window.closeChannel);
   await page.waitForFunction(
     () => !['pending', 'saving'].includes(window.nect.recoveryState?.phase),
@@ -147,6 +160,40 @@ async function run(name, action, options) {
 }
 
 try {
+  const acceptanceServer = await createServer({
+    mode: 'recovery-acceptance-test',
+    server: { host: '127.0.0.1', port: 0 },
+  });
+  await acceptanceServer.listen();
+  try {
+    const baseURL = `http://127.0.0.1:${acceptanceServer.httpServer.address().port}`;
+    await run(
+      'test-mode recovery acceptance waits for guard registration',
+      async (page) => {
+        await page.waitForTimeout(150);
+        assert.equal(await page.evaluate(() => window.acceptanceCount || 0), 0);
+        await page.evaluate(() => window.releaseGuard());
+        await page.waitForFunction(() => window.acceptanceLoaded);
+        assert.equal(await page.evaluate(() => window.acceptanceCount), 1);
+      },
+      { holdRegistration: true, baseURL, acceptanceStub: true },
+    );
+    await run(
+      'test-mode recovery acceptance does not start when registration fails',
+      async (page) => {
+        await page.evaluate(() => window.rejectGuard(Error('fixture registration failed')));
+        await page.waitForFunction(() =>
+          document.body.textContent.includes('Close protection unavailable. Restart Nect.'),
+        );
+        await page.waitForTimeout(150);
+        assert.equal(await page.evaluate(() => window.acceptanceCount || 0), 0);
+      },
+      { holdRegistration: true, baseURL, acceptanceStub: true },
+    );
+  } finally {
+    await acceptanceServer.close();
+  }
+
   await run(
     'registration blocks input until ready and defers recovery',
     async (page) => {
@@ -271,6 +318,46 @@ try {
     assert.equal(await input.inputValue(), 'Uncommitted name');
     await input.press('Enter');
     assert.equal(await page.evaluate(() => window.nect.compositions[0].name), 'Uncommitted name');
+  });
+
+  await run('a later nonmodal HSL color draft remains editable', async (page) => {
+    await page.evaluate(async () => {
+      const core = await import('/src/core.js');
+      const model = await import('/src/composition-project-model.js');
+      window.nect.load(
+        JSON.stringify(model.migrateLegacyDocumentToCompositionProject(core.document())),
+      );
+    });
+    await holdDirtyRecovery(page);
+    await closeRequest(page);
+    await page.waitForFunction(() => window.chooseCalls === 1);
+    const fillId = await page.evaluate(
+      () => window.nect.document.layers[0].nodes.find((n) => n.type === 'Fill').id,
+    );
+    await page.locator(`.node[data-id="${fillId}"] .node-head strong`).click();
+    await ensureWorkspacePanel(page, 'inspector');
+    await page
+      .locator(
+        `.inspector-body .field[data-node="${fillId}"][data-key="color"] [data-hsl-picker-open]`,
+      )
+      .click();
+    const input = page.locator('[data-hsl-hex]');
+    await input.fill('#123456');
+    await releaseRecovery(page);
+    await page.waitForFunction(() => window.closeDone);
+    assert.equal(await page.evaluate(() => window.closeCalls), 0);
+    assert.equal(await input.inputValue(), '#123456');
+    await input.press('Enter');
+    assert.equal(
+      await page.evaluate(
+        (id) =>
+          window.nect.document.layers[0].nodes
+            .find((n) => n.id === id)
+            .params.color.value.hex.toLowerCase(),
+        fillId,
+      ),
+      '#123456',
+    );
   });
 
   await run('later Session text draft remains editable', async (page) => {
