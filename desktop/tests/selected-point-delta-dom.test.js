@@ -40,7 +40,7 @@ test('selected owned-point delta controls', async (t) => {
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
   source +=
-    '\nwindow.deltaState = () => ({ids: [...pointSelection.ids], past: history.past.length, draft: pointDeltaDraft, spacing: pointSpacingDraft});';
+    '\nwindow.deltaState = () => ({ids: [...pointSelection.ids], selected, past: history.past.length, draft: pointDeltaDraft, spacing: pointSpacingDraft});';
   source += '\nwhile (!bundledFont) await new Promise(r => setTimeout(r, 10));';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   t.after(() => win.happyDOM.abort());
@@ -311,4 +311,45 @@ test('selected owned-point delta controls', async (t) => {
       assert.deepEqual(win.nect.projectSnapshot(), before);
     },
   );
+
+  for (const collapsed of [true, false]) {
+    await t.test(
+      `point draft after selecting another node respects ${collapsed ? 'hidden' : 'visible'} graph controls`,
+      () => {
+        const f = compoundFixture([8, 5, 7, 4]);
+        f.doc.schemaVersion = 42;
+        f.path.collapsed = collapsed;
+        const project = migrateLegacyDocumentToCompositionProject(f.doc),
+          other = migrateLegacyDocumentToCompositionProject(blankDocument()).compositions[0];
+        project.compositions[0].id = 'delta-first';
+        other.id = 'delta-second';
+        project.compositions.push(other);
+        win.nect.load(serializeCompositionProject(project));
+        inspect(f.path.id);
+        pick(f.path.contours[0].points[1]);
+        pick(f.path.contours[3].points[2], true);
+        const delta = input(0, collapsed ? '.inspector' : '.graph');
+        delta.value = '12.5';
+        delta.dispatchEvent(new win.Event('input', { bubbles: true }));
+        delta.dispatchEvent(new win.Event('change', { bubbles: true }));
+        fire($(`.graph .node[data-id="${f.fill.id}"] .node-body`), 'pointerdown');
+        fire(document, 'pointerup');
+        assert.equal(win.deltaState().selected, f.fill.id);
+        assert.equal(win.deltaState().ids.length, 2);
+        assert.equal(!!$('.inspector [data-point-delta-panel]'), false);
+        assert.equal(!!$('.graph [data-point-delta-panel]'), !collapsed);
+        const before = win.nect.projectSnapshot(),
+          state = win.nect.commandState;
+        $('[data-action="delete-composition"]').click();
+        assert.equal(!!$('.composition-delete-dialog[open]'), collapsed);
+        assert.deepEqual(win.nect.projectSnapshot(), before);
+        assert.deepEqual(win.nect.commandState, state);
+        if (collapsed) $('.composition-delete-dialog [data-cancel]').click();
+        else {
+          assert.equal(input().value, '12.5');
+          panel().querySelector('[data-cancel-point-delta]').click();
+        }
+      },
+    );
+  }
 });

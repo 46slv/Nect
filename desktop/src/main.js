@@ -9690,7 +9690,9 @@ function compositionActionBusy(allowedDialog = null) {
     sourceNavigationBusy(allowedDialog) ||
     documents.hasDraft() ||
     sharedColors.editing ||
-    (selectedPoints.length && pointDeltaMatches(pointNode.id, selectedPoints)) ||
+    (selectedPoints.length &&
+      (selected === pointNode.id || !pointNode.collapsed) &&
+      pointDeltaMatches(pointNode.id, selectedPoints)) ||
     session.hasTextDrafts
   );
 }

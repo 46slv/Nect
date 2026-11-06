@@ -597,6 +597,7 @@ try {
   // A point move stays a draft after blur and must not disappear on deletion.
   const pointFixture = compoundFixture([8, 5, 7, 4]);
   pointFixture.doc.schemaVersion = 42;
+  pointFixture.path.collapsed = true;
   const pointProject = migrateLegacyDocumentToCompositionProject(pointFixture.doc),
     pointOther = migrateLegacyDocumentToCompositionProject(blankDocument()).compositions[0];
   pointProject.compositions[0].id = 'point-first';
@@ -664,6 +665,39 @@ try {
     )
     .click({ modifiers: ['Shift'] });
   assert.equal(await pointDelta.inputValue(), '0');
+  await pointDelta.fill('12.5');
+  await pointDelta.press('Tab');
+  await page.keyboard.press('Tab');
+  await page
+    .locator(`.graph .node[data-id="${pointFixture.fill.id}"] .node-body`)
+    .click({ position: { x: 4, y: 4 } });
+  assert.equal(await pointDelta.count(), 0);
+  await activateCommand(page, 'rename-composition');
+  assert.equal(await page.locator('.composition-rename-dialog[open]').count(), 1);
+  await page.locator('.composition-rename-dialog [data-cancel]').click();
+  await page.locator('.composition-rename-dialog').waitFor({ state: 'detached' });
+  await activateCommand(page, 'delete-composition');
+  assert.equal(await dialog().count(), 1);
+  await dialog().locator('[data-cancel]').click();
+  await page.locator('.composition-delete-dialog').waitFor({ state: 'detached' });
+  assert.deepEqual(await snapshot(), pointBefore);
+  assert.deepEqual(await state(), pointState);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  const pointDelete = await page.evaluate(() => {
+    const project = window.nect.projectSnapshot();
+    return window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'delete-composition',
+      payload: {
+        compositionId: project.compositions[0].id,
+        expectedName: project.compositions[0].name,
+        expectedProjectRevision: window.nect.projectRevision,
+      },
+    });
+  });
+  assert.equal(pointDelete.changed, true);
+  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'undo' }));
+  assert.deepEqual(await snapshot(), pointBefore);
 
   const reopened = await browser.newPage({ viewport: { width: 1000, height: 650 } });
   reopened.on('pageerror', (error) => errors.push(error.message));
