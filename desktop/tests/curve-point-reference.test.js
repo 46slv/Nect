@@ -620,11 +620,16 @@ test('low schema rejects point keys when their Curve owner exists; pure codec re
   assert.throws(() => migrateLegacyDocumentToCompositionProject(f.doc), /schemaVersion 60/);
   const plain = fixture(),
     project = migrateLegacyDocumentToCompositionProject(plain.doc),
-    latest = { ...project, compositionSchemaVersion: 2, schemaVersion: 63 },
-    futureSchemaVersion = 64;
-  assert.equal(MAX_DOCUMENT_SCHEMA_VERSION, 63);
-  assert.doesNotThrow(() => validateCompositionProject(latest));
-  assert.equal(deserializeCompositionProject(JSON.stringify(latest)).schemaVersion, 63);
+    futureSchemaVersion = 65;
+  assert.equal(MAX_DOCUMENT_SCHEMA_VERSION, 64);
+  for (const schemaVersion of [63, 64]) {
+    const supported = { ...project, compositionSchemaVersion: 2, schemaVersion };
+    assert.doesNotThrow(() => validateCompositionProject(supported));
+    assert.equal(
+      deserializeCompositionProject(JSON.stringify(supported)).schemaVersion,
+      schemaVersion,
+    );
+  }
   for (const compositionSchemaVersion of [1, 2]) {
     const future = { ...project, compositionSchemaVersion, schemaVersion: futureSchemaVersion };
     assert.throws(

@@ -3,6 +3,8 @@ import {
   artworkReferencesInLayers,
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
+  QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
+  nodesHaveQualifiedColorReferenceSyntax,
   nodesHaveCompositionPropertyReferenceSyntax,
   danglingExpressionIds,
   remapExpressionReferences,
@@ -45,6 +47,15 @@ export function resolveArtworkDuplicateTarget(doc, layerId, options = {}, moveme
     const layer = doc.layers.find((layer) => layer.id === layerId),
       route = new Set(move.target.route.map(({ nodeId }) => nodeId));
     const selected = new Set(options.selectedLayerIds || [layerId]);
+    if (
+      doc.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION &&
+      layer &&
+      nodesHaveQualifiedColorReferenceSyntax(layer.nodes)
+    )
+      return unsupported(
+        'qualified-color-reference',
+        'Duplicating artwork with qualified Color references is not supported.',
+      );
     if (
       doc.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
       layer &&
@@ -278,6 +289,11 @@ export function duplicateArtworkLayer(doc, layerId, options) {
 export function duplicateLayerGeneric(doc, layerId) {
   const source = doc?.layers?.find((layer) => layer.id === layerId);
   if (!source) throw Error('Layer is unavailable; select it again');
+  if (
+    doc.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION &&
+    nodesHaveQualifiedColorReferenceSyntax(source.nodes)
+  )
+    throw Error('Duplicating artwork with qualified Color references is not supported');
   if (
     doc.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
     nodesHaveCompositionPropertyReferenceSyntax(source.nodes)

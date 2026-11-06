@@ -113,3 +113,7 @@ targets verified `codex/image-dither-output` at
 commit changes documentation only; the tested native source remains identical.
 The isolated checkout and candidate/evidence paths above are available for the
 remaining controller-dependent native file-dialog checks. No main merge or release.
+
+## Qualified Color references (schema 64)
+
+The earlier Brief and receipt above describe the original same-Artwork slice. The current typed extension also reads effective Color properties in another Artwork or outer Composition with the schema 64 syntax and boundaries documented in [Parameter references in expressions](parameter-reference-expressions.md). It preserves authored base and connection precedence and does not create shared Color slot attribution.

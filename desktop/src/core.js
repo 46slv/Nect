@@ -2,6 +2,8 @@ import { expression } from './expression-parser.js';
 import {
   validateCompositionProject,
   assertNoLegacyCompositionPropertyReferencePromotion,
+  assertNoLegacyQualifiedColorReferencePromotion,
+  assertNoLegacyQualifiedColorDocumentPromotion,
 } from './composition-project-model.js';
 export { expression } from './expression-parser.js';
 import { JOIN_SLOT_LIMIT, validJoinSlotOrder } from './join-slots-protocol.js';
@@ -10,6 +12,11 @@ import {
   CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
+  QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
+  hasQualifiedColorReferenceSyntax,
+  nodesHaveQualifiedColorReferenceSyntax,
+  qualifiedColorReferences,
+  qualifiedColorReferencesInProject,
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
   compositionPropertyReferences,
   compositionPropertyReferencesInProject,
@@ -1106,6 +1113,7 @@ function parameterDependencies(entries, connected = null) {
           source: ref.nodeId,
           ...(ref.layerId ? { layerId: ref.layerId } : {}),
           ...(ref.compositionId ? { compositionId: ref.compositionId } : {}),
+          ...(ref.qualifier ? { qualifier: ref.qualifier } : {}),
           parameterKey: ref.key,
           component: ref.component,
           ...(q.type === 'Color' ? { parameterType: ref.type } : {}),
@@ -1446,6 +1454,11 @@ function validateNodePreset(doc, preset) {
     throw Error('Preset must contain 1–1999 source/effect nodes');
   if (nodesHaveArtworkReferences(preset.nodes))
     throw Error('Node presets do not support Artwork references');
+  if (
+    doc.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION &&
+    nodesHaveQualifiedColorReferenceSyntax(preset.nodes)
+  )
+    throw Error('Node presets do not support qualified Color references');
   if (
     doc.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
     nodesHaveCompositionPropertyReferenceSyntax(preset.nodes)
@@ -1869,7 +1882,7 @@ function colorReference(source, resolveReference) {
   return expression(
     source,
     (ref) => {
-      if (ref.component !== undefined)
+      if (ref.component !== undefined || (ref.layerId && !ref.qualifier))
         throw Error('Expression reference requires a Color parameter');
       return resolveReference(ref, 'Color');
     },
@@ -1904,6 +1917,7 @@ function parameterExpressionUses(q) {
       expression(
         source,
         (ref) => {
+          if (ref.qualifier) throw Error('Qualified Color references require a Color expression');
           refs.push({ ...ref, type: 'Scalar' });
           return 0;
         },
@@ -1918,6 +1932,12 @@ function parameterExpressionUses(q) {
 // Validate against the source Document's grammar before a wrapped import can
 // raise its version. Missing owners do not make new syntax legal in old files.
 export function expressionReferencesForSchema(q, schemaVersion, { preserveOpaque = false } = {}) {
+  if (
+    preserveOpaque &&
+    schemaVersion < QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION &&
+    hasQualifiedColorReferenceSyntax(q.expression)
+  )
+    return [];
   if (
     preserveOpaque &&
     schemaVersion < COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
@@ -1939,24 +1959,38 @@ export function expressionReferencesForSchema(q, schemaVersion, { preserveOpaque
     if (preserveOpaque && error.code !== 'EXPRESSION_INVALID_LENGTH_REFERENCE') return [];
     throw error;
   }
+  if (refs.some((ref) => ref.qualifier) && schemaVersion < QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION)
+    throw Error(
+      `Qualified Color references require schemaVersion ${QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION}`,
+    );
+  if (refs.some((ref) => ref.qualifier && (q.type !== 'Color' || ref.type !== 'Color')))
+    throw Error('Qualified Color references require a Color expression');
   if (
     schemaVersion < COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
-    refs.some((ref) => ref.compositionId)
+    refs.some((ref) => ref.compositionId && !ref.qualifier)
   )
     throw Error(
       `Composition property references require schemaVersion ${COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION}`,
     );
-  if (refs.some((ref) => ref.compositionId) && !['Scalar', 'Color'].includes(q.type))
+  if (
+    refs.some((ref) => ref.compositionId && !ref.qualifier) &&
+    !['Scalar', 'Color'].includes(q.type)
+  )
     throw Error('Composition references require a Scalar expression');
   if (
-    refs.some((ref) => ref.compositionId && (ref.type !== 'Scalar' || ref.component !== undefined))
+    refs.some(
+      (ref) =>
+        ref.compositionId &&
+        !ref.qualifier &&
+        (ref.type !== 'Scalar' || ref.component !== undefined),
+    )
   )
     throw Error('Composition references require a Scalar property');
   if (schemaVersion < ARTWORK_REFERENCE_SCHEMA_VERSION && refs.some((ref) => ref.layerId))
     throw Error(`Artwork references require schemaVersion ${ARTWORK_REFERENCE_SCHEMA_VERSION}`);
   if (!['Scalar', 'Vector2', 'Color'].includes(q.type) && refs.some((ref) => ref.layerId))
     throw Error('Artwork reference requires a numeric expression parameter');
-  if (refs.some((ref) => ref.layerId && ref.type === 'Color'))
+  if (refs.some((ref) => ref.layerId && !ref.qualifier && ref.type === 'Color'))
     throw Error('Artwork references require a numeric parameter');
   if (
     schemaVersion < CURVE_HANDLE_REFERENCE_SCHEMA_VERSION &&
@@ -1983,8 +2017,7 @@ function parameterExpression(q, resolveReference, baseValue = q.value) {
     const source = q.expression.trim();
     let value;
     if (source === 'value') value = baseValue;
-    else if (/^ref\s*\(\s*"[a-zA-Z0-9:_.-]+"\s*,\s*"[a-zA-Z0-9:_.-]+"\s*\)$/.test(source))
-      value = resolveReference(expressionReferences(q.expression)[0], 'Color');
+    else if (/^ref\s*\([^()]*\)$/.test(source)) value = colorReference(source, resolveReference);
     else if (usesColorOperations(source))
       value = colorExpression(source, baseValue, {
         reference: (text) => colorReference(text, resolveReference),
@@ -2042,32 +2075,54 @@ export function previewColorExpression(
     )
       throw Error('Legacy opaque Artwork reference text cannot be promoted to schemaVersion 62');
     previewDocument = inheritProjectDocumentContext(documentContext, clone(documentContext));
+    const hasQualifiedColor = refs.some((ref) => ref.qualifier);
+    if (hasQualifiedColor) assertNoLegacyQualifiedColorDocumentPromotion(documentContext);
     previewDocument.schemaVersion = Math.max(
       documentContext.schemaVersion,
-      refs.some((ref) => ref.compositionId)
-        ? COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION
-        : ARTWORK_REFERENCE_SCHEMA_VERSION,
+      hasQualifiedColor
+        ? QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION
+        : refs.some((ref) => ref.compositionId)
+          ? COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION
+          : ARTWORK_REFERENCE_SCHEMA_VERSION,
     );
     previewDocument.layers = previewDocument.layers.map((item) =>
       item.id === draft.id ? draft : item,
     );
     assertDocumentReferenceAcyclic(previewDocument);
-    if (refs.some((ref) => ref.compositionId)) {
+    if (refs.some((ref) => ref.compositionId || ref.qualifier)) {
       const binding = projectDocumentContexts.get(previewDocument);
-      if (!binding) throw Error('Composition property reference requires project context');
-      assertNoLegacyCompositionPropertyReferencePromotion(binding.project);
-      const candidate = {
-        ...binding.project,
-        schemaVersion: previewDocument.schemaVersion,
-        compositionSchemaVersion: CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
-        compositions: binding.project.compositions.map((item) =>
-          item.id === binding.activeCompositionId
-            ? { ...item, layers: previewDocument.layers }
-            : item,
-        ),
-      };
-      validateCompositionProject(candidate);
-      assertProjectReferenceTransition(binding.project, candidate, fonts);
+      if (!binding && refs.some((ref) => ref.compositionId))
+        throw Error('Composition property reference requires project context');
+      if (binding) {
+        if (hasQualifiedColor) assertNoLegacyQualifiedColorReferencePromotion(binding.project);
+        assertNoLegacyCompositionPropertyReferencePromotion(binding.project);
+        const candidate = {
+          ...binding.project,
+          schemaVersion: previewDocument.schemaVersion,
+          compositionSchemaVersion: CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
+          compositions: binding.project.compositions.map((item) => {
+            if (item.id === binding.activeCompositionId)
+              return { ...item, layers: previewDocument.layers };
+            // Preview remains ephemeral, but must evaluate old source Documents
+            // with their original migration just like the actual promotion.
+            if (binding.project.schemaVersion < COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION) {
+              const migrated = normalizedProjectSource(binding, item.id);
+              const next = {
+                ...item,
+                width: migrated.width,
+                height: migrated.height,
+                layers: migrated.layers,
+              };
+              if (migrated.editor === undefined) delete next.editor;
+              else next.editor = migrated.editor;
+              return next;
+            }
+            return item;
+          }),
+        };
+        validateCompositionProject(candidate);
+        assertProjectReferenceTransition(binding.project, candidate, fonts);
+      }
     }
   }
   const evaluation = evaluate(draft, fonts, imageAssets, previewDocument);
@@ -2087,6 +2142,16 @@ export function parameterReferenceExpression(nodeId, key, component) {
 }
 export function compositionParameterReferenceExpression(compositionId, layerId, nodeId, key) {
   const text = `ref(composition, ${JSON.stringify(compositionId)}, ${JSON.stringify(layerId)}, ${JSON.stringify(nodeId)}, ${JSON.stringify(key)})`;
+  expression(text, () => 0, true);
+  return text;
+}
+export function colorArtworkParameterReferenceExpression(layerId, nodeId, key) {
+  const text = `ref(colorArtwork, ${JSON.stringify(layerId)}, ${JSON.stringify(nodeId)}, ${JSON.stringify(key)})`;
+  expression(text, () => 0, true);
+  return text;
+}
+export function colorCompositionParameterReferenceExpression(compositionId, layerId, nodeId, key) {
+  const text = `ref(colorComposition, ${JSON.stringify(compositionId)}, ${JSON.stringify(layerId)}, ${JSON.stringify(nodeId)}, ${JSON.stringify(key)})`;
   expression(text, () => 0, true);
   return text;
 }
@@ -2115,8 +2180,12 @@ export function expressionReferences(source) {
   return refs;
 }
 function referenceParameter(layer, ref, type = 'Scalar', index = null) {
-  if (ref.layerId && type !== 'Scalar')
-    throw Error('Artwork references require a numeric parameter');
+  if (ref.layerId && ((ref.qualifier && type !== 'Color') || (!ref.qualifier && type !== 'Scalar')))
+    throw Error(
+      ref.qualifier
+        ? 'Qualified Color references require a Color parameter'
+        : 'Artwork references require a numeric parameter',
+    );
   const target = index ? index.nodes.get(ref.nodeId) : layer.nodes.find((n) => n.id === ref.nodeId);
   if (!target)
     throw Object.assign(Error(`Expression reference target is missing: ${ref.nodeId}`), {
@@ -2281,7 +2350,6 @@ export function expressionReferenceTargetsForDocument(
       layerId: layer.id,
       layerName: layer.name,
     }));
-  if (type === 'Color') return local;
   return local.concat(
     doc.layers
       .filter((item) => item.id !== layerId)
@@ -2295,12 +2363,19 @@ export function expressionReferenceTargetsForDocument(
             ...target,
             layerId: sourceLayer.id,
             layerName: sourceLayer.name,
-            expression: artworkParameterReferenceExpression(
-              sourceLayer.id,
-              target.nodeId,
-              target.key,
-              target.component,
-            ),
+            expression:
+              type === 'Color'
+                ? colorArtworkParameterReferenceExpression(
+                    sourceLayer.id,
+                    target.nodeId,
+                    target.key,
+                  )
+                : artworkParameterReferenceExpression(
+                    sourceLayer.id,
+                    target.nodeId,
+                    target.key,
+                    target.component,
+                  ),
           })),
       ),
   );
@@ -2342,14 +2417,17 @@ export function expressionReferenceTargetsForProject(
     ?.nodes.find((item) => item.id === nodeId);
   const destination =
     targetKey === undefined ? null : targetNode && parameter(targetNode, targetKey);
-  if (type === 'Color' || (destination && !['Scalar', 'Color'].includes(destination.type)))
+  if (
+    (type === 'Color' && destination && destination.type !== 'Color') ||
+    (destination && !['Scalar', 'Color'].includes(destination.type))
+  )
     return local;
   return local.concat(
     project.compositions
       .filter((item) => item.id !== compositionId)
       .flatMap((source) =>
         normalizedProjectSource(binding, source.id).layers.flatMap((sourceLayer) =>
-          expressionReferenceTargets(sourceLayer, null, 'Scalar')
+          expressionReferenceTargets(sourceLayer, null, type)
             .filter(
               (target) =>
                 source.layers
@@ -2359,7 +2437,7 @@ export function expressionReferenceTargetsForProject(
                 parameter(
                   sourceLayer.nodes.find((n) => n.id === target.nodeId),
                   target.key,
-                )?.type === 'Scalar' &&
+                )?.type === (type === 'Color' ? 'Color' : 'Scalar') &&
                 !reaches(graph.property(sourceLayer.id, target.nodeId, target.key)),
             )
             .map((target) => ({
@@ -2367,12 +2445,20 @@ export function expressionReferenceTargetsForProject(
               compositionId: source.id,
               layerId: sourceLayer.id,
               layerName: sourceLayer.name,
-              expression: compositionParameterReferenceExpression(
-                source.id,
-                sourceLayer.id,
-                target.nodeId,
-                target.key,
-              ),
+              expression:
+                type === 'Color'
+                  ? colorCompositionParameterReferenceExpression(
+                      source.id,
+                      sourceLayer.id,
+                      target.nodeId,
+                      target.key,
+                    )
+                  : compositionParameterReferenceExpression(
+                      source.id,
+                      sourceLayer.id,
+                      target.nodeId,
+                      target.key,
+                    ),
             })),
         ),
       ),
@@ -3180,6 +3266,14 @@ export function evaluate(
   const layerReadingParameters = new Set();
   const frameParameterIndexes = new WeakMap();
   function resolveExpressionReference(ref, type = 'Scalar') {
+    if (
+      ref.qualifier &&
+      (type !== 'Color' ||
+        documentContext?.schemaVersion < QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION)
+    )
+      throw Error(
+        `Qualified Color references require a Color parameter and schemaVersion ${QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION}`,
+      );
     if (ref.compositionId) {
       const binding = documentContext && projectDocumentContexts.get(documentContext);
       if (!binding) throw Error('Composition property reference requires project context');
@@ -3196,8 +3290,12 @@ export function evaluate(
           ),
           { code: 'EXPRESSION_REFERENCE_MISSING' },
         );
-      if (type !== 'Scalar' || ref.component !== undefined)
-        throw Error('Composition references require a Scalar property');
+      if ((ref.qualifier ? type !== 'Color' : type !== 'Scalar') || ref.component !== undefined)
+        throw Error(
+          ref.qualifier
+            ? 'Qualified Color references require a Color property'
+            : 'Composition references require a Scalar property',
+        );
       const target = referenceParameter(sourceLayer, ref, type);
       return frameFor(sourceLayer, sourceDocument).parameterValue(target.id, ref.key);
     }
@@ -3332,6 +3430,7 @@ export function evaluate(
                 ...(dep.compositionId && !connected.has(dep)
                   ? { compositionId: dep.compositionId }
                   : {}),
+                ...(dep.qualifier && !connected.has(dep) ? { qualifier: dep.qualifier } : {}),
                 key: dep.parameterKey,
                 component: dep.component,
               },
@@ -5023,6 +5122,9 @@ function assertArtworkReferenceTransition(
             ? [
                 ...artworkExpressionReferences(q.expression),
                 ...compositionPropertyReferences(q.expression),
+                ...(doc.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION
+                  ? qualifiedColorReferences(q.expression)
+                  : []),
               ]
             : [],
         ),
@@ -5032,7 +5134,7 @@ function assertArtworkReferenceTransition(
     next = allRefs(candidate);
   if (!previous.length && !next.length) return;
   const refKey = (ref) =>
-    `${ref.compositionId || ''}\0${ref.layerId}\0${ref.nodeId}\0${ref.key}\0${ref.component || ''}`;
+    `${ref.qualifier || ''}\0${ref.compositionId || ''}\0${ref.layerId}\0${ref.nodeId}\0${ref.key}\0${ref.component || ''}`;
   const remaining = new Set(next.map(refKey));
   const resolvedIdentity = (doc, ref) => {
     const layer = doc.layers.find((item) => item.id === ref.layerId);
@@ -5209,8 +5311,19 @@ export function assertProjectReferenceTransition(before, candidate, fonts = {}) 
     candidate.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION
       ? compositionPropertyReferencesInProject(candidate)
       : [];
-  if (!previous.length && !next.length) return;
-  const key = (ref) => `${ref.compositionId}\0${ref.layerId}\0${ref.nodeId}\0${ref.key}`;
+  const oldColors =
+    before.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION
+      ? qualifiedColorReferencesInProject(before)
+      : [];
+  const newColors =
+    candidate.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION
+      ? qualifiedColorReferencesInProject(candidate)
+      : [];
+  previous.push(...oldColors.filter((ref) => ref.compositionId));
+  next.push(...newColors.filter((ref) => ref.compositionId));
+  if (!previous.length && !next.length && !oldColors.length && !newColors.length) return;
+  const key = (ref) =>
+    `${ref.qualifier || ''}\0${ref.compositionId}\0${ref.layerId}\0${ref.nodeId}\0${ref.key}`;
   const remaining = new Set(next.map(key));
   const resolves = (project, ref) =>
     project.compositions
@@ -5227,7 +5340,8 @@ export function assertProjectReferenceTransition(before, candidate, fonts = {}) 
     const layer = normalizedProjectSource(binding, ref.compositionId)?.layers.find(
       (item) => item.id === ref.layerId,
     );
-    if (layer?.nodes.some((n) => n.id === ref.nodeId)) referenceParameter(layer, ref, 'Scalar');
+    if (layer?.nodes.some((n) => n.id === ref.nodeId))
+      referenceParameter(layer, ref, ref.qualifier ? 'Color' : 'Scalar');
   }
   assertDocumentReferenceAcyclic(nextDoc);
   assertArtworkReferenceTransition(oldDoc, nextDoc, fonts, (effective) => {
@@ -5719,7 +5833,8 @@ export function validate(doc) {
       doc.schemaVersion !== CURVE_POINT_REFERENCE_SCHEMA_VERSION &&
       doc.schemaVersion !== CURVE_HANDLE_REFERENCE_SCHEMA_VERSION &&
       doc.schemaVersion !== ARTWORK_REFERENCE_SCHEMA_VERSION &&
-      doc.schemaVersion !== COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION)
+      doc.schemaVersion !== COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
+      doc.schemaVersion !== QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   const colorSlots = validateColorSlots(doc);
@@ -6380,7 +6495,12 @@ export function validate(doc) {
   assertCompositionAcyclic(doc);
   if (
     sourceSchemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION &&
-    doc.layers.some((layer) => nodesHaveArtworkReferences(layer.nodes))
+    doc.layers.some(
+      (layer) =>
+        nodesHaveArtworkReferences(layer.nodes) ||
+        (sourceSchemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION &&
+          nodesHaveQualifiedColorReferenceSyntax(layer.nodes)),
+    )
   )
     assertDocumentReferenceAcyclic(doc);
   const hasNodeType = (type) =>
@@ -7978,6 +8098,11 @@ export class CommandSession {
       if (!nodes.length)
         throw Error('Copy source/effect nodes; each Composition keeps its own Output');
       if (
+        doc.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION &&
+        nodesHaveQualifiedColorReferenceSyntax(nodes)
+      )
+        throw Error('Copying nodes with qualified Color references is not supported');
+      if (
         doc.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
         nodesHaveCompositionPropertyReferenceSyntax(nodes)
       )
@@ -9154,6 +9279,12 @@ export class CommandSession {
           'Node clipboard is empty. Copy in this document’s graph; OS/other-document paste is not supported',
         );
       if (
+        (candidate.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION ||
+          clipboard.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION) &&
+        nodesHaveQualifiedColorReferenceSyntax(clipboard.nodes)
+      )
+        throw Error('Pasting nodes with qualified Color references is not supported');
+      if (
         (candidate.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION ||
           clipboard.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION) &&
         nodesHaveCompositionPropertyReferenceSyntax(clipboard.nodes)
@@ -9217,7 +9348,17 @@ export class CommandSession {
         copy.position = clipboard.nodes[i].position.map((v, axis) => v + offset[axis]);
       });
       target.nodes.push(...copies);
-      candidate.schemaVersion = Math.max(candidate.schemaVersion, clipboard.schemaVersion);
+      // Schemas 63 and 64 add only the two reference forms rejected above,
+      // including dormant and unsupported descriptors. A v64 source therefore
+      // transfers no feature newer than v62; retain the historical conservative
+      // source version unchanged for every older clipboard.
+      const transferredSchemaVersion =
+        clipboard.schemaVersion === QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION
+          ? ARTWORK_REFERENCE_SCHEMA_VERSION
+          : clipboard.schemaVersion;
+      if (transferredSchemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION)
+        assertNoLegacyQualifiedColorDocumentPromotion(candidate);
+      candidate.schemaVersion = Math.max(candidate.schemaVersion, transferredSchemaVersion);
       result = {
         nodeIds: copies.map((n) => n.id),
         externalInputCount: clipboard.externalNodeIds.length + clipboard.artworkInputCount,
@@ -9240,6 +9381,11 @@ export class CommandSession {
           throw Error('Invalid duplicate offset');
       }
       const originals = target.nodes.filter((n) => payload.nodeIds.includes(n.id));
+      if (
+        candidate.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION &&
+        nodesHaveQualifiedColorReferenceSyntax(originals)
+      )
+        throw Error('Duplicating nodes with qualified Color references is not supported');
       if (
         candidate.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
         nodesHaveCompositionPropertyReferenceSyntax(originals)
@@ -9841,7 +9987,13 @@ export class CommandSession {
           q.expression = payload.expression;
           if (q.expression)
             for (const ref of parameterExpressionUses(q)) {
-              if (ref.compositionId)
+              if (ref.qualifier) {
+                assertNoLegacyQualifiedColorDocumentPromotion(before);
+                candidate.schemaVersion = Math.max(
+                  candidate.schemaVersion,
+                  QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
+                );
+              } else if (ref.compositionId)
                 candidate.schemaVersion = Math.max(
                   candidate.schemaVersion,
                   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,

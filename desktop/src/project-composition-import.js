@@ -9,6 +9,8 @@ import {
   CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
+  QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
+  nodesHaveQualifiedColorReferenceSyntax,
   nodesHaveCompositionPropertyReferenceSyntax,
   nodesCurvePointReferenceVersion,
   nodesHaveArtworkReferences,
@@ -53,6 +55,14 @@ export function prepareCompositionImport(current, sourceText, compositionId, opt
   };
   visit(compositionId);
   const selectedLayers = [...needed].map((id) => layers.get(id));
+  if (selectedLayers.some((layer) => nodesHaveQualifiedColorReferenceSyntax(layer.nodes))) {
+    if (source.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION)
+      throw Error('Import of qualified Color references is not supported');
+    if (current.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION)
+      throw Error(
+        'Legacy opaque qualified Color reference text cannot be promoted to schemaVersion 64',
+      );
+  }
   if (selectedLayers.some((layer) => nodesHaveCompositionPropertyReferenceSyntax(layer.nodes))) {
     if (source.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION)
       throw Error('Import of Composition property references is not supported');
@@ -100,7 +110,12 @@ export function prepareCompositionImport(current, sourceText, compositionId, opt
       nodesCurvePointReferenceVersion(layer.nodes, source.schemaVersion),
     );
   if (importsArtworkReferences) referenceVersion = ARTWORK_REFERENCE_SCHEMA_VERSION;
-  let colorSourceVersion = source.schemaVersion;
+  // Schema 64 adds only qualified Color references, already refused above.
+  // Do not promote an older destination merely because unrelated source data is v64.
+  let colorSourceVersion =
+    source.schemaVersion === QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION
+      ? ARTWORK_REFERENCE_SCHEMA_VERSION
+      : source.schemaVersion;
   if (
     colorSourceVersion === ARTWORK_REFERENCE_SCHEMA_VERSION &&
     referenceVersion < ARTWORK_REFERENCE_SCHEMA_VERSION
