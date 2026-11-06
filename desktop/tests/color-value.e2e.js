@@ -59,6 +59,7 @@ try {
       executablePath:
         process.env.CHROMIUM_PATH || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
       headless: true,
+      chromiumSandbox: true,
     });
     page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
     await page.goto(`http://127.0.0.1:${server.address().port}`);

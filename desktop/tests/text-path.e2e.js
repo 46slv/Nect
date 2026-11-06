@@ -4,9 +4,13 @@ import { openMoreTypography } from './helpers/text-inspector.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
+  executablePath:
+    process.env.CHROMIUM_PATH ||
+    (process.platform === 'win32'
+      ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+      : '/usr/bin/chromium'),
   headless: true,
-  args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  chromiumSandbox: true,
 });
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } }),
   errors = [];
