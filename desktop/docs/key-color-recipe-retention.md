@@ -44,8 +44,9 @@ absolute L, role, Lock, alpha and settings retain their original meanings.
 ## Typed Session operations
 
 Use the existing Session envelope (`sessionId`, exact `expectedRevision`, `type`,
-`payload`). Retain/replace/clear remain explicit API operations; the separate
-experimental editor only exposes Apply for an already-retained receipt.
+`payload`). Retain/replace/clear remain explicit API operations. The separate
+experimental editor supports Apply for an existing receipt and an explicit
+linked trial as described in the [editor contract](key-color-recipe-editor.md).
 
 | Type                                | Payload        | Preconditions / result                                        |
 | ----------------------------------- | -------------- | ------------------------------------------------------------- |
@@ -178,7 +179,8 @@ equal targets, active-derived alpha policy, stale/manual edits, no-op Redo, nati
 round trips, dormant/deactivation/clear preservation, warm bound-color caches,
 inactive Composition consumers and invalid candidate/gesture isolation.
 
-Still outside this packet: final Tone/Chroma coefficients, sticky ownership,
-explicit legacy conversion, generation UI/defaults, live preview/apply gestures,
-readability/coverage policy, Neutral/Text restriction,
-generic Field evaluation, native GUI acceptance and release.
+Still outside the retained-only packet: final Tone/Chroma coefficients, sticky
+ownership, explicit legacy conversion, production generation defaults,
+readability/coverage policy, Neutral/Text restriction, generic Field evaluation,
+native GUI acceptance and release. The separately versioned linked B trial and
+its explicit creation and unlink controls do not change this packet's semantics.
