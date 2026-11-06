@@ -1,0 +1,300 @@
+{
+  "schemaVersion": 36,
+  "pointPath": {
+    "contours": [
+      {
+        "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:0:0",
+        "closed": false,
+        "points": [
+          {
+            "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:0:0:p",
+            "position": [8, 8],
+            "handleA": [0, 0],
+            "handleB": [0, 0],
+            "instanceTransform": {
+              "scale": 0.75,
+              "rotation": 0
+            },
+            "luminance": 0.5,
+            "darkness": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:1:0",
+        "closed": false,
+        "points": [
+          {
+            "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:1:0:p",
+            "position": [24, 8],
+            "handleA": [0, 0],
+            "handleB": [0, 0],
+            "instanceTransform": {
+              "scale": 0.75,
+              "rotation": 0
+            },
+            "luminance": 0.5,
+            "darkness": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:2:0",
+        "closed": false,
+        "points": [
+          {
+            "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:2:0:p",
+            "position": [40, 8],
+            "handleA": [0, 0],
+            "handleB": [0, 0],
+            "instanceTransform": {
+              "scale": 0.75,
+              "rotation": 0
+            },
+            "luminance": 0.5,
+            "darkness": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:3:0",
+        "closed": false,
+        "points": [
+          {
+            "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:3:0:p",
+            "position": [56, 8],
+            "handleA": [0, 0],
+            "handleB": [0, 0],
+            "instanceTransform": {
+              "scale": 0.75,
+              "rotation": 0
+            },
+            "luminance": 0.5,
+            "darkness": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:0:1",
+        "closed": false,
+        "points": [
+          {
+            "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:0:1:p",
+            "position": [8, 24],
+            "handleA": [0, 0],
+            "handleB": [0, 0],
+            "instanceTransform": {
+              "scale": 0.75,
+              "rotation": 0
+            },
+            "luminance": 0.5,
+            "darkness": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:1:1",
+        "closed": false,
+        "points": [
+          {
+            "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:1:1:p",
+            "position": [24, 24],
+            "handleA": [0, 0],
+            "handleB": [0, 0],
+            "instanceTransform": {
+              "scale": 0.75,
+              "rotation": 0
+            },
+            "luminance": 0.5,
+            "darkness": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:2:1",
+        "closed": false,
+        "points": [
+          {
+            "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:2:1:p",
+            "position": [40, 24],
+            "handleA": [0, 0],
+            "handleB": [0, 0],
+            "instanceTransform": {
+              "scale": 0.75,
+              "rotation": 0
+            },
+            "luminance": 0.5,
+            "darkness": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:3:1",
+        "closed": false,
+        "points": [
+          {
+            "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:3:1:p",
+            "position": [56, 24],
+            "handleA": [0, 0],
+            "handleB": [0, 0],
+            "instanceTransform": {
+              "scale": 0.75,
+              "rotation": 0
+            },
+            "luminance": 0.5,
+            "darkness": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:0:2",
+        "closed": false,
+        "points": [
+          {
+            "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:0:2:p",
+            "position": [8, 40],
+            "handleA": [0, 0],
+            "handleB": [0, 0],
+            "instanceTransform": {
+              "scale": 0.75,
+              "rotation": 0
+            },
+            "luminance": 0.5,
+            "darkness": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:1:2",
+        "closed": false,
+        "points": [
+          {
+            "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:1:2:p",
+            "position": [24, 40],
+            "handleA": [0, 0],
+            "handleB": [0, 0],
+            "instanceTransform": {
+              "scale": 0.75,
+              "rotation": 0
+            },
+            "luminance": 0.5,
+            "darkness": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:2:2",
+        "closed": false,
+        "points": [
+          {
+            "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:2:2:p",
+            "position": [40, 40],
+            "handleA": [0, 0],
+            "handleB": [0, 0],
+            "instanceTransform": {
+              "scale": 0.75,
+              "rotation": 0
+            },
+            "luminance": 0.5,
+            "darkness": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:3:2",
+        "closed": false,
+        "points": [
+          {
+            "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:3:2:p",
+            "position": [56, 40],
+            "handleA": [0, 0],
+            "handleB": [0, 0],
+            "instanceTransform": {
+              "scale": 0.75,
+              "rotation": 0
+            },
+            "luminance": 0.5,
+            "darkness": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:0:3",
+        "closed": false,
+        "points": [
+          {
+            "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:0:3:p",
+            "position": [8, 56],
+            "handleA": [0, 0],
+            "handleB": [0, 0],
+            "instanceTransform": {
+              "scale": 0.75,
+              "rotation": 0
+            },
+            "luminance": 0.5,
+            "darkness": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:1:3",
+        "closed": false,
+        "points": [
+          {
+            "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:1:3:p",
+            "position": [24, 56],
+            "handleA": [0, 0],
+            "handleB": [0, 0],
+            "instanceTransform": {
+              "scale": 0.75,
+              "rotation": 0
+            },
+            "luminance": 0.5,
+            "darkness": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:2:3",
+        "closed": false,
+        "points": [
+          {
+            "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:2:3:p",
+            "position": [40, 56],
+            "handleA": [0, 0],
+            "handleB": [0, 0],
+            "instanceTransform": {
+              "scale": 0.75,
+              "rotation": 0
+            },
+            "luminance": 0.5,
+            "darkness": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:3:3",
+        "closed": false,
+        "points": [
+          {
+            "id": "sha256:b5ccde5907ff69b6d36f8d0c547bcfc4f034c8905f618305b89a622b6676533d:cell:3:3:p",
+            "position": [56, 56],
+            "handleA": [0, 0],
+            "handleB": [0, 0],
+            "instanceTransform": {
+              "scale": 0.75,
+              "rotation": 0
+            },
+            "luminance": 0.5,
+            "darkness": 0.5
+          }
+        ]
+      }
+    ],
+    "unstable": true,
+    "fingerprint": "sha256:d774a91c255d4a3ba787ee3b1f5ab210a185ec9201aeb265823982e9a5a8e624"
+  },
+  "instanceFingerprint": "sha256:24943c67c5fdeb0c84c745f4c6fa70b3199c648f5719de02346db0d2fea7f462",
+  "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"960\" height=\"540\" viewBox=\"0 0 960 540\"><g  data-layer=\"Legacy field fixture\"><path  data-layer=\"Legacy field fixture\" d=\"M-67,-67h150l-75,150z\" fill=\"#36434e\" fill-opacity=\"1\" fill-rule=\"nonzero\"/><path  data-layer=\"Legacy field fixture\" d=\"M-51,-67h150l-75,150z\" fill=\"#36434e\" fill-opacity=\"1\" fill-rule=\"nonzero\"/><path  data-layer=\"Legacy field fixture\" d=\"M-35,-67h150l-75,150z\" fill=\"#36434e\" fill-opacity=\"1\" fill-rule=\"nonzero\"/><path  data-layer=\"Legacy field fixture\" d=\"M-19,-67h150l-75,150z\" fill=\"#36434e\" fill-opacity=\"1\" fill-rule=\"nonzero\"/><path  data-layer=\"Legacy field fixture\" d=\"M-67,-51h150l-75,150z\" fill=\"#36434e\" fill-opacity=\"1\" fill-rule=\"nonzero\"/><path  data-layer=\"Legacy field fixture\" d=\"M-51,-51h150l-75,150z\" fill=\"#36434e\" fill-opacity=\"1\" fill-rule=\"nonzero\"/><path  data-layer=\"Legacy field fixture\" d=\"M-35,-51h150l-75,150z\" fill=\"#36434e\" fill-opacity=\"1\" fill-rule=\"nonzero\"/><path  data-layer=\"Legacy field fixture\" d=\"M-19,-51h150l-75,150z\" fill=\"#36434e\" fill-opacity=\"1\" fill-rule=\"nonzero\"/><path  data-layer=\"Legacy field fixture\" d=\"M-67,-35h150l-75,150z\" fill=\"#36434e\" fill-opacity=\"1\" fill-rule=\"nonzero\"/><path  data-layer=\"Legacy field fixture\" d=\"M-51,-35h150l-75,150z\" fill=\"#36434e\" fill-opacity=\"1\" fill-rule=\"nonzero\"/><path  data-layer=\"Legacy field fixture\" d=\"M-35,-35h150l-75,150z\" fill=\"#36434e\" fill-opacity=\"1\" fill-rule=\"nonzero\"/><path  data-layer=\"Legacy field fixture\" d=\"M-19,-35h150l-75,150z\" fill=\"#36434e\" fill-opacity=\"1\" fill-rule=\"nonzero\"/><path  data-layer=\"Legacy field fixture\" d=\"M-67,-19h150l-75,150z\" fill=\"#36434e\" fill-opacity=\"1\" fill-rule=\"nonzero\"/><path  data-layer=\"Legacy field fixture\" d=\"M-51,-19h150l-75,150z\" fill=\"#36434e\" fill-opacity=\"1\" fill-rule=\"nonzero\"/><path  data-layer=\"Legacy field fixture\" d=\"M-35,-19h150l-75,150z\" fill=\"#36434e\" fill-opacity=\"1\" fill-rule=\"nonzero\"/><path  data-layer=\"Legacy field fixture\" d=\"M-19,-19h150l-75,150z\" fill=\"#36434e\" fill-opacity=\"1\" fill-rule=\"nonzero\"/></g></svg>",
+  "saved": "{\n  \"schemaVersion\": 36,\n  \"name\": \"Untitled composition\",\n  \"editor\": {\n    \"guides\": [],\n    \"visible\": true,\n    \"locked\": false,\n    \"gridVisible\": false,\n    \"gridSize\": 8,\n    \"gridAnchor\": \"center\",\n    \"gridAngle\": 0,\n    \"gridOpacity\": 0.25,\n    \"snap\": false,\n    \"snapGuides\": true,\n    \"snapArtboard\": true,\n    \"snapGrid\": true,\n    \"snapArtwork\": false\n  },\n  \"width\": 960,\n  \"height\": 540,\n  \"layers\": [\n    {\n      \"id\": \"legacy-field-layer\",\n      \"name\": \"Legacy field fixture\",\n      \"visible\": true,\n      \"locked\": false,\n      \"fill\": \"#36434e\",\n      \"allowEmptyOutput\": true,\n      \"nodes\": [\n        {\n          \"id\": \"legacy-shape\",\n          \"type\": \"Rectangle\",\n          \"name\": \"Rectangle\",\n          \"position\": [\n            40,\n            40\n          ],\n          \"width\": 264,\n          \"collapsed\": false,\n          \"params\": {\n            \"center\": {\n              \"type\": \"Vector2\",\n              \"value\": [\n                32,\n                32\n              ],\n              \"expression\": \"\",\n              \"locked\": false\n            },\n            \"size\": {\n              \"type\": \"Vector2\",\n              \"value\": [\n                64,\n                64\n              ],\n              \"expression\": \"\",\n              \"locked\": false\n            }\n          },\n          \"points\": [],\n          \"operation\": \"subtract\",\n          \"edits\": [],\n          \"text\": \"Nect\",\n          \"font\": \"default\",\n          \"rawPath\": \"\"\n        },\n        {\n          \"id\": \"legacy-paint\",\n          \"type\": \"Fill\",\n          \"name\": \"Fill\",\n          \"position\": [\n            40,\n            40\n          ],\n          \"width\": 264,\n          \"collapsed\": false,\n          \"params\": {\n            \"path\": {\n              \"type\": \"PaintedPath\",\n              \"value\": null,\n              \"expression\": \"\",\n              \"locked\": false,\n              \"source\": \"legacy-shape\"\n            },\n            \"color\": {\n              \"type\": \"Color\",\n              \"value\": {\n                \"hex\": \"#000000\",\n                \"alpha\": 0.5\n              },\n              \"expression\": \"\",\n              \"locked\": false\n            }\n          },\n          \"points\": [],\n          \"operation\": \"subtract\",\n          \"edits\": [],\n          \"text\": \"Nect\",\n          \"font\": \"default\",\n          \"rawPath\": \"\"\n        },\n        {\n          \"id\": \"legacy-points\",\n          \"type\": \"Luminance to Points\",\n          \"name\": \"Luminance to Points\",\n          \"position\": [\n            40,\n            40\n          ],\n          \"width\": 264,\n          \"collapsed\": false,\n          \"params\": {\n            \"path\": {\n              \"type\": \"PaintedPath\",\n              \"value\": null,\n              \"expression\": \"\",\n              \"locked\": false,\n              \"source\": \"legacy-paint\"\n            },\n            \"pitch\": {\n              \"type\": \"Scalar\",\n              \"value\": 16,\n              \"expression\": \"\",\n              \"locked\": false\n            },\n            \"invert\": {\n              \"type\": \"Boolean\",\n              \"value\": false,\n              \"expression\": \"\",\n              \"locked\": false\n            },\n            \"gridOrigin\": {\n              \"type\": \"Vector2\",\n              \"value\": [\n                0,\n                0\n              ],\n              \"expression\": \"\",\n              \"locked\": false\n            },\n            \"tonePower\": {\n              \"type\": \"Scalar\",\n              \"value\": 1,\n              \"expression\": \"\",\n              \"locked\": false\n            },\n            \"minScale\": {\n              \"type\": \"Scalar\",\n              \"value\": 0.25,\n              \"expression\": \"\",\n              \"locked\": false\n            },\n            \"maxScale\": {\n              \"type\": \"Scalar\",\n              \"value\": 1.25,\n              \"expression\": \"\",\n              \"locked\": false\n            },\n            \"minRotation\": {\n              \"type\": \"Scalar\",\n              \"value\": 0,\n              \"expression\": \"\",\n              \"locked\": false\n            },\n            \"maxRotation\": {\n              \"type\": \"Scalar\",\n              \"value\": 0,\n              \"expression\": \"\",\n              \"locked\": false\n            }\n          },\n          \"points\": [],\n          \"operation\": \"subtract\",\n          \"edits\": [],\n          \"text\": \"Nect\",\n          \"font\": \"default\",\n          \"rawPath\": \"\"\n        },\n        {\n          \"id\": \"legacy-motif\",\n          \"type\": \"Curve\",\n          \"name\": \"Curve\",\n          \"position\": [\n            40,\n            40\n          ],\n          \"width\": 264,\n          \"collapsed\": false,\n          \"params\": {\n            \"closed\": {\n              \"type\": \"Boolean\",\n              \"value\": true,\n              \"expression\": \"\",\n              \"locked\": false\n            }\n          },\n          \"points\": [\n            {\n              \"id\": \"legacy-motif-0\",\n              \"position\": {\n                \"type\": \"Vector2\",\n                \"value\": [\n                  250,\n                  150\n                ],\n                \"expression\": \"\",\n                \"locked\": false\n              },\n              \"handleA\": {\n                \"type\": \"Vector2\",\n                \"value\": [\n                  0,\n                  0\n                ],\n                \"expression\": \"\",\n                \"locked\": false\n              },\n              \"handleB\": {\n                \"type\": \"Vector2\",\n                \"value\": [\n                  0,\n                  0\n                ],\n                \"expression\": \"\",\n                \"locked\": false\n              },\n              \"handleType\": \"corner\"\n            },\n            {\n              \"id\": \"legacy-motif-1\",\n              \"position\": {\n                \"type\": \"Vector2\",\n                \"value\": [\n                  450,\n                  150\n                ],\n                \"expression\": \"\",\n                \"locked\": false\n              },\n              \"handleA\": {\n                \"type\": \"Vector2\",\n                \"value\": [\n                  0,\n                  0\n                ],\n                \"expression\": \"\",\n                \"locked\": false\n              },\n              \"handleB\": {\n                \"type\": \"Vector2\",\n                \"value\": [\n                  0,\n                  0\n                ],\n                \"expression\": \"\",\n                \"locked\": false\n              },\n              \"handleType\": \"corner\"\n            },\n            {\n              \"id\": \"legacy-motif-2\",\n              \"position\": {\n                \"type\": \"Vector2\",\n                \"value\": [\n                  350,\n                  350\n                ],\n                \"expression\": \"\",\n                \"locked\": false\n              },\n              \"handleA\": {\n                \"type\": \"Vector2\",\n                \"value\": [\n                  0,\n                  0\n                ],\n                \"expression\": \"\",\n                \"locked\": false\n              },\n              \"handleB\": {\n                \"type\": \"Vector2\",\n                \"value\": [\n                  0,\n                  0\n                ],\n                \"expression\": \"\",\n                \"locked\": false\n              },\n              \"handleType\": \"corner\"\n            }\n          ],\n          \"operation\": \"subtract\",\n          \"edits\": [],\n          \"text\": \"Nect\",\n          \"font\": \"default\",\n          \"rawPath\": \"\"\n        },\n        {\n          \"id\": \"legacy-instances\",\n          \"type\": \"Instance on Points\",\n          \"name\": \"Instance on Points\",\n          \"position\": [\n            40,\n            40\n          ],\n          \"width\": 264,\n          \"collapsed\": false,\n          \"params\": {\n            \"path\": {\n              \"type\": \"Path\",\n              \"value\": null,\n              \"expression\": \"\",\n              \"locked\": false,\n              \"source\": \"legacy-motif\"\n            },\n            \"points\": {\n              \"type\": \"Path\",\n              \"value\": null,\n              \"expression\": \"\",\n              \"locked\": false,\n              \"source\": \"legacy-points\"\n            },\n            \"alignTangent\": {\n              \"type\": \"Boolean\",\n              \"value\": false,\n              \"expression\": \"\",\n              \"locked\": false\n            }\n          },\n          \"points\": [],\n          \"operation\": \"subtract\",\n          \"edits\": [],\n          \"text\": \"Nect\",\n          \"font\": \"default\",\n          \"rawPath\": \"\"\n        },\n        {\n          \"id\": \"legacy-fill\",\n          \"type\": \"Fill\",\n          \"name\": \"Fill\",\n          \"position\": [\n            40,\n            40\n          ],\n          \"width\": 264,\n          \"collapsed\": false,\n          \"params\": {\n            \"path\": {\n              \"type\": \"PaintedPath\",\n              \"value\": null,\n              \"expression\": \"\",\n              \"locked\": false,\n              \"source\": \"legacy-instances\"\n            },\n            \"color\": {\n              \"type\": \"Color\",\n              \"value\": {\n                \"hex\": \"#36434e\",\n                \"alpha\": 1\n              },\n              \"expression\": \"\",\n              \"locked\": false\n            }\n          },\n          \"points\": [],\n          \"operation\": \"subtract\",\n          \"edits\": [],\n          \"text\": \"Nect\",\n          \"font\": \"default\",\n          \"rawPath\": \"\"\n        },\n        {\n          \"id\": \"legacy-output\",\n          \"type\": \"Output\",\n          \"name\": \"Output\",\n          \"position\": [\n            40,\n            40\n          ],\n          \"width\": 264,\n          \"collapsed\": false,\n          \"params\": {\n            \"path\": {\n              \"type\": \"PaintedPath\",\n              \"value\": null,\n              \"expression\": \"\",\n              \"locked\": false,\n              \"source\": \"legacy-fill\"\n            }\n          },\n          \"points\": [],\n          \"operation\": \"subtract\",\n          \"edits\": [],\n          \"text\": \"Nect\",\n          \"font\": \"default\",\n          \"rawPath\": \"\"\n        }\n      ],\n      \"output\": \"legacy-output\"\n    }\n  ]\n}"
+}
