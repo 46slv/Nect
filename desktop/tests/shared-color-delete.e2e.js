@@ -205,6 +205,144 @@ try {
   assert.deepEqual(await snapshot(), renamed);
   await activateCommand(page, 'redo');
   assert.deepEqual(await snapshot(), renamedAndDeleted);
+
+  // Invalid keyboard edits keep their draft; a valid rename advances focus once.
+  await page.evaluate((value) => window.nect.load(JSON.stringify(value)), project);
+  await page.evaluate(() => {
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: window.nect.document.width + 1 },
+    });
+    window.nect.dispatch({ ...window.nect.commandState, type: 'undo' });
+  });
+  await colors();
+  const keyboardName = row('used').locator('[data-shared-color-edit="name"]');
+  const beforeKeyboard = await snapshot(),
+    keyboardState = await state();
+  await keyboardName.focus();
+  await page.keyboard.press('Tab');
+  assert.equal(
+    await row('used')
+      .locator('[data-shared-color-copy-toggle]')
+      .evaluate((element) => element === document.activeElement),
+    true,
+  );
+  assert.deepEqual(await snapshot(), beforeKeyboard);
+  assert.deepEqual(await state(), keyboardState);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await keyboardName.focus();
+  await keyboardName.fill('   ');
+  for (const key of ['Tab', 'Shift+Tab']) {
+    await page.keyboard.press(key);
+    assert.equal(
+      await keyboardName.evaluate((element) => element === document.activeElement),
+      true,
+    );
+    assert.equal(await keyboardName.inputValue(), '   ');
+    assert.deepEqual(await snapshot(), beforeKeyboard);
+    assert.deepEqual(await state(), keyboardState);
+    assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+    assert.match(await page.locator('[data-shared-color-action-status]').textContent(), /name/i);
+  }
+  await page.keyboard.press('Escape');
+  assert.equal(
+    await page.locator('[data-workspace-panel="colors"]').getAttribute('aria-expanded'),
+    'false',
+  );
+  assert.deepEqual(await snapshot(), beforeKeyboard);
+  assert.deepEqual(await state(), keyboardState);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await colors();
+  assert.equal(await keyboardName.inputValue(), 'Brand');
+  await keyboardName.focus();
+  await keyboardName.fill('Keyboard');
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(
+    () => window.nect.document.colorSlots.find((slot) => slot.id === 'used').name === 'Keyboard',
+  );
+  await page.waitForFunction(() =>
+    document
+      .querySelector('[data-shared-color-row="used"] [data-shared-color-copy-toggle]')
+      ?.getAttribute('aria-label')
+      ?.includes('Keyboard'),
+  );
+  assert.equal(
+    await row('used')
+      .locator('[data-shared-color-copy-toggle]')
+      .evaluate((element) => element === document.activeElement),
+    true,
+  );
+  assert.equal((await state()).expectedRevision, keyboardState.expectedRevision + 1);
+  await page.keyboard.press('Tab');
+  const hue = row('used').locator('[data-shared-color-edit="hsl-h"]');
+  assert.equal(await hue.evaluate((element) => element === document.activeElement), true);
+  await hue.fill('120');
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(
+    () =>
+      window.nect.document.colorSlots.find((slot) => slot.id === 'used').value.hex !== '#112233',
+  );
+  const keyboardColor = await snapshot();
+  assert.equal(keyboardColor.colorSlots.find((slot) => slot.id === 'used').name, 'Keyboard');
+  assert.equal(keyboardColor.colorSlots.find((slot) => slot.id === 'used').value.alpha, 0.4);
+  assert.equal((await state()).expectedRevision, keyboardState.expectedRevision + 2);
+  await activateCommand(page, 'undo');
+  assert.equal((await snapshot()).colorSlots.find((slot) => slot.id === 'used').name, 'Keyboard');
+  assert.equal(
+    (await snapshot()).colorSlots.find((slot) => slot.id === 'used').value.hex,
+    '#112233',
+  );
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), beforeKeyboard);
+  await activateCommand(page, 'redo');
+  assert.equal((await snapshot()).colorSlots.find((slot) => slot.id === 'used').name, 'Keyboard');
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await snapshot(), keyboardColor);
+  await colors();
+  await page.locator('[data-shared-color-sort]').click();
+  await keyboardName.focus();
+  await page.keyboard.press('Shift+Tab');
+  const previous = await page.evaluate(() => ({
+    tag: document.activeElement.tagName,
+    data: { ...document.activeElement.dataset },
+    label: document.activeElement.getAttribute('aria-label'),
+  }));
+  await keyboardName.focus();
+  await keyboardName.fill('Aardvark');
+  await page.keyboard.press('Shift+Tab');
+  await page.waitForFunction(() =>
+    document
+      .querySelector('[data-shared-color-row="used"] [data-shared-color-copy-toggle]')
+      ?.getAttribute('aria-label')
+      ?.includes('Aardvark'),
+  );
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      tag: document.activeElement.tagName,
+      data: { ...document.activeElement.dataset },
+      label: document.activeElement.getAttribute('aria-label'),
+    })),
+    previous,
+  );
+  assert.equal((await snapshot()).colorSlots.find((slot) => slot.id === 'used').name, 'Aardvark');
+
+  // A renamed row can leave the filter; keyboard focus stays in the visible list.
+  await page.locator('[data-shared-color-find]').click();
+  const filter = page.locator('[data-shared-color-filter]');
+  await filter.fill('Aardvark');
+  await keyboardName.focus();
+  await keyboardName.fill('No longer matching');
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(
+    () => document.querySelector('[data-shared-color-row="used"]')?.hidden === true,
+  );
+  assert.equal(await filter.evaluate((element) => element === document.activeElement), true);
+  assert.equal(await filter.inputValue(), 'Aardvark');
+  assert.equal(
+    (await snapshot()).colorSlots.find((slot) => slot.id === 'used').name,
+    'No longer matching',
+  );
   assert.deepEqual(errors, []);
   console.log(
     'Shared color deletion: reference guards, Undo/Redo, clipboard and browser reopen passed',

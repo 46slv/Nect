@@ -1035,12 +1035,12 @@ const sharedColors = createSharedColorsPanel({
   getSession: () => session,
   getDocument: () => history.doc,
   getProjectIdentity: () => documents.generation,
-  dispatch: (type, payload, envelope) =>
+  dispatch: (type, payload, envelope, { deferRender = false } = {}) =>
     commandChange(
       type,
       payload,
       undefined,
-      type === 'rename-color-slot' && pointerActive,
+      type === 'rename-color-slot' && (pointerActive || deferRender),
       envelope,
     ),
   render: () => render(),

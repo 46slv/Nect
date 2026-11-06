@@ -27,6 +27,7 @@ export function createSharedColorsPanel({
 }) {
   let copiedColor = null,
     activeColorPointer = null,
+    nameTabTarget = null,
     rendering = false,
     orderProject,
     orderInitialized = false,
@@ -72,22 +73,29 @@ export function createSharedColorsPanel({
     event.stopImmediatePropagation();
     return true;
   }
-  function keepInvalidNameFocused(event) {
-    const input = app.ownerDocument.activeElement;
-    if (
-      !event.target.closest?.(
-        '[data-shared-color-delete],[data-shared-color-sort],[data-shared-color-find],[data-shared-color-filter]',
-      ) ||
-      !input?.matches?.('.shared-colors-panel [data-shared-color-edit="name"]') ||
-      (input.value.trim() && input.value.length <= 128)
-    )
-      return false;
-    event.preventDefault();
-    event.stopImmediatePropagation();
+  function invalidName(input) {
+    return (
+      input?.matches?.('.shared-colors-panel [data-shared-color-edit="name"]') &&
+      (!input.value.trim() || input.value.length > 128)
+    );
+  }
+  function reportInvalidName() {
     const message = 'Enter a shared color name first';
     notify(message, true);
     const status = app.querySelector('[data-shared-color-action-status]');
     if (status) status.textContent = message;
+  }
+  function keepInvalidNameFocused(event) {
+    if (
+      !event.target.closest?.(
+        '[data-shared-color-delete],[data-shared-color-sort],[data-shared-color-find],[data-shared-color-filter]',
+      ) ||
+      !invalidName(app.ownerDocument.activeElement)
+    )
+      return false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    reportInvalidName();
     return true;
   }
   app.addEventListener(
@@ -704,7 +712,11 @@ export function createSharedColorsPanel({
       if (!slot) throw Error('Shared color is no longer available');
       if (kind === 'name') {
         const owner = getSession();
-        const result = dispatch('rename-color-slot', { slotId, name: el.value }, state);
+        const deferRender = nameTabTarget === el;
+        if (deferRender) nameTabTarget = null;
+        const result = dispatch('rename-color-slot', { slotId, name: el.value }, state, {
+          deferRender,
+        });
         if (result?.changed && owner === getSession()) rebaseControls(state);
       } else {
         const value = { ...slot.value };
@@ -736,6 +748,37 @@ export function createSharedColorsPanel({
       event.preventDefault();
       event.stopImmediatePropagation();
       return;
+    }
+    if (
+      event.key === 'Tab' &&
+      !event.defaultPrevented &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      !event.isComposing &&
+      event.keyCode !== 229 &&
+      invalidName(event.target)
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      reportInvalidName();
+      return;
+    }
+    if (
+      event.key === 'Tab' &&
+      !event.defaultPrevented &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      !event.isComposing &&
+      event.keyCode !== 229 &&
+      event.target.matches?.('.shared-colors-panel [data-shared-color-edit="name"]')
+    ) {
+      const target = event.target;
+      nameTabTarget = target;
+      setTimeout(() => {
+        if (nameTabTarget === target) nameTabTarget = null;
+      }, 0);
     }
     if (
       event.key === 'Escape' &&
