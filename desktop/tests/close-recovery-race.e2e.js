@@ -116,7 +116,7 @@ async function fixture({
     },
     { holdRegistration, holdFontCatalog },
   );
-  await page.goto(baseURL || process.env.BASE_URL || 'http://127.0.0.1:5234');
+  await page.goto(baseURL || process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect && window.closeChannel);
   await page.waitForFunction(
     () => !['pending', 'saving'].includes(window.nect.recoveryState?.phase),
