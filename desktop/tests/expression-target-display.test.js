@@ -16,6 +16,8 @@ test('Artwork context distinguishes duplicate names without changing reference i
       },
       { id: 'artwork-2234', name: 'か\u3099', nodes: [{ id: 'curve-3', name: 'Curve' }] },
       { id: 'artwork-3', name: 'が · …1234', nodes: [] },
+      { id: 'artwork-empty', name: '', nodes: [] },
+      { id: 'artwork-named', name: 'Untitled', nodes: [] },
     ],
   };
   const display = expressionTargetDisplay(document, 'local');
@@ -48,6 +50,10 @@ test('Artwork context distinguishes duplicate names without changing reference i
   assert.equal(completion.expression, point.expression);
   assert.ok(completion.contextLabel);
   assert.equal(completion.contextSearchTerms[0], 'artwork-1234');
+  const empty = display.completion({ ...point, layerId: 'artwork-empty', layerName: '' }),
+    named = display.completion({ ...point, layerId: 'artwork-named', layerName: 'Untitled' });
+  assert.match(empty.contextLabel, /^Untitled/);
+  assert.notEqual(empty.contextLabel, named.contextLabel);
 
   const local = {
     ...point,

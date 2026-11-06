@@ -3,7 +3,10 @@ import { displayColorLabels as disambiguateLabels } from './color-display-labels
 // Context is presentation only: references keep their complete layer/node IDs.
 export function expressionTargetDisplay(document, activeLayerId) {
   const layerLabels = disambiguateLabels(
-      document.layers.map((layer) => ({ id: layer.id, label: layer.name })),
+      document.layers.map((layer) => ({
+        id: layer.id,
+        label: layer.name.trim() ? layer.name : 'Untitled',
+      })),
     ),
     duplicateNodeIds = new Set(),
     contextSearchTerms = new Map();
