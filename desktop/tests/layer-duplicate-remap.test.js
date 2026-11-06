@@ -14,6 +14,7 @@ import {
   point,
 } from '../src/core.js';
 import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
+import { createCharacterPositions, setCharacterOffsets } from '../src/character-identity.js';
 import { makeFontAsset, makeVariableFontAsset, parseFont, resolveFonts } from '../src/fonts.js';
 import { duplicateLayerGeneric } from '../src/artwork-duplication.js';
 import {
@@ -148,6 +149,380 @@ for (const type of ['Curve', 'Multi Path']) {
     assert.notEqual(reopenedPath.remapSuspended, true);
   });
 }
+
+for (const route of [['Convert to Path'], ['Fill', 'Convert to Path'], ['Text to Path']]) {
+  test(`authored Curve point survives ${route.join(' → ')} before Remap`, () => {
+    const f = fixture('Curve', ({ layer, source, remap }) => {
+      let current = source;
+      for (const type of route) {
+        const next = node(type);
+        layer.nodes.push(next);
+        connect(layer, current.id, next.id, 'path');
+        current = next;
+      }
+      connect(layer, current.id, remap.id, 'path');
+    });
+    const before = serializeCompositionProject(f.owner.projectSnapshot()),
+      result = f.send('duplicate-layer', { layerId: f.layerId }),
+      doc = f.owner.activeDocument(),
+      original = doc.layers.find((layer) => layer.id === f.layerId),
+      copy = doc.layers.find((layer) => layer.id === result.layerId),
+      path = evaluate(copy).path,
+      sourcePoint = evaluate(original).path.contours[0].points[0],
+      copiedPoint = path.contours[0].points[0];
+    assert.equal(copy.nodes.find((n) => n.type === 'Path Remap').edits[0].pointId, copiedPoint.id);
+    assert.deepEqual(copiedPoint.position, sourcePoint.position);
+    assert.notEqual(path.remapSuspended, true);
+    const after = serializeCompositionProject(f.owner.projectSnapshot());
+    f.send('undo');
+    assert.equal(serializeCompositionProject(f.owner.projectSnapshot()), before);
+    f.send('redo');
+    assert.equal(serializeCompositionProject(f.owner.projectSnapshot()), after);
+    const reopened = createCompositionSessionOwner(deserializeCompositionProject(after));
+    assert.deepEqual(
+      evaluate(reopened.activeDocument().layers[1]).path.contours[0].points[0].position,
+      sourcePoint.position,
+    );
+  });
+}
+
+test('a painted-group conversion does not infer a generated point mapping', () => {
+  const f = fixture('Curve', ({ doc, layer, source, remap }) => {
+    doc.schemaVersion = 31;
+    const paint = node('Fill'),
+      transform = node('Transform'),
+      convert = node('Convert to Path');
+    layer.nodes.push(paint, transform, convert);
+    connect(layer, source.id, paint.id, 'path');
+    connect(layer, paint.id, transform.id, 'path');
+    connect(layer, transform.id, convert.id, 'path');
+    connect(layer, convert.id, remap.id, 'path');
+    assert.equal(evaluate(layer).run(transform.id).kind, 'painted-group');
+  });
+  const before = serializeCompositionProject(f.owner.projectSnapshot()),
+    state = f.owner.state;
+  assert.throws(() => f.send('duplicate-layer', { layerId: f.layerId }), /Path Remap.*binding/);
+  assert.equal(serializeCompositionProject(f.owner.projectSnapshot()), before);
+  assert.deepEqual(f.owner.state, state);
+});
+
+for (const type of ['Curve', 'Multi Path', 'Circle', 'Polygon', 'Star']) {
+  test(`a Text path attachment remaps the owned ${type} contour, preserving its layout`, () => {
+    const fonts = { default: parseFont(fontBytes('../public/fonts/DejaVuSans.ttf')) },
+      doc = blankDocument(),
+      layer = doc.layers[0],
+      path = node(type),
+      text = node('Text'),
+      fill = node('Fill'),
+      output = layer.nodes[0];
+    if (type === 'Curve') path.params.closed.value = false;
+    if (type === 'Multi Path') {
+      path.points = [point(10, 20), point(200, 20), point(200, 200)];
+      path.contours = [{ id: 'path-contour', closed: false, points: path.points.map((p) => p.id) }];
+      path.units = [{ id: 'path-unit', contours: ['path-contour'] }];
+    }
+    text.text = 'A';
+    text.params.size.value = 10;
+    layer.nodes = [path, text, fill, output];
+    text.pathAttachment = {
+      nodeId: path.id,
+      contourId: evaluate(layer).run(path.id).contours[0].id,
+      startMode: 'distance',
+      start: 0,
+      reversed: false,
+    };
+    connect(layer, text.id, fill.id, 'path');
+    connect(layer, fill.id, output.id, 'path');
+    const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc), {
+        fonts: () => fonts,
+      }),
+      result = owner.dispatch({
+        ...owner.state,
+        type: 'duplicate-layer',
+        payload: { layerId: layer.id },
+      }),
+      after = owner.activeDocument(),
+      copy = after.layers.find((item) => item.id === result.layerId),
+      copiedPath = copy.nodes.find((item) => item.type === type),
+      copiedText = copy.nodes.find((item) => item.type === 'Text');
+    assert.equal(copiedText.pathAttachment.nodeId, copiedPath.id);
+    assert.equal(
+      copiedText.pathAttachment.contourId,
+      evaluate(copy).run(copiedPath.id).contours[0].id,
+    );
+    const svg = (item) =>
+      exportSVG(
+        { ...structuredClone(after), layers: [{ ...structuredClone(item), name: 'same' }] },
+        fonts,
+      );
+    if (type === 'Multi Path') {
+      assert.match(evaluate(after.layers[0], fonts).error, /TEXT_PATH_UNSTABLE/);
+      assert.equal(evaluate(copy, fonts).error, evaluate(after.layers[0], fonts).error);
+    } else assert.equal(svg(copy), svg(after.layers[0]));
+  });
+}
+
+for (const route of ['driven zero Offset', 'plain Fill and Convert']) {
+  test(`Text attachment retains its contour through ${route}`, () => {
+    const fonts = { default: parseFont(fontBytes('../public/fonts/DejaVuSans.ttf')) },
+      doc = blankDocument(),
+      layer = doc.layers[0],
+      curve = node('Curve'),
+      text = node('Text'),
+      fill = node('Fill'),
+      output = layer.nodes[0];
+    curve.params.closed.value = false;
+    text.text = 'A';
+    text.params.size.value = 10;
+    layer.nodes = [curve, text, fill, output];
+    let target;
+    if (route === 'driven zero Offset') {
+      const driver = node('Value'),
+        offset = node('Closed Path Offset');
+      driver.params.value.value = 0;
+      layer.nodes.push(driver, offset);
+      connect(layer, curve.id, offset.id, 'path');
+      connect(layer, driver.id, offset.id, 'amount');
+      target = offset;
+    } else {
+      const paint = node('Fill'),
+        convert = node('Convert to Path');
+      layer.nodes.push(paint, convert);
+      connect(layer, curve.id, paint.id, 'path');
+      connect(layer, paint.id, convert.id, 'path');
+      target = convert;
+    }
+    text.pathAttachment = {
+      nodeId: target.id,
+      contourId: curve.id,
+      startMode: 'distance',
+      start: 0,
+      reversed: false,
+    };
+    connect(layer, text.id, fill.id, 'path');
+    connect(layer, fill.id, output.id, 'path');
+    const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc), {
+        fonts: () => fonts,
+      }),
+      result = owner.dispatch({
+        ...owner.state,
+        type: 'duplicate-layer',
+        payload: { layerId: layer.id },
+      }),
+      after = owner.activeDocument(),
+      copy = after.layers.find((item) => item.id === result.layerId),
+      copiedCurve = copy.nodes.find((item) => item.type === 'Curve'),
+      copiedText = copy.nodes.find((item) => item.type === 'Text');
+    assert.equal(copiedText.pathAttachment.contourId, copiedCurve.id);
+    const svg = (item) =>
+      exportSVG(
+        { ...structuredClone(after), layers: [{ ...structuredClone(item), name: 'same' }] },
+        fonts,
+      );
+    assert.equal(svg(copy), svg(after.layers[0]));
+  });
+}
+
+test('Text attachment through an edited Path Remap retains both the contour and correction', () => {
+  const fonts = { default: parseFont(fontBytes('../public/fonts/DejaVuSans.ttf')) },
+    doc = blankDocument(),
+    layer = doc.layers[0],
+    curve = node('Curve'),
+    remap = node('Path Remap'),
+    text = node('Text'),
+    fill = node('Fill'),
+    output = layer.nodes[0];
+  curve.params.closed.value = false;
+  text.text = 'A';
+  text.params.size.value = 10;
+  layer.nodes = [curve, remap, text, fill, output];
+  connect(layer, curve.id, remap.id, 'path');
+  connect(layer, text.id, fill.id, 'path');
+  connect(layer, fill.id, output.id, 'path');
+  const input = evaluate(layer).run(curve.id);
+  enableRemapPoint(remap, input, curve.points[0].id).params.position.value = [8, 3];
+  text.pathAttachment = {
+    nodeId: remap.id,
+    contourId: curve.id,
+    startMode: 'distance',
+    start: 0,
+    reversed: false,
+  };
+  const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc), {
+      fonts: () => fonts,
+    }),
+    result = owner.dispatch({
+      ...owner.state,
+      type: 'duplicate-layer',
+      payload: { layerId: layer.id },
+    }),
+    after = owner.activeDocument(),
+    copy = after.layers.find((item) => item.id === result.layerId),
+    copiedCurve = copy.nodes.find((item) => item.type === 'Curve'),
+    copiedRemap = copy.nodes.find((item) => item.type === 'Path Remap'),
+    copiedText = copy.nodes.find((item) => item.type === 'Text');
+  assert.equal(copiedText.pathAttachment.contourId, copiedCurve.id);
+  assert.equal(copiedRemap.edits[0].pointId, copiedCurve.points[0].id);
+  const svg = (item) =>
+    exportSVG(
+      { ...structuredClone(after), layers: [{ ...structuredClone(item), name: 'same' }] },
+      fonts,
+    );
+  assert.equal(svg(copy), svg(after.layers[0]));
+});
+
+test('a dangling Reference is not revived by fresh copied IDs', () => {
+  const doc = blankDocument(),
+    layer = doc.layers[0],
+    driver = node('Vector'),
+    reference = node('Reference');
+  reference.reference = { nodeId: 'copy-future-dangling', portId: 'output' };
+  layer.nodes.push(driver, reference);
+  const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc)),
+    uuids = ['new-layer', 'new-output', 'future-dangling', 'new-driver', 'new-reference'];
+  let next = 0;
+  mock.method(globalThis.crypto, 'randomUUID', () => uuids[next++]);
+  try {
+    const result = owner.dispatch({
+        ...owner.state,
+        type: 'duplicate-layer',
+        payload: { layerId: layer.id },
+      }),
+      copy = owner.activeDocument().layers.find((item) => item.id === result.layerId),
+      target = copy.nodes.find((item) => item.type === 'Reference').reference.nodeId;
+    assert.equal(target, 'copy-future-dangling');
+    assert.ok(copy.nodes.every((item) => item.id !== target));
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test('fresh layer identities avoid existing shared Color slot IDs', () => {
+  const doc = blankDocument();
+  doc.schemaVersion = 54;
+  doc.colorSlots = [{ id: 'copy-color-slot', name: 'Shared', value: { hex: '#ff0000', alpha: 1 } }];
+  const uuids = ['color-slot', 'new-layer', 'new-output'];
+  let next = 0;
+  mock.method(globalThis.crypto, 'randomUUID', () => uuids[next++]);
+  try {
+    const result = duplicateLayerGeneric(doc, doc.layers[0].id);
+    assert.equal(result.layerId, 'copy-new-layer');
+    assert.equal(doc.colorSlots[0].id, 'copy-color-slot');
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test('Multi Path contour IDs are remapped in their own scope, including group members', () => {
+  const f = fixture('Multi Path', ({ doc, layer, source }) => {
+    const marker = node('Vector');
+    marker.id = 'scoped-collision';
+    source.contours[0].id = marker.id;
+    source.units[0].contours = [marker.id];
+    layer.nodes.push(marker);
+    doc.schemaVersion = 44;
+    layer.nodeGroups = [{ id: 'test-group', name: marker.id, nodeIds: [source.id, marker.id] }];
+  });
+  const result = f.send('duplicate-layer', { layerId: f.layerId }),
+    copy = f.owner.activeDocument().layers.find((layer) => layer.id === result.layerId),
+    multi = copy.nodes.find((item) => item.type === 'Multi Path'),
+    marker = copy.nodes.find((item) => item.type === 'Vector'),
+    group = copy.nodeGroups[0];
+  assert.notEqual(multi.contours[0].id, marker.id);
+  assert.deepEqual(multi.units[0].contours, [multi.contours[0].id]);
+  assert.deepEqual(
+    multi.contours[0].points,
+    multi.points.map((item) => item.id),
+  );
+  assert.deepEqual(group.nodeIds, [multi.id, marker.id]);
+  assert.equal(group.name, 'scoped-collision');
+  assert.notEqual(evaluate(copy).path.remapSuspended, true);
+});
+
+test('generic layer duplication preserves content, names and opaque strings equal to node IDs', () => {
+  const fonts = { default: parseFont(fontBytes('../public/fonts/DejaVuSans.ttf')) },
+    doc = blankDocument(),
+    layer = doc.layers[0],
+    text = node('Text'),
+    vector = node('Vector'),
+    reference = node('Reference'),
+    fill = node('Fill'),
+    output = layer.nodes[0];
+  vector.id = 'c1';
+  vector.params.value.value = [200, 200];
+  text.text = vector.id;
+  text.name = vector.id;
+  text.characterPositions = setCharacterOffsets(text.text, createCharacterPositions(text.text), {
+    c1: [3, 1],
+  });
+  text.extra = { id: vector.id, source: vector.id, nested: [vector.id] };
+  text.contours = { id: vector.id, nested: { source: vector.id } };
+  text.params.size.extra = { id: vector.id, source: vector.id };
+  reference.reference = { nodeId: vector.id, portId: 'output' };
+  layer.nodes = [text, vector, reference, fill, output];
+  connect(layer, vector.id, text.id, 'position');
+  connect(layer, text.id, fill.id, 'path');
+  connect(layer, fill.id, output.id, 'path');
+  const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc), {
+      fonts: () => fonts,
+    }),
+    send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload }),
+    before = serializeCompositionProject(owner.projectSnapshot()),
+    result = send('duplicate-layer', { layerId: layer.id }),
+    afterDoc = owner.activeDocument(),
+    original = afterDoc.layers.find((item) => item.id === layer.id),
+    copy = afterDoc.layers.find((item) => item.id === result.layerId),
+    copiedText = copy.nodes.find((item) => item.type === 'Text'),
+    copiedVector = copy.nodes.find((item) => item.type === 'Vector'),
+    copiedReference = copy.nodes.find((item) => item.type === 'Reference');
+  assert.equal(copiedText.text, vector.id);
+  assert.equal(copiedText.name, vector.id);
+  assert.deepEqual(copiedText.extra, text.extra);
+  assert.deepEqual(copiedText.contours, text.contours);
+  assert.deepEqual(copiedText.params.size.extra, text.params.size.extra);
+  assert.deepEqual(copiedText.characterPositions, text.characterPositions);
+  assert.equal(copiedText.params.position.source, copiedVector.id);
+  assert.equal(copiedReference.reference.nodeId, copiedVector.id);
+  const svg = (item) =>
+    exportSVG(
+      { ...structuredClone(afterDoc), layers: [{ ...structuredClone(item), name: 'same' }] },
+      fonts,
+    );
+  assert.equal(svg(copy), svg(original));
+  const after = serializeCompositionProject(owner.projectSnapshot());
+  send('undo');
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+  send('redo');
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), after);
+});
+
+test('an Image asset identifier equal to a copied node ID stays external', () => {
+  const doc = blankDocument(),
+    layer = doc.layers[0],
+    image = node('Image'),
+    vector = node('Vector'),
+    output = node('Image Output'),
+    data =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+  vector.id = 'image-shared';
+  image.asset = 'image-shared';
+  doc.imageAssets = {
+    'image-shared': { name: 'red.png', mime: 'image/png', width: 1, height: 1, data },
+  };
+  layer.nodes = [vector, image, output];
+  layer.output = output.id;
+  delete layer.allowEmptyOutput;
+  connect(layer, image.id, output.id, 'path');
+  const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc)),
+    result = owner.dispatch({
+      ...owner.state,
+      type: 'duplicate-layer',
+      payload: { layerId: layer.id },
+    }),
+    copy = owner.activeDocument().layers.find((item) => item.id === result.layerId);
+  assert.equal(copy.nodes.find((item) => item.type === 'Image').asset, 'image-shared');
+  assert.equal(evaluate(copy, {}, doc.imageAssets).error, null);
+});
 
 test('a missing target stays missing even when its ID belongs to another copied Curve', () => {
   const original = fixture('Curve'),
@@ -526,4 +901,61 @@ for (const type of ['Curve', 'Rectangle']) {
     assert.equal(Object.isFrozen(asset), false);
     assert.equal(asset.data, data);
   });
+}
+
+test('duplicate without any Remap also leaves nested caller assets unfrozen', () => {
+  const doc = blankDocument(),
+    data =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==',
+    provenance = {
+      version: 1,
+      mode: 'embedded',
+      rootId: 'folder-fixture',
+      relativePath: 'image.png',
+      sourceLocation: 'owned/image.png',
+      sha256: 'a'.repeat(64),
+      author: 'Fixture',
+      source: 'Self-authored',
+      license: 'Fixture',
+    },
+    asset = { name: 'red.png', mime: 'image/png', width: 1, height: 1, data, provenance };
+  doc.schemaVersion = 53;
+  doc.imageAssets = { 'image-shared': asset };
+  duplicateLayerGeneric(doc, doc.layers[0].id);
+  assert.equal(Object.isFrozen(asset), false);
+  assert.equal(Object.isFrozen(provenance), false);
+  assert.strictEqual(doc.imageAssets['image-shared'], asset);
+});
+
+for (const type of ['Curve', 'Rectangle']) {
+  for (const frozenWrapper of [false, true]) {
+    test(`${type} ${frozenWrapper ? 'shallow-frozen' : 'mutable'} asset provenance remains mutable after duplicate`, () => {
+      const f = fixture(type),
+        doc = structuredClone(f.owner.activeDocument()),
+        data =
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==',
+        provenance = {
+          version: 1,
+          mode: 'embedded',
+          rootId: 'folder-fixture',
+          relativePath: 'image.png',
+          sourceLocation: 'owned/image.png',
+          sha256: 'a'.repeat(64),
+          author: 'Fixture',
+          source: 'Self-authored',
+          license: 'Fixture',
+        },
+        asset = { name: 'red.png', mime: 'image/png', width: 1, height: 1, data, provenance };
+      doc.schemaVersion = 53;
+      if (frozenWrapper) Object.freeze(asset);
+      doc.imageAssets = { 'image-shared': asset };
+      if (type === 'Curve') duplicateLayerGeneric(doc, doc.layers[0].id);
+      else assert.throws(() => duplicateLayerGeneric(doc, doc.layers[0].id), /Path Remap/);
+      assert.strictEqual(doc.imageAssets['image-shared'], asset);
+      assert.strictEqual(asset.provenance, provenance);
+      assert.equal(Object.isFrozen(provenance), false);
+      provenance.author = 'Updated';
+      assert.equal(provenance.author, 'Updated');
+    });
+  }
 }

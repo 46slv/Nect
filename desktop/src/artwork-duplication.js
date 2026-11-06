@@ -2,6 +2,8 @@ import {
   bypassContract,
   characterPositionStatus,
   evaluate,
+  inheritProjectDocumentContext,
+  parameters,
   remapFingerprintMatches,
   uid,
   validate,
@@ -21,6 +23,7 @@ import {
   reserveDanglingArtworkReferenceIds,
 } from './curve-point-reference.js';
 import { candidateDocument } from './artwork-candidate.js';
+import { isPaintedGroup } from './composition-reference.js';
 import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 
 const unsupported = (code, reason) => ({ supported: false, code, reason });
@@ -325,8 +328,21 @@ function copiedAuthoredPoints(source, copy, evaluation, inputId) {
       const contract = bypassContract(original, source);
       if (!contract.supported || contract.type !== 'Path') return null;
       input = contract.input;
-    } else if (['Transform', 'Path Remap'].includes(original.type)) input = 'path';
+    } else if (['Transform', 'Path Remap', 'Text to Path'].includes(original.type)) input = 'path';
     else if (
+      [
+        'Convert to Path',
+        'Fill',
+        'Stroke',
+        'Linear Gradient Fill',
+        'Radial Gradient Fill',
+        'Angular Gradient Fill',
+      ].includes(original.type)
+    ) {
+      const value = evaluation.run(original.params.path.source, original.params.path.sourcePort);
+      if (isPaintedGroup(value)) return null;
+      input = 'path';
+    } else if (
       original.type === 'Closed Path Offset' &&
       evaluation.parameterValue(original.id, 'amount') === 0
     )
@@ -365,14 +381,35 @@ function pointGeometry(point) {
 // Check the evaluator's actual binding and fingerprint rules on isolated
 // snapshots before any layer or History entry is committed. A suspended edit
 // may remain suspended, but must never become bound to a different point.
+function isolatedDuplicateCandidate(doc) {
+  const isolated = inheritProjectDocumentContext(doc, { ...doc });
+  const deeplyFrozen = (value, seen = new WeakSet()) => {
+    if (!value || typeof value !== 'object' || seen.has(value)) return true;
+    if (!Object.isFrozen(value)) return false;
+    seen.add(value);
+    return Object.values(value).every((child) => deeplyFrozen(child, seen));
+  };
+  for (const key of ['fontAssets', 'imageAssets']) {
+    const assets = isolated[key];
+    if (assets && typeof assets === 'object' && !Array.isArray(assets))
+      isolated[key] = Object.fromEntries(
+        Object.entries(assets).map(([id, asset]) => [
+          id,
+          deeplyFrozen(asset) ? asset : structuredClone(asset),
+        ]),
+      );
+  }
+  return candidateDocument(isolated);
+}
+
 function assertCopiedRemapBindings(doc, source, copy, index, fonts) {
   const remaps = source.nodes
     .map((node, index) => ({ node, index }))
     .filter(({ node }) => node.type === 'Path Remap' && node.edits.length);
   if (!remaps.length) return;
 
-  const originalDocument = candidateDocument(doc),
-    copiedDocument = candidateDocument(doc),
+  const originalDocument = isolatedDuplicateCandidate(doc),
+    copiedDocument = isolatedDuplicateCandidate(doc),
     original = originalDocument.layers.find((layer) => layer.id === source.id);
   copiedDocument.layers.splice(index, 0, copy);
   const originalEvaluation = evaluate(
@@ -467,6 +504,61 @@ function assertCopiedRemapBindings(doc, source, copy, index, fonts) {
   }
 }
 
+// Text attachments address a contour, not an arbitrary string elsewhere in
+// the document. Follow only the known identity-preserving route to its owner.
+function copiedAttachmentContour(source, copy, nodeIds, contours, evaluation, start, contourId) {
+  const nodes = new Map(source.nodes.map((node, index) => [node.id, { node, index }]));
+  const seen = new Set();
+  let id = start;
+  while (id && !seen.has(id)) {
+    seen.add(id);
+    const pair = nodes.get(id);
+    if (!pair) return null;
+    const n = pair.node,
+      copied = copy.nodes[pair.index];
+    if (n.type === 'Curve') return contourId === n.id ? copied.id : null;
+    if (n.type === 'Multi Path') return contours.get(n.id)?.get(contourId) || null;
+    if (['Circle', 'Ellipse', 'Rectangle'].includes(n.type))
+      return contourId === `${n.id}:c0` ? `${copied.id}:c0` : null;
+    if (['Polygon', 'Star'].includes(n.type)) {
+      const prefix = `${n.id}:${n.type}:`;
+      return contourId.startsWith(prefix) && /^\d+$/.test(contourId.slice(prefix.length))
+        ? `${copied.id}:${n.type}:${contourId.slice(prefix.length)}`
+        : null;
+    }
+    let input;
+    if (n.bypassed) {
+      const contract = bypassContract(n, source);
+      if (!contract.supported || contract.type !== 'Path') return null;
+      input = contract.input;
+    } else if (['Transform', 'Path Remap', 'Text to Path'].includes(n.type)) input = 'path';
+    else if (
+      [
+        'Convert to Path',
+        'Fill',
+        'Stroke',
+        'Linear Gradient Fill',
+        'Radial Gradient Fill',
+        'Angular Gradient Fill',
+      ].includes(n.type)
+    ) {
+      const inputValue = evaluation.run(n.params.path.source, n.params.path.sourcePort);
+      if (isPaintedGroup(inputValue)) return null;
+      input = 'path';
+    } else if (n.type === 'Closed Path Offset' && evaluation.parameterValue(n.id, 'amount') === 0)
+      input = 'path';
+    else return null;
+    const next = n.params[input];
+    if (
+      next?.sourcePort !== undefined ||
+      copied.params[input]?.source !== nodeIds.get(next?.source)
+    )
+      return null;
+    id = next.source;
+  }
+  return null;
+}
+
 /** Generic layer duplication for the layer-panel command surface. */
 export function duplicateLayerGeneric(doc, layerId, { fonts = {} } = {}) {
   const source = doc?.layers?.find((layer) => layer.id === layerId);
@@ -501,38 +593,148 @@ export function duplicateLayerGeneric(doc, layerId, { fonts = {} } = {}) {
   };
   const layer = copyOccurrences(source);
   const occupied = occupiedArtworkIds(doc);
-  const ids = new Map();
-  const collect = (value) => {
-    if (!value || typeof value !== 'object') return;
-    if (typeof value.id === 'string') ids.set(value.id, null);
-    for (const [key, child] of Object.entries(value)) if (key !== 'metadata') collect(child);
-  };
-  collect(layer);
-  for (const oldId of ids.keys()) {
+  for (const slot of doc.colorSlots || []) occupied.add(slot.id);
+  // Reserve dangling structural references too, so fresh IDs cannot revive one.
+  for (const current of doc.layers)
+    for (const n of current.nodes) {
+      for (const [, q] of parameters(n)) if (q?.source) occupied.add(q.source);
+      if (n.type === 'Reference' && n.reference?.nodeId) occupied.add(n.reference.nodeId);
+      if (n.type === 'Text' && n.pathAttachment?.nodeId) occupied.add(n.pathAttachment.nodeId);
+      if (n.type === 'Text' && n.pathAttachment?.contourId)
+        occupied.add(n.pathAttachment.contourId);
+      if (n.type === 'Path Remap') for (const edit of n.edits) occupied.add(edit.pointId);
+      if (n.type === 'Multi Path') {
+        for (const contour of n.contours) occupied.add(contour.id);
+        for (const unit of n.units) occupied.add(unit.id);
+      }
+    }
+  const fresh = () => {
     let next;
     do next = uid('copy');
-    while (occupied.has(next) || [...ids.values()].includes(next));
-    ids.set(oldId, next);
+    while (occupied.has(next));
     occupied.add(next);
-  }
-  const remap = (value) => {
-    if (!value || typeof value !== 'object') return;
-    for (const [key, child] of Object.entries(value)) {
-      if (key === 'metadata') continue;
-      if (key === 'id' && typeof child === 'string') value[key] = ids.get(child) || child;
-      else if (typeof child === 'string' && ids.has(child)) value[key] = ids.get(child);
-      else remap(child);
-    }
+    return next;
   };
-  remap(layer);
-  remapExpressionReferences(source.nodes, layer.nodes);
-  layer.nodeGroups?.forEach((g, i) => {
-    g.name = source.nodeGroups[i].name;
+  layer.id = fresh();
+  const nodeIds = new Map(),
+    contours = new Map();
+  source.nodes.forEach((n, index) => {
+    const copy = layer.nodes[index];
+    copy.id = fresh();
+    nodeIds.set(n.id, copy.id);
+    const pointIds = new Map();
+    n.points.forEach((point, i) => {
+      copy.points[i].id = fresh();
+      pointIds.set(point.id, copy.points[i].id);
+    });
+    if (n.type === 'Multi Path') {
+      const contourIds = new Map();
+      n.contours.forEach((contour, i) => {
+        copy.contours[i].id = fresh();
+        contourIds.set(contour.id, copy.contours[i].id);
+        copy.contours[i].points = contour.points.map((id) => pointIds.get(id) || id);
+      });
+      contours.set(n.id, contourIds);
+      n.units.forEach((unit, i) => {
+        copy.units[i].id = fresh();
+        copy.units[i].contours = unit.contours.map((id) => contourIds.get(id) || id);
+      });
+    }
   });
+  layer.output = nodeIds.get(source.output) || source.output;
+  for (const n of layer.nodes) {
+    for (const [, q] of parameters(n)) if (nodeIds.has(q?.source)) q.source = nodeIds.get(q.source);
+    if (n.type === 'Reference' && nodeIds.has(n.reference?.nodeId))
+      n.reference.nodeId = nodeIds.get(n.reference.nodeId);
+  }
+  if (layer.nodeGroups)
+    layer.nodeGroups.forEach((group, index) => {
+      group.id = fresh();
+      group.nodeIds = source.nodeGroups[index].nodeIds.map((id) => nodeIds.get(id) || id);
+    });
+  remapExpressionReferences(source.nodes, layer.nodes);
+  const attachments = source.nodes
+    .map((node, index) => ({ node, index }))
+    .filter(
+      ({ node }) =>
+        node.type === 'Text' && node.pathAttachment && nodeIds.has(node.pathAttachment.nodeId),
+    );
+  let attachmentEvaluation;
+  if (attachments.length) {
+    const originalDocument = isolatedDuplicateCandidate(doc),
+      originalLayer = originalDocument.layers.find((item) => item.id === source.id);
+    attachmentEvaluation = evaluate(
+      originalLayer,
+      fonts,
+      originalDocument.imageAssets || {},
+      originalDocument,
+      null,
+      true,
+    );
+    for (const { node, index } of attachments) {
+      let mappedContour;
+      try {
+        mappedContour = copiedAttachmentContour(
+          source,
+          layer,
+          nodeIds,
+          contours,
+          attachmentEvaluation,
+          node.pathAttachment.nodeId,
+          node.pathAttachment.contourId,
+        );
+      } catch (error) {
+        throw Error(`Cannot safely duplicate this Text path attachment (${error.message}).`);
+      }
+      if (!mappedContour) throw Error('Cannot safely duplicate this Text path attachment contour.');
+      layer.nodes[index].pathAttachment.nodeId = nodeIds.get(node.pathAttachment.nodeId);
+      layer.nodes[index].pathAttachment.contourId = mappedContour;
+    }
+  }
   layer.name = `${source.name} copy`;
   const index = doc.layers.indexOf(source) + 1;
   assertCopiedRemapBindings(doc, source, layer, index, fonts);
-  const candidate = candidateDocument(doc);
+  if (attachments.length) {
+    const copyDocument = isolatedDuplicateCandidate(doc);
+    copyDocument.layers.splice(index, 0, layer);
+    const copyEvaluation = evaluate(
+      layer,
+      fonts,
+      copyDocument.imageAssets || {},
+      copyDocument,
+      null,
+      true,
+    );
+    for (const { node, index } of attachments) {
+      try {
+        const oldPath = attachmentEvaluation.run(node.pathAttachment.nodeId),
+          newAttachment = layer.nodes[index].pathAttachment,
+          newPath = copyEvaluation.run(newAttachment.nodeId),
+          oldContours = oldPath.contours.filter(
+            (contour) => contour.id === node.pathAttachment.contourId,
+          ),
+          newContours = newPath.contours.filter(
+            (contour) => contour.id === newAttachment.contourId,
+          ),
+          geometry = (contour) =>
+            JSON.stringify([
+              contour.closed,
+              contour.points.map((point) => [point.position, point.handleA, point.handleB]),
+            ]);
+        if (
+          oldContours.length !== newContours.length ||
+          oldContours.length > 1 ||
+          !!oldPath.unstable !== !!newPath.unstable ||
+          !!oldPath.remapSuspended !== !!newPath.remapSuspended ||
+          (oldContours.length && geometry(oldContours[0]) !== geometry(newContours[0]))
+        )
+          throw Error('the copied contour or attachment state would change');
+      } catch (error) {
+        throw Error(`Cannot safely duplicate this Text path attachment (${error.message}).`);
+      }
+    }
+  }
+  const candidate = isolatedDuplicateCandidate(doc);
   candidate.layers.splice(index, 0, structuredClone(layer));
   validate(candidate);
   doc.layers.splice(index, 0, layer);
