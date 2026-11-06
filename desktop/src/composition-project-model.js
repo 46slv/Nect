@@ -2,6 +2,9 @@ import { validateColorSlots, validateColorSlotBinding } from './color-slots.js';
 import {
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
+  QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
+  hasQualifiedColorReferenceSyntax,
+  nodesHaveQualifiedColorReferenceSyntax,
   hasCompositionPropertyReferenceSyntax,
   nodesHaveCompositionPropertyReferenceSyntax,
   allExpressionParameters,
@@ -236,7 +239,7 @@ function assertCompositionProjectFields(project) {
           for (const q of expressionParameters(node, { includeUnsupported: true })) {
             if (!hasArtworkReferenceSyntax(q.expression)) continue;
             for (const ref of qualifiedReferencesForCodec(q)) {
-              if (!ref.layerId || ref.compositionId) continue;
+              if (!ref.layerId || ref.compositionId || ref.qualifier) continue;
               if (ref.layerId === layer.id)
                 throw Error('Artwork reference requires a different layer');
               if (layerOwners.has(ref.layerId) && layerOwners.get(ref.layerId) !== composition.id)
@@ -270,7 +273,7 @@ function assertCompositionProjectFields(project) {
             if (!['Scalar', 'Color'].includes(q.type))
               throw Error('Composition references require a Scalar expression');
             for (const ref of qualifiedReferencesForCodec(q)) {
-              if (!ref.compositionId) continue;
+              if (!ref.compositionId || ref.qualifier) continue;
               if (ref.type !== 'Scalar' || ref.component !== undefined)
                 throw Error('Composition references require a Scalar property');
               if (ref.compositionId === composition.id)
@@ -300,6 +303,74 @@ function assertCompositionProjectFields(project) {
     )
       throw Error('Node presets do not support Composition property references');
   }
+  if (project.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION) {
+    const layerOwners = new Map(
+      project.compositions.flatMap((c) => c.layers.map((l) => [l.id, c.id])),
+    );
+    const nodeOwners = new Map(
+      project.compositions.flatMap((c) =>
+        c.layers.flatMap((l) => l.nodes.map((n) => [n.id, l.id])),
+      ),
+    );
+    for (const composition of project.compositions)
+      for (const layer of composition.layers)
+        for (const node of layer.nodes)
+          for (const q of allExpressionParameters(node)) {
+            if (!hasQualifiedColorReferenceSyntax(q.expression)) continue;
+            if (q.type !== 'Color')
+              throw Error('Qualified Color references require a Color expression');
+            for (const ref of qualifiedReferencesForCodec(q)) {
+              if (!ref.qualifier) continue;
+              if (ref.type !== 'Color' || ref.component !== undefined)
+                throw Error('Qualified Color references require a Color property');
+              const sourceComposition = ref.compositionId || composition.id;
+              if (ref.qualifier === 'colorArtwork' && ref.layerId === layer.id)
+                throw Error('Color Artwork reference requires a different layer');
+              if (ref.qualifier === 'colorComposition' && ref.compositionId === composition.id)
+                throw Error('Color Composition reference requires a different outer Composition');
+              if (
+                layerOwners.has(ref.layerId) &&
+                layerOwners.get(ref.layerId) !== sourceComposition
+              )
+                throw Error('Color reference Artwork is in a different Composition');
+              if (nodeOwners.has(ref.nodeId) && nodeOwners.get(ref.nodeId) !== ref.layerId)
+                throw Error('Color reference node is in a different Artwork');
+            }
+          }
+    if (
+      (project.nodePresets || []).some((preset) =>
+        nodesHaveQualifiedColorReferenceSyntax(preset.nodes || []),
+      )
+    )
+      throw Error('Node presets do not support qualified Color references');
+  }
+}
+
+export function assertNoLegacyQualifiedColorReferencePromotion(project) {
+  if (project.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION) return;
+  if (
+    project.compositions.some((composition) =>
+      composition.layers.some((layer) => nodesHaveQualifiedColorReferenceSyntax(layer.nodes)),
+    ) ||
+    (project.nodePresets || []).some((preset) =>
+      nodesHaveQualifiedColorReferenceSyntax(preset.nodes || []),
+    )
+  )
+    throw Error(
+      'Legacy opaque qualified Color reference text cannot be promoted to schemaVersion 64',
+    );
+}
+export function assertNoLegacyQualifiedColorDocumentPromotion(document) {
+  if (document.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION) return;
+  if (
+    document.layers.some((layer) => nodesHaveQualifiedColorReferenceSyntax(layer.nodes)) ||
+    (document.nodePresets || []).some((preset) =>
+      nodesHaveQualifiedColorReferenceSyntax(preset.nodes || []),
+    )
+  )
+    throw Error(
+      'Legacy opaque qualified Color reference text cannot be promoted to schemaVersion 64',
+    );
 }
 
 export function assertNoLegacyCompositionPropertyReferencePromotion(project) {
@@ -519,6 +590,10 @@ export function applyActiveCompositionDocument(project, compositionId, editedDoc
   delete projectFields.compositions;
   Object.assign(projectFields, editedProjectFields);
   projectFields.schemaVersion = Math.max(base.schemaVersion, edited.schemaVersion);
+  if (projectFields.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION) {
+    assertNoLegacyQualifiedColorReferencePromotion(base);
+    assertNoLegacyQualifiedColorDocumentPromotion(edited);
+  }
   if (projectFields.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION) {
     assertNoLegacyCompositionPropertyReferencePromotion(base);
     assertNoLegacyCompositionPropertyDocumentPromotion(edited);
