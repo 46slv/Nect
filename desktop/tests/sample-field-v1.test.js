@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { evaluateSampleFieldV1 } from '../src/sample-field-v1.js';
 import { legacyPointPathToSamples } from '../src/legacy-point-path-adapter.js';
 import { gridSamplesFixtureV1 } from './fixtures/grid-samples-v1.js';
@@ -286,4 +287,32 @@ test('missing capabilities never fall back to inherited getters or setters', () 
       else delete Object.prototype[key];
     }
   }
+});
+
+test('array snapshots and Position results ignore inherited numeric accessors', () => {
+  // Isolate the temporary prototype modification from the test runner itself.
+  const program = `
+    import { evaluateSampleFieldV1 as evaluate } from ${JSON.stringify(new URL('../src/sample-field-v1.js', import.meta.url).href)};
+    const saved = Object.getOwnPropertyDescriptor(Object.prototype, '0');
+    const invalid = { kind: 'Constant', version: 1, valueType: 'Vector2', role: 'scale', unit: 'ratio', value: [NaN, 2] };
+    const position = { kind: 'Position', version: 1, valueType: 'Vector2', role: 'position', unit: 'px', frameToken: 'frame' };
+    const request = { domain: 'Sample', count: 1, maxSamples: 1, position: { frameToken: 'frame', unit: 'px', values: [[4, 5]] } };
+    let calls = 0, rejected = false, result;
+    try {
+      Object.defineProperty(Object.prototype, '0', {
+        configurable: true,
+        get() { calls++; return 4; },
+        set() { calls++; },
+      });
+      try { evaluate(invalid, request); } catch { rejected = true; }
+      result = evaluate(position, request);
+    } finally {
+      if (saved) Object.defineProperty(Object.prototype, '0', saved);
+      else delete Object.prototype[0];
+    }
+    if (!rejected || calls !== 0 || !Object.hasOwn(result.values, 0) ||
+        !Object.hasOwn(result.values[0], 0) || result.values[0][0] !== 4 || result.values[0][1] !== 5)
+      throw Error('numeric prototype accessor changed the captured value or output');
+  `;
+  execFileSync(process.execPath, ['--input-type=module', '--eval', program], { timeout: 10_000 });
 });
