@@ -14,6 +14,11 @@ The supported subset is deliberately small:
   supplies the population order, explicit frame token, unit and request cap.
   The field's frame token and unit must match the capability exactly; this
   module performs no coordinate conversion.
+- Attribute reads the existing materialized `luminance` or `darkness` Scalar
+  values as `Varying`. The caller explicitly supplies a Sample-domain source
+  whose name, role, type and absent unit match the field. Missing or mismatched
+  attributes reject, including for an empty population. This reads values; it
+  does not sample paint or images, compute Color, or capture a Field.
 
 The role, unit and token strings used by these internal descriptors are local
 to this slice, not a definition of general product Space or unit literals.
@@ -31,4 +36,5 @@ crop can change membership while its geometry revision stays unchanged.
 These tests exercise contexts from the legacy point bridge and the separate
 Grid identity fixture. They do not establish generic Field coverage, Color,
 Space conversion, ValueSource, project serialization, user-facing nodes,
-InstanceSet, or the first product vertical.
+InstanceSet, or the first product vertical. A future Attribute cache must also
+include the relevant source/attribute revision and population/order dependencies.

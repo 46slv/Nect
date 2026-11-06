@@ -58,10 +58,14 @@ export function evaluateSampleFieldV1(fieldInput, contextInput) {
   const field = captureData(
     fieldInput,
     ['kind', 'version', 'valueType', 'role', 'unit'],
-    ['value', 'frameToken'],
+    ['value', 'frameToken', 'attributeName'],
   );
   if (!field || field.version !== 1) throw Error(`${LABEL} needs a supported descriptor`);
-  const context = captureData(contextInput, ['domain', 'count', 'maxSamples'], ['position']);
+  const context = captureData(
+    contextInput,
+    ['domain', 'count', 'maxSamples'],
+    ['position', 'attribute'],
+  );
   if (
     !context ||
     context.domain !== 'Sample' ||
@@ -74,7 +78,11 @@ export function evaluateSampleFieldV1(fieldInput, contextInput) {
   if (context.count > context.maxSamples) throw Error(`${LABEL} exceeds the request budget`);
 
   if (field.kind === 'Constant') {
-    if (!Object.hasOwn(field, 'value') || Object.hasOwn(field, 'frameToken'))
+    if (
+      !Object.hasOwn(field, 'value') ||
+      Object.hasOwn(field, 'frameToken') ||
+      Object.hasOwn(field, 'attributeName')
+    )
       throw Error(`${LABEL} needs a supported Constant`);
     let value;
     if (field.valueType === 'Scalar' && field.role === 'scale' && field.unit === 'ratio') {
@@ -100,13 +108,55 @@ export function evaluateSampleFieldV1(fieldInput, contextInput) {
     };
   }
 
+  if (field.kind === 'Attribute') {
+    if (
+      field.valueType !== 'Scalar' ||
+      !['luminance', 'darkness'].includes(field.role) ||
+      field.attributeName !== field.role ||
+      field.unit !== null ||
+      Object.hasOwn(field, 'value') ||
+      Object.hasOwn(field, 'frameToken')
+    )
+      throw Error(`${LABEL} Attribute type, role, name or unit is unsupported`);
+    const attribute = captureData(context.attribute, [
+      'name',
+      'domain',
+      'valueType',
+      'role',
+      'unit',
+      'values',
+    ]);
+    if (!attribute) throw Error(`${LABEL} requires an Attribute capability`);
+    if (
+      attribute.name !== field.attributeName ||
+      attribute.domain !== 'Sample' ||
+      attribute.valueType !== field.valueType ||
+      attribute.role !== field.role ||
+      attribute.unit !== field.unit
+    )
+      throw Error(`${LABEL} Attribute descriptor mismatch`);
+    const values = captureArray(attribute.values, context.count, context.maxSamples);
+    if (!values || !values.every(Number.isFinite))
+      throw Error(`${LABEL} requires finite ordered Attribute values for the population`);
+    return {
+      kind: 'Varying',
+      version: 1,
+      valueType: field.valueType,
+      role: field.role,
+      unit: field.unit,
+      count: context.count,
+      values,
+    };
+  }
+
   if (
     field.kind !== 'Position' ||
     field.valueType !== 'Vector2' ||
     field.role !== 'position' ||
     !token(field.unit) ||
     !token(field.frameToken) ||
-    Object.hasOwn(field, 'value')
+    Object.hasOwn(field, 'value') ||
+    Object.hasOwn(field, 'attributeName')
   )
     throw Error(`${LABEL} operator, type, role or unit is unsupported`);
   const position = captureData(context.position, ['frameToken', 'unit', 'values']);
