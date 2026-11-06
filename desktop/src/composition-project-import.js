@@ -16,6 +16,8 @@ import {
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
   QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
+  COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION,
+  nodesHaveComponentCompositionReferenceSyntax,
   nodesHaveQualifiedColorReferenceSyntax,
   nodesHaveCompositionPropertyReferenceSyntax,
   nodesCurvePointReferenceVersion,
@@ -61,6 +63,18 @@ export function prepareProjectCompositionsImport(
     });
   const sourceLayers = sourceCompositions.flatMap((composition) => composition.layers);
   const destinationLayers = current.compositions.flatMap((composition) => composition.layers);
+  const hasComponentSyntax = sourceLayers.some((layer) =>
+    nodesHaveComponentCompositionReferenceSyntax(layer.nodes),
+  );
+  if (
+    hasComponentSyntax &&
+    sourceProject.schemaVersion >= COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION
+  )
+    throw Error('Import of Component Composition references is not supported');
+  if (hasComponentSyntax && current.schemaVersion >= COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION)
+    throw Error(
+      'Legacy opaque Component Composition reference text cannot be promoted to schemaVersion 65',
+    );
   const hasQualifiedColorSyntax = sourceLayers.some((layer) =>
     nodesHaveQualifiedColorReferenceSyntax(layer.nodes),
   );

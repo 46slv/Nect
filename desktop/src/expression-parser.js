@@ -45,9 +45,10 @@ export function expression(source, resolveReference, referencesOnly = false, bas
           throw Error('Reference requires quoted IDs and parameter keys');
         return token.slice(1, -1);
       };
-      let layerId, compositionId, qualifier;
-      if (tokens[i] === 'composition' || tokens[i] === 'colorComposition') {
+      let layerId, compositionId, qualifier, componentComposition;
+      if (['composition', 'colorComposition', 'componentComposition'].includes(tokens[i])) {
         if (tokens[i] === 'colorComposition') qualifier = 'colorComposition';
+        if (tokens[i] === 'componentComposition') componentComposition = true;
         i++;
         if (tokens[i++] !== ',') throw Error('Invalid composition reference');
         compositionId = readString();
@@ -74,8 +75,10 @@ export function expression(source, resolveReference, referencesOnly = false, bas
       }
       if (qualifier && component !== undefined)
         throw Error('Qualified Color references cannot select a component');
-      if (compositionId && component !== undefined)
+      if (compositionId && !componentComposition && component !== undefined)
         throw Error('Composition references require a Scalar property');
+      if (componentComposition && component === undefined)
+        throw Error('Component Composition references require a component');
       if (component !== undefined && !['x', 'y', 'length'].includes(component))
         throw Error('Reference component must be x, y or length');
       if (component === 'length' && !curvePointReference(key, component))
@@ -88,6 +91,7 @@ export function expression(source, resolveReference, referencesOnly = false, bas
         ...(compositionId ? { compositionId } : {}),
         ...(layerId ? { layerId } : {}),
         ...(qualifier ? { qualifier } : {}),
+        ...(componentComposition ? { componentComposition } : {}),
         nodeId,
         key,
         component,
