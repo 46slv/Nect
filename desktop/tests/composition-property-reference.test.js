@@ -559,3 +559,309 @@ test('node copy, duplicate and generic Artwork duplicate refuse the new referenc
     assert.deepEqual(owner.state, state);
   }
 });
+
+test('legacy Text spacing defaults match active and cross-Composition evaluation through history and reopen', () => {
+  const project = fixture();
+  project.schemaVersion = 62;
+  project.compositionSchemaVersion = 2;
+  const source = project.compositions[1].layers[0];
+  const textNode = node('Text');
+  textNode.id = 'legacy-text';
+  delete textNode.params.letterSpacing;
+  delete textNode.params.lineSpacing;
+  source.nodes.push(textNode);
+  source.nodes.find((n) => n.id === 'driver').params.value.expression =
+    'ref("legacy-text", "letterSpacing") + 7';
+  const owner = createCompositionSessionOwner(project, { activeCompositionId: 'comp-b' });
+  const active = owner.snapshot();
+  assert.equal(
+    evaluate(active.layers[0], {}, active.imageAssets, active).parameterValue('driver', 'value'),
+    7,
+  );
+  owner.switchComposition('comp-a');
+  apply(owner, ref);
+  assert.equal(read(owner), 7);
+  assert.equal(
+    Object.hasOwn(
+      owner.projectSnapshot().compositions[1].layers[0].nodes.find((n) => n.id === 'legacy-text')
+        .params,
+      'letterSpacing',
+    ),
+    false,
+  );
+  const cold = createCompositionSessionOwner(
+    deserializeCompositionProject(serializeCompositionProject(owner.projectSnapshot())),
+    { activeCompositionId: 'comp-a' },
+  );
+  assert.equal(read(cold), 7);
+  owner.switchComposition('comp-b');
+  send(owner, 'set-parameter', {
+    layerId: 'art-b',
+    nodeId: 'legacy-text',
+    key: 'letterSpacing',
+    value: 3,
+  });
+  owner.switchComposition('comp-a');
+  assert.equal(read(owner), 10);
+  send(owner, 'undo');
+  assert.equal(read(owner), 7);
+  send(owner, 'redo');
+  assert.equal(read(owner), 10);
+  const reopened = createCompositionSessionOwner(
+    deserializeCompositionProject(serializeCompositionProject(owner.projectSnapshot())),
+    { activeCompositionId: 'comp-a' },
+  );
+  assert.equal(read(reopened), 10);
+});
+
+test('schema 11 inactive Resample migration remains valid on promotion and reopen', () => {
+  const project = fixture();
+  project.schemaVersion = 11;
+  project.compositionSchemaVersion = 1;
+  for (const composition of project.compositions) delete composition.editor;
+  const resample = node('Resample Path');
+  resample.id = 'old-resample';
+  delete resample.params.spacing;
+  project.compositions[1].layers[0].nodes.push(resample);
+  const owner = createCompositionSessionOwner(project, { activeCompositionId: 'comp-b' });
+  const spacing = owner.snapshot().layers[0].nodes.find((n) => n.id === 'old-resample').params
+    .spacing.value;
+  owner.switchComposition('comp-a');
+  apply(owner, ref);
+  assert.equal(read(owner), 7);
+  assert.equal(
+    owner.projectSnapshot().compositions[1].layers[0].nodes.find((n) => n.id === 'old-resample')
+      .params.spacing.value,
+    spacing,
+  );
+  send(owner, 'undo');
+  assert.equal(owner.projectSnapshot().schemaVersion, 11);
+  assert.equal(
+    Object.hasOwn(
+      owner.projectSnapshot().compositions[1].layers[0].nodes.find((n) => n.id === 'old-resample')
+        .params,
+      'spacing',
+    ),
+    false,
+  );
+  send(owner, 'redo');
+  assert.equal(read(owner), 7);
+  const reopened = createCompositionSessionOwner(
+    deserializeCompositionProject(serializeCompositionProject(owner.projectSnapshot())),
+    { activeCompositionId: 'comp-a' },
+  );
+  assert.equal(read(reopened), 7);
+  reopened.switchComposition('comp-b');
+  const doc = reopened.snapshot();
+  assert.equal(
+    doc.layers[0].nodes.find((n) => n.id === 'old-resample').params.spacing.value,
+    spacing,
+  );
+});
+
+test('legacy default Scalar is a direct eligible source; missing properties still reject', () => {
+  const project = fixture();
+  project.schemaVersion = 62;
+  project.compositionSchemaVersion = 2;
+  const textNode = node('Text');
+  textNode.id = 'legacy-text';
+  delete textNode.params.letterSpacing;
+  project.compositions[1].layers[0].nodes.push(textNode);
+  const owner = createCompositionSessionOwner(project);
+  const target = expressionReferenceTargetsForProject(
+    owner.projectSnapshot(),
+    'comp-a',
+    'art-a',
+    'sink',
+    'Scalar',
+    'value',
+  );
+  const expression = 'ref(composition, "comp-b", "art-b", "legacy-text", "letterSpacing")';
+  assert.ok(target.some((t) => t.expression === expression));
+  const before = owner.projectSnapshot(),
+    state = owner.state;
+  assert.throws(
+    () => apply(owner, 'ref(composition, "comp-b", "art-b", "legacy-text", "missing")'),
+    /Scalar/i,
+  );
+  assert.deepEqual(owner.projectSnapshot(), before);
+  assert.deepEqual(owner.state, state);
+  apply(owner, expression);
+  assert.equal(read(owner), 0);
+  const reopened = createCompositionSessionOwner(
+    deserializeCompositionProject(serializeCompositionProject(owner.projectSnapshot())),
+  );
+  assert.equal(read(reopened), 0);
+});
+
+import fs from 'node:fs';
+import { Worker } from 'node:worker_threads';
+import { makeVariableFontAsset } from '../src/fonts.js';
+import { createVariableDocumentPreparer, bindProjectDocumentContext } from '../src/core.js';
+const variableWorkerFactory = () => {
+  const worker = new Worker(new URL('./variable-font-worker-node.mjs', import.meta.url));
+  const bridge = {
+    postMessage: (data) => worker.postMessage(data),
+    terminate: () => worker.terminate(),
+  };
+  worker.on('message', (data) => bridge.onmessage?.({ data }));
+  worker.on('error', (error) => bridge.onerror?.(error));
+  return bridge;
+};
+
+test('variable preparation retains project binding, and prepared edits reopen with project history', async () => {
+  const project = fixture();
+  const raw = fs.readFileSync(
+    new URL('./fixtures/variable-font/Roboto-variable.ttf', import.meta.url),
+  );
+  const asset = makeVariableFontAsset(
+    raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength),
+    'Roboto.ttf',
+  );
+  project.fontAssets = { [asset.id]: asset.asset };
+  const textNode = node('Text');
+  textNode.id = 'variable-text';
+  textNode.font = asset.id;
+  textNode.text = 'AV';
+  textNode.variation = { version: 1, fontId: asset.id, axes: {} };
+  project.compositions[0].layers[0].nodes.push(textNode);
+  const bridge = createVariableDocumentPreparer({ workerFactory: variableWorkerFactory });
+  try {
+    const initial = activeCompositionDocument(project, 'comp-a');
+    bindProjectDocumentContext(initial, project, 'comp-a');
+    bridge.activate(await bridge.prepareDocument(initial));
+    const owner = createCompositionSessionOwner(project, {
+      activeCompositionId: 'comp-a',
+      fonts: () => bridge.fonts(),
+    });
+    apply(owner, ref);
+    const before = owner.projectSnapshot(),
+      input = owner.snapshot();
+    assert.equal(Object.isFrozen(input.layers[0]), false);
+    const ticket = await bridge.prepareDocument(input),
+      prepared = bridge.preparedDocument(ticket);
+    assert.equal(
+      evaluate(
+        prepared.layers[0],
+        bridge.preparedFonts(ticket),
+        prepared.imageAssets,
+        prepared,
+      ).parameterValue('sink', 'value'),
+      7,
+    );
+    assert.deepEqual(owner.projectSnapshot(), before);
+    assert.equal(Object.isFrozen(input.layers[0]), false);
+    assert.equal(Object.isFrozen(prepared.layers[0]), true);
+    bridge.activate(ticket);
+    const token = await owner.prepareCommand(
+      {
+        ...owner.state,
+        type: 'set-variable-font',
+        payload: {
+          layerId: 'art-a',
+          nodeId: 'variable-text',
+          fontId: asset.id,
+          axes: { wght: 900 },
+        },
+      },
+      bridge,
+    );
+    const preparedPreview = owner.preparedSnapshot(token),
+      preview = preparedPreview.document;
+    assert.equal(
+      evaluate(
+        preview.layers[0],
+        preparedPreview.fonts,
+        preview.imageAssets,
+        preview,
+      ).parameterValue('sink', 'value'),
+      7,
+    );
+    owner.commitPrepared(token);
+    assert.equal(
+      owner.snapshot().layers[0].nodes.find((n) => n.id === 'variable-text').variation.axes.wght,
+      900,
+    );
+    owner.commitPrepared(await owner.prepareCommand({ ...owner.state, type: 'undo' }, bridge));
+    assert.deepEqual(
+      owner.snapshot().layers[0].nodes.find((n) => n.id === 'variable-text').variation.axes,
+      {},
+    );
+    owner.commitPrepared(await owner.prepareCommand({ ...owner.state, type: 'redo' }, bridge));
+    assert.equal(
+      owner.snapshot().layers[0].nodes.find((n) => n.id === 'variable-text').variation.axes.wght,
+      900,
+    );
+    const saved = deserializeCompositionProject(
+      serializeCompositionProject(owner.projectSnapshot()),
+    );
+    const openDocument = activeCompositionDocument(saved, 'comp-a');
+    bindProjectDocumentContext(openDocument, saved, 'comp-a');
+    bridge.activate(await bridge.prepareDocument(openDocument));
+    const reopened = createCompositionSessionOwner(saved, {
+      activeCompositionId: 'comp-a',
+      fonts: () => bridge.fonts(),
+    });
+    assert.equal(read(reopened), 7);
+    assert.equal(
+      reopened.snapshot().layers[0].nodes.find((n) => n.id === 'variable-text').variation.axes.wght,
+      900,
+    );
+  } finally {
+    bridge.dispose();
+  }
+});
+
+test('schema 1 source migration keeps generated IDs stable through commit, Undo and Redo', () => {
+  const project = fixture();
+  project.schemaVersion = 1;
+  project.compositionSchemaVersion = 1;
+  for (const composition of project.compositions) {
+    delete composition.editor;
+    const layer = composition.layers[0],
+      output = layer.nodes.find((n) => n.id === layer.output);
+    output.params.path.type = 'Path';
+  }
+  const owner = createCompositionSessionOwner(project, { activeCompositionId: 'comp-a' });
+  apply(owner, ref);
+  assert.equal(read(owner), 7);
+  const source = owner.projectSnapshot().compositions[1].layers[0];
+  const migrated = source.nodes.find((n) => n.type === 'Fill');
+  assert.ok(migrated);
+  const persistedId = migrated.id;
+  const stableSnapshot = owner.snapshot();
+  const stableProject = serializeCompositionProject(owner.projectSnapshot());
+  for (let i = 0; i < 3; i++) {
+    assert.equal(
+      evaluate(
+        stableSnapshot.layers[0],
+        {},
+        stableSnapshot.imageAssets,
+        stableSnapshot,
+      ).parameterValue('sink', 'value'),
+      7,
+    );
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), stableProject);
+    assert.equal(
+      owner.projectSnapshot().compositions[1].layers[0].nodes.find((n) => n.type === 'Fill').id,
+      persistedId,
+    );
+  }
+  send(owner, 'undo');
+  assert.ok(
+    !owner.projectSnapshot().compositions[1].layers[0].nodes.some((n) => n.type === 'Fill'),
+  );
+  send(owner, 'redo');
+  assert.equal(
+    owner.projectSnapshot().compositions[1].layers[0].nodes.find((n) => n.type === 'Fill').id,
+    persistedId,
+  );
+  const reopened = createCompositionSessionOwner(
+    deserializeCompositionProject(serializeCompositionProject(owner.projectSnapshot())),
+  );
+  assert.equal(read(reopened), 7);
+  assert.equal(
+    reopened.projectSnapshot().compositions[1].layers[0].nodes.find((n) => n.type === 'Fill').id,
+    persistedId,
+  );
+});
