@@ -2,7 +2,8 @@ import { importColorSlots, colorImportSchemaVersion } from './color-slots.js';
 import { cloneDocument, deserialize, validate } from './core.js';
 import {
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
-  nodesHaveCurvePointReferences,
+  CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
+  nodesCurvePointReferenceVersion,
 } from './curve-point-reference.js';
 import {
   collectAssetReferences,
@@ -37,7 +38,12 @@ export function prepareCompositionImport(current, sourceText, compositionId) {
   visit(compositionId);
   const selectedLayers = [...needed].map((id) => layers.get(id));
   const occupied = collectIds(current);
-  const copiedLayers = remapIds(selectedLayers, collectIds(selectedLayers), occupied);
+  const copiedLayers = remapIds(
+    selectedLayers,
+    collectIds(selectedLayers),
+    occupied,
+    source.schemaVersion,
+  );
   const colors = importColorSlots(current, source, copiedLayers, occupied);
   const references = collectAssetReferences(copiedLayers);
   const fonts = mergeAssetRegistry(references.fonts, source.fontAssets, current.fontAssets, 'font');
@@ -50,17 +56,28 @@ export function prepareCompositionImport(current, sourceText, compositionId) {
   remapAssetReferences(copiedLayers, fonts.mapping, images.mapping);
   const result = cloneDocument(current);
   result.layers.push(...copiedLayers);
-  const importsPointReference =
-    source.schemaVersion >= CURVE_POINT_REFERENCE_SCHEMA_VERSION &&
-    copiedLayers.some((layer) => nodesHaveCurvePointReferences(layer.nodes));
-  const sourceForColors =
-    source.schemaVersion === CURVE_POINT_REFERENCE_SCHEMA_VERSION && !importsPointReference
-      ? { ...source, schemaVersion: CURVE_POINT_REFERENCE_SCHEMA_VERSION - 1 }
-      : source;
+  let referenceVersion = 0;
+  for (const layer of copiedLayers)
+    referenceVersion = Math.max(
+      referenceVersion,
+      nodesCurvePointReferenceVersion(layer.nodes, source.schemaVersion),
+    );
+  let colorSourceVersion = source.schemaVersion;
+  if (
+    colorSourceVersion === CURVE_HANDLE_REFERENCE_SCHEMA_VERSION &&
+    referenceVersion < CURVE_HANDLE_REFERENCE_SCHEMA_VERSION
+  )
+    colorSourceVersion--;
+  if (
+    colorSourceVersion === CURVE_POINT_REFERENCE_SCHEMA_VERSION &&
+    referenceVersion < CURVE_POINT_REFERENCE_SCHEMA_VERSION
+  )
+    colorSourceVersion--;
+  const sourceForColors = { ...source, schemaVersion: colorSourceVersion };
   result.schemaVersion = Math.max(
     result.schemaVersion,
     colorImportSchemaVersion(sourceForColors, colors),
-    importsPointReference ? CURVE_POINT_REFERENCE_SCHEMA_VERSION : 1,
+    referenceVersion,
   );
   if (colors.colorSlots !== undefined) result.colorSlots = colors.colorSlots;
   if (colors.keyColorRecipe) result.keyColorRecipe = colors.keyColorRecipe;

@@ -114,7 +114,7 @@ export function expressionCompletions(value, start, end, targets = [], parameter
       .map((target) => ({
         id: target.expression,
         label: target.label,
-        detail: `${target.type === 'Color' ? 'Color' : target.component ? `Vector2.${target.component.toUpperCase()} → Scalar` : 'Scalar'} · ${target.nodeId}`,
+        detail: `${target.type === 'Color' ? 'Color' : target.component === 'length' ? 'Vector2 length → Scalar' : target.component ? `Vector2.${target.component.toUpperCase()} → Scalar` : 'Scalar'} · ${target.nodeId}`,
         text: target.expression,
         terms: [
           target.name,

@@ -38,6 +38,7 @@ export const colorSlotCommands = new Set([
   'create-harmony-palette',
   'add-harmony-color',
   'rename-color-slot',
+  'delete-color-slot',
   'set-color-slot',
   'set-color-slots',
   'apply-key-color-recipe-snapshot',
@@ -200,6 +201,34 @@ export function resolveColorSlot(doc, id) {
   color(slot.value);
   return { ...slot.value };
 }
+
+// Check the complete authored owner before mutation, including inactive
+// Compositions and saved presets. Metadata named colorSlotId has no binding role.
+export function assertColorSlotUnused(doc, slotId) {
+  if (!doc.colorSlots?.some((slot) => slot.id === slotId))
+    throw Error('Shared color is no longer available');
+  if (doc.keyColorRecipe?.committedSnapshot?.resolved?.some((row) => row.id === slotId))
+    throw Error('This color belongs to a Key color recipe');
+  if (
+    doc.colorDesign?.lockedSlotIds?.includes(slotId) ||
+    doc.colorDesign?.palette?.some((entry) => entry.id === slotId)
+  )
+    throw Error('This color belongs to a palette or is locked');
+  const uses = (nodes) =>
+    nodes.some((node) =>
+      Object.values(node.params || {}).some(
+        (parameter) => parameter?.type === 'Color' && parameter.colorSlotId === slotId,
+      ),
+    );
+  if ((doc.nodePresets || []).some((preset) => uses(preset.nodes || [])))
+    throw Error('This color is used in a saved node preset');
+  const layerUses = (layer) => uses(layer.nodes);
+  const usedInArtwork = doc.compositions
+    ? doc.compositions.some((composition) => composition.layers.some(layerUses))
+    : (doc.layers || []).some(layerUses);
+  if (usedInArtwork) throw Error('This color is in use; unlink its direct uses first');
+}
+
 function prepareColorSlotUpdates(slots, updates) {
   if (!Array.isArray(updates) || updates.length > 256)
     throw Error('Expected a bounded shared Color update list');
@@ -219,6 +248,11 @@ function prepareColorSlotUpdates(slots, updates) {
 }
 export function applyColorSlotCommand(doc, type, payload, makeId) {
   const slots = validateColorSlots(doc);
+  if (type === 'delete-color-slot') {
+    assertColorSlotUnused(doc, payload.slotId);
+    doc.colorSlots = doc.colorSlots.filter((slot) => slot.id !== payload.slotId);
+    return { slotId: payload.slotId };
+  }
   if (type === 'detach-live-key-color-recipe') return detachLiveKeyColorRecipe(doc, payload);
   if (type === 'initialize-key-color-recipe' || type === 'initialize-live-key-color-recipe') {
     const prepared = prepareKeyColorRecipeInitialization(doc, payload, slots);

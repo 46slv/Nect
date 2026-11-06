@@ -1,9 +1,10 @@
 import { JOIN_SLOT_LIMIT, validJoinSlotOrder } from './join-slots-protocol.js';
 import {
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
+  CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
   assertNoAccidentalCurvePointRebind,
   assertNoExternalPointReferenceRebind,
-  curvePointId,
+  curvePointReference,
   curvePointReferenceOwners,
   danglingExpressionIds,
   remapExpressionReferences,
@@ -1699,8 +1700,12 @@ export function expression(source, resolveReference, referencesOnly = false, bas
         i++;
         component = readString();
       }
-      if (component !== undefined && !['x', 'y'].includes(component))
-        throw Error('Reference component must be x or y');
+      if (component !== undefined && !['x', 'y', 'length'].includes(component))
+        throw Error('Reference component must be x, y or length');
+      if (component === 'length' && !curvePointReference(key, component))
+        throw Object.assign(Error('Reference length requires a Curve handle key'), {
+          code: 'EXPRESSION_INVALID_LENGTH_REFERENCE',
+        });
       if (tokens[i++] !== ')') throw Error('Invalid reference arguments');
       if (!resolveReference) throw Error('Reference requires a composition');
       return resolveReference({ nodeId, key, component });
@@ -1795,6 +1800,32 @@ function parameterExpressionUses(q) {
   });
   return refs;
 }
+// Validate against the source Document's grammar before a wrapped import can
+// raise its version. Missing owners do not make new syntax legal in old files.
+export function expressionReferencesForSchema(q, schemaVersion, { preserveOpaque = false } = {}) {
+  let refs;
+  try {
+    refs = parameterExpressionUses(q);
+  } catch (error) {
+    // The wrapper importer historically retained expressions that neither the
+    // old nor the new parser can understand. Keep those bytes opaque.
+    if (preserveOpaque && error.code !== 'EXPRESSION_INVALID_LENGTH_REFERENCE') return [];
+    throw error;
+  }
+  if (
+    schemaVersion < CURVE_HANDLE_REFERENCE_SCHEMA_VERSION &&
+    refs.some((ref) => ref.component === 'length')
+  )
+    throw Error(
+      `Curve handle length references require schemaVersion ${CURVE_HANDLE_REFERENCE_SCHEMA_VERSION}`,
+    );
+  if (
+    !['Scalar', 'Vector2', 'Color'].includes(q.type) &&
+    refs.some((ref) => ref.component === 'length')
+  )
+    throw Error('Curve handle length requires a numeric expression parameter');
+  return refs;
+}
 function parameterBaseValue(layer, n, key, q) {
   return n.type === 'Fill' && key === 'color' && q.value === null
     ? { hex: layer.fill, alpha: 1 }
@@ -1844,7 +1875,7 @@ export function previewColorExpression(
   const resolve = (ref, type = 'Scalar') => {
     const target = referenceParameter(draft, ref, type),
       value = evaluation.parameterValue(target.id, ref.key);
-    return ref.component === undefined ? value : value[ref.component === 'x' ? 0 : 1];
+    return projectReferenceValue(ref, value);
   };
   return source
     ? parameterExpression(q, resolve, parameterBaseValue(draft, n, key, q))
@@ -1884,16 +1915,15 @@ function referenceParameter(layer, ref, type = 'Scalar') {
     throw Object.assign(Error(`Expression reference target is missing: ${ref.nodeId}`), {
       code: 'EXPRESSION_REFERENCE_MISSING',
     });
-  const pointId = curvePointId(ref.key);
-  if (pointId && target.type === 'Curve') {
-    if (type !== 'Scalar' || !['x', 'y'].includes(ref.component))
-      throw Error('Curve point reference requires an x or y Scalar component');
-    const point = target.points.find((item) => item.id === pointId);
+  const pointRef = curvePointReference(ref.key, ref.component);
+  if (pointRef && target.type === 'Curve') {
+    if (type !== 'Scalar') throw Error('Curve point reference requires a Scalar component');
+    const point = target.points.find((item) => item.id === pointRef.id);
     if (!point)
-      throw Object.assign(Error(`Expression reference point is missing: ${pointId}`), {
+      throw Object.assign(Error(`Expression reference point is missing: ${pointRef.id}`), {
         code: 'EXPRESSION_REFERENCE_MISSING',
       });
-    if (point.position?.type !== 'Vector2') throw Error('Invalid Curve point position');
+    if (point[pointRef.field]?.type !== 'Vector2') throw Error('Invalid Curve point parameter');
     return target;
   }
   const q = Object.hasOwn(target.params, ref.key)
@@ -1904,9 +1934,23 @@ function referenceParameter(layer, ref, type = 'Scalar') {
       throw Error('Expression reference requires a Color parameter');
     return target;
   }
-  if (!q || (ref.component === undefined ? q.type !== 'Scalar' : q.type !== 'Vector2'))
+  if (
+    !q ||
+    (ref.component === undefined
+      ? q.type !== 'Scalar'
+      : !['x', 'y'].includes(ref.component) || q.type !== 'Vector2')
+  )
     throw Error('Expression reference requires a Scalar parameter or a Vector2 component');
   return target;
+}
+function projectReferenceValue(ref, value) {
+  if (ref.component === undefined) return value;
+  const projected =
+    ref.component === 'length'
+      ? Math.hypot(value[0], value[1])
+      : value[ref.component === 'x' ? 0 : 1];
+  assertValue('Scalar', projected);
+  return projected;
 }
 export function expressionReferenceTargets(layer, nodeId, type = 'Scalar') {
   const reaches = (id, seen = new Set()) => {
@@ -1922,7 +1966,14 @@ export function expressionReferenceTargets(layer, nodeId, type = 'Scalar') {
       [
         ...Object.entries(n.params).map(([key, q]) => [key, q, false]),
         ...(n.type === 'Curve' && type !== 'Color'
-          ? n.points.map((pt, index) => [`${pt.id}.position`, pt.position, true, index + 1])
+          ? n.points.flatMap((pt, index) =>
+              ['position', 'handleA', 'handleB'].map((field) => [
+                `${pt.id}.${field}`,
+                pt[field],
+                field,
+                index + 1,
+              ]),
+            )
           : []),
       ].flatMap(([key, q, point, pointOrdinal]) =>
         (type === 'Color'
@@ -1932,7 +1983,9 @@ export function expressionReferenceTargets(layer, nodeId, type = 'Scalar') {
           : q.type === 'Scalar'
             ? [undefined]
             : q.type === 'Vector2'
-              ? ['x', 'y']
+              ? point && point !== 'position'
+                ? ['x', 'y', 'length']
+                : ['x', 'y']
               : []
         ).map((component) => ({
           nodeId: n.id,
@@ -1942,10 +1995,10 @@ export function expressionReferenceTargets(layer, nodeId, type = 'Scalar') {
           type: type === 'Color' ? 'Color' : 'Scalar',
           ...(point ? { pointOrdinal } : {}),
           label: point
-            ? `${n.name} · Point ${pointOrdinal} · ${component.toUpperCase()}`
+            ? `${n.name} · Point ${pointOrdinal} · ${point === 'position' ? '' : point === 'handleA' ? 'Incoming · ' : 'Outgoing · '}${component === 'length' ? 'Length' : component.toUpperCase()}`
             : `${n.name} · ${key}${component ? `.${component}` : ''}`,
           expression:
-            point && nodeIdPattern.test(n.id) && curvePointId(key)
+            point && nodeIdPattern.test(n.id) && curvePointReference(key, component)
               ? parameterReferenceText(n.id, key, component)
               : parameterReferenceExpression(n.id, key, component),
         })),
@@ -2756,7 +2809,7 @@ export function evaluate(
   function resolveExpressionReference(ref, type = 'Scalar') {
     const target = referenceParameter(layer, ref, type),
       value = readParameter(target, ref.key);
-    return ref.component === undefined ? value : value[ref.component === 'x' ? 0 : 1];
+    return projectReferenceValue(ref, value);
   }
   function indexParameters(n) {
     const indexed = new Map();
@@ -4713,7 +4766,8 @@ export function validate(doc) {
       doc.schemaVersion !== CHROMA_OVERRIDE_SCHEMA_VERSION &&
       doc.schemaVersion !== KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION &&
       doc.schemaVersion !== LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION &&
-      doc.schemaVersion !== CURVE_POINT_REFERENCE_SCHEMA_VERSION)
+      doc.schemaVersion !== CURVE_POINT_REFERENCE_SCHEMA_VERSION &&
+      doc.schemaVersion !== CURVE_HANDLE_REFERENCE_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   const colorSlots = validateColorSlots(doc);
@@ -5339,18 +5393,13 @@ export function validate(doc) {
     for (const n of l.nodes)
       for (const [, q] of parameters(n))
         if (q.expression) {
-          for (const ref of parameterExpressionUses(q)) {
+          for (const ref of expressionReferencesForSchema(q, sourceSchemaVersion)) {
             if (owners.has(ref.nodeId) && owners.get(ref.nodeId) !== l.id)
               throw Error('Expression reference target must be in the same layer');
             const owner = localNodes.get(ref.nodeId);
-            if (
-              owner?.type === 'Curve' &&
-              curvePointId(ref.key) &&
-              sourceSchemaVersion < CURVE_POINT_REFERENCE_SCHEMA_VERSION
-            )
-              throw Error(
-                `Curve point references require schemaVersion ${CURVE_POINT_REFERENCE_SCHEMA_VERSION}`,
-              );
+            const pointRef = owner?.type === 'Curve' && curvePointReference(ref.key, ref.component);
+            if (pointRef && sourceSchemaVersion < pointRef.schemaVersion)
+              throw Error(`Curve point references require schemaVersion ${pointRef.schemaVersion}`);
             if (owner) {
               try {
                 referenceParameter(l, ref, ref.type);
@@ -8677,11 +8726,13 @@ export class CommandSession {
           )
             throw Error('Expected a Scalar, Vector2 or Color expression');
           q.expression = payload.expression;
-          if (q.expression && parameterExpressionUses(q).some((ref) => curvePointId(ref.key)))
-            candidate.schemaVersion = Math.max(
-              candidate.schemaVersion,
-              CURVE_POINT_REFERENCE_SCHEMA_VERSION,
-            );
+          if (q.expression)
+            for (const ref of parameterExpressionUses(q)) {
+              const owner = target.nodes.find((item) => item.id === ref.nodeId),
+                pointRef = owner?.type === 'Curve' && curvePointReference(ref.key, ref.component);
+              if (pointRef)
+                candidate.schemaVersion = Math.max(candidate.schemaVersion, pointRef.schemaVersion);
+            }
           if (q.type === 'Color' && q.expression)
             candidate.schemaVersion = Math.max(
               candidate.schemaVersion,
@@ -8700,7 +8751,7 @@ export class CommandSession {
             const resolve = (ref, type = 'Scalar') => {
               const referenced = referenceParameter(target, ref, type);
               const value = evaluation.parameterValue(referenced.id, ref.key);
-              return ref.component === undefined ? value : value[ref.component === 'x' ? 0 : 1];
+              return projectReferenceValue(ref, value);
             };
             const value = parameterExpression(
               q,

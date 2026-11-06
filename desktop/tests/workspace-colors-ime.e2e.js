@@ -28,6 +28,15 @@ try {
   await page.locator('[data-color-advanced] summary').click();
   const input = page.locator('[data-shared-color-edit="name"]').last();
   const id = await input.getAttribute('data-shared-color-id');
+  await page.evaluate((slotId) => {
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-color-slot',
+      payload: { slotId, value: { hex: '#abcdef', alpha: 0.5 } },
+    });
+    window.nect.dispatch({ ...window.nect.commandState, type: 'undo', payload: {} });
+  }, id);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
   const initial = await page.evaluate(() => ({
     project: window.nect.projectSnapshot(),
     state: window.nect.commandState,
@@ -36,6 +45,17 @@ try {
   await input.evaluate((element) =>
     element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })),
   );
+  await input.click(); // Repositioning the caret in the composing field stays available.
+  assert.equal(await input.evaluate((element) => element === document.activeElement), true);
+  // A synthetic composition plus real keyboard navigation exercises the browser's
+  // focus behavior without claiming physical IME coverage.
+  for (const key of ['Tab', 'Shift+Tab']) {
+    await page.keyboard.press(key);
+    assert.equal(await input.evaluate((element) => element === document.activeElement), true, key);
+    assert.equal(await input.inputValue(), '編集中', key);
+    assert.deepEqual(await page.evaluate(() => window.nect.commandState), initial.state);
+    assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  }
   for (const selector of [
     '[data-workspace-panel="assets"]',
     '[data-workspace-panel="layers"]',
@@ -43,6 +63,7 @@ try {
     '[data-shared-color-add]',
     '[data-shared-color-close]',
     '[data-shared-color-copy-toggle]',
+    '[data-shared-color-edit="alpha"]',
     '.viewer-tabs [data-viewer-mode="viewers"]',
     '[data-key-color-recipe-open]',
   ]) {
@@ -62,11 +83,18 @@ try {
     assert.equal(await page.locator('.canvas-wrap').getAttribute('data-viewer-mode'), 'artwork');
     assert.deepEqual(await page.evaluate(() => window.nect.commandState), initial.state);
     assert.deepEqual(await page.evaluate(() => window.nect.projectSnapshot()), initial.project);
+    assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
   }
   await input.evaluate((element) => {
     element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
     element.dispatchEvent(new InputEvent('input', { bubbles: true, data: '中' }));
   });
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(
+    (revision) => window.nect.commandState.expectedRevision === revision + 1,
+    initial.state.expectedRevision,
+  );
+  assert.equal(await input.evaluate((element) => element === document.activeElement), false);
   await page.locator('[data-workspace-panel="assets"]').click();
   assert.equal(
     await page.locator('[data-workspace-panel="assets"]').getAttribute('aria-expanded'),
@@ -173,6 +201,93 @@ try {
   const reopened = await page.evaluate(() => window.nect.projectSnapshot());
   assert.equal(reopened.colorSlots.find((slot) => slot.id === id).name, 'First edited');
   assert.equal(reopened.colorSlots.find((slot) => slot.id === secondId).name, 'Second edited');
+
+  // A keyboard-style activation must not hide the owner while a real scrub is active.
+  await ensureWorkspacePanel(page, 'colors');
+  if (!(await page.locator('[data-color-advanced]').evaluate((element) => element.open)))
+    await page.locator('[data-color-advanced] summary').click();
+  const alpha = page.locator(`[data-shared-color-edit="alpha"][data-shared-color-id="${id}"]`);
+  await alpha.scrollIntoViewIfNeeded();
+  const box = await alpha.boundingBox();
+  const x = box.x + box.width * 0.4;
+  const y = box.y + box.height / 2;
+  const beforeScrub = await page.evaluate(() => ({
+    project: window.nect.projectSnapshot(),
+    state: window.nect.commandState,
+  }));
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x - 24, y, { steps: 5 });
+  await page.waitForFunction(() => window.nect.colorPreviewSnapshot() !== null);
+  const focusedDuringScrub = await alpha.evaluate((element) => document.activeElement === element);
+  assert.equal(focusedDuringScrub, true);
+  await page.keyboard.press('Tab');
+  assert.equal(
+    await alpha.evaluate((element) => document.activeElement === element),
+    focusedDuringScrub,
+  );
+  for (const selector of [
+    '[data-workspace-panel="assets"]',
+    '[data-workspace-panel="colors"]',
+    '[data-shared-color-close]',
+    '.viewer-tabs [data-viewer-mode="viewers"]',
+  ]) {
+    await page.locator(selector).evaluate((element) => element.click());
+    assert.equal(
+      await page.locator('[data-workspace-panel="colors"]').getAttribute('aria-expanded'),
+      'true',
+    );
+    assert.equal(await page.locator('.canvas-wrap').getAttribute('data-viewer-mode'), 'artwork');
+    assert.deepEqual(await page.evaluate(() => window.nect.projectSnapshot()), beforeScrub.project);
+  }
+  await page.mouse.up();
+  await page.waitForFunction(() => window.nect.colorPreviewSnapshot() === null);
+  const scrubbed = await page.evaluate(() => window.nect.projectSnapshot());
+  assert.equal(
+    (await page.evaluate(() => window.nect.commandState)).expectedRevision,
+    beforeScrub.state.expectedRevision + 1,
+  );
+  await page.evaluate(() =>
+    window.nect.dispatch({ ...window.nect.commandState, type: 'undo', payload: {} }),
+  );
+  assert.deepEqual(await page.evaluate(() => window.nect.projectSnapshot()), beforeScrub.project);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await alpha.scrollIntoViewIfNeeded();
+  const retryBox = await alpha.boundingBox();
+  const retryX = retryBox.x + retryBox.width * 0.4;
+  const retryY = retryBox.y + retryBox.height / 2;
+  await page.mouse.move(retryX, retryY);
+  await page.mouse.down();
+  await page.mouse.move(retryX - 24, retryY, { steps: 5 });
+  await page.waitForFunction(() => window.nect.colorPreviewSnapshot() !== null);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await page.waitForFunction(() => window.nect.colorPreviewSnapshot() === null);
+  assert.deepEqual(await page.evaluate(() => window.nect.projectSnapshot()), beforeScrub.project);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await page.locator('[data-workspace-panel="assets"]').click();
+  assert.equal(
+    await page.locator('[data-workspace-panel="assets"]').getAttribute('aria-expanded'),
+    'true',
+  );
+  await page.evaluate(() =>
+    window.nect.dispatch({ ...window.nect.commandState, type: 'redo', payload: {} }),
+  );
+  assert.deepEqual(await page.evaluate(() => window.nect.projectSnapshot()), scrubbed);
+  // A release outside #app must not leave the owner permanently busy.
+  await ensureWorkspacePanel(page, 'colors');
+  await page.evaluate(() => {
+    const slider = document.querySelector('[data-chroma-strength-range]');
+    slider.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, button: 0, isPrimary: true, pointerId: 91 }),
+    );
+    document.body.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 91 }));
+  });
+  await page.locator('[data-workspace-panel="assets"]').click();
+  assert.equal(
+    await page.locator('[data-workspace-panel="assets"]').getAttribute('aria-expanded'),
+    'true',
+  );
   assert.deepEqual(errors, []);
   console.log(
     'Shared Colors: synthetic composition, pointer protection, commit and Undo/Redo passed.',

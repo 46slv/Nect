@@ -33,16 +33,36 @@ export function createSharedColorsPanel({
     const active = app.ownerDocument.activeElement;
     return !!active && app.contains(active) && composingInputs.has(active);
   };
-  function keepCompositionFocused(event) {
+  function keepActiveEditFocused(event) {
+    const active = app.ownerDocument.activeElement;
+    const otherColorTarget =
+      event.target.closest?.('.shared-colors-panel') && event.target !== active;
     if (
-      !hasActiveComposition() ||
-      !event.target.closest?.(
-        '[data-workspace-panel],[data-shared-color-add],[data-shared-color-close],[data-shared-color-copy-menu],[data-shared-color-copy-actions],[data-shared-color-paste],[data-key-color-recipe-open],[data-viewer-mode="viewers"],[data-action="align-panel"],[data-action="asset-library"]',
-      )
+      (!hasActiveComposition() && activeColorPointer === null) ||
+      (!otherColorTarget &&
+        !event.target.closest?.(
+          '[data-workspace-panel],[data-shared-color-paste],[data-viewer-mode="viewers"],[data-action="align-panel"],[data-action="asset-library"]',
+        ))
     )
       return false;
     event.preventDefault();
     event.stopImmediatePropagation();
+    return true;
+  }
+  function keepInvalidNameFocused(event) {
+    const input = app.ownerDocument.activeElement;
+    if (
+      !event.target.closest?.('[data-shared-color-delete]') ||
+      !input?.matches?.('.shared-colors-panel [data-shared-color-edit="name"]') ||
+      (input.value.trim() && input.value.length <= 128)
+    )
+      return false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const message = 'Enter a shared color name before deleting';
+    notify(message, true);
+    const status = app.querySelector('[data-shared-color-action-status]');
+    if (status) status.textContent = message;
     return true;
   }
   app.addEventListener(
@@ -131,10 +151,7 @@ export function createSharedColorsPanel({
     live,
     renderPreview: patchPreview,
   });
-  function patchPreview(rebaseFrom = null) {
-    const host = app.querySelector('.shared-colors-panel');
-    if (!host) return;
-    const next = controller.createView();
+  function rebaseControls(rebaseFrom) {
     const state = getSession().state;
     if (
       rebaseFrom &&
@@ -149,6 +166,12 @@ export function createSharedColorsPanel({
           control.dataset.sharedColorRevision = String(state.expectedRevision);
       }
     }
+  }
+  function patchPreview(rebaseFrom = null) {
+    const host = app.querySelector('.shared-colors-panel');
+    if (!host) return;
+    const next = controller.createView();
+    rebaseControls(rebaseFrom);
     host.dataset.sharedColorSession = next.dataset.sharedColorSession;
     host.dataset.sharedColorRevision = next.dataset.sharedColorRevision;
     const replaceContents = (selector) => {
@@ -281,7 +304,7 @@ export function createSharedColorsPanel({
   app.addEventListener(
     'pointerdown',
     (event) => {
-      if (keepCompositionFocused(event)) return;
+      if (keepActiveEditFocused(event) || keepInvalidNameFocused(event)) return;
       // Opening the separate experimental draft must not finish a legacy live
       // gesture. Prevent native blur/change before it can commit the old field.
       if (event.target.closest?.('[data-key-color-recipe-open]')) {
@@ -336,7 +359,7 @@ export function createSharedColorsPanel({
     true,
   );
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
-    app.addEventListener(
+    app.ownerDocument.addEventListener(
       type,
       (event) => {
         if (event.pointerId === activeColorPointer) activeColorPointer = null;
@@ -398,7 +421,14 @@ export function createSharedColorsPanel({
       render();
     }
   }
-  app.addEventListener('click', keepCompositionFocused, true);
+  app.addEventListener(
+    'click',
+    (event) => {
+      if (keepActiveEditFocused(event)) return;
+      keepInvalidNameFocused(event);
+    },
+    true,
+  );
   function closeCopyMenu(row) {
     const actions = row?.querySelector('[data-shared-color-copy-actions]'),
       trigger = row?.querySelector('[data-shared-color-copy-toggle]');
@@ -416,7 +446,7 @@ export function createSharedColorsPanel({
   );
   app.addEventListener('click', (event) => {
     const button = event.target.closest?.(
-      '[data-shared-color-add],[data-shared-color-close],[data-key-color-recipe-open],[data-shared-color-copy-toggle],[data-shared-color-copy],[data-shared-color-paste],[data-shared-color-uses]',
+      '[data-shared-color-add],[data-shared-color-close],[data-key-color-recipe-open],[data-shared-color-copy-toggle],[data-shared-color-copy],[data-shared-color-paste],[data-shared-color-uses],[data-shared-color-delete]',
     );
     if (!button) return;
     event.stopImmediatePropagation();
@@ -461,6 +491,26 @@ export function createSharedColorsPanel({
         if (!getDocument().colorSlots?.some((entry) => entry.id === slotId))
           throw Error('Shared color is no longer available');
         onFindUses(slotId, button);
+      });
+    }
+    if (button.hasAttribute('data-shared-color-delete')) {
+      return perform(() => {
+        const state = envelope(button);
+        if (chroma.editing || hasActiveComposition()) throw Error('Finish the color edit first');
+        const slotId = button.closest('[data-shared-color-row]')?.dataset.sharedColorRow;
+        dispatch('delete-color-slot', { slotId }, state);
+        const row = [...app.querySelectorAll('[data-shared-color-row]')].find(
+          (element) => element.dataset.sharedColorRow === slotId,
+        );
+        const status = app.querySelector('[data-shared-color-action-status]');
+        if (row) {
+          row.querySelector('[data-shared-color-copy-toggle]')?.focus({ preventScroll: true });
+          if (status) status.textContent = app.querySelector('.status .message')?.textContent || '';
+        } else {
+          app.querySelector('[data-shared-color-add]')?.focus({ preventScroll: true });
+          notify('Color deleted');
+          if (status) status.textContent = 'Color deleted';
+        }
       });
     }
     if (button.hasAttribute('data-shared-color-paste')) {
@@ -569,8 +619,11 @@ export function createSharedColorsPanel({
         slotId = el.closest('[data-shared-color-row]')?.dataset.sharedColorRow;
       const slot = getDocument().colorSlots?.find((s) => s.id === slotId);
       if (!slot) throw Error('Shared color is no longer available');
-      if (kind === 'name') dispatch('rename-color-slot', { slotId, name: el.value }, state);
-      else {
+      if (kind === 'name') {
+        const owner = getSession();
+        const result = dispatch('rename-color-slot', { slotId, name: el.value }, state);
+        if (result?.changed && owner === getSession()) rebaseControls(state);
+      } else {
         const value = { ...slot.value };
         if (kind === 'hex') value.hex = el.value;
         else if (kind.startsWith('hsl-'))
@@ -590,6 +643,17 @@ export function createSharedColorsPanel({
     });
   });
   app.addEventListener('keydown', (event) => {
+    // Leave an active IME editor or pointer gesture in place if Tab was not
+    // consumed by the focused input's own keyboard handlers.
+    if (
+      event.key === 'Tab' &&
+      !event.defaultPrevented &&
+      (hasActiveComposition() || activeColorPointer !== null)
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
     const row = event.target.closest?.('[data-shared-color-row]');
     const actions = row?.querySelector('[data-shared-color-copy-actions]');
     if (
@@ -637,6 +701,9 @@ export function createSharedColorsPanel({
   const controller = {
     get composing() {
       return hasActiveComposition();
+    },
+    get canDeactivate() {
+      return !hasActiveComposition() && activeColorPointer === null;
     },
     get editing() {
       return chroma.editing;
@@ -687,11 +754,11 @@ export function createSharedColorsPanel({
             label === slot.name
               ? ''
               : `<span class="shared-color-identity">${esc(label.slice(slot.name.length))}</span>`;
-          return `<div class="shared-color-row" data-shared-color-row="${esc(slot.id)}"><input type="text" data-shared-color-edit="name" data-shared-color-id="${esc(slot.id)}" maxlength="128" value="${esc(slot.name)}" aria-label="Shared color name"><div class="shared-color-copy" data-shared-color-copy-menu="${esc(slot.id)}"><button type="button" data-shared-color-copy-toggle aria-label="Color actions for ${esc(label)}" aria-expanded="false">Actions…</button></div><div class="shared-color-copy-actions" data-shared-color-copy-actions role="group" aria-label="Color actions for ${esc(label)}" hidden><button type="button" data-shared-color-copy="value">Copy value in Nect</button><button type="button" data-shared-color-copy="reference">Copy reference in Nect</button><button type="button" data-shared-color-uses>Find direct uses</button></div>${identity}${owned ? '<span data-live-color-note title="Edit in Key color" aria-label="Linked color. Edit in Key color">Linked</span>' : ''}${renderHslFields(slot.value.hex, { mode: 'shared', name: slot.name, id: slot.id, scrub: live, disabled: owned })}<input type="color" data-shared-color-edit="hex" data-shared-color-id="${esc(slot.id)}" value="${esc(slot.value.hex)}" aria-label="${esc(slot.name)} color" ${owned ? 'disabled' : ''}><output data-color-coverage-id="${esc(slot.id)}" aria-label="${esc(slot.name)} visible area">—</output><input type="number" data-color-scrub-step="0.01" title="Drag horizontally to adjust; click to type" data-shared-color-edit="alpha" data-shared-color-id="${esc(slot.id)}" min="0" max="1" step="0.01" value="${slot.value.alpha}" aria-label="${esc(slot.name)} alpha" ${owned ? 'disabled' : ''}></div>`;
+          return `<div class="shared-color-row" data-shared-color-row="${esc(slot.id)}"><input type="text" data-shared-color-edit="name" data-shared-color-id="${esc(slot.id)}" maxlength="128" value="${esc(slot.name)}" aria-label="Shared color name"><div class="shared-color-copy" data-shared-color-copy-menu="${esc(slot.id)}"><button type="button" data-shared-color-copy-toggle aria-label="Color actions for ${esc(label)}" aria-expanded="false">Actions…</button></div><div class="shared-color-copy-actions" data-shared-color-copy-actions role="group" aria-label="Color actions for ${esc(label)}" hidden><button type="button" data-shared-color-copy="value">Copy value in Nect</button><button type="button" data-shared-color-copy="reference">Copy reference in Nect</button><button type="button" data-shared-color-uses>Find direct uses</button><button type="button" data-shared-color-delete>Delete color</button></div>${identity}${owned ? '<span data-live-color-note title="Edit in Key color" aria-label="Linked color. Edit in Key color">Linked</span>' : ''}${renderHslFields(slot.value.hex, { mode: 'shared', name: slot.name, id: slot.id, scrub: live, disabled: owned })}<input type="color" data-shared-color-edit="hex" data-shared-color-id="${esc(slot.id)}" value="${esc(slot.value.hex)}" aria-label="${esc(slot.name)} color" ${owned ? 'disabled' : ''}><output data-color-coverage-id="${esc(slot.id)}" aria-label="${esc(slot.name)} visible area">—</output><input type="number" data-color-scrub-step="0.01" title="Drag horizontally to adjust; click to type" data-shared-color-edit="alpha" data-shared-color-id="${esc(slot.id)}" min="0" max="1" step="0.01" value="${slot.value.alpha}" aria-label="${esc(slot.name)} alpha" ${owned ? 'disabled' : ''}></div>`;
         })
         .join('');
       const savedColors = `<div class="shared-color-list" aria-label="Saved shared colors"><h3 class="shared-colors-heading">${live && chroma.editing ? 'Live colors' : 'Saved colors'}</h3>${linked.size ? '<p class="font-note">Edit linked colors in Key color.</p>' : ''}${rows || '<p class="font-note">Add a color, then link a Color field.</p>'}</div>${getDocument().colorDesign?.version === 2 ? '' : '<p class="font-note" data-color-coverage-status role="status">Measuring visible area…</p>'}`;
-      return `<section class="shared-colors-panel" aria-label="Shared colors" ${stamp()}><header><strong>Shared colors</strong>${!live || getDocument().colorDesign?.version !== 2 ? '<button type="button" data-harmony-create>Create palette</button>' : ''}<button type="button" data-shared-color-add aria-label="Add shared color">+</button><button type="button" data-shared-color-close aria-label="Close Shared colors">×</button></header><button type="button" class="key-color-recipe-launcher" data-key-color-recipe-open>Key color · Experimental</button>${live || getDocument().colorDesign?.version === 2 ? chroma.html({ savedColors }) : savedColors + chroma.html()}</section>`;
+      return `<section class="shared-colors-panel" aria-label="Shared colors" ${stamp()}><header><strong>Shared colors</strong>${!live || getDocument().colorDesign?.version !== 2 ? '<button type="button" data-harmony-create>Create palette</button>' : ''}<button type="button" data-shared-color-add aria-label="Add shared color">+</button><button type="button" data-shared-color-close aria-label="Close Shared colors">×</button></header><output class="visually-hidden" role="status" data-shared-color-action-status></output><button type="button" class="key-color-recipe-launcher" data-key-color-recipe-open>Key color · Experimental</button>${live || getDocument().colorDesign?.version === 2 ? chroma.html({ savedColors }) : savedColors + chroma.html()}</section>`;
     },
     bindingControl(node, key, q, layerId) {
       const slots = getDocument().colorSlots || [];
