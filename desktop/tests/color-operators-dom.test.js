@@ -144,7 +144,9 @@ test('Color operation drafts validate before commit, remain neutral on Cancel/er
   assert.equal(saved(), changed);
   assert.deepEqual(win.nect.commandState, changedState);
   assert.deepEqual(win.nect.fileState, changedFileState, 'stale Apply preserves file state');
-  assert.match(document.body.textContent, /STALE|revision/i);
+  const staleAlert = document.querySelector('dialog [role="alert"]');
+  assert.ok(staleAlert && !staleAlert.hidden);
+  assert.match(staleAlert.textContent, /Document changed.*Close and reopen/i);
   document.querySelector('dialog [data-cancel]').click();
   await win.happyDOM.abort();
 });
