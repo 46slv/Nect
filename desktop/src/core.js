@@ -1,4 +1,4 @@
-import { expression } from './expression-parser.js';
+import { expression, qualifiedReferencesForCodec } from './expression-parser.js';
 import {
   validateCompositionProject,
   assertNoLegacyCompositionPropertyReferencePromotion,
@@ -25,6 +25,7 @@ import {
   nodesHaveComponentCompositionReferenceSyntax,
   componentCompositionReferences,
   componentCompositionReferencesInProject,
+  clipboardReferenceSchemaVersion,
   hasQualifiedColorReferenceSyntax,
   nodesHaveQualifiedColorReferenceSyntax,
   qualifiedColorReferences,
@@ -1973,6 +1974,11 @@ export function expressionReferencesForSchema(q, schemaVersion, { preserveOpaque
     hasComponentCompositionReferenceSyntax(q.expression)
   )
     return [];
+  if (
+    schemaVersion >= COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION &&
+    hasComponentCompositionReferenceSyntax(q.expression)
+  )
+    qualifiedReferencesForCodec(q);
   if (
     preserveOpaque &&
     schemaVersion < QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION &&
@@ -8292,6 +8298,7 @@ export class CommandSession {
         nodes: clone(nodes),
         sourceLayerId: layer.id,
         schemaVersion: doc.schemaVersion,
+        referenceSchemaVersion: clipboardReferenceSchemaVersion(nodes, layer.nodes),
         pasteCount: 0,
         externalNodeIds,
         artworkReferences,
@@ -9486,14 +9493,25 @@ export class CommandSession {
         copy.position = clipboard.nodes[i].position.map((v, axis) => v + offset[axis]);
       });
       target.nodes.push(...copies);
-      // Schemas 63 through 65 add only the reference forms rejected above,
-      // including dormant and unsupported descriptors. A v64 or v65 source therefore
-      // transfers no feature newer than v62; retain the historical conservative
-      // source version unchanged for every older clipboard.
-      const transferredSchemaVersion =
-        clipboard.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION
-          ? ARTWORK_REFERENCE_SCHEMA_VERSION
-          : clipboard.schemaVersion;
+      // For schema 64/65 source data, selected references determine whether a
+      // destination already at schema 60 needs 61 or 62. Older clipboard sources
+      // and pre-60 destinations keep their prior conservative floor.
+      let transferredSchemaVersion = clipboard.schemaVersion;
+      if (clipboard.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION) {
+        transferredSchemaVersion =
+          before.schemaVersion >= CURVE_POINT_REFERENCE_SCHEMA_VERSION
+            ? clipboard.referenceSchemaVersion
+            : ARTWORK_REFERENCE_SCHEMA_VERSION;
+        const binding = projectDocumentContexts.get(before);
+        if (transferredSchemaVersion >= CURVE_HANDLE_REFERENCE_SCHEMA_VERSION) {
+          assertNoLegacyHandleDocumentPromotion(before);
+          if (binding) assertNoLegacyHandleReferencePromotion(binding.project);
+        }
+        if (transferredSchemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION) {
+          assertNoLegacyArtworkDocumentPromotion(before);
+          if (binding) assertNoLegacyArtworkReferencePromotion(binding.project);
+        }
+      }
       if (transferredSchemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION)
         assertNoLegacyQualifiedColorDocumentPromotion(candidate);
       candidate.schemaVersion = Math.max(candidate.schemaVersion, transferredSchemaVersion);

@@ -183,6 +183,11 @@ export function assertFreshCompositionEntityIds(project, proposedIds) {
 
 function assertCompositionProjectFields(project) {
   assertDocumentEnvelope(project);
+  const oldQualifiedReferences = (q) =>
+    qualifiedReferencesForCodec(q, {
+      allowComponentComposition:
+        project.schemaVersion >= COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION,
+    });
   let pointReferenceVersion = 0;
   for (const composition of project.compositions)
     for (const layer of composition.layers || [])
@@ -241,7 +246,7 @@ function assertCompositionProjectFields(project) {
         for (const node of layer.nodes)
           for (const q of expressionParameters(node, { includeUnsupported: true })) {
             if (!hasArtworkReferenceSyntax(q.expression)) continue;
-            for (const ref of qualifiedReferencesForCodec(q)) {
+            for (const ref of oldQualifiedReferences(q)) {
               if (!ref.layerId || ref.compositionId || ref.qualifier) continue;
               if (ref.layerId === layer.id)
                 throw Error('Artwork reference requires a different layer');
@@ -275,7 +280,7 @@ function assertCompositionProjectFields(project) {
             if (!hasCompositionPropertyReferenceSyntax(q.expression)) continue;
             if (!['Scalar', 'Color'].includes(q.type))
               throw Error('Composition references require a Scalar expression');
-            for (const ref of qualifiedReferencesForCodec(q)) {
+            for (const ref of oldQualifiedReferences(q)) {
               if (!ref.compositionId || ref.qualifier || ref.componentComposition) continue;
               if (ref.type !== 'Scalar' || ref.component !== undefined)
                 throw Error('Composition references require a Scalar property');
@@ -322,7 +327,7 @@ function assertCompositionProjectFields(project) {
             if (!hasQualifiedColorReferenceSyntax(q.expression)) continue;
             if (q.type !== 'Color')
               throw Error('Qualified Color references require a Color expression');
-            for (const ref of qualifiedReferencesForCodec(q)) {
+            for (const ref of oldQualifiedReferences(q)) {
               if (!ref.qualifier) continue;
               if (ref.type !== 'Color' || ref.component !== undefined)
                 throw Error('Qualified Color references require a Color property');

@@ -270,6 +270,27 @@ export function expressionHasCurvePointReference(source) {
   return expressionCurvePointReferenceVersion(source) > 0;
 }
 
+// A missing owner's handle x/y was already retainable at schema 60. Length,
+// and handle components owned by a real Curve, require schema 61. Check the
+// source layer at Copy time, including paused and unsupported descriptors.
+export function clipboardReferenceSchemaVersion(nodes, sourceNodes) {
+  const owners = new Map(sourceNodes.map((node) => [node.id, node]));
+  let version = CURVE_POINT_REFERENCE_SCHEMA_VERSION;
+  for (const node of nodes)
+    for (const q of allExpressionParameters(node)) {
+      if (hasArtworkReferenceSyntax(q.expression)) version = ARTWORK_REFERENCE_SCHEMA_VERSION;
+      for (const match of q.expression.matchAll(pointRefArguments)) {
+        const point = curvePointReference(match[2], match[3]);
+        if (
+          point?.schemaVersion === CURVE_HANDLE_REFERENCE_SCHEMA_VERSION &&
+          (match[3] === 'length' || owners.get(match[1])?.type === 'Curve')
+        )
+          version = Math.max(version, CURVE_HANDLE_REFERENCE_SCHEMA_VERSION);
+      }
+    }
+  return version;
+}
+
 export function nodesCurvePointReferenceVersion(
   nodes,
   sourceSchemaVersion = MAX_DOCUMENT_SCHEMA_VERSION,
@@ -305,7 +326,11 @@ export function nodesHaveLegacyCurveHandleReference(nodes) {
     expressionParameters(node, { includeUnsupported: true }).some((q) =>
       [...q.expression.matchAll(pointRefArguments)].some((match) => {
         const ref = curvePointReference(match[2], match[3]);
-        return owners.get(match[1])?.type === 'Curve' && ref?.field !== 'position' && !!ref;
+        return (
+          !!ref &&
+          ref.field !== 'position' &&
+          (match[3] === 'length' || owners.get(match[1])?.type === 'Curve')
+        );
       }),
     ),
   );
