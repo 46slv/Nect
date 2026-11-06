@@ -647,6 +647,24 @@ export class CompositionSessionOwner {
   }
 
   dispatch(command) {
+    if (command?.type === 'rename-composition') {
+      const session = this.#session,
+        activeId = this.#activeCompositionId,
+        revision = this.#history.revision;
+      const assertCurrent = () => {
+        if (this.#session !== session || this.#activeCompositionId !== activeId)
+          throw Error('STALE_SESSION: document changed');
+        if (this.#history.revision !== revision) throw Error('STALE_REVISION: document changed');
+      };
+      this.#assertCurrentCommand(command);
+      assertCurrent();
+      const { compositionId, name, expectedName, expectedProjectRevision } = command.payload;
+      const target = this.#history.doc.compositions.find((entry) => entry.id === compositionId);
+      if (expectedProjectRevision !== revision || !target || target.name !== expectedName)
+        throw Error('STALE_REVISION: Composition changed');
+      const changed = this.#renameComposition(compositionId, name, assertCurrent);
+      return { ...this.state, changed, projectRevision: this.#history.revision };
+    }
     if (command?.type === 'delete-color-slot') {
       this.#assertCurrentCommand(command);
       this.#assertQuiescent();
@@ -792,6 +810,10 @@ export class CompositionSessionOwner {
   }
 
   renameComposition(compositionId, name) {
+    return this.#renameComposition(compositionId, name);
+  }
+
+  #renameComposition(compositionId, name, precommit) {
     this.#assertQuiescent();
     const current = this.#history.doc;
     if (!current.compositions.some((entry) => entry.id === compositionId))
@@ -802,7 +824,12 @@ export class CompositionSessionOwner {
         entry.id === compositionId ? { ...entry, name } : entry,
       ),
     };
-    return this.#commitProject(candidate, this.#activeCompositionId, 'rename-composition');
+    return this.#commitProject(
+      candidate,
+      this.#activeCompositionId,
+      'rename-composition',
+      precommit,
+    );
   }
 
   resizeComposition(compositionId, width, height) {

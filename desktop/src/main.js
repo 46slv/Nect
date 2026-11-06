@@ -9532,6 +9532,7 @@ function renderCompositionTablist() {
     tab.setAttribute('aria-selected', String(composition.id === activeId));
     tab.tabIndex = composition.id === focusedCompositionTabId ? 0 : -1;
     tab.title = composition.name;
+    tab.setAttribute('aria-keyshortcuts', 'F2');
     tab.textContent = composition.name;
     tablist.append(tab);
   }
@@ -9585,6 +9586,14 @@ app.addEventListener('keydown', (event) => {
       event.preventDefault();
       activateCompositionTab(tab.dataset.activeComposition);
       return;
+    case 'F2':
+      event.preventDefault();
+      try {
+        renameCompositionDialog(tab.dataset.activeComposition);
+      } catch (error) {
+        notify(error.message, true);
+      }
+      return;
     default:
       return;
   }
@@ -9602,6 +9611,117 @@ function addComposition() {
   const graphScroll = restoreCompositionViewState();
   render(false, null, graphScroll);
   updateDocumentStatus();
+}
+function renameCompositionDialog(compositionId = session.activeCompositionId) {
+  if (
+    sourceNavigationBusy() ||
+    documents.hasDraft() ||
+    sharedColors.editing ||
+    session.hasTextDrafts
+  )
+    throw Error('Finish or cancel the current edit before renaming');
+  const owner = session,
+    envelope = session.state,
+    projectRevision = session.projectRevision,
+    generation = documents.generation,
+    target = session.projectSnapshot().compositions.find((item) => item.id === compositionId);
+  if (!target) throw Error('Composition is unavailable');
+  const dialog = document.createElement('dialog');
+  dialog.className = 'composition-rename-dialog';
+  dialog.setAttribute('aria-labelledby', 'composition-rename-heading');
+  dialog.innerHTML =
+    '<form><h3 id="composition-rename-heading">Rename composition</h3><label>Name<input data-composition-name maxlength="100000" spellcheck="false"></label><output role="alert"></output><footer><button type="button" data-cancel>Cancel</button><button type="submit">Rename</button></footer></form>';
+  const input = dialog.querySelector('input'),
+    status = dialog.querySelector('output');
+  input.value = target.name;
+  let composingName = false,
+    committed = false;
+  dialog.addEventListener('compositionstart', () => {
+    composingName = true;
+  });
+  dialog.addEventListener('compositionend', () => {
+    composingName = false;
+  });
+  dialog.addEventListener('cancel', (event) => {
+    if (composingName) event.preventDefault();
+  });
+  dialog.addEventListener('keydown', (event) => {
+    if (
+      (composingName || event.isComposing || event.keyCode === 229) &&
+      ['Enter', 'Escape'].includes(event.key)
+    )
+      event.preventDefault();
+  });
+  input.addEventListener('input', () => {
+    status.textContent = '';
+  });
+  dialog.querySelector('[data-cancel]').addEventListener('click', () => {
+    if (!composingName) dialog.close();
+  });
+  dialog.querySelector('form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (composingName || event.isComposing) return;
+    const name = input.value.trim();
+    if (!name) {
+      status.textContent = 'Name cannot be empty.';
+      input.focus();
+      return;
+    }
+    try {
+      if (
+        session !== owner ||
+        documents.generation !== generation ||
+        session.projectRevision !== projectRevision ||
+        session.state.sessionId !== envelope.sessionId ||
+        session.state.expectedRevision !== envelope.expectedRevision ||
+        sourceNavigationBusy(dialog) ||
+        documents.hasDraft() ||
+        sharedColors.editing ||
+        session.hasTextDrafts
+      )
+        throw Error('Project changed. Close and reopen rename.');
+      const result = session.dispatch({
+        ...envelope,
+        type: 'rename-composition',
+        payload: {
+          compositionId,
+          name,
+          expectedName: target.name,
+          expectedProjectRevision: projectRevision,
+        },
+      });
+      committed = result.changed;
+      dialog.close();
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+  dialog.addEventListener('close', () => {
+    dialog.remove();
+    if (committed) {
+      render();
+      updateDocumentStatus();
+      notify('Composition renamed');
+    }
+    if (
+      session !== owner ||
+      documents.generation !== generation ||
+      (!committed &&
+        (session.projectRevision !== projectRevision ||
+          session.state.sessionId !== envelope.sessionId ||
+          session.state.expectedRevision !== envelope.expectedRevision))
+    )
+      return;
+    const tab = [...app.querySelectorAll('[role="tab"][data-active-composition]')].find(
+      (item) => item.dataset.activeComposition === compositionId,
+    );
+    if (tab) focusCompositionTab(compositionId);
+    else app.querySelector('header .command-menu > summary')?.focus({ preventScroll: true });
+  });
+  document.body.append(dialog);
+  dialog.showModal();
+  input.focus();
+  input.select();
 }
 function download(text, name, type) {
   const a = document.createElement('a'),
@@ -10195,6 +10315,9 @@ app.addEventListener('click', async (e) => {
         case 'add-composition':
           addComposition();
           notify('Composition added');
+          break;
+        case 'rename-composition':
+          renameCompositionDialog();
           break;
         case 'new': {
           if (!(await confirmReplace('creating a new document'))) break;
@@ -16969,6 +17092,9 @@ window.nect = {
   previewSnapshot: (gestureId) => session.previewSnapshot(gestureId),
   get commandState() {
     return session.state;
+  },
+  get projectRevision() {
+    return session.projectRevision;
   },
   dispatch(command) {
     const result = session.dispatch(command);

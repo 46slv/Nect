@@ -50,6 +50,11 @@ export function ensureCommandMenus(app, document, uiSound = null) {
     'add-composition',
     'asset-library',
   ]);
+  const renameComposition = document.createElement('button');
+  renameComposition.type = 'button';
+  renameComposition.dataset.action = 'rename-composition';
+  renameComposition.textContent = 'Rename composition…';
+  project.querySelector('[data-action="add-composition"]')?.after(renameComposition);
   if (uiSound) {
     const sound = makeMenu('Sound', [], false);
     sound.dataset.uiSoundSettings = '';

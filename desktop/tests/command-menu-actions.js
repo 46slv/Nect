@@ -53,9 +53,15 @@ export async function activateCommand(page, action, { keyboard = false } = {}) {
     ].includes(action)
   )
     await revealBoundary(page, 'canvas');
-  const label = ['new', 'open', 'save', 'save-as', 'add-composition', 'asset-library'].includes(
-    action,
-  )
+  const label = [
+    'new',
+    'open',
+    'save',
+    'save-as',
+    'add-composition',
+    'rename-composition',
+    'asset-library',
+  ].includes(action)
     ? 'Project'
     : ['export', 'export-png'].includes(action)
       ? 'Export'
