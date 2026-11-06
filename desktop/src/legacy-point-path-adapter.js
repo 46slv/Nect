@@ -6,7 +6,7 @@ const ADAPTER = 'LegacyPointPathAdapterV1';
 const LEGACY_SPACE = 'legacy-document-units-v1';
 
 function denseArray(value, length) {
-  if (!Array.isArray(value)) return false;
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return false;
   if (length === undefined) length = value.length;
   if (value.length !== length || Reflect.ownKeys(value).length !== length + 1) return false;
   for (let index = 0; index < length; index++) {
@@ -25,6 +25,7 @@ function exactKeys(value, keys) {
     value &&
     typeof value === 'object' &&
     !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype &&
     Reflect.ownKeys(value).length === keys.length &&
     keys.every((key) => {
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
@@ -39,8 +40,13 @@ function sampleId(contourId, pointId) {
 }
 
 function revisions(samples) {
-  const ordered = samples.map((sample) => sample.id),
-    sorted = [...samples].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const ordered = [],
+    sorted = [];
+  for (let index = 0; index < samples.length; index++) {
+    ordered.push(samples[index].id);
+    sorted.push(samples[index]);
+  }
+  sorted.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   // Exact request-local descriptors avoid introducing a collision-prone hash or
   // claiming a persistent cache authority for this first legacy bridge. Pack
   // primitives directly: JSON.stringify would invoke inherited toJSON hooks.
@@ -51,14 +57,15 @@ function revisions(samples) {
   return {
     membershipRevision: sorted.map((sample) => pack(sample.id)).join(''),
     geometryRevision: sorted
-      .map((sample) => pack(sample.id) + sample.position.map(pack).join(''))
+      .map((sample) => pack(sample.id) + pack(sample.position[0]) + pack(sample.position[1]))
       .join(''),
     orderingRevision: ordered.map(pack).join(''),
     attributeRevision: sorted
       .map(
         (sample) =>
           pack(sample.id) +
-          sample.scale.map(pack).join('') +
+          pack(sample.scale[0]) +
+          pack(sample.scale[1]) +
           pack(sample.rotation.value) +
           pack(sample.attributes.luminance.value) +
           pack(sample.attributes.darkness.value),
@@ -92,8 +99,10 @@ function checkedLegacyContour(contour) {
     !finiteVector(point.position) ||
     !finiteVector(point.handleA) ||
     !finiteVector(point.handleB) ||
-    point.handleA.some((value) => value !== 0) ||
-    point.handleB.some((value) => value !== 0) ||
+    point.handleA[0] !== 0 ||
+    point.handleA[1] !== 0 ||
+    point.handleB[0] !== 0 ||
+    point.handleB[1] !== 0 ||
     !exactKeys(point.instanceTransform, ['scale', 'rotation']) ||
     !Number.isFinite(point.instanceTransform.scale) ||
     !Number.isFinite(point.instanceTransform.rotation) ||
@@ -105,13 +114,15 @@ function checkedLegacyContour(contour) {
 }
 
 export function legacyPointPathToSamples(path) {
-  if (!exactKeys(path, ['contours']) || !denseArray(path.contours))
+  if (!exactKeys(path, ['contours']) || !Array.isArray(path.contours))
     throw Error(`${ADAPTER} requires a legacy point Path`);
   if (path.contours.length > 256) throw Error(`${ADAPTER} exceeds the 256 point budget`);
+  if (!denseArray(path.contours)) throw Error(`${ADAPTER} requires a legacy point Path`);
   const contourIds = new Set(),
     pointIds = new Set(),
     samples = [];
-  for (const contour of path.contours) {
+  for (let index = 0; index < path.contours.length; index++) {
+    const contour = path.contours[index];
     const point = checkedLegacyContour(contour);
     if (contourIds.has(contour.id) || pointIds.has(point.id))
       throw Error(`${ADAPTER} requires unique stable IDs`);
@@ -119,7 +130,7 @@ export function legacyPointPathToSamples(path) {
     pointIds.add(point.id);
     samples.push({
       id: sampleId(contour.id, point.id),
-      position: [...point.position],
+      position: [point.position[0], point.position[1]],
       scale: [point.instanceTransform.scale, point.instanceTransform.scale],
       rotation: { type: 'Angle', unit: 'degree', value: point.instanceTransform.rotation },
       attributes: {
@@ -129,8 +140,8 @@ export function legacyPointPathToSamples(path) {
       legacy: {
         contourId: contour.id,
         pointId: point.id,
-        handleA: [...point.handleA],
-        handleB: [...point.handleB],
+        handleA: [point.handleA[0], point.handleA[1]],
+        handleB: [point.handleB[0], point.handleB[1]],
       },
     });
   }
@@ -153,9 +164,9 @@ function lowerSample(sample) {
     points: [
       {
         id: sample.legacy.pointId,
-        position: [...sample.position],
-        handleA: [...sample.legacy.handleA],
-        handleB: [...sample.legacy.handleB],
+        position: [sample.position[0], sample.position[1]],
+        handleA: [sample.legacy.handleA[0], sample.legacy.handleA[1]],
+        handleB: [sample.legacy.handleB[0], sample.legacy.handleB[1]],
         instanceTransform: { scale: sample.scale[0], rotation: sample.rotation.value },
         luminance: sample.attributes.luminance.value,
         darkness: sample.attributes.darkness.value,
@@ -192,15 +203,18 @@ export function samplesToLegacyPointPath(set) {
     set.identityEpoch !== 1 ||
     set.domain !== 'Sample' ||
     set.space !== LEGACY_SPACE ||
-    !denseArray(set.samples)
+    !Array.isArray(set.samples)
   )
     throw Error(`${ADAPTER} requires its v1 legacy-coordinate SampleSet`);
   if (set.samples.length > 256) throw Error(`${ADAPTER} exceeds the 256 point budget`);
+  if (!denseArray(set.samples))
+    throw Error(`${ADAPTER} requires its v1 legacy-coordinate SampleSet`);
   const contours = [],
     ids = new Set(),
     contourIds = new Set(),
     pointIds = new Set();
-  for (const sample of set.samples) {
+  for (let index = 0; index < set.samples.length; index++) {
+    const sample = set.samples[index];
     if (
       !exactKeys(sample, ['id', 'position', 'scale', 'rotation', 'attributes', 'legacy']) ||
       !exactKeys(sample.legacy, ['contourId', 'pointId', 'handleA', 'handleB']) ||
@@ -215,6 +229,12 @@ export function samplesToLegacyPointPath(set) {
       !finiteVector(sample.position) ||
       !finiteVector(sample.scale) ||
       !Object.is(sample.scale[0], sample.scale[1]) ||
+      !finiteVector(sample.legacy.handleA) ||
+      !finiteVector(sample.legacy.handleB) ||
+      sample.legacy.handleA[0] !== 0 ||
+      sample.legacy.handleA[1] !== 0 ||
+      sample.legacy.handleB[0] !== 0 ||
+      sample.legacy.handleB[1] !== 0 ||
       !exactKeys(sample.rotation, ['type', 'unit', 'value']) ||
       sample.rotation.type !== 'Angle' ||
       sample.rotation.unit !== 'degree' ||

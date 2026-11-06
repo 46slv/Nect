@@ -147,6 +147,67 @@ test('unsupported array accessors are rejected before reading the value', () => 
   assert.equal(reads, 0);
 });
 
+test('Sample lowering rejects opaque handle-array data and typed arrays', () => {
+  const set = legacyPointPathToSamples(legacyPath());
+  set.samples[0].legacy.handleA.extra = 'retain this';
+  assert.throws(() => samplesToLegacyPointPath(set), /LegacyPointPathAdapterV1/);
+  assert.equal(set.samples[0].legacy.handleA.extra, 'retain this');
+  delete set.samples[0].legacy.handleA.extra;
+  set.samples[0].legacy.handleB = new Float64Array([0, 0]);
+  assert.throws(() => samplesToLegacyPointPath(set), /LegacyPointPathAdapterV1/);
+});
+
+test('Sample lowering rejects a handle getter without invoking it', () => {
+  const set = legacyPointPathToSamples(legacyPath());
+  let reads = 0;
+  Object.defineProperty(set.samples[0].legacy.handleA, '0', {
+    configurable: true,
+    get() {
+      reads++;
+      return 0;
+    },
+  });
+  assert.throws(() => samplesToLegacyPointPath(set), /LegacyPointPathAdapterV1/);
+  assert.equal(reads, 0);
+});
+
+test('custom array iterators are rejected before they can change coordinates', () => {
+  const set = legacyPointPathToSamples(legacyPath());
+  let calls = 0;
+  const prototype = Object.create(Array.prototype);
+  prototype[Symbol.iterator] = function* () {
+    calls++;
+    yield 99;
+    yield 55;
+  };
+  Object.setPrototypeOf(set.samples[0].position, prototype);
+  assert.throws(() => samplesToLegacyPointPath(set), /LegacyPointPathAdapterV1/);
+  assert.equal(calls, 0);
+
+  const path = legacyPath();
+  Object.setPrototypeOf(path.contours, prototype);
+  assert.throws(() => legacyPointPathToSamples(path), /LegacyPointPathAdapterV1/);
+  assert.equal(calls, 0);
+});
+
+test('point budget is checked before examining array members', () => {
+  let enumerations = 0;
+  const oversized = new Proxy(
+    Array.from({ length: 257 }, () => ({})),
+    {
+      ownKeys(target) {
+        enumerations++;
+        return Reflect.ownKeys(target);
+      },
+    },
+  );
+  assert.throws(() => legacyPointPathToSamples({ contours: oversized }), /256 point budget/);
+  const set = legacyPointPathToSamples(legacyPath());
+  set.samples = oversized;
+  assert.throws(() => samplesToLegacyPointPath(set), /256 point budget/);
+  assert.equal(enumerations, 0);
+});
+
 test('v1 descriptor construction does not invoke inherited toJSON hooks', () => {
   const path = legacyPath();
   const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'toJSON');
