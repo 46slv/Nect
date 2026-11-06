@@ -145,6 +145,36 @@ try {
     await page.locator(`[data-select-layer="${circle}"]`).getAttribute('aria-pressed'),
     'true',
   );
+  const malformed = await page.evaluate(() => {
+    const fields = {
+      compositionId: 'second',
+      expectedName: 'Source · 日本語',
+      expectedProjectRevision: window.nect.projectRevision,
+    };
+    let getterCalls = 0;
+    const array = Object.assign([], fields);
+    Object.defineProperty(array, 'compositionId', {
+      get() {
+        getterCalls++;
+        return 'second';
+      },
+    });
+    const errors = [array, Object.assign(() => {}, fields), null].map((payload) => {
+      let error = '';
+      try {
+        window.nect.dispatch({ ...window.nect.commandState, type: 'delete-composition', payload });
+      } catch (cause) {
+        error = cause.message;
+      }
+      return error;
+    });
+    return { errors, getterCalls };
+  });
+  for (const error of malformed.errors) assert.match(error, /Invalid command payload/);
+  assert.equal(malformed.getterCalls, 0);
+  assert.deepEqual(await snapshot(), before);
+  assert.deepEqual(await state(), beforeState);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
   await activateCommand(page, 'delete-composition');
   assert.equal(await dialog().locator('[data-composition-name]').textContent(), 'Source · 日本語');
   assert.equal(await dialog().locator('[data-composition-references]').isVisible(), true);
@@ -610,6 +640,30 @@ try {
   await activateCommand(page, 'delete-composition');
   assert.equal(await dialog().count(), 1);
   await dialog().locator('[data-cancel]').click();
+  await page.locator('.composition-delete-dialog').waitFor({ state: 'detached' });
+  await pointDelta.fill('9.75');
+  await pointDelta.press('Tab');
+  await page.keyboard.press('Tab');
+  await page.locator('.canvas-stage').click({ position: { x: 3, y: 3 } });
+  assert.equal(await pointDelta.count(), 0);
+  await activateCommand(page, 'delete-composition');
+  assert.equal(await dialog().count(), 1);
+  assert.deepEqual(await snapshot(), pointBefore);
+  assert.deepEqual(await state(), pointState);
+  await dialog().locator('[data-cancel]').click();
+  await page.locator('.composition-delete-dialog').waitFor({ state: 'detached' });
+  await page.locator(`.graph .node[data-id="${pointFixture.path.id}"] .node-head strong`).click();
+  await page
+    .locator(
+      `.canvas-stage .point-hit[data-point="${pointFixture.path.contours[0].points[1]}"]:not([data-handle])`,
+    )
+    .click();
+  await page
+    .locator(
+      `.canvas-stage .point-hit[data-point="${pointFixture.path.contours[3].points[2]}"]:not([data-handle])`,
+    )
+    .click({ modifiers: ['Shift'] });
+  assert.equal(await pointDelta.inputValue(), '0');
 
   const reopened = await browser.newPage({ viewport: { width: 1000, height: 650 } });
   reopened.on('pageerror', (error) => errors.push(error.message));

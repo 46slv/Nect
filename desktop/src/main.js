@@ -9683,11 +9683,14 @@ function addComposition() {
   updateDocumentStatus();
 }
 function compositionActionBusy(allowedDialog = null) {
+  const pointNode =
+      pointDeltaDraft && current().nodes.find((item) => item.id === pointDeltaDraft.nodeId),
+    selectedPoints = pointNode ? selectedPointIds(pointNode) : [];
   return !!(
     sourceNavigationBusy(allowedDialog) ||
     documents.hasDraft() ||
     sharedColors.editing ||
-    pointDeltaDraft ||
+    (selectedPoints.length && pointDeltaMatches(pointNode.id, selectedPoints)) ||
     session.hasTextDrafts
   );
 }
@@ -9906,6 +9909,8 @@ function dispatchCompositionDeletion(
   };
   assertReady();
   const payload = command.payload;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+    throw Error('Invalid command payload');
   const request = {
     type: 'delete-composition',
     sessionId: command.sessionId,

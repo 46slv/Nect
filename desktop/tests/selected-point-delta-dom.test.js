@@ -277,4 +277,38 @@ test('selected owned-point delta controls', async (t) => {
     assert.ok($('.composition-delete-dialog[open]'));
     $('.composition-delete-dialog [data-cancel]').click();
   });
+
+  await t.test(
+    'a hidden point draft after clearing selection does not block Composition actions',
+    () => {
+      const f = compoundFixture([8, 5, 7, 4]);
+      f.doc.schemaVersion = 42;
+      const project = migrateLegacyDocumentToCompositionProject(f.doc),
+        other = migrateLegacyDocumentToCompositionProject(blankDocument()).compositions[0];
+      project.compositions[0].id = 'delta-first';
+      other.id = 'delta-second';
+      project.compositions.push(other);
+      win.nect.load(serializeCompositionProject(project));
+      inspect(f.path.id);
+      pick(f.path.contours[0].points[1]);
+      pick(f.path.contours[3].points[2], true);
+      type(0, '12.5').dispatchEvent(new win.Event('change', { bubbles: true }));
+      const before = win.nect.projectSnapshot(),
+        state = win.nect.commandState;
+      fire($('.canvas-stage'), 'pointerdown', 1, 1);
+      fire(document, 'pointerup', 1, 1);
+      assert.deepEqual(win.deltaState().ids, []);
+      assert.equal(!!panel(), false);
+      $('[data-action="delete-composition"]').click();
+      assert.equal(!!$('.composition-delete-dialog[open]'), true);
+      assert.deepEqual(win.nect.projectSnapshot(), before);
+      assert.deepEqual(win.nect.commandState, state);
+      $('.composition-delete-dialog [data-cancel]').click();
+      inspect(f.path.id);
+      pick(f.path.contours[0].points[1]);
+      pick(f.path.contours[3].points[2], true);
+      assert.equal(input().value, '0');
+      assert.deepEqual(win.nect.projectSnapshot(), before);
+    },
+  );
 });
