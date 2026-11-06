@@ -3296,6 +3296,19 @@ input[data-scrub-step].scrubbing {
   justify-content: space-between;
   gap: 8px;
 }
+.shared-colors-list-actions {
+  display: flex;
+  gap: 4px;
+}
+[data-shared-color-filter] {
+  box-sizing: border-box;
+  width: 100%;
+}
+[data-shared-color-filter][hidden],
+[data-shared-color-filter-empty][hidden],
+[data-shared-color-row][hidden] {
+  display: none;
+}
 [data-shared-color-sort][aria-pressed='true'] {
   background: #dae3e9;
   border-color: var(--selection);

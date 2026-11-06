@@ -51,6 +51,12 @@ const order = () =>
     .locator('[data-shared-color-row]')
     .evaluateAll((elements) => elements.map((element) => element.dataset.sharedColorRow));
 const sort = () => page.locator('[data-shared-color-sort]');
+const find = () => page.locator('[data-shared-color-find]');
+const filter = () => page.locator('[data-shared-color-filter]');
+const visibleRows = () =>
+  page
+    .locator('[data-shared-color-row]:visible')
+    .evaluateAll((elements) => elements.map((element) => element.dataset.sharedColorRow));
 async function colors() {
   await ensureWorkspacePanel(page, 'colors');
   const advanced = page.locator('[data-color-advanced]');
@@ -86,6 +92,56 @@ try {
     beforeCoverage = await coverage();
   assert.deepEqual(await order(), ['z', 'b', 'a']);
   assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await find().focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await filter().evaluate((element) => element === document.activeElement), true);
+  await filter().fill('BETA');
+  assert.deepEqual(await visibleRows(), ['b', 'a']);
+  const duplicateLabels = await page
+    .locator('[data-shared-color-row]:visible [data-shared-color-copy-toggle]')
+    .evaluateAll((elements) => elements.map((element) => element.getAttribute('aria-label')));
+  assert.equal(new Set(duplicateLabels).size, 2);
+  assert.deepEqual(await snapshot(), before);
+  assert.deepEqual(await state(), beforeState);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await page.screenshot({ path: resolve(output, 'filtered-1000x650.png') });
+  await page.setViewportSize({ width: 420, height: 520 });
+  await filter().scrollIntoViewIfNeeded();
+  assert.equal(
+    await filter().evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return (
+        document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) ===
+        element
+      );
+    }),
+    true,
+  );
+  await page.screenshot({ path: resolve(output, 'filtered-narrow-stress.png') });
+  await page.setViewportSize({ width: 1000, height: 650 });
+  await filter().fill('no match');
+  assert.equal(await page.locator('[data-shared-color-filter-empty]').isVisible(), true);
+  assert.equal(await page.getByText('No saved colors.').count(), 0);
+  await filter().fill('Beta');
+  await filter().evaluate((element) => {
+    element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    element.value = 'Zeta';
+    element.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true }));
+  });
+  await sort().click();
+  assert.equal(await filter().evaluate((element) => element === document.activeElement), true);
+  assert.deepEqual(await visibleRows(), ['b', 'a']);
+  await filter().evaluate((element) =>
+    element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true })),
+  );
+  assert.deepEqual(await visibleRows(), ['z']);
+  await page.keyboard.press('Escape');
+  assert.equal(await filter().inputValue(), '');
+  assert.equal(await filter().evaluate((element) => element === document.activeElement), true);
+  assert.deepEqual(await visibleRows(), ['z', 'b', 'a']);
+  await page.keyboard.press('Escape');
+  assert.equal(await find().evaluate((element) => element === document.activeElement), true);
+  assert.deepEqual(await visibleRows(), ['z', 'b', 'a']);
   const sortButton = sort();
   const inactiveColor = await sortButton.evaluate(
     (element) => getComputedStyle(element).backgroundColor,
@@ -133,14 +189,23 @@ try {
     .locator('[data-shared-color-copy-toggle]')
     .evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')));
   assert.equal(new Set(labels).size, 3);
+  await find().click();
+  await filter().fill('Beta');
+  assert.deepEqual(await visibleRows(), ['b', 'a']);
   await activateCommand(page, 'redo');
   assert.deepEqual(await order(), ['b', 'a', 'z']);
+  assert.equal(await filter().inputValue(), 'Beta');
+  assert.deepEqual(await visibleRows(), ['b', 'a']);
   await activateCommand(page, 'undo');
   assert.deepEqual(await snapshot(), before);
   assert.deepEqual(await order(), ['b', 'a', 'z']);
+  assert.equal(await filter().inputValue(), 'Beta');
+  assert.deepEqual(await visibleRows(), ['b', 'a']);
   await page.locator('[data-shared-color-close]').click();
   await colors();
   assert.deepEqual(await order(), ['b', 'a', 'z']);
+  assert.equal(await filter().inputValue(), 'Beta');
+  await find().click();
 
   // A synthetic composition cannot be displaced by a real pointer click on Sort.
   const name = row('b').locator('[data-shared-color-edit="name"]');
@@ -160,9 +225,14 @@ try {
     el.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
   });
 
+  await find().click();
+  await filter().fill('Beta');
   await page.locator('[role="tab"][data-active-composition="composition-b"]').click();
   await colors();
   assert.deepEqual(await order(), ['b', 'a', 'z']);
+  assert.equal(await filter().inputValue(), 'Beta');
+  assert.deepEqual(await visibleRows(), ['b', 'a']);
+  await find().click();
   await sort().click();
   assert.deepEqual(await order(), ['z', 'b', 'a']);
   await sort().click();
@@ -174,6 +244,8 @@ try {
   );
 
   // The view choice does not enter the saved project and resets on replacement.
+  await find().click();
+  await filter().fill('Beta');
   const downloading = page.waitForEvent('download');
   await activateCommand(page, 'save-as');
   const file = resolve(output, 'unchanged-colors.json');
@@ -189,6 +261,21 @@ try {
   await colors();
   assert.deepEqual(await order(), ['z', 'b', 'a']);
   assert.equal(await sort().getAttribute('aria-pressed'), 'false');
+  assert.equal(await filter().isVisible(), false);
+  assert.equal(await filter().inputValue(), '');
+  await find().click();
+  await filter().fill('Beta');
+  await row('b').locator('[data-shared-color-copy-toggle]').click();
+  await row('b').locator('[data-shared-color-delete]').click();
+  assert.deepEqual(await visibleRows(), ['a']);
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await visibleRows(), ['b', 'a']);
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await visibleRows(), ['a']);
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), before);
+  assert.deepEqual(await visibleRows(), ['b', 'a']);
+  await find().click();
   const renamed = row('z').locator('[data-shared-color-edit="name"]');
   await renamed.focus();
   await renamed.fill('   ');
@@ -206,9 +293,16 @@ try {
   await activateCommand(page, 'undo');
   assert.deepEqual(await snapshot(), beforeInvalid);
   assert.deepEqual(await order(), ['b', 'a', 'z']);
+  await page.evaluate(
+    (value) => window.nect.load(JSON.stringify(value)),
+    migrateLegacyDocumentToCompositionProject(blankDocument()),
+  );
+  await ensureWorkspacePanel(page, 'colors');
+  assert.equal(await page.locator('[data-shared-color-filter-empty]').count(), 0);
+  assert.equal(await page.getByText('No saved colors.').isVisible(), true);
   assert.deepEqual(errors, []);
   console.log(
-    'Shared color sorting: view-only ordering, identity, coverage, IME guard and reopen passed',
+    'Shared colors: view-only Find and sorting, identity, coverage, IME and reopen passed',
   );
 } finally {
   await browser.close();

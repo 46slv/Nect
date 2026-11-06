@@ -22,7 +22,12 @@ import { rasterizeCoverageAlpha } from './color-coverage-raster.js';
 import { createSharedColorsPanel } from './shared-colors-panel.js';
 import { createKeyColorRecipePanel } from './key-color-recipe-panel.js';
 import { createHslColorPicker } from './hsl-color-popover.js';
-import { mountAssetLibrary, getAssetLibraryPanel, closeAssetLibrary } from './asset-library.js';
+import {
+  mountAssetLibrary,
+  getAssetLibraryPanel,
+  closeAssetLibrary,
+  canDeactivateAssetLibrary,
+} from './asset-library.js';
 import { createWorkspacePanels } from './workspace-panels.js';
 import { createWorkspaceSurfaceAdapters } from './workspace-surfaces.js';
 import { createUiSoundSettings } from './ui-sound-settings.js';
@@ -1160,6 +1165,7 @@ const workspacePanels = createWorkspacePanels({
   },
   adapters: createWorkspaceSurfaceAdapters({
     getAssetPanel: getAssetLibraryPanel,
+    canDeactivateAssets: canDeactivateAssetLibrary,
     onAssets: (focus = true) => {
       if (getAssetLibraryPanel()) closeAssetLibrary();
       else openAssetLibrary(focus);
@@ -9103,9 +9109,12 @@ function openAssetLibrary(focus = true) {
       layerId: current().id,
     }),
     insert: (request, payload) => {
+      const state = session.state;
       if (
         session !== request.owner ||
         request.generation !== documents.generation ||
+        state.sessionId !== request.envelope.sessionId ||
+        state.expectedRevision !== request.envelope.expectedRevision ||
         documents.hasDraft() ||
         readDocument() !== request.before ||
         (payload.route === 'graph' && current().id !== request.layerId)

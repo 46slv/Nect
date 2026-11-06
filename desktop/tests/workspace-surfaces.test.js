@@ -156,6 +156,44 @@ test('portal hide, viewer suspend and retreat preserve live owner and Session', 
   win.happyDOM.abort();
 });
 
+test('Assets owner can defer workspace selection and close until its edit ends', () => {
+  const win = new Window(),
+    root = win.document.createElement('div');
+  root.innerHTML = markup;
+  win.document.body.append(root);
+  let panel = null,
+    busy = false;
+  const adapters = createWorkspaceSurfaceAdapters({
+    getAssetPanel: () => panel,
+    onAssets: () => {
+      panel = win.document.createElement('aside');
+      panel.innerHTML = '<input data-asset-search>';
+      win.document.body.append(panel);
+    },
+    canDeactivateAssets: () => !busy,
+    onAlign() {},
+  });
+  const controller = createWorkspacePanels({ adapters });
+  controller.attach(root);
+  controller.select('assets');
+  const input = panel.querySelector('input');
+  input.value = 'draft';
+  input.focus();
+  busy = true;
+  controller.select('colors');
+  controller.select('layers');
+  controller.close('assets');
+  assert.equal(controller.active.left, 'assets');
+  assert.equal(panel.hidden, false);
+  assert.equal(win.document.activeElement, input);
+  assert.equal(input.value, 'draft');
+  busy = false;
+  controller.select('colors');
+  assert.equal(controller.active.left, 'colors');
+  assert.equal(panel.hidden, true);
+  win.happyDOM.abort();
+});
+
 test('unsupported fixed-side declarations leave an active portal and preferences untouched', () => {
   const win = new Window(),
     root = win.document.createElement('div');

@@ -23,12 +23,17 @@ export const WORKSPACE_SURFACES = Object.freeze(
 );
 
 // The portal remains under body. Hiding it must not dispose its feature owner.
-export function createAssetsPortalAdapter({ getAssetPanel, onAssets }) {
-  if (typeof getAssetPanel !== 'function' || typeof onAssets !== 'function')
+export function createAssetsPortalAdapter({ getAssetPanel, onAssets, canDeactivateAssets }) {
+  if (
+    typeof getAssetPanel !== 'function' ||
+    typeof onAssets !== 'function' ||
+    (canDeactivateAssets !== undefined && typeof canDeactivateAssets !== 'function')
+  )
     throw Error('Invalid Assets portal binding');
   return Object.freeze({
     fixedSide: 'left',
     canRetreat: true,
+    canDeactivate: () => canDeactivateAssets?.() !== false,
     attach(host) {
       const slot = host.ownerDocument.createElement('div');
       slot.dataset.workspaceAssetSlot = '';
@@ -86,6 +91,7 @@ export function createAssetsPortalAdapter({ getAssetPanel, onAssets }) {
 export function createWorkspaceSurfaceAdapters({
   getAssetPanel,
   onAssets,
+  canDeactivateAssets,
   onAlign,
   onColors,
   createColorsView,
@@ -112,7 +118,7 @@ export function createWorkspaceSurfaceAdapters({
       },
     });
   return Object.freeze({
-    assets: createAssetsPortalAdapter({ getAssetPanel, onAssets }),
+    assets: createAssetsPortalAdapter({ getAssetPanel, onAssets, canDeactivateAssets }),
     colors: selector(
       colorsSelector,
       'left',
