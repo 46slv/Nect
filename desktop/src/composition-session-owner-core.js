@@ -6,6 +6,9 @@ import {
   sameDocument,
   uid,
   validate,
+  bindProjectDocumentContext,
+  normalizedProjectSourceForDocument,
+  assertProjectReferenceTransition,
 } from './core.js';
 import { CompositionSessionOwner } from './composition-session-owner.js';
 
@@ -19,5 +22,8 @@ export function createCompositionSessionOwner(project, options = {}) {
     sameDocument,
     uid,
     validateDocument: validate,
+    bindProjectDocumentContext,
+    normalizedProjectSourceForDocument,
+    assertProjectReferenceTransition,
   });
 }

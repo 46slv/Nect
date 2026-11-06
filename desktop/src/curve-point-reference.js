@@ -2,7 +2,8 @@
 export const CURVE_POINT_REFERENCE_SCHEMA_VERSION = 60;
 export const CURVE_HANDLE_REFERENCE_SCHEMA_VERSION = 61;
 export const ARTWORK_REFERENCE_SCHEMA_VERSION = 62;
-export const MAX_DOCUMENT_SCHEMA_VERSION = ARTWORK_REFERENCE_SCHEMA_VERSION;
+export const COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION = 63;
+export const MAX_DOCUMENT_SCHEMA_VERSION = COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION;
 export const CURVE_POINT_COMPOSITION_SCHEMA_VERSION = 2;
 
 const pointKey = /^([a-zA-Z0-9][a-zA-Z0-9:_-]{0,180})\.(position|handleA|handleB)$/;
@@ -13,6 +14,33 @@ const pointRefArguments =
 // wrapper could nevertheless retain it as opaque text at earlier versions.
 const artworkRefArguments =
   /\bref\s*\(\s*artwork\s*,\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_.-]+)"(?:\s*,\s*"(x|y|length)")?\s*\)/g;
+
+const compositionRefArguments =
+  /\bref\s*\(\s*composition\s*,\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_.-]+)"\s*\)/g;
+export const hasCompositionPropertyReferenceSyntax = (source) =>
+  /\bref\s*\(\s*composition\b/.test(source);
+export function compositionPropertyReferences(source) {
+  return [...source.matchAll(compositionRefArguments)].map((match) => ({
+    compositionId: match[1],
+    layerId: match[2],
+    nodeId: match[3],
+    key: match[4],
+  }));
+}
+export function nodesHaveCompositionPropertyReferenceSyntax(nodes) {
+  return nodes.some((node) =>
+    allExpressionParameters(node).some((q) => hasCompositionPropertyReferenceSyntax(q.expression)),
+  );
+}
+export function compositionPropertyReferencesInProject(project) {
+  return project.compositions.flatMap((composition) =>
+    composition.layers.flatMap((layer) =>
+      layer.nodes.flatMap((node) =>
+        allExpressionParameters(node).flatMap((q) => compositionPropertyReferences(q.expression)),
+      ),
+    ),
+  );
+}
 
 export function artworkExpressionReferences(source) {
   return [...source.matchAll(artworkRefArguments)].map((match) => ({
@@ -134,6 +162,13 @@ export function curvePointReference(key, component) {
 
 export function curvePointId(key) {
   return pointKey.exec(key)?.[1] ?? null;
+}
+
+export function allExpressionParameters(node) {
+  const result = Object.values(node.params || {});
+  for (const point of node.points || []) result.push(point.position, point.handleA, point.handleB);
+  for (const edit of node.edits || []) result.push(...Object.values(edit.params || {}));
+  return result.filter((q) => q && typeof q.expression === 'string' && q.expression);
 }
 
 export function expressionParameters(node, { includeUnsupported = false } = {}) {

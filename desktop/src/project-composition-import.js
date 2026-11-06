@@ -8,6 +8,8 @@ import {
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
   CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
   ARTWORK_REFERENCE_SCHEMA_VERSION,
+  COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
+  nodesHaveCompositionPropertyReferenceSyntax,
   nodesCurvePointReferenceVersion,
   nodesHaveArtworkReferences,
   nodesHaveArtworkReferenceSyntax,
@@ -51,6 +53,14 @@ export function prepareCompositionImport(current, sourceText, compositionId, opt
   };
   visit(compositionId);
   const selectedLayers = [...needed].map((id) => layers.get(id));
+  if (selectedLayers.some((layer) => nodesHaveCompositionPropertyReferenceSyntax(layer.nodes))) {
+    if (source.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION)
+      throw Error('Import of Composition property references is not supported');
+    if (current.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION)
+      throw Error(
+        'Legacy opaque Composition reference text cannot be promoted to schemaVersion 63',
+      );
+  }
   const importsArtworkReferences =
     source.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION &&
     selectedLayers.some((layer) => nodesHaveArtworkReferences(layer.nodes));

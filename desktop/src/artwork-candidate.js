@@ -1,9 +1,9 @@
-import { cloneDocument } from './core.js';
+import { cloneDocument, inheritProjectDocumentContext } from './core.js';
 
 // Core snapshots/validation freeze asset records. Keep that side effect on
 // candidate-only wrappers, including when an unvalidated input is rejected.
 export function candidateDocument(doc) {
-  const input = { ...doc };
+  const input = inheritProjectDocumentContext(doc, { ...doc });
   for (const key of ['fontAssets', 'imageAssets']) {
     const assets = input[key];
     if (assets === undefined) continue;

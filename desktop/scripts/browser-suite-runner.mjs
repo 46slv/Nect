@@ -104,6 +104,7 @@ export const browserTestFiles = Object.freeze([
   'tests/curve-handle-reference-ui.e2e.js',
   'tests/curve-point-picker.e2e.js',
   'tests/cross-artwork-reference-ui.e2e.js',
+  'tests/cross-composition-reference-ui.e2e.js',
   'tests/color-value.e2e.js',
   'tests/shared-color-paints.e2e.js',
   'tests/project-composition-import.e2e.js',

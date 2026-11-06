@@ -1,10 +1,20 @@
 import { expression } from './expression-parser.js';
+import {
+  validateCompositionProject,
+  assertNoLegacyCompositionPropertyReferencePromotion,
+} from './composition-project-model.js';
 export { expression } from './expression-parser.js';
 import { JOIN_SLOT_LIMIT, validJoinSlotOrder } from './join-slots-protocol.js';
 import {
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
   CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
   ARTWORK_REFERENCE_SCHEMA_VERSION,
+  COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
+  CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
+  compositionPropertyReferences,
+  compositionPropertyReferencesInProject,
+  hasCompositionPropertyReferenceSyntax,
+  nodesHaveCompositionPropertyReferenceSyntax,
   artworkExpressionReferences,
   artworkReferencesInLayers,
   hasArtworkReferenceSyntax,
@@ -272,6 +282,79 @@ scope.setup(new scope.Size(1200, 800));
 export const clone = (x) => structuredClone(x);
 // Font assets are immutable and shared across snapshots; copying large base64 strings
 // for every keystroke would turn a 20 MB font into gigabytes of undo history.
+// An explicit, snapshot-scoped evaluation binding; never part of native JSON.
+const projectDocumentContexts = new WeakMap();
+export function bindProjectDocumentContext(document, project, compositionId) {
+  if (!project?.compositions?.some((item) => item.id === compositionId))
+    throw Error('Unknown active Composition ID');
+  // Project History replaces root fields in place. Capture its immutable child
+  // snapshots behind a fresh root so older display/gesture views stay stable.
+  projectDocumentContexts.set(document, {
+    project: { ...project },
+    activeCompositionId: compositionId,
+    activeDocument: document,
+    normalizedCompositions: new Map(),
+  });
+  return document;
+}
+export function inheritProjectDocumentContext(source, target) {
+  const binding = projectDocumentContexts.get(source);
+  if (binding)
+    projectDocumentContexts.set(
+      target,
+      binding.activeDocument === source ? { ...binding, activeDocument: target } : binding,
+    );
+  return target;
+}
+// Normalize in the source project's original schema, just as an active
+// CommandSession does. Cache one detached projection per bound snapshot so
+// migrations that allocate IDs are stable across evaluation and commit.
+function normalizedProjectSource(binding, compositionId) {
+  if (binding.normalizedCompositions.has(compositionId))
+    return binding.normalizedCompositions.get(compositionId);
+  const source = binding.project.compositions.find((item) => item.id === compositionId);
+  if (!source) return null;
+  const { compositionSchemaVersion, compositions, ...shared } = binding.project;
+  const document = cloneDocument({
+    ...shared,
+    width: source.width,
+    height: source.height,
+    ...(source.editor === undefined ? {} : { editor: source.editor }),
+    layers: source.layers,
+  });
+  validate(document);
+  binding.normalizedCompositions.set(compositionId, document);
+  return document;
+}
+
+// Owner promotion uses exactly the same migrated IDs as the read that preceded
+// candidate admission. The clone prevents validation from mutating the cache.
+export function normalizedProjectSourceForDocument(document, compositionId) {
+  const binding = projectDocumentContexts.get(document);
+  if (!binding) throw Error('Composition property reference requires project context');
+  const source = normalizedProjectSource(binding, compositionId);
+  return source && cloneDocument(source);
+}
+
+function projectFrameDocument(binding, compositionId, context) {
+  if (!context.projectDocuments) context.projectDocuments = new Map();
+  if (compositionId === binding.activeCompositionId) return binding.activeDocument;
+  if (context.projectDocuments.has(compositionId))
+    return context.projectDocuments.get(compositionId);
+  const source = normalizedProjectSource(binding, compositionId);
+  if (!source) return null;
+  const { width, height, editor, layers, ...shared } = binding.activeDocument;
+  const doc = {
+    ...shared,
+    width: source.width,
+    height: source.height,
+    ...(source.editor === undefined ? {} : { editor: source.editor }),
+    layers: source.layers,
+  };
+  projectDocumentContexts.set(doc, binding);
+  context.projectDocuments.set(compositionId, doc);
+  return doc;
+}
 export function cloneDocument(doc) {
   const { fontAssets, imageAssets, ...model } = doc;
   const copy = clone(model);
@@ -283,7 +366,7 @@ export function cloneDocument(doc) {
     for (const asset of Object.values(imageAssets)) freezeDocumentView(asset);
     copy.imageAssets = { ...imageAssets };
   }
-  return copy;
+  return inheritProjectDocumentContext(doc, copy);
 }
 export function sameDocument(a, b) {
   const { fontAssets: af = {}, imageAssets: ai = {}, ...am } = a;
@@ -1022,6 +1105,7 @@ function parameterDependencies(entries, connected = null) {
       ? parameterExpressionUses(q).map((ref) => ({
           source: ref.nodeId,
           ...(ref.layerId ? { layerId: ref.layerId } : {}),
+          ...(ref.compositionId ? { compositionId: ref.compositionId } : {}),
           parameterKey: ref.key,
           component: ref.component,
           ...(q.type === 'Color' ? { parameterType: ref.type } : {}),
@@ -1362,6 +1446,11 @@ function validateNodePreset(doc, preset) {
     throw Error('Preset must contain 1–1999 source/effect nodes');
   if (nodesHaveArtworkReferences(preset.nodes))
     throw Error('Node presets do not support Artwork references');
+  if (
+    doc.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
+    nodesHaveCompositionPropertyReferenceSyntax(preset.nodes)
+  )
+    throw Error('Node presets do not support Composition property references');
   const ids = new Set(preset.nodes.map((n) => n.id));
   for (const n of preset.nodes) {
     if (['Output', 'Image Output', 'Composition Reference', 'SVG'].includes(n.type))
@@ -1831,8 +1920,14 @@ function parameterExpressionUses(q) {
 export function expressionReferencesForSchema(q, schemaVersion, { preserveOpaque = false } = {}) {
   if (
     preserveOpaque &&
+    schemaVersion < COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
+    hasCompositionPropertyReferenceSyntax(q.expression)
+  )
+    return [];
+  if (
+    preserveOpaque &&
     schemaVersion < ARTWORK_REFERENCE_SCHEMA_VERSION &&
-    hasArtworkReferenceSyntax(q.expression)
+    (hasArtworkReferenceSyntax(q.expression) || hasCompositionPropertyReferenceSyntax(q.expression))
   )
     return [];
   let refs;
@@ -1844,6 +1939,19 @@ export function expressionReferencesForSchema(q, schemaVersion, { preserveOpaque
     if (preserveOpaque && error.code !== 'EXPRESSION_INVALID_LENGTH_REFERENCE') return [];
     throw error;
   }
+  if (
+    schemaVersion < COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
+    refs.some((ref) => ref.compositionId)
+  )
+    throw Error(
+      `Composition property references require schemaVersion ${COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION}`,
+    );
+  if (refs.some((ref) => ref.compositionId) && !['Scalar', 'Color'].includes(q.type))
+    throw Error('Composition references require a Scalar expression');
+  if (
+    refs.some((ref) => ref.compositionId && (ref.type !== 'Scalar' || ref.component !== undefined))
+  )
+    throw Error('Composition references require a Scalar property');
   if (schemaVersion < ARTWORK_REFERENCE_SCHEMA_VERSION && refs.some((ref) => ref.layerId))
     throw Error(`Artwork references require schemaVersion ${ARTWORK_REFERENCE_SCHEMA_VERSION}`);
   if (!['Scalar', 'Vector2', 'Color'].includes(q.type) && refs.some((ref) => ref.layerId))
@@ -1910,7 +2018,7 @@ export function previewColorExpression(
   q.expression = source;
   assertAcyclic(draft);
   const refs = source ? parameterExpressionUses(q) : [];
-  if (refs.some((ref) => ref.layerId === layer.id))
+  if (refs.some((ref) => !ref.compositionId && ref.layerId === layer.id))
     throw Error('Artwork reference requires a different layer');
   const qualified = refs.some((ref) => ref.layerId);
   let previewDocument = documentContext;
@@ -1933,12 +2041,34 @@ export function previewColorExpression(
         ))
     )
       throw Error('Legacy opaque Artwork reference text cannot be promoted to schemaVersion 62');
-    previewDocument = {
-      ...documentContext,
-      schemaVersion: Math.max(documentContext.schemaVersion, ARTWORK_REFERENCE_SCHEMA_VERSION),
-      layers: documentContext.layers.map((item) => (item.id === draft.id ? draft : item)),
-    };
+    previewDocument = inheritProjectDocumentContext(documentContext, clone(documentContext));
+    previewDocument.schemaVersion = Math.max(
+      documentContext.schemaVersion,
+      refs.some((ref) => ref.compositionId)
+        ? COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION
+        : ARTWORK_REFERENCE_SCHEMA_VERSION,
+    );
+    previewDocument.layers = previewDocument.layers.map((item) =>
+      item.id === draft.id ? draft : item,
+    );
     assertDocumentReferenceAcyclic(previewDocument);
+    if (refs.some((ref) => ref.compositionId)) {
+      const binding = projectDocumentContexts.get(previewDocument);
+      if (!binding) throw Error('Composition property reference requires project context');
+      assertNoLegacyCompositionPropertyReferencePromotion(binding.project);
+      const candidate = {
+        ...binding.project,
+        schemaVersion: previewDocument.schemaVersion,
+        compositionSchemaVersion: CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
+        compositions: binding.project.compositions.map((item) =>
+          item.id === binding.activeCompositionId
+            ? { ...item, layers: previewDocument.layers }
+            : item,
+        ),
+      };
+      validateCompositionProject(candidate);
+      assertProjectReferenceTransition(binding.project, candidate, fonts);
+    }
   }
   const evaluation = evaluate(draft, fonts, imageAssets, previewDocument);
   const resolve = (ref, type = 'Scalar') => evaluation.resolveReference(ref, type);
@@ -1952,6 +2082,11 @@ function parameterReferenceText(nodeId, key, component) {
 }
 export function parameterReferenceExpression(nodeId, key, component) {
   const text = parameterReferenceText(nodeId, key, component);
+  expression(text, () => 0, true);
+  return text;
+}
+export function compositionParameterReferenceExpression(compositionId, layerId, nodeId, key) {
+  const text = `ref(composition, ${JSON.stringify(compositionId)}, ${JSON.stringify(layerId)}, ${JSON.stringify(nodeId)}, ${JSON.stringify(key)})`;
   expression(text, () => 0, true);
   return text;
 }
@@ -2170,6 +2305,80 @@ export function expressionReferenceTargetsForDocument(
       ),
   );
 }
+// Enumerate from one project graph, so candidates that would close a mixed
+// cross-Composition cycle are excluded without changing any authored state.
+export function expressionReferenceTargetsForProject(
+  project,
+  compositionId,
+  layerId,
+  nodeId,
+  type = 'Scalar',
+  targetKey,
+) {
+  const composition = project?.compositions?.find((item) => item.id === compositionId);
+  if (!composition) return [];
+  const document = projectAsReferenceDocument(project, { normalize: true });
+  const binding = projectDocumentContexts.get(document);
+  const normalizedComposition = normalizedProjectSource(binding, compositionId);
+  const graph = documentDependencyGraph(document);
+  const reaches = (vertex, seen = new Set()) => {
+    if (
+      vertex.layerId === layerId &&
+      vertex.nodeId === nodeId &&
+      (targetKey === undefined || vertex.key === targetKey)
+    )
+      return true;
+    const key = graph.keyOf(vertex);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return graph.edges(vertex).some((dep) => reaches(dep, seen));
+  };
+  const localDoc = { ...document, layers: normalizedComposition.layers };
+  const local = expressionReferenceTargetsForDocument(localDoc, layerId, nodeId, type, targetKey)
+    .filter((target) => !reaches(graph.property(target.layerId, target.nodeId, target.key)))
+    .map((target) => ({ ...target, compositionId }));
+  const targetNode = normalizedComposition.layers
+    .find((item) => item.id === layerId)
+    ?.nodes.find((item) => item.id === nodeId);
+  const destination =
+    targetKey === undefined ? null : targetNode && parameter(targetNode, targetKey);
+  if (type === 'Color' || (destination && !['Scalar', 'Color'].includes(destination.type)))
+    return local;
+  return local.concat(
+    project.compositions
+      .filter((item) => item.id !== compositionId)
+      .flatMap((source) =>
+        normalizedProjectSource(binding, source.id).layers.flatMap((sourceLayer) =>
+          expressionReferenceTargets(sourceLayer, null, 'Scalar')
+            .filter(
+              (target) =>
+                source.layers
+                  .find((item) => item.id === sourceLayer.id)
+                  ?.nodes.some((item) => item.id === target.nodeId) &&
+                target.component === undefined &&
+                parameter(
+                  sourceLayer.nodes.find((n) => n.id === target.nodeId),
+                  target.key,
+                )?.type === 'Scalar' &&
+                !reaches(graph.property(sourceLayer.id, target.nodeId, target.key)),
+            )
+            .map((target) => ({
+              ...target,
+              compositionId: source.id,
+              layerId: sourceLayer.id,
+              layerName: sourceLayer.name,
+              expression: compositionParameterReferenceExpression(
+                source.id,
+                sourceLayer.id,
+                target.nodeId,
+                target.key,
+              ),
+            })),
+        ),
+      ),
+  );
+}
+
 function assertValue(type, value) {
   if (
     type === 'Color' &&
@@ -2869,9 +3078,9 @@ export function evaluate(
     readingParameters: new Set(),
     depth: 0,
   };
-  const frameFor = (target) =>
+  const frameFor = (target, targetDocument = documentContext) =>
     context.frames.get(target.id) ||
-    evaluate(target, fonts, imageAssets, documentContext, context, true);
+    evaluate(target, fonts, imageAssets, targetDocument, context, true);
   function referencedOutput(n) {
     const targetId = n.compositionReference?.compositionId;
     if (!targetId)
@@ -2971,6 +3180,27 @@ export function evaluate(
   const layerReadingParameters = new Set();
   const frameParameterIndexes = new WeakMap();
   function resolveExpressionReference(ref, type = 'Scalar') {
+    if (ref.compositionId) {
+      const binding = documentContext && projectDocumentContexts.get(documentContext);
+      if (!binding) throw Error('Composition property reference requires project context');
+      if (documentContext.schemaVersion < COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION)
+        throw Error(
+          `Composition property references require schemaVersion ${COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION}`,
+        );
+      const sourceDocument = projectFrameDocument(binding, ref.compositionId, context);
+      const sourceLayer = sourceDocument?.layers.find((item) => item.id === ref.layerId);
+      if (!sourceLayer)
+        throw Object.assign(
+          Error(
+            `Expression reference Composition or artwork is missing: ${ref.compositionId}/${ref.layerId}`,
+          ),
+          { code: 'EXPRESSION_REFERENCE_MISSING' },
+        );
+      if (type !== 'Scalar' || ref.component !== undefined)
+        throw Error('Composition references require a Scalar property');
+      const target = referenceParameter(sourceLayer, ref, type);
+      return frameFor(sourceLayer, sourceDocument).parameterValue(target.id, ref.key);
+    }
     if (
       ref.layerId &&
       documentContext &&
@@ -3099,6 +3329,9 @@ export function evaluate(
               {
                 nodeId: dep.source,
                 ...(dep.layerId && !connected.has(dep) ? { layerId: dep.layerId } : {}),
+                ...(dep.compositionId && !connected.has(dep)
+                  ? { compositionId: dep.compositionId }
+                  : {}),
                 key: dep.parameterKey,
                 component: dep.component,
               },
@@ -4776,19 +5009,30 @@ function foreignAffectedVertices(before, candidate, fonts) {
     activatedVertices,
   };
 }
-function assertArtworkReferenceTransition(before, candidate, fonts = {}) {
+function assertArtworkReferenceTransition(
+  before,
+  candidate,
+  fonts = {},
+  validateEffective = validate,
+) {
   const allRefs = (doc) =>
     doc.layers.flatMap((layer) =>
       layer.nodes.flatMap((n) =>
         parameters(n).flatMap(([, q]) =>
-          typeof q.expression === 'string' ? artworkExpressionReferences(q.expression) : [],
+          typeof q.expression === 'string'
+            ? [
+                ...artworkExpressionReferences(q.expression),
+                ...compositionPropertyReferences(q.expression),
+              ]
+            : [],
         ),
       ),
     );
   const previous = allRefs(before),
     next = allRefs(candidate);
   if (!previous.length && !next.length) return;
-  const refKey = (ref) => `${ref.layerId}\0${ref.nodeId}\0${ref.key}\0${ref.component || ''}`;
+  const refKey = (ref) =>
+    `${ref.compositionId || ''}\0${ref.layerId}\0${ref.nodeId}\0${ref.key}\0${ref.component || ''}`;
   const remaining = new Set(next.map(refKey));
   const resolvedIdentity = (doc, ref) => {
     const layer = doc.layers.find((item) => item.id === ref.layerId);
@@ -4932,8 +5176,76 @@ function assertArtworkReferenceTransition(before, candidate, fonts = {}) {
   }
   // Reuse the same hard domain checks as saved values on a detached projection
   // of the affected effective values; authored fallbacks are never changed.
-  validate(effective);
+  validateEffective(effective);
 }
+function projectAsReferenceDocument(project, { normalize = false } = {}) {
+  const { compositionSchemaVersion, compositions, ...shared } = project;
+  const first = compositions[0];
+  const doc = {
+    ...shared,
+    width: first.width,
+    height: first.height,
+    ...(first.editor === undefined ? {} : { editor: first.editor }),
+    layers: compositions.flatMap((composition) => composition.layers),
+  };
+  bindProjectDocumentContext(doc, project, first.id);
+  if (normalize) {
+    const binding = projectDocumentContexts.get(doc);
+    doc.layers = compositions.flatMap(
+      (composition) => normalizedProjectSource(binding, composition.id).layers,
+    );
+  }
+  return doc;
+}
+
+// Check exact identity, graph cycles and changed dependent values against the
+// whole project candidate, before either Session or project History commits.
+export function assertProjectReferenceTransition(before, candidate, fonts = {}) {
+  const previous =
+    before.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION
+      ? compositionPropertyReferencesInProject(before)
+      : [];
+  const next =
+    candidate.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION
+      ? compositionPropertyReferencesInProject(candidate)
+      : [];
+  if (!previous.length && !next.length) return;
+  const key = (ref) => `${ref.compositionId}\0${ref.layerId}\0${ref.nodeId}\0${ref.key}`;
+  const remaining = new Set(next.map(key));
+  const resolves = (project, ref) =>
+    project.compositions
+      .find((c) => c.id === ref.compositionId)
+      ?.layers.find((layer) => layer.id === ref.layerId)
+      ?.nodes.some((n) => n.id === ref.nodeId);
+  for (const ref of previous)
+    if (remaining.has(key(ref)) && !resolves(before, ref) && resolves(candidate, ref))
+      throw Error('New identity would retarget a missing Composition property reference');
+  const oldDoc = projectAsReferenceDocument(before, { normalize: true }),
+    nextDoc = projectAsReferenceDocument(candidate, { normalize: true });
+  const binding = projectDocumentContexts.get(nextDoc);
+  for (const ref of next) {
+    const layer = normalizedProjectSource(binding, ref.compositionId)?.layers.find(
+      (item) => item.id === ref.layerId,
+    );
+    if (layer?.nodes.some((n) => n.id === ref.nodeId)) referenceParameter(layer, ref, 'Scalar');
+  }
+  assertDocumentReferenceAcyclic(nextDoc);
+  assertArtworkReferenceTransition(oldDoc, nextDoc, fonts, (effective) => {
+    for (const composition of candidate.compositions) {
+      const ids = new Set(composition.layers.map((layer) => layer.id));
+      const doc = {
+        ...effective,
+        width: composition.width,
+        height: composition.height,
+        layers: effective.layers.filter((layer) => ids.has(layer.id)),
+      };
+      if (composition.editor === undefined) delete doc.editor;
+      else doc.editor = composition.editor;
+      validate(doc);
+    }
+  });
+}
+
 // All attached/wrapped text is checked, even when it is not the displayed Output. A failed
 // edit leaves authored state/history unchanged; pre-existing diagnosed errors can be repaired.
 export function assertTextPathChange(
@@ -5406,7 +5718,8 @@ export function validate(doc) {
       doc.schemaVersion !== LIVE_KEY_COLOR_RECIPE_SCHEMA_VERSION &&
       doc.schemaVersion !== CURVE_POINT_REFERENCE_SCHEMA_VERSION &&
       doc.schemaVersion !== CURVE_HANDLE_REFERENCE_SCHEMA_VERSION &&
-      doc.schemaVersion !== ARTWORK_REFERENCE_SCHEMA_VERSION)
+      doc.schemaVersion !== ARTWORK_REFERENCE_SCHEMA_VERSION &&
+      doc.schemaVersion !== COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   const colorSlots = validateColorSlots(doc);
@@ -6034,10 +6347,19 @@ export function validate(doc) {
       for (const [, q] of parameters(n))
         if (q.expression) {
           for (const ref of expressionReferencesForSchema(q, sourceSchemaVersion)) {
-            if (ref.layerId === l.id) throw Error('Artwork reference requires a different layer');
-            if (owners.has(ref.nodeId) && owners.get(ref.nodeId) !== (ref.layerId || l.id))
+            if (!ref.compositionId && ref.layerId === l.id)
+              throw Error('Artwork reference requires a different layer');
+            if (
+              !ref.compositionId &&
+              owners.has(ref.nodeId) &&
+              owners.get(ref.nodeId) !== (ref.layerId || l.id)
+            )
               throw Error('Expression reference target must be in the same layer');
-            const sourceLayer = ref.layerId ? layersById.get(ref.layerId) : l;
+            const sourceLayer = ref.compositionId
+              ? null
+              : ref.layerId
+                ? layersById.get(ref.layerId)
+                : l;
             const owner = ref.layerId
               ? sourceLayer?.nodes.find((item) => item.id === ref.nodeId)
               : localNodes.get(ref.nodeId);
@@ -6256,7 +6578,7 @@ export function renderElement(
 // Validation includes legacy migrations and asset freezing. Keep both private to
 // export, including for mutable callers; cloneDocument would freeze their assets.
 export function exportScene(doc, fonts = {}) {
-  return exportValidatedScene(validate(clone(doc)), fonts);
+  return exportValidatedScene(validate(inheritProjectDocumentContext(doc, clone(doc))), fonts);
 }
 function exportValidatedScene(doc, fonts) {
   fonts = resolveFonts(doc, fonts);
@@ -6297,7 +6619,7 @@ export function exportSVG(doc, fonts = {}, options = {}) {
   )
     throw Error('Invalid SVG export options');
   const precision = validateSvgPrecision(options.precision);
-  doc = validate(clone(doc));
+  doc = validate(inheritProjectDocumentContext(doc, clone(doc)));
   const scene = exportValidatedScene(doc, fonts);
   const rootAttributes = svgRootAttributes(doc, options.unit ?? 'px', {
     responsive: options.responsive ?? false,
@@ -6409,7 +6731,12 @@ export function updateTextTypography(target, ids, patch, doc, layer, fonts = {})
 }
 
 export function createVariableDocumentPreparer(options = {}) {
-  return createVariableBridge({ ...options, resolveFonts, validate });
+  return createVariableBridge({
+    ...options,
+    resolveFonts,
+    validate,
+    cloneDocument: (document) => inheritProjectDocumentContext(document, clone(document)),
+  });
 }
 
 export class CommandSession {
@@ -6444,6 +6771,9 @@ export class CommandSession {
     this.#onCommitted = onCommitted;
     this.#beforeCandidateCommit = beforeCandidateCommit;
     this.id = uid('session');
+  }
+  setProjectContext(project, compositionId) {
+    bindProjectDocumentContext(this.#history.doc, project, compositionId);
   }
   get historyView() {
     const session = this;
@@ -7209,6 +7539,8 @@ export class CommandSession {
     else candidate.layers.push(layer);
     assertNoAccidentalCurvePointRebind(draft.base, candidate, this.#nodeClipboard);
     assertArtworkReferenceTransition(draft.base, candidate, this.#fonts());
+    if (candidate.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION)
+      this.#beforeCandidateCommit?.(this.#history.doc, candidate);
     validate(candidate);
     if (draft.resuming)
       assertClosedOffsetChange(
@@ -7549,6 +7881,8 @@ export class CommandSession {
       if (type === 'update-gesture') {
         const candidate = this.#gestureCandidate(draft.base, draft.target, payload.update);
         assertArtworkReferenceTransition(draft.base, candidate, this.#fonts());
+        if (candidate.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION)
+          this.#beforeCandidateCommit?.(this.#history.doc, candidate);
         draft.candidate = candidate;
         draft.update = clone(payload.update);
         draft.version++;
@@ -7643,6 +7977,11 @@ export class CommandSession {
         nodes = selected.filter((n) => !['Output', 'Image Output'].includes(n.type));
       if (!nodes.length)
         throw Error('Copy source/effect nodes; each Composition keeps its own Output');
+      if (
+        doc.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
+        nodesHaveCompositionPropertyReferenceSyntax(nodes)
+      )
+        throw Error('Copying nodes with Composition property references is not supported');
       const ids = new Set(nodes.map((n) => n.id)),
         externalNodeIds = [
           ...new Set(
@@ -8814,6 +9153,12 @@ export class CommandSession {
         throw Error(
           'Node clipboard is empty. Copy in this document’s graph; OS/other-document paste is not supported',
         );
+      if (
+        (candidate.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION ||
+          clipboard.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION) &&
+        nodesHaveCompositionPropertyReferenceSyntax(clipboard.nodes)
+      )
+        throw Error('Pasting nodes with Composition property references is not supported');
       if (clipboard.artworkReferences.length) {
         if (clipboard.sourceLayerId !== target.id)
           throw Error('Paste nodes with Artwork references in their original Artwork');
@@ -8895,6 +9240,11 @@ export class CommandSession {
           throw Error('Invalid duplicate offset');
       }
       const originals = target.nodes.filter((n) => payload.nodeIds.includes(n.id));
+      if (
+        candidate.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
+        nodesHaveCompositionPropertyReferenceSyntax(originals)
+      )
+        throw Error('Duplicating nodes with Composition property references is not supported');
       const copies = duplicateNodes(target, payload.nodeIds);
       if (payload.offset !== undefined)
         copies.forEach((copy, index) => {
@@ -9491,7 +9841,12 @@ export class CommandSession {
           q.expression = payload.expression;
           if (q.expression)
             for (const ref of parameterExpressionUses(q)) {
-              if (ref.layerId)
+              if (ref.compositionId)
+                candidate.schemaVersion = Math.max(
+                  candidate.schemaVersion,
+                  COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
+                );
+              else if (ref.layerId)
                 candidate.schemaVersion = Math.max(
                   candidate.schemaVersion,
                   ARTWORK_REFERENCE_SCHEMA_VERSION,

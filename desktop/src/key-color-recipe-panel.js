@@ -11,7 +11,7 @@ import {
   prepareLiveKeyColorRecipeApplication,
   isLiveKeyColorRecipe,
 } from './key-color-recipe-document.js';
-import { uid } from './core.js';
+import { cloneDocument, uid } from './core.js';
 import { createKeyColorC1Draft } from './key-color-c1-draft.js';
 import { createKeyColorDeltaScrub } from './key-color-delta-scrub.js';
 import { researchPlans } from './key-color-research-plans.js';
@@ -481,7 +481,7 @@ export function createKeyColorRecipePanel({
       )
         throw Error('Preview the current inputs before showing artwork.');
       const prepared = prepare(preview.snapshot);
-      const projected = structuredClone(getDocument());
+      const projected = cloneDocument(getDocument());
       const updates = new Map(prepared.updates.map(({ slotId, value }) => [slotId, value]));
       projected.colorSlots = projected.colorSlots.map((slot) =>
         updates.has(slot.id) ? { ...slot, value: structuredClone(updates.get(slot.id)) } : slot,

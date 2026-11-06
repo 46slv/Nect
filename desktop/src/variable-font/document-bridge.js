@@ -54,7 +54,12 @@ export function assertVariableDocumentReady(doc, fonts) {
     }
 }
 /** Document-scoped runtime only. Never serialize this object or prepared outlines. */
-export function createVariableDocumentPreparer({ resolveFonts, validate, ...options } = {}) {
+export function createVariableDocumentPreparer({
+  resolveFonts,
+  validate,
+  cloneDocument = structuredClone,
+  ...options
+} = {}) {
   const preparer = createVariablePreparer(options);
   const registered = new Map();
   let generation = 0,
@@ -74,7 +79,7 @@ export function createVariableDocumentPreparer({ resolveFonts, validate, ...opti
       clearTicket();
       preparer.setRevision(revision);
       check(!signal?.aborted, 'CANCELLED');
-      const doc = structuredClone(input);
+      const doc = cloneDocument(input);
       validate(doc);
       const fonts = resolveFonts(doc);
       const requests = new Map(),

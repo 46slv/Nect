@@ -2,7 +2,7 @@ import { displayColorLabels as disambiguateLabels } from './color-display-labels
 import { boundedDisplayPart } from './shared-color-uses.js';
 
 // Context is presentation only: references keep their complete layer/node IDs.
-export function expressionTargetDisplay(document, activeLayerId) {
+function artworkTargetDisplay(document, activeLayerId) {
   const layerParts = new Map(
       document.layers.map((layer) => [layer.id, boundedDisplayPart(layer.name)]),
     ),
@@ -158,6 +158,134 @@ export function expressionTargetDisplay(document, activeLayerId) {
             (node && matches(item.nodeId, node.name, normalizedNodes, nodeMatches)[index]),
         );
       });
+    },
+  };
+}
+
+// Project context only affects presentation and search. Each expression keeps
+// its complete Composition, Artwork and node identities.
+export function expressionTargetDisplay(document, activeLayerId, options = {}) {
+  const active = artworkTargetDisplay(document, activeLayerId),
+    project = options.project,
+    activeCompositionId = options.activeCompositionId;
+  if (!project || !activeCompositionId) return active;
+  const compositions = new Map(project.compositions.map((item) => [item.id, item])),
+    parts = new Map(project.compositions.map((item) => [item.id, boundedDisplayPart(item.name)])),
+    labels = disambiguateLabels(
+      project.compositions.map((item) => ({
+        id: item.id,
+        label: item.name.trim() ? parts.get(item.id).text : 'Untitled',
+      })),
+    ),
+    displays = new Map(),
+    contexts = new Map(),
+    fullNames = new Map(),
+    normalized = new Map();
+  const contextEntries = [];
+  for (const composition of project.compositions) {
+    const layers = composition.id === activeCompositionId ? document.layers : composition.layers;
+    const layerLabels = disambiguateLabels(
+      layers.map((layer) => ({
+        id: layer.id,
+        label: layer.name.trim() ? boundedDisplayPart(layer.name).text : 'Untitled',
+      })),
+    );
+    for (const layer of layers) {
+      if (composition.id === activeCompositionId && layer.id === activeLayerId) continue;
+      contextEntries.push({
+        id: layer.id,
+        label:
+          composition.id === activeCompositionId
+            ? layerLabels.get(layer.id)
+            : `${labels.get(composition.id)} · ${layerLabels.get(layer.id)}`,
+      });
+    }
+  }
+  const contextLabels = disambiguateLabels(contextEntries);
+  function foreignState(compositionId) {
+    const composition = compositions.get(compositionId);
+    if (!composition || compositionId === activeCompositionId) return null;
+    if (!displays.has(compositionId))
+      displays.set(compositionId, {
+        display: artworkTargetDisplay({ layers: composition.layers }, null),
+        layers: new Map(composition.layers.map((layer) => [layer.id, layer])),
+        nodes: new Map(
+          composition.layers.flatMap((layer) => layer.nodes.map((node) => [node.id, node])),
+        ),
+      });
+    return displays.get(compositionId);
+  }
+  function contextTerms(target, value) {
+    const key = `${target.compositionId}\0${target.layerId}`;
+    if (!contexts.has(key))
+      contexts.set(key, [
+        target.compositionId,
+        ...labels.get(target.compositionId).split(/\s+/),
+        ...contextLabels.get(target.layerId).split(/\s+/),
+        ...(value.contextSearchTerms || []),
+      ]);
+    return contexts.get(key);
+  }
+  function fullName(target, state, value) {
+    if (!parts.get(target.compositionId)?.truncated && !value.fullName) return undefined;
+    if (!fullNames.has(target.nodeId)) {
+      const composition = compositions.get(target.compositionId),
+        layer = state.layers.get(target.layerId),
+        node = state.nodes.get(target.nodeId);
+      fullNames.set(target.nodeId, () => `${composition.name} · ${layer.name} · ${node.name}`);
+    }
+    return fullNames.get(target.nodeId);
+  }
+  return {
+    completion(target) {
+      const state = foreignState(target.compositionId);
+      if (!state) return active.completion(target);
+      const value = state.display.completion(target),
+        name = fullName(target, state, value);
+      return {
+        ...value,
+        contextLabel: contextLabels.get(target.layerId),
+        contextSearchTerms: contextTerms(target, value),
+        projectSearchText: compositions.get(target.compositionId).name,
+        ...(name ? { fullName: name } : {}),
+      };
+    },
+    picker(target) {
+      const state = foreignState(target.compositionId);
+      if (!state) return active.picker(target);
+      const value = state.display.picker(target),
+        nodeLabel = state.display.completion(target).label,
+        name = fullName(target, state, value);
+      return {
+        ...value,
+        label: `${contextLabels.get(target.layerId)} · ${nodeLabel}`,
+        compositionId: target.compositionId,
+        searchText: `${target.compositionId} ${value.searchText || ''}`,
+        ...(name ? { fullName: name } : {}),
+      };
+    },
+    filter(items, query) {
+      const normalize = (value) => value.normalize('NFKC').toLowerCase(),
+        words = normalize(query.trim()).split(/\s+/).filter(Boolean),
+        groups = new Map(),
+        matches = new Set();
+      if (!words.length) return items;
+      for (const item of items) {
+        const id = item.compositionId || activeCompositionId;
+        if (!groups.has(id)) groups.set(id, []);
+        groups.get(id).push(item);
+      }
+      for (const [id, group] of groups) {
+        const state = foreignState(id);
+        if (!state) {
+          for (const item of active.filter(group, query)) matches.add(item);
+          continue;
+        }
+        if (!normalized.has(id)) normalized.set(id, normalize(compositions.get(id).name));
+        const remaining = words.filter((word) => !normalized.get(id).includes(word));
+        for (const item of state.display.filter(group, remaining.join(' '))) matches.add(item);
+      }
+      return items.filter((item) => matches.has(item));
     },
   };
 }

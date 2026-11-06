@@ -129,3 +129,87 @@ test('long Artwork and node names stay bounded, searchable and available in full
     targets[0].expression,
   );
 });
+
+test('Composition context distinguishes duplicate names and keeps exact reference identity', () => {
+  const document = { layers: [{ id: 'local', name: 'Local', nodes: [] }] },
+    longName = `${'Project '.repeat(12000)}CompositionTail`,
+    project = {
+      compositions: [
+        { id: 'current', name: 'Current', layers: document.layers },
+        {
+          id: 'comp-1234',
+          name: 'が',
+          layers: [{ id: 'art-a', name: 'Shape', nodes: [{ id: 'value-a', name: 'Value' }] }],
+        },
+        {
+          id: 'comp-2234',
+          name: 'か\u3099',
+          layers: [{ id: 'art-b', name: 'Shape', nodes: [{ id: 'value-b', name: 'Value' }] }],
+        },
+        {
+          id: 'comp-long',
+          name: longName,
+          layers: [{ id: 'art-c', name: 'Shape', nodes: [{ id: 'value-c', name: 'Value' }] }],
+        },
+        {
+          id: 'comp-hierarchy-a',
+          name: 'A · B',
+          layers: [{ id: 'art-d', name: 'C', nodes: [{ id: 'value-d', name: 'Value' }] }],
+        },
+        {
+          id: 'comp-hierarchy-b',
+          name: 'A',
+          layers: [{ id: 'art-e', name: 'B · C', nodes: [{ id: 'value-e', name: 'Value' }] }],
+        },
+      ],
+    },
+    display = expressionTargetDisplay(document, 'local', {
+      project,
+      activeCompositionId: 'current',
+    });
+  const target = (compositionId, layerId, nodeId) => ({
+    compositionId,
+    layerId,
+    nodeId,
+    name: 'Value',
+    key: 'value',
+    type: 'Scalar',
+    label: 'Value · value',
+    expression: `ref(composition, "${compositionId}", "${layerId}", "${nodeId}", "value")`,
+  });
+  const first = target('comp-1234', 'art-a', 'value-a'),
+    second = target('comp-2234', 'art-b', 'value-b'),
+    long = target('comp-long', 'art-c', 'value-c'),
+    rows = [first, second, long].map(display.picker);
+  assert.notEqual(rows[0].label.normalize('NFC'), rows[1].label.normalize('NFC'));
+  assert.match(rows[0].label, /Shape.*Value/);
+  assert.equal(rows[0].id, first.expression);
+  assert.equal(rows[1].id, second.expression);
+  assert.ok(rows[2].label.length < 150);
+  assert.equal(rows[2].fullName(), `${longName} · Shape · Value`);
+  assert.equal(display.filter(rows, 'CompositionTail art-c value-c')[0].id, long.expression);
+  assert.equal(display.filter(rows, 'comp-2234 Shape')[0].id, second.expression);
+  const hierarchyA = display.picker(target('comp-hierarchy-a', 'art-d', 'value-d')),
+    hierarchyB = display.picker(target('comp-hierarchy-b', 'art-e', 'value-e'));
+  assert.notEqual(hierarchyA.label.normalize('NFC'), hierarchyB.label.normalize('NFC'));
+  const completion = display.completion(long);
+  assert.equal(completion.expression, long.expression);
+  assert.ok(completion.contextSearchTerms.includes('comp-long'));
+  assert.equal(
+    expressionCompletions('CompositionTail', 15, 15, [completion])[0].text,
+    long.expression,
+  );
+  const many = Array.from({ length: 1000 }, (_, index) => ({
+      ...long,
+      key: `property-${index}`,
+      label: `Value · property-${index}`,
+      expression: `ref(composition, "comp-long", "art-c", "value-c", "property-${index}")`,
+    })),
+    manyRows = many.map(display.picker);
+  assert.equal(manyRows[0].fullName, manyRows.at(-1).fullName);
+  assert.equal(display.filter(manyRows, 'CompositionTail').length, 1000);
+  assert.equal(
+    display.filter(manyRows, 'CompositionTail property-999')[0].id,
+    many.at(-1).expression,
+  );
+});
