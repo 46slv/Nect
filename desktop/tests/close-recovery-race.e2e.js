@@ -16,6 +16,7 @@ const browser = await chromium.launch({
 async function fixture({
   holdRegistration = false,
   holdFontCatalog = false,
+  holdBundledFont = false,
   baseURL,
   acceptanceStub = false,
 } = {}) {
@@ -30,7 +31,16 @@ async function fixture({
       }),
     );
   await page.addInitScript(
-    ({ holdRegistration, holdFontCatalog }) => {
+    ({ holdRegistration, holdFontCatalog, holdBundledFont }) => {
+      if (holdBundledFont) {
+        const fetch = window.fetch.bind(window);
+        window.fetch = (input, ...args) =>
+          String(input) === '/fonts/DejaVuSans.ttf'
+            ? new Promise((_, reject) => {
+                window.rejectBundledFont = reject;
+              })
+            : fetch(input, ...args);
+      }
       window.isTauri = true;
       window.closeCalls = 0;
       window.chooseCalls = 0;
@@ -114,7 +124,7 @@ async function fixture({
         },
       };
     },
-    { holdRegistration, holdFontCatalog },
+    { holdRegistration, holdFontCatalog, holdBundledFont },
   );
   await page.goto(baseURL || process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect && window.closeChannel);
@@ -247,18 +257,27 @@ try {
   await run(
     'registration failure remains visibly blocked and can safely close',
     async (page) => {
+      await page.waitForFunction(() => typeof window.rejectBundledFont === 'function');
       await page.evaluate(() => window.rejectGuard(Error('fixture registration failed')));
       await page.waitForFunction(() =>
         document.body.textContent.includes('Close protection unavailable. Restart Nect.'),
       );
       assert.equal(await page.evaluate(() => document.body.inert), true);
       assert.equal(await page.evaluate(() => window.recoveryListCalls || 0), 0);
+      await page.evaluate(async () => {
+        window.rejectBundledFont(Error('fixture font failed'));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      assert.equal(
+        await page.locator('.status .message').innerText(),
+        'Close protection unavailable. Restart Nect.',
+      );
       await closeRequest(page);
       await page.waitForFunction(() => window.closeDone);
       assert.equal(await page.evaluate(() => window.closeCalls), 1);
       assert.equal(await page.evaluate(() => window.chooseCalls), 0);
     },
-    { holdRegistration: true },
+    { holdRegistration: true, holdBundledFont: true },
   );
 
   await run(

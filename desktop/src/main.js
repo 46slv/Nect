@@ -1394,7 +1394,8 @@ document.addEventListener(
   true,
 );
 let closeFinalizing = false,
-  closeGuardReady = !desktop;
+  closeGuardReady = !desktop,
+  closeGuardFailed = false;
 const startupBodyInert = document.body.inert;
 if (!closeGuardReady) document.body.inert = true;
 const closeInputBlocked = () => closeFinalizing || !closeGuardReady;
@@ -1939,6 +1940,10 @@ function alignmentPanel(move) {
 }
 let privateFontMissingStatus = null;
 function notify(text, bad = false) {
+  if (closeGuardFailed) {
+    text = 'Close protection unavailable. Restart Nect.';
+    bad = true;
+  }
   privateFontMissingStatus = null;
   message = text;
   error = bad;
@@ -17577,6 +17582,7 @@ registerClose(async (finishClose) => {
     startRecoveryAcceptanceWhenReady();
   })
   .catch(() => {
+    closeGuardFailed = true;
     notify('Close protection unavailable. Restart Nect.', true);
   });
 new window.MutationObserver(updateDocumentStatus).observe(app, { childList: true });
