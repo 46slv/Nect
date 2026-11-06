@@ -561,6 +561,14 @@ test('deleting the source Composition leaves a missing diagnostic and Undo resto
   assert.throws(() => read(owner, 'sink', 'value'), /missing/i);
   send(owner, 'undo');
   assert.equal(read(owner, 'sink', 'value'), 5);
+  send(owner, 'delete-composition', {
+    compositionId: 'comp-b',
+    expectedName: 'Source',
+    expectedProjectRevision: owner.projectRevision,
+  });
+  assert.throws(() => read(owner, 'sink', 'value'), /missing/i);
+  send(owner, 'undo');
+  assert.equal(read(owner, 'sink', 'value'), 5);
 });
 
 test('legacy opaque reserved prefix blocks promotion across all descriptors and presets', () => {
