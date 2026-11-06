@@ -389,6 +389,22 @@ test('invalid switch and invalid resize preserve the full project and session st
   assert.equal(serializeCompositionProject(owner.projectSnapshot()), projectBefore);
 });
 
+test('a genuinely unprojectable inner commit still rebuilds the session without changing project history', () => {
+  const { owner, secondId } = fixture();
+  owner.renameComposition(secondId, 'Renamed');
+  send(owner, 'undo');
+  const project = owner.projectSnapshot(),
+    history = owner.historyState,
+    state = owner.state;
+  assert.throws(() => send(owner, 'set-document-settings', { key: 'width', value: 0 }));
+  assert.deepEqual(owner.projectSnapshot(), project);
+  assert.deepEqual(owner.historyState, history);
+  assert.equal(owner.snapshot().width, 960);
+  assert.notEqual(owner.state.sessionId, state.sessionId);
+  send(owner, 'redo');
+  assert.equal(owner.projectSnapshot().compositions.find((c) => c.id === secondId).name, 'Renamed');
+});
+
 test('Composition create, rename, resize and delete are project Undo steps', () => {
   const project = migrateLegacyDocumentToCompositionProject(blankDocument());
   const owner = new CompositionSessionOwner(project, runtime);

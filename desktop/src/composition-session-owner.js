@@ -233,17 +233,21 @@ export class CompositionSessionOwner {
   }
 
   #makeSession(project, compositionId) {
-    return new this.#CommandSession(this.#documentFor(project, compositionId), {
+    let session;
+    session = new this.#CommandSession(this.#documentFor(project, compositionId), {
       fonts: this.#fonts,
       busy: this.#busy,
       retainHistory: false,
       beforeCandidateCommit: (before, candidate) => {
+        if (this.#session !== session || this.#activeCompositionId !== compositionId)
+          throw Error('STALE_SESSION: active Composition changed');
         assertProjectIdentityChangeSafe(this.#history.doc, compositionId, before, candidate);
         // Validate the whole projection before the inner Session commits;
         // a new identity or reference can affect an inactive Composition.
         projectWithDocument(this.#history.doc, compositionId, candidate);
       },
     });
+    return session;
   }
 
   #assertQuiescent() {
@@ -631,9 +635,13 @@ export class CompositionSessionOwner {
       // The core command has committed before the project adapter runs. If its
       // project-level validation rejects, replace that session from the
       // unchanged project snapshot so a failed adapter cannot leak an edit.
-      if (session.state.expectedRevision !== revision) {
+      if (
+        session.state.expectedRevision !== revision &&
+        this.#session === session &&
+        this.#activeCompositionId === compositionId &&
+        !this.#sameDocument(session.snapshot(), this.#documentFor(this.#history.doc, compositionId))
+      )
         this.#session = this.#makeSession(this.#history.doc, compositionId);
-      }
       throw error;
     }
   }

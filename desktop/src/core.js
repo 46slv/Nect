@@ -6382,6 +6382,7 @@ export class CommandSession {
   #fonts;
   #busy;
   #onCommitted;
+  #lastNotifiedRevision = 0;
   #textDrafts = new Map();
   #gesture = null;
   #prepared = null;
@@ -7262,7 +7263,11 @@ export class CommandSession {
     try {
       return action();
     } finally {
-      if (this.#history.revision !== before) {
+      if (
+        this.#history.revision !== before &&
+        this.#history.revision !== this.#lastNotifiedRevision
+      ) {
+        this.#lastNotifiedRevision = this.#history.revision;
         // An adapter cannot roll back an already committed edit.
         try {
           this.#onCommitted(Object.freeze(this.state));
@@ -7646,6 +7651,7 @@ export class CommandSession {
       return this.state;
     }
     let commandBase = this.#history.doc;
+    const commandRevision = this.#history.revision;
     const arrangementDrafts = ['set-character-arrangement', 'clear-character-arrangement'].includes(
       type,
     )
@@ -7673,10 +7679,20 @@ export class CommandSession {
     );
     assertVariableDocumentReady(candidate, resolveFonts(candidate, this.#fonts()));
     assertNoAccidentalCurvePointRebind(this.#history.doc, candidate, this.#nodeClipboard);
-    assertArtworkReferenceTransition(this.#history.doc, candidate, this.#fonts());
+    // These commands change only layer presentation/locking flags. They cannot
+    // change an expression value or an identity. A reentrant input must not
+    // install its candidate over a newer Session document.
+    const layerFlagsOnly = ['set-layer-state', 'clear-layer-solo'].includes(type);
+    const assertFlagCurrent = () => {
+      if (this.#history.doc !== commandBase || this.#history.revision !== commandRevision)
+        throw Error('STALE_REVISION: document changed');
+    };
+    if (layerFlagsOnly) assertFlagCurrent();
+    else assertArtworkReferenceTransition(this.#history.doc, candidate, this.#fonts());
     const revision = this.#history.revision;
     if (!sameDocument(this.#history.doc, candidate)) {
       this.#beforeCandidateCommit?.(this.#history.doc, candidate);
+      if (layerFlagsOnly) assertFlagCurrent();
       this.#history.apply(() => {
         this.#history.doc = candidate;
       });
@@ -8488,16 +8504,16 @@ export class CommandSession {
       if (type === 'clear-layer-solo') {
         for (const layer of candidate.layers) if (layer.solo === true) layer.solo = false;
       } else if (type === 'set-layer-state') {
-        const layer = candidate.layers.find((layer) => layer.id === payload.layerId);
+        const layerId = payload.layerId,
+          layer = candidate.layers.find((item) => item.id === layerId);
         if (!layer) throw Error('Missing composition');
-        if (
-          !['visible', 'locked', 'guide', 'solo'].includes(payload.key) ||
-          typeof payload.value !== 'boolean'
-        )
+        const key = payload.key,
+          value = payload.value;
+        if (!['visible', 'locked', 'guide', 'solo'].includes(key) || typeof value !== 'boolean')
           throw Error('Invalid layer state');
-        if (layer.locked && payload.key === 'guide') throw Error('Composition is locked');
-        layer[payload.key] = payload.value;
-        if (payload.key === 'solo') candidate.schemaVersion = Math.max(candidate.schemaVersion, 33);
+        if (layer.locked && key === 'guide') throw Error('Composition is locked');
+        layer[key] = value;
+        if (key === 'solo') candidate.schemaVersion = Math.max(candidate.schemaVersion, 33);
       } else if (type === 'set-document-settings') {
         if (!['width', 'height'].includes(payload.key)) throw Error('Invalid document setting');
         candidate[payload.key] = payload.value;
