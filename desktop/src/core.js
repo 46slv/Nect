@@ -4,6 +4,10 @@ import {
   assertNoLegacyCompositionPropertyReferencePromotion,
   assertNoLegacyQualifiedColorReferencePromotion,
   assertNoLegacyQualifiedColorDocumentPromotion,
+  assertNoLegacyArtworkReferencePromotion,
+  assertNoLegacyArtworkDocumentPromotion,
+  assertNoLegacyHandleReferencePromotion,
+  assertNoLegacyHandleDocumentPromotion,
 } from './composition-project-model.js';
 export { expression } from './expression-parser.js';
 import { JOIN_SLOT_LIMIT, validJoinSlotOrder } from './join-slots-protocol.js';
@@ -28,6 +32,7 @@ import {
   nodesHaveArtworkReferences,
   nodesHaveArtworkReferenceSyntax,
   nodesHaveLegacyCurveHandleReference,
+  clipboardReferenceSchemaVersion,
   assertNoAccidentalCurvePointRebind,
   assertNoExternalPointReferenceRebind,
   curvePointReference,
@@ -8160,6 +8165,7 @@ export class CommandSession {
         nodes: clone(nodes),
         sourceLayerId: layer.id,
         schemaVersion: doc.schemaVersion,
+        referenceSchemaVersion: clipboardReferenceSchemaVersion(nodes, layer.nodes),
         pasteCount: 0,
         externalNodeIds,
         artworkReferences,
@@ -9348,14 +9354,25 @@ export class CommandSession {
         copy.position = clipboard.nodes[i].position.map((v, axis) => v + offset[axis]);
       });
       target.nodes.push(...copies);
-      // Schemas 63 and 64 add only the two reference forms rejected above,
-      // including dormant and unsupported descriptors. A v64 source therefore
-      // transfers no feature newer than v62; retain the historical conservative
-      // source version unchanged for every older clipboard.
-      const transferredSchemaVersion =
-        clipboard.schemaVersion === QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION
-          ? ARTWORK_REFERENCE_SCHEMA_VERSION
-          : clipboard.schemaVersion;
+      // For schema 64 source data, the selected references determine whether
+      // a destination already at schema 60 needs 61 or 62. Older clipboard
+      // versions and pre-60 destinations keep their prior conservative floor.
+      let transferredSchemaVersion = clipboard.schemaVersion;
+      if (clipboard.schemaVersion === QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION) {
+        transferredSchemaVersion =
+          before.schemaVersion >= CURVE_POINT_REFERENCE_SCHEMA_VERSION
+            ? clipboard.referenceSchemaVersion
+            : ARTWORK_REFERENCE_SCHEMA_VERSION;
+        const binding = projectDocumentContexts.get(before);
+        if (transferredSchemaVersion >= CURVE_HANDLE_REFERENCE_SCHEMA_VERSION) {
+          assertNoLegacyHandleDocumentPromotion(before);
+          if (binding) assertNoLegacyHandleReferencePromotion(binding.project);
+        }
+        if (transferredSchemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION) {
+          assertNoLegacyArtworkDocumentPromotion(before);
+          if (binding) assertNoLegacyArtworkReferencePromotion(binding.project);
+        }
+      }
       if (transferredSchemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION)
         assertNoLegacyQualifiedColorDocumentPromotion(candidate);
       candidate.schemaVersion = Math.max(candidate.schemaVersion, transferredSchemaVersion);

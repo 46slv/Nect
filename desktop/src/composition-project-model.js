@@ -433,7 +433,7 @@ export function assertNoLegacyHandleReferencePromotion(project) {
   )
     throw Error('Legacy unresolved Curve handle expression cannot be promoted to schemaVersion 61');
 }
-function assertNoLegacyHandleDocumentPromotion(document) {
+export function assertNoLegacyHandleDocumentPromotion(document) {
   if (document.schemaVersion >= CURVE_HANDLE_REFERENCE_SCHEMA_VERSION) return;
   if (
     document.layers.some((layer) => nodesHaveLegacyCurveHandleReference(layer.nodes)) ||
