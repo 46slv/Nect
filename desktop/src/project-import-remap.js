@@ -1,4 +1,10 @@
-import { danglingExpressionIds, remapExpressionReferences } from './curve-point-reference.js';
+import {
+  ARTWORK_REFERENCE_SCHEMA_VERSION,
+  danglingExpressionIds,
+  remapExpressionReferences,
+  remapArtworkExpressionReferences,
+  reserveDanglingArtworkReferenceIds,
+} from './curve-point-reference.js';
 
 const REF_KEYS = new Set([
   'id',
@@ -48,6 +54,8 @@ export function remapIds(value, ids, occupied, sourceSchemaVersion) {
   if (Array.isArray(sourceLayers))
     for (const layer of sourceLayers)
       for (const id of danglingExpressionIds(layer.nodes || [])) occupied.add(id);
+  if (Array.isArray(sourceLayers) && sourceSchemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
+    reserveDanglingArtworkReferenceIds(sourceLayers, occupied);
   const mapping = new Map();
   for (const id of ids) {
     let next = id,
@@ -77,6 +85,8 @@ export function remapIds(value, ids, occupied, sourceSchemaVersion) {
         sourceSchemaVersion,
       ),
     );
+  if (Array.isArray(sourceLayers) && sourceSchemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
+    remapArtworkExpressionReferences(sourceLayers, copiedLayers);
   return copy;
 }
 

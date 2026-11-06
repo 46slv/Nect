@@ -1,13 +1,122 @@
 // Curve point keys are embedded in the existing, deliberately restricted ref grammar.
 export const CURVE_POINT_REFERENCE_SCHEMA_VERSION = 60;
 export const CURVE_HANDLE_REFERENCE_SCHEMA_VERSION = 61;
-export const MAX_DOCUMENT_SCHEMA_VERSION = CURVE_HANDLE_REFERENCE_SCHEMA_VERSION;
+export const ARTWORK_REFERENCE_SCHEMA_VERSION = 62;
+export const MAX_DOCUMENT_SCHEMA_VERSION = ARTWORK_REFERENCE_SCHEMA_VERSION;
 export const CURVE_POINT_COMPOSITION_SCHEMA_VERSION = 2;
 
 const pointKey = /^([a-zA-Z0-9][a-zA-Z0-9:_-]{0,180})\.(position|handleA|handleB)$/;
 const refArguments = /\bref\s*\(\s*"([a-zA-Z0-9:_-]+)"(\s*,\s*)"([a-zA-Z0-9:_.-]+)"/g;
 const pointRefArguments =
   /\bref\s*\(\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_.-]+)"\s*,\s*"(x|y|length)"\s*\)/g;
+// This grammar was rejected by the old expression parser. The pure project
+// wrapper could nevertheless retain it as opaque text at earlier versions.
+const artworkRefArguments =
+  /\bref\s*\(\s*artwork\s*,\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_.-]+)"(?:\s*,\s*"(x|y|length)")?\s*\)/g;
+
+export function artworkExpressionReferences(source) {
+  return [...source.matchAll(artworkRefArguments)].map((match) => ({
+    layerId: match[1],
+    nodeId: match[2],
+    key: match[3],
+    component: match[4],
+  }));
+}
+export const hasArtworkReferenceSyntax = (source) => /\bref\s*\(\s*artwork\b/.test(source);
+export function nodesHaveArtworkReferenceSyntax(nodes) {
+  return nodes.some((node) =>
+    expressionParameters(node, { includeUnsupported: true }).some((q) =>
+      hasArtworkReferenceSyntax(q.expression),
+    ),
+  );
+}
+
+export function nodesHaveArtworkReferences(nodes) {
+  return nodes.some((node) =>
+    expressionParameters(node, { includeUnsupported: true }).some(
+      (q) => artworkExpressionReferences(q.expression).length,
+    ),
+  );
+}
+export function artworkReferencesInLayers(layers) {
+  return layers.flatMap((layer) =>
+    layer.nodes.flatMap((node) =>
+      expressionParameters(node, { includeUnsupported: true }).flatMap((q) =>
+        artworkExpressionReferences(q.expression),
+      ),
+    ),
+  );
+}
+export function reserveDanglingArtworkReferenceIds(layers, occupied) {
+  const byLayer = new Map(layers.map((layer) => [layer.id, layer]));
+  for (const ref of artworkReferencesInLayers(layers)) {
+    const layer = byLayer.get(ref.layerId),
+      owner = layer?.nodes.find((node) => node.id === ref.nodeId);
+    const point = curvePointReference(ref.key, ref.component);
+    if (!layer) occupied.add(ref.layerId);
+    if (!owner) occupied.add(ref.nodeId);
+    if (point && (!owner || owner.type !== 'Curve' || !owner.points.some((p) => p.id === point.id)))
+      occupied.add(point.id);
+  }
+}
+export function assertNoImportedArtworkReferenceRebind(
+  sourceLayers,
+  destinationLayers,
+  { outerComposition = false } = {},
+) {
+  const source = new Map(sourceLayers.map((layer) => [layer.id, layer]));
+  const destination = new Map(destinationLayers.map((layer) => [layer.id, layer]));
+  for (const ref of artworkReferencesInLayers(sourceLayers)) {
+    if (source.has(ref.layerId)) continue;
+    if (outerComposition && destination.has(ref.layerId))
+      throw Error('Import would retarget a missing Artwork layer');
+    const target = destination.get(ref.layerId)?.nodes.find((node) => node.id === ref.nodeId);
+    const point = curvePointReference(ref.key, ref.component);
+    if (
+      target &&
+      (!point || (target.type === 'Curve' && target.points.some((p) => p.id === point.id)))
+    )
+      throw Error('Import would retarget a missing Artwork reference');
+  }
+}
+
+// Map only identities owned by the referenced copied Artwork and Curve.
+export function remapArtworkExpressionReferences(sourceLayers, copiedLayers) {
+  const layers = new Map();
+  sourceLayers.forEach((source, index) => {
+    const copy = copiedLayers[index],
+      nodes = new Map();
+    source.nodes.forEach((node, i) => {
+      const next = copy.nodes[i],
+        points = new Map();
+      if (node.type === 'Curve')
+        node.points.forEach((point, j) => points.set(point.id, next.points[j].id));
+      nodes.set(node.id, { id: next.id, points });
+    });
+    layers.set(source.id, { id: copy.id, nodes });
+  });
+  for (const layer of copiedLayers)
+    for (const node of layer.nodes)
+      for (const q of expressionParameters(node, { includeUnsupported: true }))
+        q.expression = q.expression.replace(
+          artworkRefArguments,
+          (match, layerId, nodeId, key, component) => {
+            const target = layers.get(layerId),
+              owner = target?.nodes.get(nodeId);
+            if (!target) return match;
+            const point = curvePointReference(key, component);
+            const newKey =
+              point && owner?.points.has(point.id)
+                ? `${owner.points.get(point.id)}.${point.field}`
+                : key;
+            const parts =
+              /^(\bref\s*\(\s*artwork\s*,\s*")[^"]+("\s*,\s*")[^"]+("\s*,\s*")[^"]+("[\s\S]*)$/.exec(
+                match,
+              );
+            return `${parts[1]}${target.id}${parts[2]}${owner?.id || nodeId}${parts[3]}${newKey}${parts[4]}`;
+          },
+        );
+}
 
 export function curvePointReference(key, component) {
   const match = pointKey.exec(key);

@@ -1,14 +1,58 @@
 import {
   validateCompositionProject,
   assertFreshCompositionEntityIds,
+  assertNoLegacyArtworkReferencePromotion,
+  assertNoLegacyHandleReferencePromotion,
 } from './composition-project-model.js';
 import { keyColorRecipeInitializationSlotIds } from './key-color-recipe-document.js';
 import { assertColorSlotUnused } from './color-slots.js';
 import { prepareProjectCompositionsImport } from './composition-project-import.js';
 import {
+  ARTWORK_REFERENCE_SCHEMA_VERSION,
+  CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
+  reserveDanglingArtworkReferenceIds,
 } from './curve-point-reference.js';
+// Only document-global identities can satisfy an Artwork reference. Character,
+// contour and remap-edit IDs stay scoped to their owning node.
+function documentEntityIds(document, ids = new Set()) {
+  for (const slot of document.colorSlots || []) ids.add(slot.id);
+  for (const preset of document.nodePresets || []) ids.add(preset.id);
+  for (const guide of document.editor?.guides || []) ids.add(guide.id);
+  for (const layer of document.layers || []) {
+    ids.add(layer.id);
+    for (const group of layer.nodeGroups || []) ids.add(group.id);
+    for (const n of layer.nodes) {
+      ids.add(n.id);
+      for (const point of n.points || []) ids.add(point.id);
+    }
+  }
+  return ids;
+}
+function projectEntityIds(project) {
+  const ids = documentEntityIds(project);
+  for (const composition of project.compositions) {
+    ids.add(composition.id);
+    documentEntityIds(composition, ids);
+  }
+  return ids;
+}
+
+function assertProjectIdentityChangeSafe(project, compositionId, before, candidate) {
+  const previous = documentEntityIds(before),
+    reserved = projectEntityIds(project);
+  for (const composition of project.compositions) {
+    if (composition.id === compositionId) continue;
+    if (project.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
+      reserveDanglingArtworkReferenceIds(composition.layers, reserved);
+  }
+  for (const id of documentEntityIds(candidate))
+    if (!previous.has(id) && reserved.has(id))
+      throw Error(
+        'Operation would retarget an inactive Composition reference or collide with an existing identity',
+      );
+}
 
 function documentFor(project, compositionId, cloneDocument) {
   const composition = project.compositions.find((entry) => entry.id === compositionId);
@@ -26,6 +70,10 @@ function documentFor(project, compositionId, cloneDocument) {
 function projectWithDocument(project, compositionId, document) {
   const { width, height, layers, editor, ...shared } = document;
   shared.schemaVersion = Math.max(project.schemaVersion, shared.schemaVersion);
+  if (shared.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
+    assertNoLegacyArtworkReferencePromotion(project);
+  if (shared.schemaVersion >= CURVE_HANDLE_REFERENCE_SCHEMA_VERSION)
+    assertNoLegacyHandleReferencePromotion(project);
   const candidate = {
     ...shared,
     compositionSchemaVersion:
@@ -189,6 +237,12 @@ export class CompositionSessionOwner {
       fonts: this.#fonts,
       busy: this.#busy,
       retainHistory: false,
+      beforeCandidateCommit: (before, candidate) => {
+        assertProjectIdentityChangeSafe(this.#history.doc, compositionId, before, candidate);
+        // Validate the whole projection before the inner Session commits;
+        // a new identity or reference can affect an inactive Composition.
+        projectWithDocument(this.#history.doc, compositionId, candidate);
+      },
     });
   }
 
@@ -246,11 +300,7 @@ export class CompositionSessionOwner {
       activeCompositionId === this.#activeCompositionId &&
       this.#sameDocument(this.#session.snapshot(), nextActiveDocument)
         ? this.#session
-        : new this.#CommandSession(nextActiveDocument, {
-            fonts: this.#fonts,
-            busy: this.#busy,
-            retainHistory: false,
-          });
+        : this.#makeSession(candidate, activeCompositionId);
     precommit?.();
     this.#applyProjectEdit((history) => {
       replaceRecord(history, candidate);

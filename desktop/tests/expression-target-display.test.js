@@ -99,6 +99,21 @@ test('long Artwork and node names stay bounded, searchable and available in full
   assert.equal(display.filter(rows, 'LayerTail NodeTail').length, 1000);
   assert.equal(display.filter(rows, 'OtherTail').length, 0);
   assert.equal(display.filter(rows, 'source-a point-1000.position')[0].id, targets[999].expression);
+  const handle = {
+      ...targets[0],
+      key: 'point-1.handleA',
+      component: 'length',
+      label: `${nodeName} · Point 1 · Incoming · Length`,
+    },
+    scalar = {
+      ...targets[0],
+      key: 'radius',
+      component: undefined,
+      pointOrdinal: undefined,
+      label: `${nodeName} · radius`,
+    };
+  assert.match(display.picker(handle).label, /Point 1 · Incoming · Length$/);
+  assert.match(display.picker(scalar).label, / · radius$/);
   const completions = targets.map(display.completion);
   const prefix = 'NodeTail';
   assert.equal(
