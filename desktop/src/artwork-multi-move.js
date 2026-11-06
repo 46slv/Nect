@@ -78,25 +78,37 @@ export function translateArtworkMoves(doc, moves) {
       const next = value.map((v, axis) => v + delta[axis]);
       if (!next.every(Number.isFinite))
         throw Error('Artwork translation must keep every position finite');
-      plan.push({ input: inputs[i], next, target: t });
+      plan.push({ input: inputs[i], next, target: t, pointIndex: batch ? i : null });
     }
   }
   // JSON has no object aliases, but a programmatic caller can share a
-  // descriptor or any of its parents with other artwork or metadata. Detach
-  // the complete Boolean target path only after every move has passed preflight.
-  for (const entry of plan) {
-    if (!entry.target.canvasOnly) continue;
-    const layerIndex = doc.layers.findIndex((layer) => layer.id === entry.target.layerId);
-    const originalLayer = doc.layers[layerIndex];
-    const nodeIndex = originalLayer.nodes.findIndex((node) => node.id === entry.target.nodeId);
-    const originalNode = originalLayer.nodes[nodeIndex];
-    const copiedNode = { ...originalNode, params: { ...originalNode.params } };
-    copiedNode.params[entry.target.parameter] = { ...entry.input };
-    const copiedLayer = { ...originalLayer, nodes: [...originalLayer.nodes] };
-    copiedLayer.nodes[nodeIndex] = copiedNode;
-    doc.layers = [...doc.layers];
-    doc.layers[layerIndex] = copiedLayer;
-    entry.input = copiedNode.params[entry.target.parameter];
-  }
+  // descriptor or any of its parents with other artwork or metadata. If a
+  // Boolean is selected, detach every edited path after the whole preflight.
+  if (moves.some(({ target }) => target.canvasOnly))
+    for (const { target } of moves) {
+      const layerIndex = doc.layers.findIndex((layer) => layer.id === target.layerId);
+      const originalLayer = doc.layers[layerIndex];
+      const nodeIndex = originalLayer.nodes.findIndex((node) => node.id === target.nodeId);
+      const originalNode = originalLayer.nodes[nodeIndex];
+      const copiedNode = { ...originalNode };
+      if (target.kind === 'curve-point-positions')
+        copiedNode.points = originalNode.points.map((point) => ({
+          ...point,
+          position: { ...point.position },
+        }));
+      else {
+        copiedNode.params = { ...originalNode.params };
+        copiedNode.params[target.parameter] = { ...originalNode.params[target.parameter] };
+      }
+      const copiedLayer = { ...originalLayer, nodes: [...originalLayer.nodes] };
+      copiedLayer.nodes[nodeIndex] = copiedNode;
+      doc.layers = [...doc.layers];
+      doc.layers[layerIndex] = copiedLayer;
+      for (const entry of plan.filter((entry) => entry.target === target))
+        entry.input =
+          entry.pointIndex === null
+            ? copiedNode.params[target.parameter]
+            : copiedNode.points[entry.pointIndex].position;
+    }
   for (const { input, next } of plan) input.value = next;
 }

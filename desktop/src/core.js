@@ -8248,27 +8248,32 @@ export class CommandSession {
         assertArtworkReferenceTransition(draft.base, candidate, this.#fonts());
         if (candidate.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION)
           this.#beforeCandidateCommit?.(this.#history.doc, candidate);
+        const update = clone(payload.update);
         assertArtworkMoveCurrent();
         draft.candidate = candidate;
-        draft.update = clone(payload.update);
+        draft.update = update;
         draft.version++;
         return { ...this.state, ...this.gestureState };
       }
       // Font adoption allocates private asset IDs during preview. Commit that
       // validated candidate verbatim instead of allocating different IDs again.
-      if (draft.update && draft.target.kind !== 'text-font')
-        draft.candidate = this.#gestureCandidate(draft.base, draft.target, draft.update);
-      validate(draft.candidate);
-      assertNoAccidentalCurvePointRebind(draft.base, draft.candidate, this.#nodeClipboard);
-      assertArtworkReferenceTransition(draft.base, draft.candidate, this.#fonts());
-      assertVariableDocumentReady(draft.candidate, resolveFonts(draft.candidate, this.#fonts()));
+      const candidate =
+        draft.update && draft.target.kind !== 'text-font'
+          ? this.#gestureCandidate(draft.base, draft.target, draft.update)
+          : draft.candidate;
+      validate(candidate);
+      assertNoAccidentalCurvePointRebind(draft.base, candidate, this.#nodeClipboard);
+      assertArtworkReferenceTransition(draft.base, candidate, this.#fonts());
+      assertVariableDocumentReady(candidate, resolveFonts(candidate, this.#fonts()));
       assertArtworkMoveCurrent();
       const revision = this.#history.revision;
-      if (!sameDocument(this.#history.doc, draft.candidate)) {
-        this.#beforeCandidateCommit?.(this.#history.doc, draft.candidate);
+      const changed = !sameDocument(this.#history.doc, candidate);
+      assertArtworkMoveCurrent();
+      if (changed) {
+        this.#beforeCandidateCommit?.(this.#history.doc, candidate);
         assertArtworkMoveCurrent();
         this.#history.apply(() => {
-          this.#history.doc = draft.candidate;
+          this.#history.doc = candidate;
         });
       }
       this.#gesture = null;

@@ -4,6 +4,7 @@ import {
   evaluate,
   hasExternalArtworkMoveConsumer,
   outputType,
+  pathArea,
   pathBounds,
   socketCompatible,
 } from './core.js';
@@ -392,6 +393,8 @@ export function resolveArtworkMoveTarget(
     if (!bounds.flat().every(Number.isFinite))
       return unsupported('invalid-output', 'The final artwork bounds are not finite.');
     if (bounds.some(([min, , max]) => max <= min))
+      return unsupported('empty-output', 'The final artwork has no nonzero area.');
+    if (canvasOnly && !(pathArea(value) > 0))
       return unsupported('empty-output', 'The final artwork has no nonzero area.');
     if (!['image', 'painted-group'].includes(value.kind) && (!value.fill || value.fill.alpha <= 0))
       return unsupported('empty-output', 'The final artwork has no visible solid Fill.');

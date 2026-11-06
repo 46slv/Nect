@@ -9,6 +9,7 @@ import {
   deserialize,
   evaluate,
   node,
+  point,
   pathBounds,
   serialize,
 } from '../src/core.js';
@@ -320,6 +321,62 @@ test('mixed Boolean moves detach each target sharing a descriptor and preserve m
   assert.deepEqual(session.snapshot(), after);
 });
 
+test('mixed Boolean and shape or Curve moves isolate every edited path from aliases', () => {
+  for (const kind of ['Rectangle', 'Curve', 'Multi Path']) {
+    const f = fixture(),
+      other = blankLayer('Other'),
+      item = node(kind),
+      fill = node('Fill');
+    f.transform.params.anchor.value = [30, 40];
+    if (kind === 'Rectangle') item.params.center = f.transform.params.anchor;
+    else {
+      item.points = [point(30, 40), point(130, 40), point(80, 140)];
+      if (kind === 'Curve') item.params.closed.value = true;
+      else {
+        f.doc.schemaVersion = 32;
+        item.contours = [
+          { id: 'mixed-contour', closed: true, points: item.points.map((p) => p.id) },
+        ];
+        item.units = [{ id: 'mixed-unit', contours: ['mixed-contour'] }];
+      }
+      item.points[0].position = f.transform.params.anchor;
+    }
+    other.nodes.unshift(item, fill);
+    connect(other, item.id, fill.id, 'path');
+    connect(other, fill.id, other.output, 'path');
+    f.doc.layers.push(other);
+    f.doc.metadata = {
+      anchor: f.transform.params.anchor,
+      layer: other,
+      node: item,
+      ...(kind !== 'Rectangle' ? { points: item.points, first: item.points[0] } : {}),
+    };
+    const session = new CommandSession(f.doc),
+      before = session.snapshot();
+    const beforePath = evaluate(before.layers[0], {}, {}, before).path;
+    command(session, 'translate-artworks', { layerIds: [f.l.id, other.id], delta: [5, 9] });
+    const after = session.snapshot(),
+      transform = after.layers[0].nodes.find((n) => n.id === f.transform.id);
+    assert.deepEqual(transform.params.anchor.value, [30, 40]);
+    assert.deepEqual(transform.params.offset.value, [5, 9]);
+    assert.deepEqual(after.metadata, before.metadata);
+    const afterPath = evaluate(after.layers[0], {}, {}, after).path;
+    for (let axis = 0; axis < 2; axis++)
+      pathBounds(beforePath)[axis].forEach((v, i) =>
+        close(pathBounds(afterPath)[axis][i], v + [5, 9][axis]),
+      );
+    const movedItem = after.layers[1].nodes.find((n) => n.id === item.id);
+    assert.deepEqual(
+      kind !== 'Rectangle' ? movedItem.points[0].position.value : movedItem.params.center.value,
+      [35, 49],
+    );
+    command(session, 'undo');
+    assert.deepEqual(session.snapshot(), before);
+    command(session, 'redo');
+    assert.deepEqual(session.snapshot(), after);
+  }
+});
+
 test('owner callback reentry cannot commit a move based on an obsolete project or gesture', () => {
   for (const phase of ['translate', 'begin', 'update', 'commit']) {
     const f = fixture(),
@@ -582,6 +639,62 @@ test('a nested gesture cancellation remains cancelled without committing or clea
   assert.equal(session.snapshot().width, 961);
 });
 
+test('a nested gesture update keeps its newer preview when an outer commit becomes stale', () => {
+  const f = fixture();
+  let session,
+    token,
+    armed = false,
+    newer;
+  session = new CommandSession(f.doc, {
+    fonts: () => {
+      if (armed) {
+        armed = false;
+        token = command(session, 'update-gesture', {
+          gestureId: token.gestureId,
+          expectedPreviewRevision: token.expectedPreviewRevision,
+          update: { delta: [12, 0] },
+        });
+        newer = session.previewSnapshot(token.gestureId);
+      }
+      return {};
+    },
+  });
+  token = command(session, 'begin-gesture', {
+    target: { kind: 'artwork-translate', layerIds: [f.l.id] },
+  });
+  token = command(session, 'update-gesture', {
+    gestureId: token.gestureId,
+    expectedPreviewRevision: token.expectedPreviewRevision,
+    update: { delta: [8, 0] },
+  });
+  const before = session.snapshot(),
+    state = session.state;
+  armed = true;
+  assert.throws(
+    () =>
+      command(session, 'commit-gesture', {
+        gestureId: token.gestureId,
+        expectedPreviewRevision: token.expectedPreviewRevision,
+      }),
+    /STALE_GESTURE/,
+  );
+  assert.deepEqual(session.snapshot(), before);
+  assert.deepEqual(session.state, state);
+  assert.deepEqual(session.previewSnapshot(token.gestureId), newer);
+  assert.deepEqual(
+    newer.document.layers[0].nodes.find((n) => n.id === f.transform.id).params.offset.value,
+    [12, 0],
+  );
+  command(session, 'commit-gesture', {
+    gestureId: token.gestureId,
+    expectedPreviewRevision: token.expectedPreviewRevision,
+  });
+  assert.deepEqual(
+    session.snapshot().layers[0].nodes.find((n) => n.id === f.transform.id).params.offset.value,
+    [12, 0],
+  );
+});
+
 test('translation that overflows the affine result or collapses its geometry is atomic', () => {
   for (const [anchor, delta] of [
     [1e308, 1e308],
@@ -603,6 +716,26 @@ test('translation that overflows the affine result or collapses its geometry is 
     command(session, 'redo');
     assert.equal(session.snapshot().width, 961);
   }
+});
+
+test('a diagonal floating-point collapse after a large translation is atomic', () => {
+  const f = fixture();
+  f.transform.params.rotation.value = 45;
+  const session = new CommandSession(f.doc);
+  command(session, 'set-document-settings', { key: 'width', value: 961 });
+  command(session, 'undo');
+  const before = session.snapshot(),
+    state = session.state;
+  assert.throws(() =>
+    command(session, 'translate-artworks', {
+      layerIds: [f.l.id],
+      delta: [2 ** 60 + 512, 2 ** 60 + 256],
+    }),
+  );
+  assert.deepEqual(session.snapshot(), before);
+  assert.deepEqual(session.state, state);
+  command(session, 'redo');
+  assert.equal(session.snapshot().width, 961);
 });
 
 test('missing Transform, driven or locked movement and shared output reject without changing Redo', () => {
