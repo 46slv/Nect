@@ -918,6 +918,7 @@ import {
   uid,
   clone,
   cloneDocument,
+  bindProjectDocumentContext,
   sameDocument,
   definitions,
   parameters,
@@ -937,6 +938,7 @@ import {
   vectorReferenceTargets,
   expressionReferenceTargets,
   expressionReferenceTargetsForDocument,
+  expressionReferenceTargetsForProject,
   previewColorExpression,
   referenceTarget,
   socketCompatibleFor,
@@ -1345,6 +1347,7 @@ async function prepareOpenDocument(next, options = {}) {
     replaceDocument(project, { ...options, activeCompositionId });
     return;
   }
+  bindProjectDocumentContext(document, project, activeCompositionId);
   cancelVariableAction();
   const bridge = createVariableDocumentPreparer();
   const owner = session,
@@ -4367,17 +4370,19 @@ function colorDraftValidity(input, nodeId, key) {
   input.title = error || 'Color expression';
   return !error;
 }
-function authoredExpressionTargets(nodeId, type, targetKey) {
+function authoredExpressionTargets(nodeId, type, targetKey, project, compositionId) {
   const layer = current();
   if (penDraft?.layer === layer) return expressionReferenceTargets(layer, nodeId, type);
-  return expressionReferenceTargetsForDocument(history.doc, layer.id, nodeId, type, targetKey);
-}
-function editorExpressionTargets(nodeId, type, targetKey) {
-  const display = expressionTargetDisplay(history.doc, current().id);
-  return [
-    ...authoredExpressionTargets(nodeId, type, targetKey),
-    ...(type === 'Color' ? authoredExpressionTargets(nodeId, 'Scalar', targetKey) : []),
-  ].map(display.completion);
+  if (!project)
+    return expressionReferenceTargetsForDocument(history.doc, layer.id, nodeId, type, targetKey);
+  return expressionReferenceTargetsForProject(
+    project,
+    compositionId,
+    layer.id,
+    nodeId,
+    type,
+    targetKey,
+  );
 }
 function transformUniformScale(n) {
   try {
@@ -10568,6 +10573,9 @@ app.addEventListener('click', async (e) => {
         expressionComposition = expressionOwner.activeCompositionId,
         expressionGeneration = documents.generation,
         expressionStatus = document.createElement('p');
+      let expressionProject = null,
+        targetDisplay = null;
+      const targetCache = new Map();
       expressionStatus.setAttribute('role', 'alert');
       expressionStatus.hidden = true;
       dialog.querySelector('[data-confirm]').parentElement.before(expressionStatus);
@@ -10583,6 +10591,27 @@ app.addEventListener('click', async (e) => {
         expressionStatus.textContent = 'Document changed. Close and reopen the expression editor.';
         expressionStatus.hidden = false;
       };
+      const targets = (type) => {
+        if (!expressionIsCurrent()) return [];
+        if (!expressionProject) {
+          expressionProject = expressionOwner.projectSnapshot();
+          targetDisplay = expressionTargetDisplay(history.doc, current().id, {
+            project: expressionProject,
+            activeCompositionId: expressionComposition,
+          });
+        }
+        const isPenDraft = penDraft?.layer === current();
+        if (!isPenDraft && targetCache.has(type)) return targetCache.get(type);
+        const result = authoredExpressionTargets(
+          nn.id,
+          type,
+          f.dataset.key,
+          expressionProject,
+          expressionComposition,
+        );
+        if (!isPenDraft) targetCache.set(type, result);
+        return result;
+      };
       if (q.type === 'Color') {
         const check = (event) => {
           if (!event?.isComposing) colorDraftValidity(input, nn.id, f.dataset.key);
@@ -10593,15 +10622,22 @@ app.addEventListener('click', async (e) => {
       }
       const completion = attachExpressionCompletion(
         input,
-        () => editorExpressionTargets(nn.id, q.type, f.dataset.key),
+        () => {
+          const available = [...targets(q.type), ...(q.type === 'Color' ? targets('Scalar') : [])];
+          return targetDisplay ? available.map(targetDisplay.completion) : [];
+        },
         q.type,
         q.type === 'Color' ? () => colorDraftValidity(input, nn.id, f.dataset.key) : undefined,
       );
       dialog.querySelector('[data-insert-reference]').onclick = () => {
         completion.hide();
+        if (!expressionIsCurrent()) {
+          showStaleExpression();
+          return;
+        }
         const start = input.selectionStart ?? input.value.length,
-          end = input.selectionEnd ?? start;
-        const targetDisplay = expressionTargetDisplay(history.doc, current().id);
+          end = input.selectionEnd ?? start,
+          available = targets(expressionReferenceType(input.value, start, q.type));
         const panel = openSearchPanel({
           title: 'Parameter references',
           action: 'Insert',
@@ -10616,11 +10652,7 @@ app.addEventListener('click', async (e) => {
               (item.pointOrdinal === Number(ordinal[1]) ? exact : remaining).push(item);
             return [...exact, ...remaining];
           },
-          items: authoredExpressionTargets(
-            nn.id,
-            expressionReferenceType(input.value, start, q.type),
-            f.dataset.key,
-          ).map(targetDisplay.picker),
+          items: available.map(targetDisplay.picker),
           onCommit(item) {
             if (!item) return;
             if (!expressionIsCurrent()) {

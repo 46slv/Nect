@@ -135,6 +135,7 @@ export function expressionCompletions(value, start, end, targets = [], parameter
       !(target.pointOrdinal && starts(`point${target.pointOrdinal}`)) &&
       !(target.contextLabel && starts(target.contextLabel)) &&
       !matchesName(target.contextSearchText) &&
+      !matchesName(target.projectSearchText) &&
       !matchesContext(target.contextSearchTerms) &&
       !starts('ref')
     )
