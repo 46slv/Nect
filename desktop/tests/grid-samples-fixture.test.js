@@ -275,3 +275,25 @@ test('nested fixture descriptors are captured without property gets or repeated 
   assert.deepEqual(result.samples[0].position, [10, 20]);
   assert.deepEqual(reads, { minI: 1, maxI: 1, minJ: 1, maxJ: 1 });
 });
+
+test('captured descriptors do not invoke inherited prototype getters or setters', () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'bounds');
+  let calls = 0;
+  try {
+    Object.defineProperty(Object.prototype, 'bounds', {
+      configurable: true,
+      get() {
+        calls++;
+        return { minI: 0, maxI: 4101, minJ: 0, maxJ: 1 };
+      },
+      set() {
+        calls++;
+      },
+    });
+    assert.equal(gridSamplesFixtureV1(descriptor()).samples.length, 9);
+    assert.equal(calls, 0);
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, 'bounds', previous);
+    else delete Object.prototype.bounds;
+  }
+});
