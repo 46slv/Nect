@@ -27,6 +27,14 @@ The opt-in Key color trial has a separate, versioned recipe contract.
   one Undo step. The same Color-parameter controls are available for gradient
   stops and for a Fill applied to Text; Text character-specific paint is not a
   supported paste surface.
+- A row's Actions menu can find direct uses across the current project. The list
+  contains typed node Color parameters bound to that exact slot ID, not equal
+  literals, expression dependencies or inferred visible coverage. Choosing a use
+  opens its Composition, Layer and node and focuses the Color field when active;
+  this is view navigation and adds no History. A changed project, removed target
+  or active draft rejects navigation instead of retargeting a stale result. Long
+  names are shortened in the list; their full saved text remains available on
+  demand and the underlying identity never uses the shortened label.
 - Controls carry their rendering Session identity and revision. Detached controls,
   old document controls and old revisions cannot mutate the current document.
 - Shared slots and bindings are document/project data and survive JSON reopen.

@@ -1060,13 +1060,32 @@ dialog::backdrop {
 .composition-import-dialog h3 {
   margin: 0;
 }
-.composition-import-dialog label {
+.composition-import-dialog fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.composition-import-choices {
   display: grid;
   gap: 4px;
+  max-height: min(240px, 32vh);
+  overflow: auto;
+  padding: 4px 0;
 }
-.composition-import-dialog select {
+.composition-import-choices label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
-  max-width: 100%;
+}
+.composition-import-choices span {
+  overflow-wrap: anywhere;
+}
+.composition-import-selection {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
 }
 .composition-import-dialog footer {
   display: flex;
@@ -3001,6 +3020,62 @@ input[data-scrub-step].scrubbing {
 .shared-color-binding {
   max-width: 100%;
   min-width: 0;
+}
+.shared-color-uses-dialog {
+  box-sizing: border-box;
+  width: min(560px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+}
+.shared-color-uses-dialog h2 {
+  margin: 0;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.shared-color-uses-dialog ul {
+  display: grid;
+  gap: 4px;
+  max-height: 50dvh;
+  overflow: auto;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+.shared-color-uses-dialog li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+.shared-color-uses-dialog li button {
+  width: 100%;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.shared-color-uses-dialog summary {
+  cursor: pointer;
+  white-space: nowrap;
+}
+.shared-color-uses-dialog details[open] {
+  grid-column: 1 / -1;
+}
+.shared-color-use-full-names {
+  max-height: 20dvh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.shared-color-use-full-names p {
+  margin: 4px 0;
+}
+.shared-color-uses-paging,
+.shared-color-uses-dialog footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+.shared-color-uses-paging[hidden] {
+  display: none;
 }
 
 .key-color-recipe-launcher {

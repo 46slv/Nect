@@ -10,16 +10,19 @@ import {
 
 const browser = await chromium.launch({
   executablePath:
-    process.env.CHROMIUM_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    process.env.CHROMIUM_PATH ||
+    (process.platform === 'win32'
+      ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+      : '/usr/bin/chromium'),
   headless: true,
-  args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  chromiumSandbox: true,
 });
 const page = await browser.newPage({ viewport: { width: 900, height: 620 } });
 const result = { steps: [], errors: [] };
 page.on('pageerror', (error) => result.errors.push(error.message));
 const record = (name, pass, detail = '') => result.steps.push({ name, pass, detail });
 try {
-  await page.goto(process.env.BASE_URL || 'http://127.0.0.1:4173');
+  await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForSelector('.node');
   const wide = migrateLegacyDocumentToCompositionProject(blankDocument()),
     tall = migrateLegacyDocumentToCompositionProject(blankDocument());
@@ -43,11 +46,33 @@ try {
   assert.deepEqual(page.viewportSize(), { width: 900, height: 620 });
   const menuSummaries = await page.locator('header .command-menu > summary').all(),
     menuLabels = await Promise.all(menuSummaries.map((summary) => summary.textContent())),
-    [projectSummary, importSummary, exportSummary] = menuSummaries,
+    [projectSummary, importSummary, exportSummary, buildSummary] = menuSummaries,
     projectMenu = projectSummary.locator('xpath=..'),
     importMenu = importSummary.locator('xpath=..'),
     exportMenu = exportSummary.locator('xpath=..');
   assert.deepEqual(menuLabels, ['Project', 'Import', 'Export', 'Build']);
+  const rapid = await page.evaluate(() => {
+    const menus = [...document.querySelectorAll('header .command-menu')];
+    for (const menu of menus) menu.querySelector('summary').click();
+    return menus.map((menu) => menu.open);
+  });
+  assert.deepEqual(
+    rapid,
+    [false, false, false, true],
+    'rapid activation keeps only the latest menu open',
+  );
+  await page.waitForFunction(() => {
+    const menus = [...document.querySelectorAll('header .command-menu')];
+    return menus[3].open && menus.slice(0, 3).every((menu) => !menu.open);
+  });
+  await buildSummary.click();
+  await projectSummary.focus();
+  await page.keyboard.press('Enter');
+  await importSummary.focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await projectMenu.evaluate((menu) => menu.open), false);
+  assert.equal(await importMenu.evaluate((menu) => menu.open), true);
+  await importSummary.click();
   await projectSummary.click();
   assert.equal(await projectMenu.evaluate((menu) => menu.open), true);
   await importSummary.click();
@@ -89,10 +114,10 @@ try {
   };
 
   await openImportDialog();
-  const choices = await page.locator('dialog[open] [data-composition-choice] option').count(),
-    defaultChoice = await page.locator('dialog[open] [data-composition-choice]').inputValue();
-  assert.equal(choices, 3);
-  assert.equal(defaultChoice, '__all__');
+  const choices = page.locator('dialog[open] [data-composition-choice] input');
+  assert.equal(await choices.count(), 2);
+  assert.equal(await choices.nth(0).isChecked(), true);
+  assert.equal(await choices.nth(1).isChecked(), true);
   await page.locator('dialog[open] button[value="import"]').click();
   await page.waitForFunction(() => window.nect.projectSnapshot().compositions.length === 3);
   const first = await page.evaluate(() => ({

@@ -16,7 +16,7 @@ test('Import adds all complete source Compositions without conflating Open or Ad
   assert.match(importFlow, /source = deserializeProject\(opened\.contents\)/);
   assert.match(importFlow, /await documents\.releaseUnused\(opened\.binding\)/);
   assert.match(importFlow, /documents\.hasDraft\(\)/);
-  assert.match(importFlow, /for \(const composition of source\.compositions\)/);
+  assert.match(importFlow, /source\.compositions\.entries\(\)/);
   assert.match(importFlow, /type: 'import-project-compositions'/);
   assert.doesNotMatch(importFlow, /prepareOpenDocument\(/);
   assert.match(source, /case 'open':[\s\S]*?prepareOpenDocument\(next/);

@@ -377,7 +377,10 @@ try {
   });
   assert.equal(await page.locator('dialog[open] button[value="import"]').isDisabled(), true);
   assert.match(await page.locator('dialog[open] output').textContent(), /already has Key colors/);
-  await page.locator('dialog[open] [data-composition-choice]').selectOption(plainComposition.id);
+  await page.locator('dialog[open] [data-composition-select-none]').click();
+  await page
+    .locator(`dialog[open] [data-composition-choice] input[value="${plainComposition.id}"]`)
+    .check();
   assert.equal(await page.locator('dialog[open] button[value="import"]').isEnabled(), true);
   assert.doesNotMatch(
     await page.locator('dialog[open] output').textContent(),

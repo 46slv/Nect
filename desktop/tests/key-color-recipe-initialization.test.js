@@ -689,6 +689,121 @@ for (const kind of ['document', 'composition']) {
     assert.deepEqual(frozen.value, branched.colorSlots.find((s) => s.id === 'fresh-derived').value);
   });
 
+  test(`${kind}: intent-only live edit solves canonical order in one History step`, () => {
+    const f = fixture(kind, legacyDocument());
+    const plan = request();
+    Object.assign(plan.intent.preset.slots[0], { lightnessScale: 0.6, chromaScale: 0.8 });
+    plan.intent.preset.slots.push({
+      ...plan.intent.preset.slots[0],
+      id: 'fresh-second',
+      role: 'Second',
+      position: 2,
+    });
+    plan.intent.slots.push({ id: 'fresh-second', role: 'Second', deltaL: 0, deltaRatioCmax: 0 });
+    plan.allocations.push({ slotId: 'fresh-second', name: 'Second color' });
+    f.send('initialize-live-key-color-recipe', plan);
+    const doc = f.session.snapshot(),
+      layer = doc.layers[0],
+      color = layer.nodes.find((n) => n.type === 'Color');
+    f.send('bind-color-slot', {
+      layerId: layer.id,
+      nodeId: color.id,
+      key: 'value',
+      slotId: 'fresh-derived',
+    });
+    f.send('set-document-settings', { key: 'width', value: 1001 });
+    f.send('undo');
+    const before = captured(f.session),
+      previous = f.session.snapshot().keyColorRecipe.committedSnapshot;
+    const noChange = {
+      expectedPaletteRevision: previous.revision,
+      keyColor: previous.intent.keyColor.value,
+      slotDeltas: previous.intent.slots
+        .map((slot) => ({
+          slotId: slot.id,
+          deltaL: slot.deltaL,
+          deltaRatioCmax: slot.deltaRatioCmax,
+        }))
+        .reverse(),
+    };
+    f.send('edit-live-key-color-recipe', noChange);
+    assert.deepEqual(captured(f.session), before);
+    let getterCalled = false;
+    const accessor = { expectedPaletteRevision: previous.revision };
+    Object.defineProperty(accessor, 'keyColor', {
+      enumerable: true,
+      get() {
+        getterCalled = true;
+        throw Error('must not execute');
+      },
+    });
+    const invalid = [
+      { expectedPaletteRevision: previous.revision + 1 },
+      { expectedPaletteRevision: previous.revision, snapshot: previous },
+      { expectedPaletteRevision: previous.revision, keyColor: { hex: '#12', alpha: 1 } },
+      {
+        expectedPaletteRevision: previous.revision,
+        keyColor: { hex: '#123456', alpha: 1, computed: 1 },
+      },
+      {
+        expectedPaletteRevision: previous.revision,
+        slotDeltas: [{ slotId: 'missing', deltaL: 0, deltaRatioCmax: 0 }],
+      },
+      {
+        expectedPaletteRevision: previous.revision,
+        slotDeltas: [noChange.slotDeltas[0], noChange.slotDeltas[0]],
+      },
+      {
+        expectedPaletteRevision: previous.revision,
+        slotDeltas: [{ slotId: 'fresh-derived', deltaL: NaN, deltaRatioCmax: 0 }],
+      },
+      accessor,
+    ];
+    for (const payload of invalid) {
+      assert.throws(() => f.send('edit-live-key-color-recipe', payload));
+      assert.deepEqual(captured(f.session), before);
+    }
+    assert.equal(getterCalled, false);
+    const desired = {
+      expectedPaletteRevision: previous.revision,
+      keyColor: { hex: '#d03270', alpha: 0.25 },
+      slotDeltas: [
+        { slotId: 'fresh-second', deltaL: -0.04, deltaRatioCmax: 0.07 },
+        { slotId: 'fresh-derived', deltaL: 0.15, deltaRatioCmax: 0.02 },
+      ],
+    };
+    let expected = editKeyColorRecipe(previous, {
+      type: 'key-color',
+      expectedRevision: previous.revision,
+      value: desired.keyColor,
+    });
+    for (const slot of previous.intent.slots) {
+      const delta = desired.slotDeltas.find((row) => row.slotId === slot.id);
+      expected = editKeyColorRecipe(expected, {
+        type: 'slot-delta',
+        expectedRevision: expected.revision,
+        ...delta,
+      });
+    }
+    f.send('edit-live-key-color-recipe', desired);
+    const changed = f.session.snapshot();
+    assert.deepEqual(changed.keyColorRecipe.committedSnapshot, expected);
+    desired.keyColor.hex = '#000000';
+    desired.slotDeltas[0].deltaL = 42;
+    assert.deepEqual(f.session.snapshot(), changed);
+    for (const row of expected.resolved)
+      assert.deepEqual(changed.colorSlots.find((slot) => slot.id === row.id).value, row.value);
+    assert.equal(
+      changed.layers[0].nodes.find((n) => n.id === color.id).params.value.colorSlotId,
+      'fresh-derived',
+    );
+    reopen(f.session);
+    f.send('undo');
+    assert.equal(serialize(f.session.snapshot()), before.document);
+    f.send('redo');
+    assert.deepEqual(f.session.snapshot(), changed);
+  });
+
   test(`${kind}: live ownership rejects stale, forged and conflicting edits without touching history or redo`, () => {
     const f = fixture(kind, legacyDocument());
     f.send('initialize-live-key-color-recipe', request());
@@ -811,6 +926,17 @@ for (const kind of ['document', 'composition']) {
       expectedPaletteRevision: snapshot.revision,
     });
     assert.equal(result.changed, false);
+    assert.deepEqual(captured(session), before);
+    const intentResult = f.send('edit-live-key-color-recipe', {
+      expectedPaletteRevision: snapshot.revision,
+      keyColor: snapshot.intent.keyColor.value,
+      slotDeltas: snapshot.intent.slots.map((slot) => ({
+        slotId: slot.id,
+        deltaL: slot.deltaL,
+        deltaRatioCmax: slot.deltaRatioCmax,
+      })),
+    });
+    assert.equal(intentResult.changed, false);
     assert.deepEqual(captured(session), before);
     f.send('redo');
     assert.equal(session.snapshot().width, 1001);
