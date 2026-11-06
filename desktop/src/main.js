@@ -9612,14 +9612,51 @@ function addComposition() {
   render(false, null, graphScroll);
   updateDocumentStatus();
 }
-function renameCompositionDialog(compositionId = session.activeCompositionId) {
-  if (
-    sourceNavigationBusy() ||
+function compositionRenameBusy(allowedDialog = null) {
+  return !!(
+    sourceNavigationBusy(allowedDialog) ||
     documents.hasDraft() ||
     sharedColors.editing ||
     session.hasTextDrafts
-  )
-    throw Error('Finish or cancel the current edit before renaming');
+  );
+}
+
+// Preserve a focused draft while the Project menu is opened, then refuse this
+// specific action before pointer focus or the generic Pen auto-finish handler.
+app.addEventListener(
+  'pointerdown',
+  (event) => {
+    const rename = event.target.closest?.('[data-action="rename-composition"]');
+    if (rename && compositionRenameBusy()) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      notify('Finish or cancel the current edit before renaming', true);
+      return;
+    }
+    const summary = event.target.closest?.('summary');
+    if (
+      summary?.parentElement?.querySelector('[data-action="rename-composition"]') &&
+      editingControl(document.activeElement) &&
+      compositionRenameBusy()
+    )
+      event.preventDefault();
+  },
+  true,
+);
+app.addEventListener(
+  'click',
+  (event) => {
+    if (!event.target.closest?.('[data-action="rename-composition"]') || !compositionRenameBusy())
+      return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    notify('Finish or cancel the current edit before renaming', true);
+  },
+  true,
+);
+
+function renameCompositionDialog(compositionId = session.activeCompositionId) {
+  if (compositionRenameBusy()) throw Error('Finish or cancel the current edit before renaming');
   const owner = session,
     envelope = session.state,
     projectRevision = session.projectRevision,
@@ -9634,6 +9671,7 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
   const input = dialog.querySelector('input'),
     status = dialog.querySelector('output');
   input.value = target.name;
+  const initialInputValue = input.value;
   let composingName = false,
     committed = false;
   dialog.addEventListener('compositionstart', () => {
@@ -9661,8 +9699,8 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
   dialog.querySelector('form').addEventListener('submit', (event) => {
     event.preventDefault();
     if (composingName || event.isComposing) return;
-    const name = input.value.trim();
-    if (!name) {
+    const name = input.value;
+    if (name !== initialInputValue && !name.trim()) {
       status.textContent = 'Name cannot be empty.';
       input.focus();
       return;
@@ -9674,12 +9712,16 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
         session.projectRevision !== projectRevision ||
         session.state.sessionId !== envelope.sessionId ||
         session.state.expectedRevision !== envelope.expectedRevision ||
-        sourceNavigationBusy(dialog) ||
-        documents.hasDraft() ||
-        sharedColors.editing ||
-        session.hasTextDrafts
+        compositionRenameBusy(dialog)
       )
         throw Error('Project changed. Close and reopen rename.');
+      // Text inputs can sanitize an existing CR/LF name for display. Treat the
+      // unchanged displayed value as a no-op without rewriting the saved name.
+      if (name === initialInputValue) {
+        dialog.close();
+        return;
+      }
+      const priorUI = selectionSnapshot(true);
       const result = session.dispatch({
         ...envelope,
         type: 'rename-composition',
@@ -9691,6 +9733,10 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
         },
       });
       committed = result.changed;
+      if (committed) {
+        selectionHistory.set(history.past.at(-1), priorUI);
+        selectionHistory.set(history.doc, selectionSnapshot(true));
+      }
       dialog.close();
     } catch (error) {
       status.textContent = error.message;
@@ -9896,6 +9942,14 @@ app.addEventListener('click', async (e) => {
   // Layer deletion must never auto-finish a Pen draft or cancel a live gesture.
   if (d.deleteLayer !== undefined) {
     deleteArtwork(d.deleteLayer);
+    return;
+  }
+  if (d.action === 'rename-composition') {
+    try {
+      renameCompositionDialog();
+    } catch (error) {
+      notify(error.message, true);
+    }
     return;
   }
   if (
@@ -10315,9 +10369,6 @@ app.addEventListener('click', async (e) => {
         case 'add-composition':
           addComposition();
           notify('Composition added');
-          break;
-        case 'rename-composition':
-          renameCompositionDialog();
           break;
         case 'new': {
           if (!(await confirmReplace('creating a new document'))) break;

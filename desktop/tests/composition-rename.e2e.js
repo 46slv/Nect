@@ -6,7 +6,8 @@ import {
   migrateLegacyDocumentToCompositionProject,
   serializeCompositionProject,
 } from '../src/composition-project-model.js';
-import { activateCommand } from './command-menu-actions.js';
+import { activateCommand, revealCommandMenu } from './command-menu-actions.js';
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 
 const project = migrateLegacyDocumentToCompositionProject(blankDocument());
 project.compositions[0].id = 'first';
@@ -41,6 +42,181 @@ try {
   await page.goto(base);
   await page.waitForFunction(() => typeof window.nect?.load === 'function');
   const single = await snapshot();
+
+  // Opening the Project menu must not finish an unrelated live Pen path.
+  await page.evaluate((text) => window.nect.load(text), serialized);
+  await page.evaluate(() => {
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: 961 },
+    });
+    window.nect.dispatch({ ...window.nect.commandState, type: 'undo' });
+  });
+  const beforePen = await snapshot(),
+    beforePenState = await page.evaluate(() => ({
+      command: window.nect.commandState,
+      revision: window.nect.projectRevision,
+    }));
+  await page.locator('[data-tool="pen"]').click();
+  for (const position of [
+    [120, 100],
+    [220, 180],
+  ]) {
+    const screen = await page.locator('.artboard').evaluate((svg, p) => {
+      const transformed = new DOMPoint(...p).matrixTransform(svg.getScreenCTM());
+      return [transformed.x, transformed.y];
+    }, position);
+    await page.mouse.click(...screen);
+  }
+  assert.equal(await page.locator('[data-pen-draft]').count(), 1);
+  await activateCommand(page, 'rename-composition');
+  assert.equal(await dialog().count(), 0);
+  assert.equal(await page.locator('[data-pen-draft]').count(), 1);
+  assert.deepEqual(await snapshot(), beforePen);
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      command: window.nect.commandState,
+      revision: window.nect.projectRevision,
+    })),
+    beforePenState,
+  );
+  await page.locator('[role="tab"][aria-selected="true"]').focus();
+  await page.keyboard.press('F2');
+  assert.equal(await dialog().count(), 0);
+  assert.equal(await page.locator('[data-pen-draft]').count(), 1);
+  assert.deepEqual(await snapshot(), beforePen);
+  await page.locator('[data-pen-cancel]').click();
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await page.locator('[data-action="redo"]').click();
+  assert.equal((await snapshot()).compositions[0].width, 961);
+
+  // Text inputs normalize line breaks on assignment. Unchanged submission must
+  // preserve the original model name, even when its displayed value differs.
+  const unusual = structuredClone(project);
+  unusual.compositions[0].name = '  Phone frame  ';
+  unusual.compositions[1].name = 'Line\r\nBreak';
+  await page.evaluate((text) => window.nect.load(text), serializeCompositionProject(unusual));
+  await page.evaluate(() => {
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: 961 },
+    });
+    window.nect.dispatch({ ...window.nect.commandState, type: 'undo' });
+  });
+  const unusualBefore = await snapshot(),
+    unusualState = await page.evaluate(() => ({
+      command: window.nect.commandState,
+      revision: window.nect.projectRevision,
+    }));
+  await activateCommand(page, 'rename-composition');
+  assert.equal(await input().inputValue(), '  Phone frame  ');
+  await input().press('Enter');
+  await dialog().waitFor({ state: 'detached' });
+  await page.locator('[data-active-composition="second"][role="tab"]').focus();
+  await page.keyboard.press('F2');
+  assert.equal(await input().inputValue(), 'LineBreak');
+  await input().press('Enter');
+  await dialog().waitFor({ state: 'detached' });
+  assert.deepEqual(await snapshot(), unusualBefore);
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      command: window.nect.commandState,
+      revision: window.nect.projectRevision,
+    })),
+    unusualState,
+  );
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await activateCommand(page, 'rename-composition');
+  await input().fill('  Renamed frame  ');
+  await input().press('Enter');
+  await dialog().waitFor({ state: 'detached' });
+  assert.equal((await snapshot()).compositions[0].name, '  Renamed frame  ');
+
+  // Rename must retain the actual current Artwork selection across Undo/Redo.
+  await page.evaluate((text) => window.nect.load(text), JSON.stringify(single));
+  await page.locator('[data-tool="Circle"]').click();
+  const circleId = (await snapshot()).compositions[0].layers.at(-1).id;
+  await page.locator('[data-tool="Rectangle"]').click();
+  await ensureWorkspacePanel(page, 'layers');
+  await page.locator(`[data-select-layer="${circleId}"]`).click();
+  const artworkBefore = await snapshot();
+  await activateCommand(page, 'rename-composition');
+  await input().fill('Selection retained');
+  await input().press('Enter');
+  await dialog().waitFor({ state: 'detached' });
+  const artworkRenamed = await snapshot();
+  await page.locator('[data-action="undo"]').click();
+  assert.deepEqual(await snapshot(), artworkBefore);
+  assert.equal(
+    await page.locator(`[data-select-layer="${circleId}"]`).getAttribute('aria-pressed'),
+    'true',
+  );
+  await page.locator('[data-action="redo"]').click();
+  assert.deepEqual(await snapshot(), artworkRenamed);
+  assert.equal(
+    await page.locator(`[data-select-layer="${circleId}"]`).getAttribute('aria-pressed'),
+    'true',
+  );
+
+  // A refused rename must not blur and commit an unrelated inline name draft.
+  await page.evaluate(() => {
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: 961 },
+    });
+    window.nect.dispatch({ ...window.nect.commandState, type: 'undo' });
+  });
+  await page.locator(`[data-select-layer="${circleId}"]`).press('F2');
+  const layerName = page.locator(`[data-rename-name="${circleId}"]`);
+  await layerName.fill('Uncommitted layer draft');
+  const beforeDraft = await snapshot();
+  const projectMenu = await revealCommandMenu(page, 'Project');
+  assert.equal(await layerName.evaluate((el) => document.activeElement === el), true);
+  await projectMenu.locator('[data-action="rename-composition"]').click();
+  assert.equal(await dialog().count(), 0);
+  assert.equal(await layerName.inputValue(), 'Uncommitted layer draft');
+  assert.equal(await layerName.evaluate((el) => document.activeElement === el), true);
+  assert.deepEqual(await snapshot(), beforeDraft);
+  await layerName.press('Escape');
+  await layerName.waitFor({ state: 'detached' });
+
+  await page.locator(`[data-select-layer="${circleId}"]`).press('F2');
+  const composingLayerName = page.locator(`[data-rename-name="${circleId}"]`);
+  await composingLayerName.evaluate((el) =>
+    el.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })),
+  );
+  await composingLayerName.fill('変換中');
+  const composingMenu = await revealCommandMenu(page, 'Project');
+  await composingMenu.locator('[data-action="rename-composition"]').click();
+  assert.equal(await dialog().count(), 0);
+  assert.equal(await composingLayerName.inputValue(), '変換中');
+  assert.equal(await composingLayerName.evaluate((el) => document.activeElement === el), true);
+  assert.deepEqual(await snapshot(), beforeDraft);
+  await composingLayerName.evaluate((el) =>
+    el.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: el.value })),
+  );
+  await composingLayerName.press('Escape');
+  await composingLayerName.waitFor({ state: 'detached' });
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await page.locator('[data-action="redo"]').click();
+  assert.equal((await snapshot()).compositions[0].width, 961);
+
+  // Other Project actions keep their normal blur/commit behavior.
+  await page.locator(`[data-select-layer="${circleId}"]`).press('F2');
+  await page.locator(`[data-rename-name="${circleId}"]`).fill('Committed layer name');
+  const normalProjectMenu = await revealCommandMenu(page, 'Project');
+  await normalProjectMenu.locator('[data-action="add-composition"]').click();
+  const afterAdd = await snapshot();
+  assert.equal(afterAdd.compositions.length, 2);
+  assert.equal(
+    afterAdd.compositions[0].layers.find((layer) => layer.id === circleId).name,
+    'Committed layer name',
+  );
+
+  await page.evaluate((text) => window.nect.load(text), JSON.stringify(single));
   await activateCommand(page, 'rename-composition');
   await input().fill('Single frame');
   await input().press('Enter');
