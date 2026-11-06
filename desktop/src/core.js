@@ -30,6 +30,7 @@ import {
   nodesHaveQualifiedColorReferenceSyntax,
   qualifiedColorReferences,
   qualifiedColorReferencesInProject,
+  allExpressionParameters,
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
   compositionPropertyReferences,
   compositionPropertyReferencesInProject,
@@ -304,26 +305,52 @@ export const clone = (x) => structuredClone(x);
 // for every keystroke would turn a 20 MB font into gigabytes of undo history.
 // An explicit, snapshot-scoped evaluation binding; never part of native JSON.
 const projectDocumentContexts = new WeakMap();
-export function bindProjectDocumentContext(document, project, compositionId) {
+// An externally rebound live or retained History root invalidates copied Color
+// references even if an older binding is later restored. The record owns no
+// Session or strong references to its History roots.
+const projectContextOwners = new WeakMap();
+function markExternalProjectContextWrite(document) {
+  const record = projectContextOwners.get(document);
+  if (record?.members.has(document)) record.epoch++;
+}
+function prepareProjectDocumentContext(document, project, compositionId) {
   if (!project?.compositions?.some((item) => item.id === compositionId))
     throw Error('Unknown active Composition ID');
   // Project History replaces root fields in place. Capture its immutable child
   // snapshots behind a fresh root so older display/gesture views stay stable.
-  projectDocumentContexts.set(document, {
+  return {
     project: { ...project },
     activeCompositionId: compositionId,
     activeDocument: document,
     normalizedCompositions: new Map(),
-  });
+    clipboardIdentity: Object.freeze({}),
+  };
+}
+export function bindProjectDocumentContext(document, project, compositionId) {
+  const binding = projectDocumentContexts.get(document),
+    owner = projectContextOwners.get(document),
+    epoch = owner?.epoch,
+    members = owner?.members,
+    next = prepareProjectDocumentContext(document, project, compositionId);
+  if (
+    projectDocumentContexts.get(document) !== binding ||
+    projectContextOwners.get(document) !== owner ||
+    (owner && (owner.epoch !== epoch || owner.members !== members))
+  )
+    throw Error('STALE_REVISION: project context changed');
+  markExternalProjectContextWrite(document);
+  projectDocumentContexts.set(document, next);
   return document;
 }
 export function inheritProjectDocumentContext(source, target) {
   const binding = projectDocumentContexts.get(source);
-  if (binding)
+  if (binding) {
+    markExternalProjectContextWrite(target);
     projectDocumentContexts.set(
       target,
       binding.activeDocument === source ? { ...binding, activeDocument: target } : binding,
     );
+  }
   return target;
 }
 
@@ -2366,6 +2393,24 @@ function referenceParameter(layer, ref, type = 'Scalar', index = null) {
   return target;
 }
 
+function colorArtworkClipboardReferences(nodes, schemaVersion) {
+  const references = [];
+  for (const node of nodes)
+    for (const q of allExpressionParameters(node)) {
+      if (!hasQualifiedColorReferenceSyntax(q.expression)) continue;
+      if (schemaVersion < QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION || q.type !== 'Color')
+        throw Error('Copying opaque or unsupported qualified Color references is not supported');
+      const parsed = expressionReferencesForSchema(q, schemaVersion).filter((ref) => ref.qualifier);
+      if (
+        !parsed.length ||
+        parsed.some((ref) => ref.qualifier !== 'colorArtwork' || ref.type !== 'Color')
+      )
+        throw Error('Copying Composition Color references is not supported');
+      references.push(...parsed);
+    }
+  return references;
+}
+
 // Clipboard references preserve their original foreign targets only while each
 // target remains present. Once absent, a later reuse of the same ID is not proof
 // that it is the object copied by the user.
@@ -2390,7 +2435,7 @@ function artworkClipboardTargetsIntact(doc, clipboard) {
     )
       index.points.set(owner.id, new Map(owner.points.map((point) => [point.id, point])));
     try {
-      referenceParameter(layer, ref, 'Scalar', index);
+      referenceParameter(layer, ref, ref.qualifier === 'colorArtwork' ? 'Color' : 'Scalar', index);
     } catch {
       return false;
     }
@@ -7072,6 +7117,8 @@ export class CommandSession {
   #nodeClipboard = null;
   #beforeCandidateCommit;
   #captureArtworkMoveAuthority;
+  #retainColorClipboardForProjectContext;
+  #projectContextOwner = { epoch: 0, members: new WeakSet() };
   constructor(
     doc,
     {
@@ -7081,24 +7128,68 @@ export class CommandSession {
       retainHistory = true,
       beforeCandidateCommit = null,
       captureArtworkMoveAuthority = () => () => {},
+      retainColorClipboardForProjectContext = null,
     } = {},
   ) {
     if (beforeCandidateCommit !== null && typeof beforeCandidateCommit !== 'function')
       throw Error('Invalid candidate preflight');
     if (typeof captureArtworkMoveAuthority !== 'function') throw Error('Invalid artwork authority');
+    if (
+      retainColorClipboardForProjectContext !== null &&
+      typeof retainColorClipboardForProjectContext !== 'function'
+    )
+      throw Error('Invalid Color clipboard authority');
     validate(doc);
     if (Object.values(doc.fontAssets || {}).some((asset) => asset.kind === VARIABLE_KIND))
       assertVariableDocumentReady(doc, resolveFonts(doc, fonts()));
     this.#history = new History(cloneDocument(doc), { retainHistory });
+    this.#trackProjectContextRoots();
     this.#fonts = fonts;
     this.#busy = busy;
     this.#onCommitted = onCommitted;
     this.#beforeCandidateCommit = beforeCandidateCommit;
     this.#captureArtworkMoveAuthority = captureArtworkMoveAuthority;
+    this.#retainColorClipboardForProjectContext = retainColorClipboardForProjectContext;
     this.id = uid('session');
   }
+  #trackProjectContextRoots() {
+    const roots = [this.#history.doc, ...this.#history.past, ...this.#history.future];
+    this.#projectContextOwner.members = new WeakSet(roots);
+    for (const root of roots) projectContextOwners.set(root, this.#projectContextOwner);
+  }
   setProjectContext(project, compositionId) {
-    bindProjectDocumentContext(this.#history.doc, project, compositionId);
+    const doc = this.#history.doc,
+      revision = this.#history.revision,
+      binding = projectDocumentContexts.get(doc),
+      contextEpoch = this.#projectContextOwner.epoch,
+      clipboard = this.#nodeClipboard;
+    const assertCurrent = () => {
+      if (
+        this.#history.doc !== doc ||
+        this.#history.revision !== revision ||
+        projectDocumentContexts.get(doc) !== binding ||
+        this.#projectContextOwner.epoch !== contextEpoch ||
+        this.#nodeClipboard !== clipboard
+      )
+        throw Error('STALE_REVISION: document changed');
+    };
+    const next = prepareProjectDocumentContext(doc, project, compositionId);
+    assertCurrent();
+    let retain = false;
+    if (
+      clipboard?.colorArtworkReferences &&
+      !clipboard.artworkReferencesExpired &&
+      clipboard.colorContextEpoch === contextEpoch &&
+      clipboard.colorContextIdentity === (binding?.clipboardIdentity ?? null)
+    ) {
+      retain = this.#retainColorClipboardForProjectContext?.(project, compositionId) === true;
+      assertCurrent();
+    }
+    projectDocumentContexts.set(doc, next);
+    if (clipboard?.colorArtworkReferences) {
+      if (retain) clipboard.colorContextIdentity = next.clipboardIdentity;
+      else clipboard.artworkReferencesExpired = true;
+    }
   }
   get historyView() {
     const session = this;
@@ -7949,7 +8040,7 @@ export class CommandSession {
       fonts: { ...this.#fonts(), ...p.bridge.preparedFonts(p.ticket) },
     };
   }
-  #observeCommit(action, { skipFailed = false } = {}) {
+  #observeCommit(action, { skipFailed = false, suppressNotification = () => false } = {}) {
     const before = this.#history.revision;
     let completed = false;
     try {
@@ -7958,7 +8049,15 @@ export class CommandSession {
       return result;
     } finally {
       if (this.#history.revision !== before && (!skipFailed || completed)) {
+        this.#trackProjectContextRoots();
         const clipboard = this.#nodeClipboard;
+        if (
+          clipboard?.colorArtworkReferences &&
+          (clipboard.colorContextEpoch !== this.#projectContextOwner.epoch ||
+            clipboard.colorContextIdentity !==
+              (projectDocumentContexts.get(this.#history.doc)?.clipboardIdentity ?? null))
+        )
+          clipboard.artworkReferencesExpired = true;
         if (
           clipboard?.artworkReferences.length &&
           !clipboard.artworkReferencesExpired &&
@@ -7966,9 +8065,10 @@ export class CommandSession {
         )
           clipboard.artworkReferencesExpired = true;
         // An adapter cannot roll back an already committed edit.
-        try {
-          this.#onCommitted(Object.freeze(this.state));
-        } catch {}
+        if (!suppressNotification())
+          try {
+            this.#onCommitted(Object.freeze(this.state));
+          } catch {}
       }
     }
   }
@@ -8004,6 +8104,7 @@ export class CommandSession {
         this.#history.doc = p.candidate;
       });
     }
+    this.#trackProjectContextRoots();
     p.bridge.activate(p.ticket);
     if (p.type === 'import-svg') this.#nodeClipboard = null;
     this.#prepared = null;
@@ -8015,15 +8116,28 @@ export class CommandSession {
     bridge.cancel();
   }
   dispatch(command) {
+    const entry = {
+      document: this.#history.doc,
+      revision: this.#history.revision,
+      binding: projectDocumentContexts.get(this.#history.doc),
+      contextEpoch: this.#projectContextOwner.epoch,
+      clipboard: this.#nodeClipboard,
+    };
+    const commandType = command?.type,
+      copyAttempt = { isCopy: commandType === 'copy-nodes' };
     const artworkMove =
-      command?.type === 'translate-artworks' ||
-      (command?.type === 'begin-gesture' &&
-        command.payload?.target?.kind === 'artwork-translate') ||
-      (['update-gesture', 'commit-gesture'].includes(command?.type) &&
+      commandType === 'translate-artworks' ||
+      (commandType === 'begin-gesture' && command.payload?.target?.kind === 'artwork-translate') ||
+      (['update-gesture', 'commit-gesture'].includes(commandType) &&
         this.#gesture?.target.kind === 'artwork-translate');
-    return this.#observeCommit(() => this.#dispatch(command), { skipFailed: artworkMove });
+    const paste = commandType === 'paste-nodes';
+    return this.#observeCommit(() => this.#dispatch(command, entry, copyAttempt), {
+      skipFailed: artworkMove || paste,
+      suppressNotification: () => copyAttempt.isCopy,
+    });
   }
-  #dispatch({ sessionId, expectedRevision, type, payload = {} }) {
+  #dispatch({ sessionId, expectedRevision, type, payload = {} }, entry, copyAttempt) {
+    copyAttempt.isCopy = type === 'copy-nodes';
     if (sessionId !== this.id) throw Error('STALE_SESSION: document changed');
     // Cleanup can release the caller's exact token even after a legacy edit made
     // its baseline stale. It never writes the committed document.
@@ -8037,6 +8151,50 @@ export class CommandSession {
       throw Error('STALE_REVISION: document changed');
     if (!payload || typeof payload !== 'object' || Array.isArray(payload))
       throw Error('Invalid command payload');
+    const paste = type === 'paste-nodes';
+    const assertPasteLocal = () => {
+      if (
+        paste &&
+        (this.#history.doc !== entry.document ||
+          this.#history.revision !== entry.revision ||
+          projectDocumentContexts.get(this.#history.doc) !== entry.binding ||
+          this.#projectContextOwner.epoch !== entry.contextEpoch ||
+          this.#nodeClipboard !== entry.clipboard)
+      )
+        throw Error('STALE_REVISION: document changed');
+    };
+    assertPasteLocal();
+    // Paste and artwork movement both invoke external font and precommit hooks
+    // before writing History; both require the same owner/session authority.
+    const pasteAuthority = paste ? this.#captureArtworkMoveAuthority() : null;
+    const assertPasteCurrent = () => {
+      assertPasteLocal();
+      pasteAuthority?.();
+      assertPasteLocal();
+    };
+    const assertPasteDraftsClear = () => {
+      if (
+        this.#gesture ||
+        this.hasTextComposition ||
+        [...this.#textDrafts.values()].some(
+          (draft) => draft.revision === this.#history.revision && draft.state.changed,
+        )
+      )
+        throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+    };
+    const assertPasteReady = () => {
+      if (!paste) return;
+      assertPasteCurrent();
+      const busy = this.#busy();
+      assertPasteCurrent();
+      if (busy) throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+      assertPasteDraftsClear();
+      assertPasteCurrent();
+      // Authority is a callback too: it can start a draft without a revision.
+      // This final check reads only Session-private state before History writes.
+      assertPasteDraftsClear();
+    };
+    assertPasteCurrent();
     const artworkMove =
       type === 'translate-artworks' ||
       (type === 'begin-gesture' && payload.target?.kind === 'artwork-translate') ||
@@ -8337,7 +8495,21 @@ export class CommandSession {
       throw Error('Finish or cancel the Text draft before copying/pasting nodes');
     if (type === 'copy-nodes') {
       const doc = this.#history.doc,
+        revision = this.#history.revision,
+        binding = projectDocumentContexts.get(doc),
+        contextEpoch = this.#projectContextOwner.epoch,
+        previousClipboard = this.#nodeClipboard,
         layer = doc.layers.find((l) => l.id === payload.layerId);
+      const assertCopyCurrent = () => {
+        if (
+          this.#history.doc !== doc ||
+          this.#history.revision !== revision ||
+          projectDocumentContexts.get(doc) !== binding ||
+          this.#projectContextOwner.epoch !== contextEpoch ||
+          this.#nodeClipboard !== previousClipboard
+        )
+          throw Error('STALE_REVISION: document changed');
+      };
       if (
         !layer ||
         !Array.isArray(payload.nodeIds) ||
@@ -8356,15 +8528,11 @@ export class CommandSession {
       )
         throw Error('Copying nodes with Component Composition references is not supported');
       if (
-        doc.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION &&
-        nodesHaveQualifiedColorReferenceSyntax(nodes)
-      )
-        throw Error('Copying nodes with qualified Color references is not supported');
-      if (
         doc.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
         nodesHaveCompositionPropertyReferenceSyntax(nodes)
       )
         throw Error('Copying nodes with Composition property references is not supported');
+      const colorArtworkReferences = colorArtworkClipboardReferences(nodes, doc.schemaVersion);
       const ids = new Set(nodes.map((n) => n.id)),
         externalNodeIds = [
           ...new Set(
@@ -8398,8 +8566,8 @@ export class CommandSession {
       const artworkLayers = new Map(doc.layers.map((item) => [item.id, item]));
       const artworkReferences = [
         ...new Map(
-          artworkReferencesInLayers([{ nodes }]).map((ref) => [
-            JSON.stringify([ref.layerId, ref.nodeId, ref.key, ref.component]),
+          [...artworkReferencesInLayers([{ nodes }]), ...colorArtworkReferences].map((ref) => [
+            JSON.stringify([ref.qualifier || '', ref.layerId, ref.nodeId, ref.key, ref.component]),
             {
               ...ref,
               ownerType: artworkLayers
@@ -8422,6 +8590,9 @@ export class CommandSession {
         pasteCount: 0,
         externalNodeIds,
         artworkReferences,
+        colorArtworkReferences: colorArtworkReferences.length > 0,
+        colorContextIdentity: binding?.clipboardIdentity ?? null,
+        colorContextEpoch: contextEpoch,
         artworkInputCount,
         artworkReferencesExpired: false,
         fonts: Object.fromEntries([...fontIds].map((id) => [id, doc.fontAssets?.[id]])),
@@ -8429,6 +8600,17 @@ export class CommandSession {
       };
       if (artworkReferences.length && !artworkClipboardTargetsIntact(doc, clipboard))
         throw Error('Cannot copy: an Artwork source is missing or changed; restore it first');
+      if (colorArtworkReferences.length) {
+        assertCopyCurrent();
+        if (
+          doc !== entry.document ||
+          revision !== entry.revision ||
+          binding !== entry.binding ||
+          contextEpoch !== entry.contextEpoch ||
+          previousClipboard !== entry.clipboard
+        )
+          throw Error('STALE_REVISION: document changed');
+      }
       this.#nodeClipboard = clipboard;
       return {
         ...this.state,
@@ -8470,13 +8652,17 @@ export class CommandSession {
       payload,
       commandBase,
     );
+    assertPasteReady();
     assertVariableDocumentReady(candidate, resolveFonts(candidate, this.#fonts()));
+    assertPasteReady();
     assertNoAccidentalCurvePointRebind(this.#history.doc, candidate, this.#nodeClipboard);
     assertArtworkReferenceTransition(this.#history.doc, candidate, this.#fonts());
+    assertPasteReady();
     assertArtworkMoveCurrent();
     const revision = this.#history.revision;
     if (!sameDocument(this.#history.doc, candidate)) {
       this.#beforeCandidateCommit?.(this.#history.doc, candidate);
+      assertPasteReady();
       assertArtworkMoveCurrent();
       this.#history.apply(() => {
         this.#history.doc = candidate;
@@ -9549,6 +9735,13 @@ export class CommandSession {
           'Node clipboard is empty. Copy in this document’s graph; OS/other-document paste is not supported',
         );
       if (
+        clipboard.colorArtworkReferences &&
+        (clipboard.colorContextEpoch !== this.#projectContextOwner.epoch ||
+          clipboard.colorContextIdentity !==
+            (projectDocumentContexts.get(before)?.clipboardIdentity ?? null))
+      )
+        clipboard.artworkReferencesExpired = true;
+      if (
         (candidate.schemaVersion >= COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION ||
           clipboard.schemaVersion >= COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION) &&
         nodesHaveComponentCompositionReferenceSyntax(clipboard.nodes)
@@ -9557,9 +9750,17 @@ export class CommandSession {
       if (
         (candidate.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION ||
           clipboard.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION) &&
-        nodesHaveQualifiedColorReferenceSyntax(clipboard.nodes)
+        nodesHaveQualifiedColorReferenceSyntax(clipboard.nodes) &&
+        !clipboard.colorArtworkReferences
       )
         throw Error('Pasting nodes with qualified Color references is not supported');
+      if (
+        clipboard.colorArtworkReferences &&
+        candidate.schemaVersion < QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION
+      )
+        throw Error(
+          'Pasting Color Artwork references requires schemaVersion 64; copy again in this Document',
+        );
       if (
         (candidate.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION ||
           clipboard.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION) &&
