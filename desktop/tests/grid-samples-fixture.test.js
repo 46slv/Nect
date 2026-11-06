@@ -220,3 +220,58 @@ test('candidate budget is preflighted and unsupported accessors do not execute',
   assert.throws(() => gridSamplesFixtureV1(input), /Grid fixture/);
   assert.equal(reads, 0);
 });
+
+test('bounds and spacing use one captured data snapshot even for changing Proxies', () => {
+  const input = descriptor();
+  let boundReads = 0,
+    spacingReads = 0;
+  input.bounds = new Proxy(
+    { minI: 0, maxI: 1, minJ: 0, maxJ: 1 },
+    {
+      get(target, key, receiver) {
+        if (key === 'maxI') return ++boundReads <= 3 ? 1 : 4101;
+        return Reflect.get(target, key, receiver);
+      },
+    },
+  );
+  input.spacing = new Proxy([2, 3], {
+    get(target, key, receiver) {
+      if (key === '0') return ++spacingReads <= 3 ? 2 : 200;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  const result = gridSamplesFixtureV1(input);
+  assert.equal(result.samples.length, 1);
+  assert.deepEqual(result.grid.spacing, [2, 3]);
+  assert.deepEqual(result.grid.basisX, [2, 0]);
+  assert.equal(boundReads, 0);
+  assert.equal(spacingReads, 0);
+});
+
+test('nested fixture descriptors are captured without property gets or repeated bound reads', () => {
+  const input = descriptor(),
+    reads = {};
+  const noGet = (value) =>
+    new Proxy(value, {
+      get() {
+        throw Error('unexpected property get');
+      },
+    });
+  input.origin = noGet(input.origin);
+  input.spacing = noGet(input.spacing);
+  input.angle = noGet(input.angle);
+  input.included = noGet([noGet([0, 0])]);
+  input.bounds = new Proxy(input.bounds, {
+    get() {
+      throw Error('unexpected bound get');
+    },
+    getOwnPropertyDescriptor(target, key) {
+      reads[key] = (reads[key] || 0) + 1;
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
+  });
+  const result = gridSamplesFixtureV1(noGet(input));
+  assert.equal(result.samples.length, 1);
+  assert.deepEqual(result.samples[0].position, [10, 20]);
+  assert.deepEqual(reads, { minI: 1, maxI: 1, minJ: 1, maxJ: 1 });
+});

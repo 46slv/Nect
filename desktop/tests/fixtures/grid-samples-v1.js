@@ -4,33 +4,45 @@
 const MAX_CANDIDATES = 4096;
 const MAX_TOKEN_LENGTH = 256;
 
-function plainData(value, keys) {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    Object.getPrototypeOf(value) === Object.prototype &&
-    Reflect.ownKeys(value).length === keys.length &&
-    keys.every((key) => {
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      return descriptor && Object.hasOwn(descriptor, 'value');
-    })
-  );
+function captureData(value, keys, optional = []) {
+  if (
+    value === null ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype
+  )
+    return null;
+  const present = Reflect.ownKeys(value);
+  if (present.some((key) => !keys.includes(key) && !optional.includes(key))) return null;
+  const result = {};
+  for (const key of [...keys, ...optional.filter((key) => present.includes(key))]) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) return null;
+    result[key] = descriptor.value;
+  }
+  return result;
 }
 
-function plainArray(value, length) {
-  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return false;
-  if (length === undefined) length = value.length;
-  if (value.length !== length || Reflect.ownKeys(value).length !== length + 1) return false;
+function captureArray(value, expectedLength, maximumLength = MAX_CANDIDATES) {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return null;
+  const lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
+  if (!lengthDescriptor || !Object.hasOwn(lengthDescriptor, 'value')) return null;
+  const length = lengthDescriptor.value;
+  if (!Number.isSafeInteger(length) || length < 0 || length > maximumLength) return null;
+  if (expectedLength !== undefined && length !== expectedLength) return null;
+  if (Reflect.ownKeys(value).length !== length + 1) return null;
+  const result = [];
   for (let index = 0; index < length; index++) {
     const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-    if (!descriptor || !Object.hasOwn(descriptor, 'value')) return false;
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) return null;
+    result.push(descriptor.value);
   }
-  return true;
+  return result;
 }
 
-function vector(value) {
-  return plainArray(value, 2) && Number.isFinite(value[0]) && Number.isFinite(value[1]);
+function captureVector(value) {
+  const result = captureArray(value, 2);
+  return result && Number.isFinite(result[0]) && Number.isFinite(result[1]) ? result : null;
 }
 
 function token(value) {
@@ -56,22 +68,24 @@ function position(origin, basisX, basisY, i, j) {
 
 /** Internal rectangular-v1 fixture; no project or public producer contract. */
 export function gridSamplesFixtureV1(input) {
-  const keys = ['namespaceId', 'frameToken', 'origin', 'spacing', 'angle', 'bounds'];
-  if (input && Object.hasOwn(input, 'included')) keys.push('included');
-  if (!plainData(input, keys)) throw Error('Grid fixture requires plain descriptor data');
-  const { namespaceId, frameToken, origin, spacing, angle, bounds } = input;
+  const descriptor = captureData(
+    input,
+    ['namespaceId', 'frameToken', 'origin', 'spacing', 'angle', 'bounds'],
+    ['included'],
+  );
+  if (!descriptor) throw Error('Grid fixture requires plain descriptor data');
+  const { namespaceId, frameToken } = descriptor,
+    origin = captureVector(descriptor.origin),
+    spacing = captureVector(descriptor.spacing),
+    angle = captureData(descriptor.angle, ['type', 'unit', 'value']),
+    bounds = captureData(descriptor.bounds, ['minI', 'maxI', 'minJ', 'maxJ']);
   if (!token(namespaceId) || !token(frameToken)) throw Error('Grid fixture needs bounded tokens');
-  if (!vector(origin) || !vector(spacing) || spacing[0] <= 0 || spacing[1] <= 0)
+  if (!origin || !spacing || spacing[0] <= 0 || spacing[1] <= 0)
     throw Error('Grid fixture needs finite origin and positive finite spacing');
-  if (
-    !plainData(angle, ['type', 'unit', 'value']) ||
-    angle.type !== 'Angle' ||
-    angle.unit !== 'degree' ||
-    !Number.isFinite(angle.value)
-  )
+  if (!angle || angle.type !== 'Angle' || angle.unit !== 'degree' || !Number.isFinite(angle.value))
     throw Error('Grid fixture needs a finite degree Angle');
   if (
-    !plainData(bounds, ['minI', 'maxI', 'minJ', 'maxJ']) ||
+    !bounds ||
     !['minI', 'maxI', 'minJ', 'maxJ'].every((key) => Number.isSafeInteger(bounds[key]))
   )
     throw Error('Grid fixture needs safe integer lattice bounds');
@@ -91,14 +105,13 @@ export function gridSamplesFixtureV1(input) {
     throw Error(`Grid fixture exceeds the ${MAX_CANDIDATES} candidate budget`);
 
   let included = null;
-  if (Object.hasOwn(input, 'included')) {
-    if (!Array.isArray(input.included) || input.included.length > MAX_CANDIDATES)
-      throw Error('Grid fixture mask exceeds its candidate budget');
-    if (!plainArray(input.included)) throw Error('Grid fixture needs a plain lattice mask');
+  if (Object.hasOwn(descriptor, 'included')) {
+    const inputMask = captureArray(descriptor.included);
+    if (!inputMask) throw Error('Grid fixture needs a bounded plain lattice mask');
     included = new Set();
-    for (let index = 0; index < input.included.length; index++) {
-      const item = input.included[index];
-      if (!plainArray(item, 2) || !Number.isSafeInteger(item[0]) || !Number.isSafeInteger(item[1]))
+    for (let index = 0; index < inputMask.length; index++) {
+      const item = captureArray(inputMask[index], 2);
+      if (!item || !Number.isSafeInteger(item[0]) || !Number.isSafeInteger(item[1]))
         throw Error('Grid fixture mask needs safe integer coordinates');
       included.add(indexKey(item[0], item[1]));
     }
@@ -114,7 +127,12 @@ export function gridSamplesFixtureV1(input) {
     basisX = [cosine * spacing[0], sine * spacing[0]],
     basisY = [-sine * spacing[1], cosine * spacing[1]],
     cellArea = Math.abs(basisX[0] * basisY[1] - basisX[1] * basisY[0]);
-  if (!vector(basisX) || !vector(basisY) || !Number.isFinite(cellArea) || cellArea === 0)
+  if (
+    !basisX.every(Number.isFinite) ||
+    !basisY.every(Number.isFinite) ||
+    !Number.isFinite(cellArea) ||
+    cellArea === 0
+  )
     throw Error('Grid fixture basis or area is not representable');
 
   // Reject non-finite coordinates before creating any Sample. The explicit
