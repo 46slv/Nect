@@ -121,6 +121,67 @@ test('local wire extension metadata is not interpreted as an Artwork address', (
   assert.equal(evaluate(edited.layers[0], {}, {}, edited).run(f.b.id), 9);
 });
 
+test('wire metadata is not a parameter address and does not leave cached output stale', () => {
+  const doc = blankDocument(),
+    layer = doc.layers[0],
+    source = node('Math'),
+    sink = node('Value');
+  source.id = 'math';
+  sink.id = 'sink';
+  source.params.a.value = 7;
+  source.params.b.value = 2;
+  sink.params.value.source = source.id;
+  sink.params.value.layerId = 'extension-metadata';
+  sink.params.value.parameterKey = 'a';
+  layer.nodes.push(source, sink);
+  const reopened = deserialize(JSON.stringify(doc)),
+    l = reopened.layers[0];
+  assert.equal(evaluate(l, {}, {}, reopened).run(sink.id), 9);
+  l.nodes.find((n) => n.id === source.id).params.b.value = 5;
+  const changed = evaluate(l, {}, {}, reopened);
+  assert.equal(changed.run(source.id), 12);
+  assert.equal(changed.run(sink.id), 12);
+
+  l.nodes.find((n) => n.id === sink.id).params.value.parameterKey = 'extension-key';
+  assert.equal(evaluate(l, {}, {}, reopened).run(sink.id), 12);
+});
+
+test('wire metadata cannot replace a selected scalar output port', () => {
+  const doc = blankDocument(),
+    layer = doc.layers[0],
+    vector = node('Vector'),
+    separate = node('Separate Vector'),
+    sink = node('Value');
+  vector.params.value.value = [11, 22];
+  layer.nodes.push(vector, separate, sink);
+  connect(layer, vector.id, separate.id, 'vector');
+  connect(layer, separate.id, sink.id, 'value', false, 'x');
+  sink.params.value.layerId = 'extension-metadata';
+  sink.params.value.parameterKey = 'extension-key';
+  const reopened = deserialize(JSON.stringify(doc)),
+    l = reopened.layers[0];
+  assert.equal(evaluate(l, {}, {}, reopened).run(sink.id), 11);
+  l.nodes.find((n) => n.id === vector.id).params.value.value = [13, 22];
+  assert.equal(evaluate(l, {}, {}, reopened).run(sink.id), 13);
+});
+
+test('Text outline baking treats a default-port wire with metadata as a wire', () => {
+  const doc = blankDocument(),
+    layer = doc.layers[0],
+    text = node('Text'),
+    fill = node('Fill');
+  text.text = 'A';
+  layer.nodes.push(text, fill);
+  connect(layer, text.id, fill.id, 'path');
+  fill.params.path.parameterKey = 'extension-key';
+  const session = new CommandSession(doc, { fonts: () => ({ default: testFont() }) });
+  const before = session.snapshot();
+  send(session, 'bake-text-outline', { layerId: layer.id, nodeId: text.id });
+  assert.equal(session.snapshot().layers[0].nodes.find((n) => n.id === text.id).type, 'Multi Path');
+  send(session, 'undo');
+  assert.deepEqual(session.snapshot(), before);
+});
+
 function testFont() {
   const bytes = fs.readFileSync(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url));
   return parseFont(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));

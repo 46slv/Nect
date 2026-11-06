@@ -1122,7 +1122,11 @@ function assertAcyclic(layer) {
     const connected = new Set();
     for (const dep of collectNodeDependencies(n, false, connected)) {
       if (dep.layerId && !connected.has(dep)) continue;
-      if (!byId.has(dep.source) && n.type !== 'Reference' && !dep.parameterKey)
+      if (
+        !byId.has(dep.source) &&
+        n.type !== 'Reference' &&
+        (!dep.parameterKey || connected.has(dep))
+      )
         throw Error('Missing source node');
       visit(dep.source);
     }
@@ -3053,7 +3057,7 @@ export function evaluate(
         : null;
       const parameterVersions = new Map();
       for (const dep of deps) {
-        if (dep.parameterKey)
+        if (dep.parameterKey && !connected.has(dep))
           parameterVersions.set(
             dep,
             resolveExpressionReference(
@@ -3071,7 +3075,7 @@ export function evaluate(
       const dependencyVersions = deps.map((q) => [
         q.source,
         q.sourcePort,
-        q.parameterKey
+        q.parameterKey && !connected.has(q)
           ? [q.parameterKey, q.component, parameterVersions.get(q)]
           : versions.get(outputKey(q.source, q.sourcePort)),
       ]);
@@ -8055,11 +8059,12 @@ export class CommandSession {
         throw Error('Text parameter references are in use; disconnect them before baking');
       for (const other of layer.nodes) {
         if (other.id === source.id) continue;
+        const connected = new Set();
         if (
-          nodeDependencies(other).some(
+          collectNodeDependencies(other, false, connected).some(
             (dep) =>
               dep.source === source.id &&
-              (dep.parameterKey !== undefined ||
+              ((dep.parameterKey !== undefined && !connected.has(dep)) ||
                 dep.sourcePort !== undefined ||
                 other.type === 'Reference'),
           )
