@@ -1150,10 +1150,13 @@ function documentDependencyGraph(doc) {
       n = nodes.get(v.layerId)?.get(v.nodeId);
     if (!n) return [];
     if (v.key !== undefined) {
-      let key = v.key;
-      if (isTransform(n) && !n.params[key] && key === 'position') key = 'anchor';
-      if (isTransform(n) && !n.params[key] && key === 'scaleWidth') key = 'scale';
-      const q = graphParameter(n, key);
+      // Legacy virtual controls evaluate their backing property. Keep the
+      // edge explicit so editing that property reaches external consumers.
+      if (isTransform(n) && !n.params[v.key] && v.key === 'position')
+        return [property(layer.id, n.id, 'anchor')];
+      if (isTransform(n) && !n.params[v.key] && v.key === 'scaleWidth')
+        return [property(layer.id, n.id, 'scale')];
+      const q = graphParameter(n, v.key);
       if (!q) return [];
       if (q.source) return [output(layer.id, q.source, q.sourcePort)];
       if (!q.expression) return [];
@@ -1176,7 +1179,7 @@ function documentDependencyGraph(doc) {
     }
     return result;
   }
-  return { layers, nodes, output, property, keyOf, edges };
+  return { layers, nodes, output, property, keyOf, edges, parameter: graphParameter };
 }
 function assertDocumentReferenceAcyclic(doc) {
   const graph = documentDependencyGraph(doc);
@@ -1890,7 +1893,10 @@ export function previewColorExpression(
     throw Error('Select a Color parameter');
   q.expression = source;
   assertAcyclic(draft);
-  const qualified = source && parameterExpressionUses(q).some((ref) => ref.layerId);
+  const refs = source ? parameterExpressionUses(q) : [];
+  if (refs.some((ref) => ref.layerId === layer.id))
+    throw Error('Artwork reference requires a different layer');
+  const qualified = refs.some((ref) => ref.layerId);
   let previewDocument = documentContext;
   if (qualified && documentContext) {
     if (
@@ -2913,6 +2919,7 @@ export function evaluate(
     byId.get(id)?.type === 'Text' && port === 'position' ? `${id}\0position` : id;
   const readingParameters = context.readingParameters;
   const layerReadingParameters = new Set();
+  const frameParameterIndexes = new WeakMap();
   function resolveExpressionReference(ref, type = 'Scalar') {
     if (
       ref.layerId &&
@@ -2936,9 +2943,13 @@ export function evaluate(
     return projectReferenceValue(ref, value);
   }
   function indexParameters(n) {
-    const indexed = new Map();
-    // Match parameter()'s first-entry behavior even for an invalid duplicate.
+    let indexed = frameParameterIndexes.get(n);
+    if (indexed) return indexed;
+    indexed = new Map();
+    // A frame is an immutable snapshot. Match parameter()'s first entry even
+    // for invalid duplicates and discard the index with this evaluation.
     for (const [key, value] of parameters(n)) if (!indexed.has(key)) indexed.set(key, value);
+    frameParameterIndexes.set(n, indexed);
     return indexed;
   }
   function readParameter(n, key, indexed) {
@@ -2972,7 +2983,7 @@ export function evaluate(
   function readParameterValue(n, key, indexed) {
     if (isTransform(n) && !n.params[key] && key === 'position') return readParameter(n, 'anchor');
     if (isTransform(n) && !n.params[key] && key === 'scaleWidth') return readParameter(n, 'scale');
-    let q = indexed?.get(key) ?? parameter(n, key);
+    let q = (indexed || indexParameters(n)).get(key) || parameterFallback(n, key);
     if (!q) throw Error(`Missing parameter ${key}`);
     let value =
       q.colorSlotId !== undefined
@@ -4493,13 +4504,14 @@ export function evaluate(
 // Session commits and previews are the common boundary for source edits,
 // including gestures and prepared commands. A dangling identity cannot be
 // revived by an allocator, and affected cross-layer controls remain valid.
-function foreignAffectedNodes(before, candidate) {
-  const keyOf = (layerId, nodeId) => `${layerId}\0${nodeId}`;
+function foreignAffectedVertices(before, candidate) {
+  const nodeKey = (layerId, nodeId) => `${layerId}\0${nodeId}`;
   const entries = (doc) =>
-    new Map(doc.layers.flatMap((layer) => layer.nodes.map((n) => [keyOf(layer.id, n.id), n])));
+    new Map(doc.layers.flatMap((layer) => layer.nodes.map((n) => [nodeKey(layer.id, n.id), n])));
   const prior = entries(before),
     current = entries(candidate),
-    changed = new Set();
+    changed = new Set(),
+    changedAll = new Set();
   for (const key of new Set([...prior.keys(), ...current.keys()]))
     if (JSON.stringify(prior.get(key)) !== JSON.stringify(current.get(key))) changed.add(key);
   const layerFields = (layer) => {
@@ -4510,13 +4522,16 @@ function foreignAffectedNodes(before, candidate) {
   for (const layer of candidate.layers) {
     const old = oldLayers.get(layer.id);
     if (!old || layerFields(old) !== layerFields(layer))
-      for (const n of layer.nodes) changed.add(keyOf(layer.id, n.id));
+      for (const n of layer.nodes) {
+        const key = nodeKey(layer.id, n.id);
+        changed.add(key);
+        changedAll.add(key);
+      }
   }
   const registryChanged = (name) => {
     const a = before[name] || {},
       b = candidate[name] || {};
-    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-    return [...keys].some((key) => a[key] !== b[key]);
+    return [...new Set([...Object.keys(a), ...Object.keys(b)])].some((key) => a[key] !== b[key]);
   };
   if (
     ['width', 'height', 'colorSlots', 'keyColorRecipe'].some(
@@ -4525,33 +4540,107 @@ function foreignAffectedNodes(before, candidate) {
     registryChanged('fontAssets') ||
     registryChanged('imageAssets')
   )
-    for (const key of current.keys()) changed.add(key);
+    for (const key of current.keys()) {
+      changed.add(key);
+      changedAll.add(key);
+    }
 
-  // Traverse reverse dependencies from actual changes. The boolean records
-  // whether a path crossed an Artwork boundary; local checks already belong
-  // to the ordinary Session candidate validator.
-  const reverse = new Map();
+  // Properties can be read directly even when their node output does not use
+  // them (for example Resample spacing in count mode). Build the reverse graph
+  // from both snapshots and keep property and output vertices distinct.
+  const reverse = new Map(),
+    vertices = new Map(),
+    byNode = new Map(),
+    directForeign = new Set();
+  let candidateGraph, priorGraph;
   for (const doc of [before, candidate]) {
-    const layers = new Map(doc.layers.map((layer) => [layer.id, layer]));
+    const graph = documentDependencyGraph(doc),
+      queue = [],
+      seen = new Set();
+    if (doc === candidate) candidateGraph = graph;
+    else priorGraph = graph;
     for (const layer of doc.layers)
       for (const n of layer.nodes) {
-        const consumer = keyOf(layer.id, n.id);
-        const add = (sourceLayer, sourceNode, foreign) => {
-          const source = keyOf(sourceLayer, sourceNode);
-          if (!reverse.has(source)) reverse.set(source, []);
-          reverse.get(source).push({ consumer, foreign });
-        };
-        for (const dep of nodeDependencies(n, true))
-          add(dep.layerId || layer.id, dep.source, !!dep.layerId);
-        const target = ['Composition Reference', 'SVG'].includes(n.type)
-          ? layers.get(n.compositionReference?.compositionId)
-          : null;
-        if (target) add(target.id, target.output, true);
+        for (const port of outputPorts(n)) queue.push(graph.output(layer.id, n.id, port.id));
+        for (const [key] of parameters(n)) queue.push(graph.property(layer.id, n.id, key));
       }
+    for (let i = 0; i < queue.length; i++) {
+      const vertex = queue[i],
+        key = graph.keyOf(vertex);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      vertices.set(key, vertex);
+      const owner = nodeKey(vertex.layerId, vertex.nodeId);
+      if (!byNode.has(owner)) byNode.set(owner, new Set());
+      byNode.get(owner).add(key);
+      for (const dep of graph.edges(vertex)) {
+        const source = graph.keyOf(dep),
+          foreign = dep.layerId !== vertex.layerId;
+        if (!reverse.has(source)) reverse.set(source, []);
+        reverse.get(source).push({ consumer: key, foreign });
+        if (foreign) directForeign.add(key);
+        queue.push(dep);
+      }
+    }
   }
-  const queue = [...changed].map((key) => ({ key, foreign: false })),
+  // Changed/re-activated destinations must themselves be checked whenever
+  // they depend on a foreign property, not only after a source changes.
+  const dependsOnForeign = new Set(directForeign),
+    dependencies = [...directForeign];
+  for (let i = 0; i < dependencies.length; i++)
+    for (const edge of reverse.get(dependencies[i]) || [])
+      if (!dependsOnForeign.has(edge.consumer)) {
+        dependsOnForeign.add(edge.consumer);
+        dependencies.push(edge.consumer);
+      }
+  const queue = [],
     seen = new Set(),
-    affected = new Set();
+    affected = new Map();
+  const outputFields = (n) => {
+    const { params, points, edits, ...fields } = n;
+    return JSON.stringify({
+      ...fields,
+      points: points.map(({ position, handleA, handleB, ...point }) => point),
+      edits: edits.map(({ params: editParams, ...edit }) => edit),
+    });
+  };
+  for (const owner of changed) {
+    const oldNode = prior.get(owner),
+      newNode = current.get(owner);
+    const wholeNode = changedAll.has(owner) || !oldNode || !newNode;
+    const outputChanged = wholeNode || outputFields(oldNode) !== outputFields(newNode);
+    const activated = new Set();
+    if (!wholeNode && outputChanged)
+      for (const key of byNode.get(owner) || []) {
+        const vertex = vertices.get(key);
+        if (vertex.key !== undefined) continue;
+        const previous = new Set(priorGraph.edges(vertex).map(priorGraph.keyOf));
+        for (const dependency of candidateGraph.edges(vertex)) {
+          const dependencyKey = candidateGraph.keyOf(dependency);
+          if (
+            dependency.key !== undefined &&
+            dependency.layerId === vertex.layerId &&
+            dependency.nodeId === vertex.nodeId &&
+            !previous.has(dependencyKey)
+          )
+            activated.add(dependencyKey);
+        }
+      }
+    for (const key of byNode.get(owner) || []) {
+      const vertex = vertices.get(key);
+      const vertexChanged =
+        wholeNode ||
+        activated.has(key) ||
+        (vertex.key === undefined
+          ? outputChanged
+          : JSON.stringify(priorGraph.parameter(oldNode, vertex.key)) !==
+            JSON.stringify(candidateGraph.parameter(newNode, vertex.key)));
+      if (!vertexChanged) continue;
+      const foreign = dependsOnForeign.has(key);
+      queue.push({ key, foreign });
+      if (foreign) affected.set(key, vertex);
+    }
+  }
   for (let i = 0; i < queue.length; i++) {
     const item = queue[i],
       marker = `${item.key}\0${item.foreign ? 1 : 0}`;
@@ -4559,11 +4648,14 @@ function foreignAffectedNodes(before, candidate) {
     seen.add(marker);
     for (const edge of reverse.get(item.key) || []) {
       const foreign = item.foreign || edge.foreign;
-      if (foreign && current.has(edge.consumer)) affected.add(edge.consumer);
+      if (foreign) affected.set(edge.consumer, vertices.get(edge.consumer));
       queue.push({ key: edge.consumer, foreign });
     }
   }
-  return affected;
+  return {
+    affected: [...affected.values()].filter((v) => current.has(nodeKey(v.layerId, v.nodeId))),
+    candidateGraph,
+  };
 }
 function assertArtworkReferenceTransition(before, candidate, fonts = {}) {
   const allRefs = (doc) =>
@@ -4594,19 +4686,28 @@ function assertArtworkReferenceTransition(before, candidate, fonts = {}) {
     )
       throw Error('New identity would retarget a missing Artwork reference');
 
-  const affected = foreignAffectedNodes(before, candidate);
-  if (!affected.size) return;
+  const { affected, candidateGraph } = foreignAffectedVertices(before, candidate);
+  if (!affected.length) return;
   const currentFonts = resolveFonts(candidate, fonts),
     oldFonts = resolveFonts(before, fonts),
     effective = cloneDocument(candidate);
-  const nodeKey = (layerId, nodeId) => `${layerId}\0${nodeId}`;
+  const projectedIndexes = new WeakMap();
+  const projectedParameter = (n, key) => {
+    let indexed = projectedIndexes.get(n);
+    if (!indexed) {
+      indexed = new Map();
+      for (const [name, q] of parameters(n)) if (!indexed.has(name)) indexed.set(name, q);
+      projectedIndexes.set(n, indexed);
+    }
+    return indexed.get(key) || parameterFallback(n, key);
+  };
   for (const layer of candidate.layers) {
-    const affectedNodeIds = new Set(
-      layer.nodes.filter((n) => affected.has(nodeKey(layer.id, n.id))).map((n) => n.id),
-    );
+    const vertices = affected.filter((vertex) => vertex.layerId === layer.id);
+    const affectedNodeIds = new Set(vertices.map((vertex) => vertex.nodeId));
     if (!affectedNodeIds.size) continue;
     const old = before.layers.find((item) => item.id === layer.id);
     const projectedLayer = effective.layers.find((item) => item.id === layer.id);
+    const projectedNodes = new Map(projectedLayer.nodes.map((n) => [n.id, n]));
     const evaluation = evaluate(layer, currentFonts, candidate.imageAssets, candidate, null, true);
     let oldEvaluation;
     const check = (now, was) => {
@@ -4630,33 +4731,43 @@ function assertArtworkReferenceTransition(before, candidate, fonts = {}) {
         throw error;
       }
     };
+    for (const vertex of vertices) {
+      const n = candidateGraph.nodes.get(layer.id)?.get(vertex.nodeId);
+      if (!n) continue;
+      if (vertex.key === undefined) {
+        // A previously renderable output must remain renderable. Unconnected,
+        // missing-font and other already incomplete outputs retain their legacy
+        // editing behavior; output sockets that do not exist are never run.
+        const oldNode = old?.nodes.find((item) => item.id === n.id);
+        if (!oldNode || !outputType(oldNode, vertex.port) || !outputType(n, vertex.port)) continue;
+        oldEvaluation ||= evaluate(old, oldFonts, before.imageAssets, before, null, true);
+        try {
+          oldEvaluation.run(n.id, vertex.port);
+        } catch {
+          continue;
+        }
+        check(() => evaluation.run(n.id, vertex.port));
+        continue;
+      }
+      const q = candidateGraph.parameter(n, vertex.key);
+      if (!q || !['Scalar', 'Vector2', 'Color'].includes(q.type)) continue;
+      let value,
+        resolved = false;
+      check(
+        () => {
+          value = evaluation.parameterValue(n.id, vertex.key);
+          resolved = true;
+        },
+        (e) => e.parameterValue(n.id, vertex.key),
+      );
+      if (resolved && n.type !== 'Text' && !(n.type === 'Trim Path' && !n.params.path?.source)) {
+        const projected = projectedNodes.get(n.id),
+          target = projected && projectedParameter(projected, vertex.key);
+        if (target) target.value = clone(value);
+      }
+    }
     for (const n of layer.nodes) {
       if (!affectedNodeIds.has(n.id)) continue;
-      if (n.type !== 'Text' && !(n.type === 'Trim Path' && !n.params.path?.source)) {
-        const projected = projectedLayer.nodes.find((item) => item.id === n.id);
-        for (const [key, q] of parameters(n)) {
-          if (!['Scalar', 'Vector2', 'Color'].includes(q.type)) continue;
-          let value,
-            resolved = false;
-          check(
-            () => {
-              value = evaluation.parameterValue(n.id, key);
-              resolved = true;
-            },
-            (e) => e.parameterValue(n.id, key),
-          );
-          if (resolved) {
-            const target = parameter(projected, key);
-            if (target) target.value = clone(value);
-          }
-        }
-      }
-      for (const [key, q] of parameters(n))
-        if (q.expression && !q.source && artworkExpressionReferences(q.expression).length)
-          check(
-            () => evaluation.parameterValue(n.id, key),
-            (e) => e.parameterValue(n.id, key),
-          );
       if (n.type === 'Geometry Repeater' && n.operation === 'ae-2d' && !n.bypassed)
         check(
           () =>
@@ -4689,7 +4800,7 @@ function assertArtworkReferenceTransition(before, candidate, fonts = {}) {
       oldFonts,
       candidate,
       before,
-      affectedNodeIds,
+      new Set(vertices.filter((vertex) => vertex.key === undefined).map((vertex) => vertex.nodeId)),
     );
   }
   // Reuse the same hard domain checks as saved values on a detached projection

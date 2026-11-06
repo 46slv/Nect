@@ -51,6 +51,347 @@ function testFont() {
   return parseFont(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
 }
 
+function expectAtomicFailure(session, action, pattern) {
+  const before = session.snapshot(),
+    state = { ...session.state },
+    future = structuredClone(session.historyView.future);
+  assert.throws(action, pattern);
+  assert.deepEqual(session.snapshot(), before);
+  assert.deepEqual(session.state, state);
+  assert.deepEqual(session.historyView.future, future);
+}
+
+test('legacy dangling IDs stay local when another imported Composition owns a maximum-length ID', () => {
+  const longId = 'n'.repeat(181),
+    a = blankDocument(),
+    b = blankDocument();
+  a.layers[0].id = 'max-id-layer';
+  b.layers[0].id = 'missing-id-layer';
+  const existing = node('Value'),
+    missing = node('Value');
+  existing.id = longId;
+  missing.id = 'missing-id-sink';
+  missing.params.value.expression = `ref("${longId}", "value")`;
+  a.layers[0].nodes.push(existing);
+  b.layers[0].nodes.push(missing);
+  const source = migrateLegacyDocumentToCompositionProject(a),
+    other = migrateLegacyDocumentToCompositionProject(b).compositions[0],
+    destination = migrateLegacyDocumentToCompositionProject(blankDocument());
+  source.compositions[0].id = 'max-id-composition';
+  source.compositions[0].name = 'maximum';
+  other.id = 'missing-id-composition';
+  other.name = 'missing';
+  for (const compositions of [
+    [source.compositions[0], other],
+    [other, source.compositions[0]],
+  ]) {
+    const result = prepareProjectCompositionsImport(destination, { ...source, compositions }, [
+      'max-id-composition',
+      'missing-id-composition',
+    ]).project;
+    const importedA = result.compositions.find((item) => item.name === 'maximum'),
+      importedB = result.compositions.find((item) => item.name === 'missing');
+    assert.ok(importedA.layers[0].nodes.some((item) => item.id === longId));
+    const value = importedB.layers[0].nodes.find((item) => item.id === 'missing-id-sink');
+    assert.equal(value.params.value.expression, missing.params.value.expression);
+    assert.throws(
+      () => evaluate(importedB.layers[0]).parameterValue(value.id, 'value'),
+      /missing/i,
+    );
+  }
+});
+
+test('old Color preview and Apply both reject an explicit same-Artwork reference', () => {
+  const f = fixture(),
+    color = node('Color'),
+    local = node('Value');
+  color.id = 'local-color';
+  local.id = 'local-value';
+  local.params.value.value = 0.4;
+  f.a.nodes.push(color, local);
+  f.doc.schemaVersion = 27;
+  const expression = 'alpha(value, ref(artwork, "art-a", "local-value", "value"))',
+    session = new CommandSession(f.doc);
+  assert.throws(
+    () => previewColorExpression(f.a, color.id, 'value', expression, {}, {}, f.doc),
+    /different layer/i,
+  );
+  expectAtomicFailure(
+    session,
+    () =>
+      send(session, 'set-parameter-expression', {
+        layerId: 'art-a',
+        nodeId: color.id,
+        key: 'value',
+        expression,
+      }),
+    /different layer/i,
+  );
+});
+
+test('resuming a paused foreign expression validates its destination atomically', () => {
+  const f = fixture(),
+    local = node('Value');
+  local.id = 'local-driver';
+  local.params.value.value = 8;
+  f.a.nodes.push(local);
+  f.driver.params.value.value = 2;
+  const session = new CommandSession(f.doc),
+    sink = { layerId: 'art-a', nodeId: 'sink', key: 'value' },
+    foreign = { layerId: 'art-b', nodeId: 'driver', key: 'value' },
+    localValue = { layerId: 'art-a', nodeId: 'local-driver', key: 'value' };
+  send(session, 'set-parameter-expression', { ...sink, expression: `1 / ${qualified}` });
+  send(session, 'connect', { ...sink, sourceId: local.id });
+  send(session, 'set-parameter', { ...foreign, value: 0 });
+  send(session, 'set-parameter', { ...localValue, value: 9 });
+  send(session, 'undo');
+  expectAtomicFailure(session, () => send(session, 'disconnect', sink), /finite|zero|divide/i);
+  send(session, 'redo');
+  assert.equal(
+    session.snapshot().layers[0].nodes.find((n) => n.id === local.id).params.value.value,
+    9,
+  );
+  send(session, 'set-parameter', { ...foreign, value: 4 });
+  send(session, 'disconnect', sink);
+  let doc = session.snapshot();
+  assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue('sink', 'value'), 0.25);
+  send(session, 'undo');
+  assert.equal(
+    session.snapshot().layers[0].nodes.find((n) => n.id === 'sink').params.value.source,
+    local.id,
+  );
+  send(session, 'redo');
+  doc = session.snapshot();
+  assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue('sink', 'value'), 0.25);
+});
+
+test('foreign Resample count enforces bounds on Apply and resumed expressions', () => {
+  const f = fixture(),
+    resample = node('Resample Path'),
+    local = node('Value');
+  resample.id = 'resample';
+  local.id = 'local-driver';
+  local.params.value.value = 8;
+  f.a.nodes.push(resample, local);
+  f.driver.params.value.value = 1;
+  const session = new CommandSession(f.doc),
+    target = { layerId: 'art-a', nodeId: resample.id, key: 'count' },
+    foreign = { layerId: 'art-b', nodeId: 'driver', key: 'value' };
+  expectAtomicFailure(
+    session,
+    () =>
+      send(session, 'set-parameter-expression', {
+        ...target,
+        expression: qualified,
+      }),
+    /Resample count/i,
+  );
+  send(session, 'set-parameter', { ...foreign, value: 7 });
+  send(session, 'set-parameter-expression', { ...target, expression: qualified });
+  send(session, 'connect', { ...target, sourceId: local.id });
+  send(session, 'set-parameter', { ...foreign, value: 1 });
+  send(session, 'set-parameter', { layerId: 'art-a', nodeId: local.id, key: 'value', value: 9 });
+  send(session, 'undo');
+  expectAtomicFailure(session, () => send(session, 'disconnect', target), /Resample count/i);
+  send(session, 'redo');
+  send(session, 'set-parameter', { ...foreign, value: 4 });
+  send(session, 'disconnect', target);
+  let doc = session.snapshot();
+  assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue(resample.id, 'count'), 4);
+  send(session, 'undo');
+  assert.equal(
+    session.snapshot().layers[0].nodes.find((n) => n.id === resample.id).params.count.source,
+    local.id,
+  );
+  send(session, 'redo');
+  doc = session.snapshot();
+  assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue(resample.id, 'count'), 4);
+});
+
+test('switching operations validates a newly active foreign property even without an input', () => {
+  const f = fixture(),
+    resample = node('Resample Path'),
+    local = node('Value');
+  resample.id = 'resample';
+  local.id = 'local-value';
+  resample.operation = 'count';
+  resample.params.spacing.expression = qualified;
+  f.driver.params.value.value = -1;
+  f.a.nodes.push(resample, local);
+  f.doc.schemaVersion = 62;
+  const session = new CommandSession(f.doc),
+    target = {
+      layerId: 'art-a',
+      nodeId: resample.id,
+      operation: 'spacing',
+    };
+  send(session, 'set-parameter', { layerId: 'art-a', nodeId: local.id, key: 'value', value: 11 });
+  send(session, 'undo');
+  expectAtomicFailure(session, () => send(session, 'set-operation', target), /Resample spacing/i);
+  send(session, 'redo');
+  send(session, 'set-parameter', { layerId: 'art-b', nodeId: 'driver', key: 'value', value: 2 });
+  send(session, 'set-operation', target);
+  let doc = session.snapshot();
+  assert.equal(doc.layers[0].nodes.find((n) => n.id === resample.id).operation, 'spacing');
+  assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue(resample.id, 'spacing'), 2);
+  send(session, 'undo');
+  assert.equal(
+    session.snapshot().layers[0].nodes.find((n) => n.id === resample.id).operation,
+    'count',
+  );
+  send(session, 'redo');
+  doc = session.snapshot();
+  assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue(resample.id, 'spacing'), 2);
+});
+
+test('a foreign consumer validates an inactive Resample property when its source changes', () => {
+  const f = fixture(),
+    resample = node('Resample Path'),
+    local = node('Value');
+  resample.id = 'resample';
+  local.id = 'local-value';
+  resample.operation = 'count';
+  f.b.nodes.push(resample);
+  f.a.nodes.push(local);
+  f.driver.params.value.value = 2;
+  resample.params.spacing.expression = '1 / ref("driver", "value")';
+  f.sink.params.value.expression = 'ref(artwork, "art-b", "resample", "spacing")';
+  f.doc.schemaVersion = 62;
+  const session = new CommandSession(f.doc),
+    foreign = { layerId: 'art-b', nodeId: 'driver', key: 'value' };
+  assert.equal(evaluate(f.a, {}, {}, f.doc).parameterValue('sink', 'value'), 0.5);
+  send(session, 'set-parameter', { layerId: 'art-a', nodeId: local.id, key: 'value', value: 11 });
+  send(session, 'undo');
+  expectAtomicFailure(
+    session,
+    () => send(session, 'set-parameter', { ...foreign, value: 0 }),
+    /finite|zero|divide/i,
+  );
+  send(session, 'redo');
+  assert.equal(
+    session.snapshot().layers[0].nodes.find((n) => n.id === local.id).params.value.value,
+    11,
+  );
+  send(session, 'set-parameter', { ...foreign, value: 4 });
+  let doc = session.snapshot();
+  assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue('sink', 'value'), 0.25);
+  send(session, 'undo');
+  doc = session.snapshot();
+  assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue('sink', 'value'), 0.5);
+  send(session, 'redo');
+  doc = session.snapshot();
+  assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue('sink', 'value'), 0.25);
+});
+
+test('a renderable Text output rejects a foreign size that would break it', () => {
+  const f = fixture(),
+    text = node('Text'),
+    local = node('Value'),
+    font = testFont();
+  text.id = 'driven-text';
+  text.text = 'a';
+  local.id = 'local-value';
+  f.a.nodes.push(text, local);
+  const fonts = { default: font },
+    session = new CommandSession(f.doc, { fonts: () => fonts }),
+    foreign = { layerId: 'art-b', nodeId: 'driver', key: 'value' };
+  send(session, 'set-parameter-expression', {
+    layerId: 'art-a',
+    nodeId: text.id,
+    key: 'size',
+    expression: qualified,
+  });
+  assert.doesNotThrow(() =>
+    evaluate(session.snapshot().layers[0], fonts, {}, session.snapshot()).run(text.id),
+  );
+  send(session, 'set-parameter', { layerId: 'art-a', nodeId: local.id, key: 'value', value: 11 });
+  send(session, 'undo');
+  expectAtomicFailure(
+    session,
+    () => send(session, 'set-parameter', { ...foreign, value: -1 }),
+    /size|positive/i,
+  );
+  send(session, 'redo');
+  send(session, 'set-parameter', { ...foreign, value: 8 });
+  let doc = session.snapshot();
+  assert.equal(evaluate(doc.layers[0], fonts, {}, doc).parameterValue(text.id, 'size'), 8);
+  assert.doesNotThrow(() => evaluate(doc.layers[0], fonts, {}, doc).run(text.id));
+  send(session, 'undo');
+  doc = session.snapshot();
+  assert.equal(evaluate(doc.layers[0], fonts, {}, doc).parameterValue(text.id, 'size'), 7);
+  send(session, 'redo');
+  doc = session.snapshot();
+  assert.equal(evaluate(doc.layers[0], fonts, {}, doc).parameterValue(text.id, 'size'), 8);
+});
+
+test('many driven Curve descriptors use their effective values without changing fallbacks', () => {
+  const f = fixture(),
+    template = f.curve.points[0];
+  f.b.nodes.splice(f.b.nodes.indexOf(f.curve), 1);
+  f.a.nodes.push(f.curve);
+  f.curve.points = Array.from({ length: 300 }, (_, i) => {
+    const point = structuredClone(template);
+    point.id = `point-${i}`;
+    point.position.value = [2, 3];
+    point.position.expression = `${qualified}; 0`;
+    return point;
+  });
+  f.doc.schemaVersion = 62;
+  const session = new CommandSession(f.doc),
+    source = { layerId: 'art-b', nodeId: 'driver', key: 'value' };
+  const read = () => {
+    const doc = session.snapshot(),
+      curve = doc.layers[0].nodes.find((n) => n.id === 'curve');
+    assert.deepEqual(curve.points[299].position.value, [2, 3]);
+    return evaluate(doc.layers[0], {}, {}, doc).parameterValue('curve', 'point-299.position');
+  };
+  assert.deepEqual(read(), [7, 0]);
+  send(session, 'set-parameter', { ...source, value: 8 });
+  assert.deepEqual(read(), [8, 0]);
+  send(session, 'undo');
+  assert.deepEqual(read(), [7, 0]);
+  send(session, 'redo');
+  assert.deepEqual(read(), [8, 0]);
+});
+
+test('foreign consumers follow legacy Transform virtual properties when their backing value changes', () => {
+  for (const [key, backing, initial, invalid, valid, component] of [
+    ['position', 'anchor', [7, 0], [1, 0], [8, 0], ', "x"'],
+    ['scaleWidth', 'scale', 7, 1, 8, ''],
+  ]) {
+    const f = fixture(),
+      transform = node('Transform'),
+      resample = node('Resample Path');
+    transform.id = 'legacy-transform';
+    resample.id = 'resample';
+    transform.params[backing].value = initial;
+    f.b.nodes.push(transform);
+    f.a.nodes.push(resample);
+    f.doc.schemaVersion = 62;
+    resample.params.count.expression = `ref(artwork, "art-b", "legacy-transform", "${key}"${component})`;
+    const session = new CommandSession(f.doc),
+      source = {
+        layerId: 'art-b',
+        nodeId: transform.id,
+        key: backing,
+      };
+    expectAtomicFailure(
+      session,
+      () => send(session, 'set-parameter', { ...source, value: invalid }),
+      /Resample count/i,
+    );
+    send(session, 'set-parameter', { ...source, value: valid });
+    let doc = session.snapshot();
+    assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue(resample.id, 'count'), 8);
+    send(session, 'undo');
+    doc = session.snapshot();
+    assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue(resample.id, 'count'), 7);
+    send(session, 'redo');
+    doc = session.snapshot();
+    assert.equal(evaluate(doc.layers[0], {}, {}, doc).parameterValue(resample.id, 'count'), 8);
+  }
+});
+
 test('the first qualified Color preview uses a private promoted candidate and agrees with Apply', () => {
   const f = fixture(),
     color = node('Color');
@@ -562,6 +903,11 @@ test('graph parameter indexing preserves first-match and virtual fallback semant
   first.expression = '';
   f.curve.points[0].position.expression = 'ref(artwork, "art-a", "sink", "value"); 0';
   assert.ok(targets().some((target) => target.nodeId === 'curve' && target.key === key));
+  const read = () => evaluate(f.b, {}, {}, f.doc, null, true).parameterValue('curve', key);
+  assert.deepEqual(read(), [3, 4]);
+  f.curve.params[key] = { ...first, value: [8, 9] };
+  assert.deepEqual(read(), [8, 9]);
+  f.curve.params[key] = first;
   first.expression = 'ref(artwork, "art-a", "sink", "value"); 0';
   assert.ok(!targets().some((target) => target.nodeId === 'curve' && target.key === key));
   const transform = node('Transform');

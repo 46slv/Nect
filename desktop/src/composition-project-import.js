@@ -21,7 +21,6 @@ import {
   assertNoImportedArtworkReferenceRebind,
   nodesHaveLegacyCurveHandleReference,
   expressionParameters,
-  danglingExpressionIds,
 } from './curve-point-reference.js';
 import {
   collectAssetReferences,
@@ -127,15 +126,18 @@ export function prepareProjectCompositionsImport(
   const occupied = collectIds(current);
   if (current.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
     reserveDanglingArtworkReferenceIds(destinationLayers, occupied);
-  // Reserve all selected dangling identities before allocating any selected
-  // Composition, so selection order cannot revive another source's reference.
-  for (const layer of sourceLayers)
-    for (const id of danglingExpressionIds(layer.nodes)) occupied.add(id);
+  // Qualified identities are Composition-scoped and must be reserved across
+  // the whole selection. Legacy ref IDs keep their original layer scope.
   if (sourceProject.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
     reserveDanglingArtworkReferenceIds(sourceLayers, occupied);
-  const compositions = sourceCompositions.map((item) =>
-    remapIds(item, collectIds(item), occupied, sourceProject.schemaVersion),
-  );
+  const compositions = sourceCompositions.map((item) => {
+    // Local dangling refs must protect this Composition's allocation without
+    // reserving their IDs in unrelated Compositions imported afterwards.
+    const localOccupied = new Set(occupied);
+    const copy = remapIds(item, collectIds(item), localOccupied, sourceProject.schemaVersion);
+    for (const id of collectIds(copy)) occupied.add(id);
+    return copy;
+  });
   const colors = importColorSlots(
     current,
     sourceProject,
