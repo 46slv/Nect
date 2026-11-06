@@ -7848,9 +7848,31 @@ function sameSourceRoot(a, b) {
     a.port === b.port
   );
 }
-function sourceNavigationBusy(allowedDialog = null, allowedAction = null) {
-  // Conservatively require leaving an editor control explicitly, even for a clean value.
-  // This runs on pointerdown, BEFORE a button could blur/commit that control.
+function controlHasUncommittedValue(control) {
+  if (hslPicker.element?.contains(control)) return hslPicker.hasDraft;
+  if (control.matches('select')) {
+    const options = [...control.options];
+    if (control.multiple)
+      return options.some((option) => option.selected !== option.hasAttribute('selected'));
+    const initial =
+      options.filter((option) => option.hasAttribute('selected')).at(-1) ||
+      options.find((option) => !option.disabled && !option.parentElement?.disabled);
+    return control.value !== (initial?.value ?? '');
+  }
+  if (control.matches('input[type="checkbox"],input[type="radio"]'))
+    return control.checked !== control.hasAttribute('checked');
+  if (control.matches('input,textarea'))
+    return control.value !== control.defaultValue || !!control.validity?.badInput;
+  return true;
+}
+function sourceNavigationBusy(
+  allowedDialog = null,
+  allowedAction = null,
+  allowCleanControl = false,
+) {
+  // Source navigation normally requires leaving even a clean control. Tab switching
+  // may leave a clean control, but must check dirty values before pointerdown blurs it.
+  const activeControl = editingControl(document.activeElement);
   return !!(
     navigationBusy() ||
     penDraft ||
@@ -7863,12 +7885,18 @@ function sourceNavigationBusy(allowedDialog = null, allowedAction = null) {
     layoutDraft ||
     gridOpacityDraft ||
     [...document.querySelectorAll('dialog[open]')].some((dialog) => dialog !== allowedDialog) ||
-    (editingControl(document.activeElement) && !allowedDialog?.contains(document.activeElement)) ||
+    (activeControl &&
+      !allowedDialog?.contains(document.activeElement) &&
+      (!allowCleanControl || controlHasUncommittedValue(activeControl))) ||
     [...textDrafts.values()].some((draft) => draft.state.changed)
   );
 }
 
-function colorUseNavigationBusy(allowedDialog = null, allowedAction = null) {
+function colorUseNavigationBusy(
+  allowedDialog = null,
+  allowedAction = null,
+  allowCleanControl = false,
+) {
   const pendingRemaps = new Set(
     [...remapBatches].filter(([, batch]) => batch.selected.size).map(([id]) => id),
   );
@@ -7878,10 +7906,10 @@ function colorUseNavigationBusy(allowedDialog = null, allowedAction = null) {
       layer.nodes.some((node) => node.type === 'Path Remap' && pendingRemaps.has(node.id)),
     );
   return !!(
-    sourceNavigationBusy(allowedDialog, allowedAction) ||
+    sourceNavigationBusy(allowedDialog, allowedAction, allowCleanControl) ||
     documents.hasDraft() ||
     sharedColors.editing ||
-    hslPicker.element ||
+    (hslPicker.element && (!allowCleanControl || hslPicker.hasDraft)) ||
     (pointSpacingDraft &&
       current().nodes.some((node) => node.id === pointSpacingDraft.nodeId) &&
       pointAlignmentActions.get(pointSpacingDraft.nodeId)?.token === pointSpacingDraft.token) ||
@@ -9684,8 +9712,8 @@ for (const type of ['pointerdown', 'click', 'keydown', 'input', 'focusin'])
 
 function compositionSwitchBusy(allowedDialog = null, allowedAction = null) {
   return !!(
-    compositionActionBusy(allowedDialog, allowedAction) ||
-    colorUseNavigationBusy(allowedDialog, allowedAction) ||
+    compositionActionBusy(allowedDialog, allowedAction, true) ||
+    colorUseNavigationBusy(allowedDialog, allowedAction, true) ||
     editorPicker ||
     fontRequest ||
     documents.saving ||
@@ -9886,12 +9914,16 @@ function addComposition() {
   render(false, null, graphScroll);
   updateDocumentStatus();
 }
-function compositionActionBusy(allowedDialog = null, allowedAction = null) {
+function compositionActionBusy(
+  allowedDialog = null,
+  allowedAction = null,
+  allowCleanControl = false,
+) {
   const pointNode =
       pointDeltaDraft && current().nodes.find((item) => item.id === pointDeltaDraft.nodeId),
     selectedPoints = pointNode ? selectedPointIds(pointNode) : [];
   return !!(
-    sourceNavigationBusy(allowedDialog, allowedAction) ||
+    sourceNavigationBusy(allowedDialog, allowedAction, allowCleanControl) ||
     documents.hasDraft() ||
     sharedColors.editing ||
     (selectedPoints.length &&

@@ -277,6 +277,176 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
     },
   );
 
+  await t.test(
+    'clean Text controls allow first-click Composition switching; changed controls stay put',
+    async () => {
+      const first = blankDocument(),
+        second = blankDocument(),
+        text = node('Text'),
+        color = node('Color');
+      text.text = 'AV';
+      first.layers[0].nodes.push(text, color);
+      const project = migrateLegacyDocumentToCompositionProject(first);
+      const target = migrateLegacyDocumentToCompositionProject(second).compositions[0];
+      target.id = 'clean-control-second';
+      project.compositions.push(target);
+      const openAndSelectText = async (value) => {
+        await win.openForTest(value);
+        const title = win.document.querySelector(`[data-rename-node="${text.id}"]`);
+        title.dispatchEvent(
+          new win.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 1 }),
+        );
+        win.document.dispatchEvent(
+          new win.PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 1 }),
+        );
+        openDOMPanel(win.document, 'inspector');
+      };
+      const attempt = () => {
+        const tab = win.document.querySelector(
+          '[role="tab"][data-active-composition="clean-control-second"]',
+        );
+        const event = new win.PointerEvent('pointerdown', {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          pointerId: 4,
+        });
+        tab.dispatchEvent(event);
+        tab.click();
+        return event.defaultPrevented;
+      };
+      await openAndSelectText(project);
+      let select = win.document.querySelector(`.inspector [data-text-wrap="${text.id}"]`);
+      assert.ok(select);
+      select.focus();
+      const before = win.openStateForTest();
+      assert.equal(attempt(), false, 'a clean select cannot block pointerdown');
+      assert.equal(win.nect.activeCompositionId, target.id);
+      assert.deepEqual(win.nect.projectSnapshot(), before.project);
+      assert.deepEqual(win.nect.fileState, before.file);
+      assert.deepEqual(win.openStateForTest().historyState, before.historyState);
+
+      for (const selector of [
+        '.inspector [aria-label="Text size"]',
+        `.inspector textarea[data-text="${text.id}"]`,
+        `.inspector input[data-text-kerning="${text.id}"]`,
+      ]) {
+        await openAndSelectText(project);
+        const clean = win.document.querySelector(selector);
+        assert.ok(clean, selector);
+        clean.focus();
+        const state = win.openStateForTest();
+        assert.equal(attempt(), false, `${selector} is clean`);
+        assert.equal(win.nect.activeCompositionId, target.id);
+        assert.deepEqual(win.nect.projectSnapshot(), state.project);
+        assert.deepEqual(win.nect.fileState, state.file);
+        assert.deepEqual(win.openStateForTest().historyState, state.historyState);
+      }
+
+      await openAndSelectText(project);
+      const numeric = win.document.querySelector('.inspector [aria-label="Text size"]');
+      numeric.focus();
+      numeric.value = '137';
+      assert.equal(attempt(), true, 'an uncommitted numeric value blocks pointerdown');
+      assert.equal(win.nect.activeCompositionId, project.compositions[0].id);
+      assert.equal(win.document.activeElement, numeric);
+      assert.equal(numeric.value, '137');
+      numeric.value = numeric.defaultValue;
+      select = win.document.querySelector(`.inspector [data-text-wrap="${text.id}"]`);
+      select.focus();
+      select.value = 'width';
+      assert.equal(attempt(), true, 'an uncommitted select value blocks pointerdown');
+      assert.equal(win.document.activeElement, select);
+      assert.equal(select.value, 'width');
+
+      await openAndSelectText(project);
+      const checkbox = win.document.querySelector(
+        `.inspector input[data-text-kerning="${text.id}"]`,
+      );
+      checkbox.focus();
+      checkbox.checked = !checkbox.checked;
+      assert.equal(attempt(), true, 'an uncommitted checkbox value blocks pointerdown');
+      assert.equal(win.document.activeElement, checkbox);
+
+      const openHsl = async () => {
+        await openAndSelectText(project);
+        const colorTitle = win.document.querySelector(`[data-rename-node="${color.id}"]`);
+        colorTitle.dispatchEvent(
+          new win.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 1 }),
+        );
+        win.document.dispatchEvent(
+          new win.PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 1 }),
+        );
+        openDOMPanel(win.document, 'inspector');
+        win.document.querySelector('.inspector [data-hsl-picker-open]').click();
+        return win.document.querySelector('[data-hsl-hex]');
+      };
+      let hex = await openHsl();
+      assert.ok(hex);
+      const cleanColor = win.openStateForTest();
+      assert.equal(attempt(), false, 'an unchanged HSL control can switch');
+      assert.equal(win.nect.activeCompositionId, target.id);
+      assert.equal(win.document.querySelector('[data-hsl-hex]'), null);
+      assert.deepEqual(win.nect.projectSnapshot(), cleanColor.project);
+      assert.deepEqual(win.openStateForTest().historyState, cleanColor.historyState);
+
+      hex = await openHsl();
+      assert.ok(hex);
+      hex.focus();
+      hex.value = '#445566';
+      hex.dispatchEvent(new win.Event('input', { bubbles: true }));
+      const colorBefore = win.openStateForTest();
+      assert.equal(attempt(), true, 'an HSL edit blocks pointerdown');
+      assert.equal(win.document.activeElement, hex);
+      assert.equal(hex.value, '#445566');
+      assert.deepEqual(win.openStateForTest(), colorBefore);
+      hex.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+      const imeProject = structuredClone(project);
+      imeProject.schemaVersion = 54;
+      imeProject.colorSlots = [
+        { id: 'ime-brand', name: 'Brand', value: { hex: '#112233', alpha: 1 } },
+      ];
+      await win.openForTest(imeProject);
+      openDOMPanel(win.document, 'colors');
+      const colorName = win.document.querySelector('[data-shared-color-edit="name"]');
+      assert.ok(colorName);
+      colorName.focus();
+      colorName.dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
+      colorName.value = '編集中';
+      colorName.dispatchEvent(new win.InputEvent('input', { bubbles: true, isComposing: true }));
+      colorName.setSelectionRange(2, 2);
+      const imeBefore = win.openStateForTest();
+      assert.equal(attempt(), true, 'a Shared Colors IME composition blocks pointerdown');
+      assert.equal(win.nect.activeCompositionId, project.compositions[0].id);
+      assert.equal(win.document.activeElement, colorName);
+      assert.equal(colorName.value, '編集中');
+      assert.equal(colorName.selectionStart, 2);
+      assert.deepEqual(win.openStateForTest(), imeBefore);
+      colorName.dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true }));
+
+      const variable = structuredClone(project),
+        variableText = node('Text');
+      Object.assign(variableText, {
+        font: asset.id,
+        text: 'AW',
+        variation: { version: 1, fontId: asset.id, axes: {} },
+      });
+      variable.fontAssets = { [asset.id]: asset.asset };
+      variable.compositions[1].layers[0].nodes.push(variableText);
+      await openAndSelectText(variable);
+      select = win.document.querySelector(`.inspector [data-text-wrap="${text.id}"]`);
+      select.focus();
+      const variableBefore = win.openStateForTest();
+      assert.equal(attempt(), false);
+      while (win.variableBusyForTest()) await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(win.nect.activeCompositionId, target.id);
+      assert.deepEqual(win.nect.projectSnapshot(), variableBefore.project);
+      assert.deepEqual(win.nect.fileState, variableBefore.file);
+      assert.deepEqual(win.openStateForTest().historyState, variableBefore.historyState);
+    },
+  );
+
   await t.test('inline name and focus survive a delayed Composition switch', async () => {
     const first = blankDocument(),
       second = blankDocument(),

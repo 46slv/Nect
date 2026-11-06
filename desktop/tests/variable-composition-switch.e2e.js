@@ -18,8 +18,13 @@ const asset = makeVariableFontAsset(
 );
 const first = blankDocument(),
   second = blankDocument(),
+  firstText = node('Text'),
+  firstColor = node('Color'),
   text = node('Text'),
   color = node('Color');
+firstText.position = [400, 120];
+firstColor.position = [800, 120];
+first.layers[0].nodes.push(firstText, firstColor);
 Object.assign(text, {
   font: asset.id,
   text: 'AV',
@@ -69,6 +74,79 @@ try {
     file: window.nect.fileState,
   }));
   assert.equal(before.file.dirty, false);
+  await ensureWorkspacePanel(page, 'colors');
+  const initialAdvanced = page.locator('[data-color-advanced]');
+  if (!(await initialAdvanced.evaluate((element) => element.open)))
+    await initialAdvanced.locator('summary').click();
+  const colorName = page.locator('[data-shared-color-row="brand"] [data-shared-color-edit="name"]');
+  await colorName.focus();
+  await colorName.evaluate((element) =>
+    element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })),
+  );
+  await colorName.fill('編集中');
+  await colorName.evaluate((element) => element.setSelectionRange(2, 2));
+  await page.locator('[role="tab"][data-active-composition="variable-second"]').click();
+  assert.equal(await page.evaluate(() => window.nect.activeCompositionId), 'variable-first');
+  assert.equal(await colorName.inputValue(), '編集中');
+  assert.equal(
+    await colorName.evaluate(
+      (element) => document.activeElement === element && element.selectionStart === 2,
+    ),
+    true,
+  );
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      project: window.nect.projectSnapshot(),
+      revision: window.nect.projectRevision,
+      file: window.nect.fileState,
+    })),
+    before,
+  );
+  await colorName.evaluate((element) =>
+    element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true })),
+  );
+  await colorName.fill('Brand');
+  await colorName.press('Tab');
+  await page.locator(`.node[data-id="${firstColor.id}"] .node-head strong`).click();
+  await ensureWorkspacePanel(page, 'inspector');
+  const hslButton = page.locator('.inspector [data-hsl-picker-open]');
+  await hslButton.click();
+  const hslHex = page.locator('[data-hsl-hex]');
+  await hslHex.fill('#445566');
+  await page.locator('[role="tab"][data-active-composition="variable-second"]').click();
+  assert.equal(await page.evaluate(() => window.nect.activeCompositionId), 'variable-first');
+  assert.equal(await hslHex.inputValue(), '#445566');
+  assert.equal(await hslHex.evaluate((element) => document.activeElement === element), true);
+  await hslHex.press('Escape');
+  await hslButton.click();
+  await page.locator('[role="tab"][data-active-composition="variable-second"]').click();
+  await page.waitForFunction(() => window.nect.activeCompositionId === 'variable-second');
+  await page.locator('#open-file').setInputFiles({
+    name: 'two-compositions.nect',
+    mimeType: 'application/json',
+    buffer: Buffer.from(json),
+  });
+  await page.waitForFunction(() => window.nect.activeCompositionId === 'variable-first');
+  await page.locator(`.node[data-id="${firstText.id}"] .node-head strong`).click();
+  await ensureWorkspacePanel(page, 'inspector');
+  const numeric = page.locator('.inspector [aria-label="Text size"]');
+  const numericBefore = await numeric.inputValue();
+  await numeric.fill('137');
+  await page.locator('[role="tab"][data-active-composition="variable-second"]').click();
+  assert.equal(await page.evaluate(() => window.nect.activeCompositionId), 'variable-first');
+  assert.equal(await numeric.inputValue(), '137');
+  assert.equal(await numeric.evaluate((element) => document.activeElement === element), true);
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      project: window.nect.projectSnapshot(),
+      revision: window.nect.projectRevision,
+      file: window.nect.fileState,
+    })),
+    before,
+  );
+  await numeric.fill(numericBefore);
+  const cleanSelect = page.locator(`.inspector [data-text-wrap="${firstText.id}"]`);
+  await cleanSelect.focus();
   await page.locator('[role="tab"][data-active-composition="variable-second"]').click();
   await page.waitForFunction(() => window.nect.activeCompositionId === 'variable-second');
   const after = await page.evaluate(() => ({
@@ -104,6 +182,8 @@ try {
     text.id,
   );
   assert.equal(await page.evaluate(() => window.nect.export()), edited);
+  const cleanReadySelect = page.locator(`.inspector [data-text-path="${text.id}"]`);
+  await cleanReadySelect.focus();
   await page.locator('[role="tab"][data-active-composition="variable-first"]').click();
   await page.waitForFunction(() => window.nect.activeCompositionId === 'variable-first');
   await page.locator('[role="tab"][data-active-composition="variable-second"]').click();
