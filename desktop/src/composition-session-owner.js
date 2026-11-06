@@ -622,12 +622,15 @@ export class CompositionSessionOwner {
     const revision = session.state.expectedRevision;
     try {
       const result = session.dispatch(command);
+      if (this.#session !== session || this.#activeCompositionId !== compositionId)
+        throw Error('STALE_SESSION: active Composition changed');
       if (session.state.expectedRevision !== revision) {
         const candidate = projectWithDocument(this.#history.doc, compositionId, session.snapshot());
+        const projectRevision = this.#history.revision;
         this.#applyProjectEdit((history) => {
           replaceRecord(history, candidate);
         });
-        this.#notifyCommitted('edit');
+        if (this.#history.revision !== projectRevision) this.#notifyCommitted('edit');
         return { ...result, projectRevision: this.#history.revision };
       }
       return { ...result, projectRevision: this.#history.revision };

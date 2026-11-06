@@ -7334,6 +7334,30 @@ export class CommandSession {
       throw Error('STALE_REVISION: document changed');
     if (!payload || typeof payload !== 'object' || Array.isArray(payload))
       throw Error('Invalid command payload');
+    const layerFlagsOnly = ['set-layer-state', 'clear-layer-solo'].includes(type);
+    const flagDocument = layerFlagsOnly ? this.#history.doc : null;
+    const flagDrafts = layerFlagsOnly
+      ? new Map([...this.#textDrafts].map(([id, draft]) => [id, [draft, draft.version]]))
+      : null;
+    const assertFlagCurrent = () => {
+      const check = () => {
+        if (this.#history.doc !== flagDocument || this.#history.revision !== expectedRevision)
+          throw Error('STALE_REVISION: document changed');
+        if (
+          this.#gesture ||
+          this.hasTextComposition ||
+          [...this.#textDrafts].some(([id, draft]) => {
+            const previous = flagDrafts.get(id);
+            return !previous || previous[0] !== draft || previous[1] !== draft.version;
+          })
+        )
+          throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+      };
+      check();
+      const busy = this.#busy();
+      check();
+      if (busy) throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+    };
     if (type === 'import-composition') {
       const document = this.#history.doc;
       const revision = this.#history.revision;
@@ -7576,7 +7600,8 @@ export class CommandSession {
       }
       return { ...this.state, draftId, ...draft.state };
     }
-    if (this.#busy() || this.hasTextComposition)
+    if (layerFlagsOnly) assertFlagCurrent();
+    else if (this.#busy() || this.hasTextComposition)
       throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
     if (
       [
@@ -7651,7 +7676,6 @@ export class CommandSession {
       return this.state;
     }
     let commandBase = this.#history.doc;
-    const commandRevision = this.#history.revision;
     const arrangementDrafts = ['set-character-arrangement', 'clear-character-arrangement'].includes(
       type,
     )
@@ -7682,11 +7706,6 @@ export class CommandSession {
     // These commands change only layer presentation/locking flags. They cannot
     // change an expression value or an identity. A reentrant input must not
     // install its candidate over a newer Session document.
-    const layerFlagsOnly = ['set-layer-state', 'clear-layer-solo'].includes(type);
-    const assertFlagCurrent = () => {
-      if (this.#history.doc !== commandBase || this.#history.revision !== commandRevision)
-        throw Error('STALE_REVISION: document changed');
-    };
     if (layerFlagsOnly) assertFlagCurrent();
     else assertArtworkReferenceTransition(this.#history.doc, candidate, this.#fonts());
     const revision = this.#history.revision;

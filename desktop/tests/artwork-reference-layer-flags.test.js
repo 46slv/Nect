@@ -12,29 +12,32 @@ import {
 import { migrateLegacyDocumentToCompositionProject } from '../src/composition-project-model.js';
 import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
 
-function fixture(kind = 'document') {
+function fixture(kind = 'document', options = {}) {
   const doc = blankDocument(),
     target = doc.layers[0],
     source = blankLayer('Source'),
     sink = node('Value'),
     local = node('Value'),
-    curve = node('Curve');
+    curve = node('Curve'),
+    text = node('Text');
   target.id = 'target';
   source.id = 'source';
   sink.id = 'sink';
   local.id = 'local';
   curve.id = 'curve';
+  text.id = 'text';
+  text.text = 'A';
   curve.points[0].id = 'point';
   curve.points[0].position.value = [12, 24];
   sink.params.value.expression = 'ref(artwork, "source", "curve", "point.position", "x")';
-  target.nodes.push(local, sink);
+  target.nodes.push(local, sink, text);
   source.nodes.push(curve);
   doc.layers.push(source);
   doc.schemaVersion = 62;
   const session =
     kind === 'document'
-      ? new CommandSession(doc)
-      : createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc));
+      ? new CommandSession(doc, options)
+      : createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc), options);
   const send = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
   const read = () => {
     const current = session.snapshot();
@@ -42,6 +45,281 @@ function fixture(kind = 'document') {
   };
   return { session, send, read, source, curve, sink };
 }
+
+for (const kind of ['document', 'composition']) {
+  test(`${kind}: busy reentry cannot overwrite a newer edit or notify it twice`, () => {
+    let f,
+      armed = false;
+    const events = [];
+    f = fixture(kind, {
+      busy: () => {
+        if (armed) {
+          armed = false;
+          f.send('set-layer-state', { layerId: 'source', key: 'visible', value: false });
+        }
+        return false;
+      },
+      onCommitted: (state) => events.push(state.projectRevision ?? state.expectedRevision),
+    });
+    armed = true;
+    assert.throws(
+      () => f.send('set-layer-state', { layerId: 'source', key: 'visible', value: true }),
+      /STALE_REVISION/i,
+    );
+    assert.equal(f.session.snapshot().layers[1].visible, false);
+    assert.deepEqual(events, [1]);
+    f.send('undo');
+    assert.equal(f.session.snapshot().layers[1].visible, true);
+    f.send('redo');
+    assert.equal(f.session.snapshot().layers[1].visible, false);
+  });
+
+  test(`${kind}: a reentrant graph gesture remains committable`, () => {
+    const f = fixture(kind),
+      original = f.session.snapshot();
+    const initialX = original.layers[0].nodes.find((n) => n.id === 'local').position[0];
+    let token;
+    const payload = {
+      layerId: 'source',
+      value: false,
+      get key() {
+        token = f.send('begin-gesture', {
+          target: { kind: 'graph-translate', layerId: 'target', nodeIds: ['local'] },
+        });
+        token = f.send('update-gesture', { ...token, update: { delta: [12, 5] } });
+        return 'visible';
+      },
+    };
+    assert.throws(() => f.send('set-layer-state', payload), /GESTURE_ACTIVE/i);
+    assert.deepEqual(f.session.snapshot(), original);
+    assert.equal(f.session.hasGesture, true);
+    f.send('commit-gesture', token);
+    assert.equal(
+      f.session.snapshot().layers[0].nodes.find((n) => n.id === 'local').position[0],
+      initialX + 12,
+    );
+    f.send('undo');
+    assert.deepEqual(f.session.snapshot(), original);
+  });
+
+  test(`${kind}: a reentrant composition remains editable and committable`, () => {
+    const f = fixture(kind),
+      original = f.session.snapshot();
+    let draft;
+    const payload = {
+      layerId: 'source',
+      value: false,
+      get key() {
+        draft = f.send('begin-text-draft', { layerId: 'target', nodeId: 'text' });
+        draft = f.send('stage-text-draft', {
+          draftId: draft.draftId,
+          expectedDraftRevision: draft.draftRevision,
+          action: 'composition-start',
+          previousRaw: 'A',
+          selectionStart: 1,
+          selectionEnd: 1,
+        });
+        return 'visible';
+      },
+    };
+    assert.throws(() => f.send('set-layer-state', payload), /GESTURE_ACTIVE/i);
+    assert.deepEqual(f.session.snapshot(), original);
+    assert.equal(f.session.hasTextComposition, true);
+    draft = f.send('stage-text-draft', {
+      draftId: draft.draftId,
+      expectedDraftRevision: draft.draftRevision,
+      action: 'composition-end',
+      nextRaw: 'AB',
+    });
+    f.send('commit-text-draft', {
+      draftId: draft.draftId,
+      expectedDraftRevision: draft.draftRevision,
+    });
+    assert.equal(f.session.snapshot().layers[0].nodes.find((n) => n.id === 'text').text, 'AB');
+    f.send('undo');
+    assert.deepEqual(f.session.snapshot(), original);
+  });
+
+  test(`${kind}: busy callback cannot start a gesture behind the guard`, () => {
+    let f,
+      armed = false,
+      token;
+    f = fixture(kind, {
+      busy: () => {
+        if (armed) {
+          armed = false;
+          token = f.send('begin-gesture', {
+            target: { kind: 'graph-translate', layerId: 'target', nodeIds: ['local'] },
+          });
+        }
+        return false;
+      },
+    });
+    f.send('set-document-settings', { key: 'width', value: 961 });
+    f.send('undo');
+    const before = f.session.snapshot(),
+      future = f.session.historyView.future;
+    armed = true;
+    assert.throws(
+      () => f.send('set-layer-state', { layerId: 'source', key: 'visible', value: false }),
+      /GESTURE_ACTIVE/i,
+    );
+    assert.deepEqual(f.session.snapshot(), before);
+    assert.deepEqual(f.session.historyView.future, future);
+    f.send('cancel-gesture', token);
+    f.send('redo');
+    assert.equal(f.session.snapshot().width, 961);
+  });
+
+  for (const triggerCall of [2, 3])
+    test(`${kind}: busy reentry at flag check ${triggerCall} preserves the nested edit`, () => {
+      let f,
+        armed = false,
+        calls = 0;
+      f = fixture(kind, {
+        busy: () => {
+          if (armed && ++calls === triggerCall) {
+            armed = false;
+            f.send('set-document-settings', { key: 'width', value: 961 });
+          }
+          return false;
+        },
+      });
+      armed = true;
+      assert.throws(
+        () => f.send('set-layer-state', { layerId: 'source', key: 'visible', value: false }),
+        /STALE_REVISION/i,
+      );
+      assert.equal(f.session.snapshot().width, 961);
+      assert.equal(f.session.snapshot().layers[1].visible, true);
+      f.send('undo');
+      assert.equal(f.session.snapshot().width, 960);
+      f.send('redo');
+      assert.equal(f.session.snapshot().width, 961);
+    });
+
+  test(`${kind}: a reentrant non-composition Text edit remains committable`, () => {
+    const f = fixture(kind),
+      original = f.session.snapshot();
+    let draft;
+    assert.throws(
+      () =>
+        f.send('set-layer-state', {
+          layerId: 'source',
+          value: false,
+          get key() {
+            draft = f.send('begin-text-draft', { layerId: 'target', nodeId: 'text' });
+            draft = f.send('stage-text-draft', {
+              draftId: draft.draftId,
+              expectedDraftRevision: draft.draftRevision,
+              action: 'edit',
+              previousRaw: 'A',
+              nextRaw: 'AB',
+              selectionStart: 1,
+              selectionEnd: 1,
+              inputType: 'insertText',
+            });
+            return 'visible';
+          },
+        }),
+      /GESTURE_ACTIVE/i,
+    );
+    assert.deepEqual(f.session.snapshot(), original);
+    f.send('commit-text-draft', {
+      draftId: draft.draftId,
+      expectedDraftRevision: draft.draftRevision,
+    });
+    assert.equal(f.session.snapshot().layers[0].nodes.find((n) => n.id === 'text').text, 'AB');
+    f.send('undo');
+    assert.deepEqual(f.session.snapshot(), original);
+  });
+
+  test(`${kind}: a reentrant update to an existing Text draft remains committable`, () => {
+    const f = fixture(kind),
+      original = f.session.snapshot();
+    let draft = f.send('begin-text-draft', { layerId: 'target', nodeId: 'text' });
+    assert.throws(
+      () =>
+        f.send('set-layer-state', {
+          layerId: 'source',
+          value: false,
+          get key() {
+            draft = f.send('stage-text-draft', {
+              draftId: draft.draftId,
+              expectedDraftRevision: draft.draftRevision,
+              action: 'edit',
+              previousRaw: 'A',
+              nextRaw: 'AB',
+              selectionStart: 1,
+              selectionEnd: 1,
+              inputType: 'insertText',
+            });
+            return 'visible';
+          },
+        }),
+      /GESTURE_ACTIVE/i,
+    );
+    assert.deepEqual(f.session.snapshot(), original);
+    f.send('commit-text-draft', {
+      draftId: draft.draftId,
+      expectedDraftRevision: draft.draftRevision,
+    });
+    assert.equal(f.session.snapshot().layers[0].nodes.find((n) => n.id === 'text').text, 'AB');
+  });
+}
+
+test('a no-op flag cannot return an obsolete Composition session envelope', () => {
+  const f = fixture('composition'),
+    owner = f.session,
+    first = owner.activeCompositionId,
+    second = owner.createComposition({ name: 'Second' });
+  owner.switchComposition(first);
+  owner.renameComposition(second, 'Renamed');
+  f.send('undo');
+  const before = owner.projectSnapshot(),
+    futureLength = owner.historyView.future.length;
+  let switched = false;
+  assert.throws(
+    () =>
+      f.send('set-layer-state', {
+        layerId: 'source',
+        value: true,
+        get key() {
+          if (!switched) {
+            switched = true;
+            owner.switchComposition(second);
+          }
+          return 'visible';
+        },
+      }),
+    /STALE_SESSION/i,
+  );
+  assert.equal(owner.activeCompositionId, second);
+  assert.deepEqual(owner.projectSnapshot(), before);
+  assert.equal(owner.historyView.future.length, futureLength);
+  f.send('redo');
+  assert.equal(owner.projectSnapshot().compositions.find((c) => c.id === second).name, 'Renamed');
+});
+
+test('Composition owner notifies only actual project revisions after a nested no-op', () => {
+  let f,
+    armed = false;
+  const events = [];
+  f = fixture('composition', {
+    busy: () => {
+      if (armed) {
+        armed = false;
+        f.send('set-document-settings', { key: 'width', value: 961 });
+      }
+      return false;
+    },
+    onCommitted: (state) => events.push(state.projectRevision),
+  });
+  armed = true;
+  f.send('set-document-settings', { key: 'width', value: 961 });
+  assert.equal(f.session.snapshot().width, 961);
+  assert.deepEqual(events, [1]);
+});
 
 for (const kind of ['document', 'composition']) {
   test(`${kind}: presentation flags preserve foreign references, history and saved data`, () => {
