@@ -24,6 +24,7 @@ import { createCompositionSessionOwner } from '../src/composition-session-owner-
 import { prepareCompositionImport } from '../src/project-composition-import.js';
 import { prepareProjectCompositionsImport } from '../src/composition-project-import.js';
 import { duplicateArtworkLayer, duplicateArtworkLayers } from '../src/artwork-duplication.js';
+import { MAX_DOCUMENT_SCHEMA_VERSION } from '../src/curve-point-reference.js';
 import { duplicationDocument } from './fixtures/artwork-duplication.js';
 
 function fixture() {
@@ -618,9 +619,14 @@ test('low schema rejects point keys when their Curve owner exists; pure codec re
   assert.throws(() => deserialize(serialize(f.doc)), /schemaVersion 60/);
   assert.throws(() => migrateLegacyDocumentToCompositionProject(f.doc), /schemaVersion 60/);
   const plain = fixture(),
-    project = migrateLegacyDocumentToCompositionProject(plain.doc);
+    project = migrateLegacyDocumentToCompositionProject(plain.doc),
+    latest = { ...project, compositionSchemaVersion: 2, schemaVersion: 63 },
+    futureSchemaVersion = 64;
+  assert.equal(MAX_DOCUMENT_SCHEMA_VERSION, 63);
+  assert.doesNotThrow(() => validateCompositionProject(latest));
+  assert.equal(deserializeCompositionProject(JSON.stringify(latest)).schemaVersion, 63);
   for (const compositionSchemaVersion of [1, 2]) {
-    const future = { ...project, compositionSchemaVersion, schemaVersion: 63 };
+    const future = { ...project, compositionSchemaVersion, schemaVersion: futureSchemaVersion };
     assert.throws(
       () => validateCompositionProject(future),
       /Unsupported Composition project version/,
@@ -631,11 +637,18 @@ test('low schema rejects point keys when their Curve owner exists; pure codec re
     );
   }
   assert.throws(
-    () => migrateLegacyDocumentToCompositionProject({ ...plain.doc, schemaVersion: 63 }),
+    () =>
+      migrateLegacyDocumentToCompositionProject({
+        ...plain.doc,
+        schemaVersion: futureSchemaVersion,
+      }),
     /Unsupported legacy Document version/,
   );
   assert.throws(
-    () => deserializeCompositionProject(JSON.stringify({ ...plain.doc, schemaVersion: 63 })),
+    () =>
+      deserializeCompositionProject(
+        JSON.stringify({ ...plain.doc, schemaVersion: futureSchemaVersion }),
+      ),
     /Unsupported legacy Document version/,
   );
 });
