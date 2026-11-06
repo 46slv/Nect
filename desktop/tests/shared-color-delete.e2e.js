@@ -158,6 +158,53 @@ try {
     true,
   );
   await page.screenshot({ path: resolve(output, 'actions-short.png') });
+
+  // A pending name must not make a different row's Delete lose the first click.
+  await page.evaluate((value) => window.nect.load(JSON.stringify(value)), project);
+  await page.evaluate(() => {
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: window.nect.document.width + 1 },
+    });
+    window.nect.dispatch({ ...window.nect.commandState, type: 'undo' });
+  });
+  await menu('unused');
+  const name = row('used').locator('[data-shared-color-edit="name"]');
+  await name.focus();
+  await name.fill('   ');
+  const beforeInvalid = await snapshot(),
+    beforeInvalidState = await state();
+  await row('unused').locator('[data-shared-color-delete]').click();
+  assert.deepEqual(await snapshot(), beforeInvalid);
+  assert.deepEqual(await state(), beforeInvalidState);
+  assert.equal(await name.inputValue(), '   ');
+  assert.equal(await name.evaluate((element) => element === document.activeElement), true);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  assert.match(await page.locator('.status .message').textContent(), /name/i);
+  assert.match(await page.locator('[data-shared-color-action-status]').textContent(), /name/i);
+
+  await name.fill('Renamed');
+  await row('unused').locator('[data-shared-color-delete]').click();
+  const renamedAndDeleted = await snapshot();
+  assert.equal(renamedAndDeleted.colorSlots.find((slot) => slot.id === 'used').name, 'Renamed');
+  assert.equal(
+    renamedAndDeleted.colorSlots.some((slot) => slot.id === 'unused'),
+    false,
+  );
+  await activateCommand(page, 'undo');
+  const renamed = await snapshot();
+  assert.equal(renamed.colorSlots.find((slot) => slot.id === 'used').name, 'Renamed');
+  assert.equal(
+    renamed.colorSlots.some((slot) => slot.id === 'unused'),
+    true,
+  );
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), beforeInvalid);
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await snapshot(), renamed);
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await snapshot(), renamedAndDeleted);
   assert.deepEqual(errors, []);
   console.log(
     'Shared color deletion: reference guards, Undo/Redo, clipboard and browser reopen passed',
