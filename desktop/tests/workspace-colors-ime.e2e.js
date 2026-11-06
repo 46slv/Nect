@@ -196,7 +196,13 @@ try {
   );
   project = await page.evaluate(() => window.nect.projectSnapshot());
   assert.equal(project.colorSlots.find((slot) => slot.id === id).name, 'First edited');
-  assert.match(await page.locator('.status .message').textContent(), /Invalid Color slot name/);
+  assert.equal(await firstName.evaluate((element) => element === document.activeElement), true);
+  assert.equal(await firstName.inputValue(), '');
+  assert.equal(
+    await page.locator('[data-workspace-panel="colors"]').getAttribute('aria-expanded'),
+    'true',
+  );
+  assert.match(await page.locator('.status .message').textContent(), /Enter a shared color name/);
   await page.evaluate((text) => window.nect.load(text), serializeCompositionProject(project));
   const reopened = await page.evaluate(() => window.nect.projectSnapshot());
   assert.equal(reopened.colorSlots.find((slot) => slot.id === id).name, 'First edited');
