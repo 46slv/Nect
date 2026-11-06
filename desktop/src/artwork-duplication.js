@@ -365,7 +365,7 @@ function pointGeometry(point) {
 // Check the evaluator's actual binding and fingerprint rules on isolated
 // snapshots before any layer or History entry is committed. A suspended edit
 // may remain suspended, but must never become bound to a different point.
-function assertCopiedRemapBindings(doc, source, copy, index) {
+function assertCopiedRemapBindings(doc, source, copy, index, fonts) {
   const remaps = source.nodes
     .map((node, index) => ({ node, index }))
     .filter(({ node }) => node.type === 'Path Remap' && node.edits.length);
@@ -377,7 +377,7 @@ function assertCopiedRemapBindings(doc, source, copy, index) {
   copiedDocument.layers.splice(index, 0, copy);
   const originalEvaluation = evaluate(
     original,
-    {},
+    fonts,
     originalDocument.imageAssets || {},
     originalDocument,
     null,
@@ -415,7 +415,7 @@ function assertCopiedRemapBindings(doc, source, copy, index) {
 
   const copiedEvaluation = evaluate(
       copy,
-      {},
+      fonts,
       copiedDocument.imageAssets || {},
       copiedDocument,
       null,
@@ -468,7 +468,7 @@ function assertCopiedRemapBindings(doc, source, copy, index) {
 }
 
 /** Generic layer duplication for the layer-panel command surface. */
-export function duplicateLayerGeneric(doc, layerId) {
+export function duplicateLayerGeneric(doc, layerId, { fonts = {} } = {}) {
   const source = doc?.layers?.find((layer) => layer.id === layerId);
   if (!source) throw Error('Layer is unavailable; select it again');
   if (
@@ -531,7 +531,7 @@ export function duplicateLayerGeneric(doc, layerId) {
   });
   layer.name = `${source.name} copy`;
   const index = doc.layers.indexOf(source) + 1;
-  assertCopiedRemapBindings(doc, source, layer, index);
+  assertCopiedRemapBindings(doc, source, layer, index, fonts);
   const candidate = candidateDocument(doc);
   candidate.layers.splice(index, 0, structuredClone(layer));
   validate(candidate);

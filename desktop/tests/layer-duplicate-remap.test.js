@@ -1,10 +1,12 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { Worker } from 'node:worker_threads';
 import {
   blankDocument,
   blankLayer,
   connect,
+  createVariableDocumentPreparer,
   enableRemapPoint,
   evaluate,
   exportSVG,
@@ -12,7 +14,7 @@ import {
   point,
 } from '../src/core.js';
 import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
-import { parseFont } from '../src/fonts.js';
+import { makeFontAsset, makeVariableFontAsset, parseFont, resolveFonts } from '../src/fonts.js';
 import { duplicateLayerGeneric } from '../src/artwork-duplication.js';
 import {
   deserializeCompositionProject,
@@ -62,6 +64,33 @@ const reopenOwner = (owner, mutate) => {
     send: (type, payload = {}) => reopened.dispatch({ ...reopened.state, type, payload }),
   };
 };
+
+const fontBytes = (url) => {
+  const data = fs.readFileSync(new URL(url, import.meta.url));
+  return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+};
+
+function textRemapDocument() {
+  const doc = blankDocument(),
+    layer = doc.layers[0],
+    text = node('Text'),
+    remap = node('Path Remap'),
+    fill = node('Fill'),
+    output = layer.nodes[0];
+  layer.nodes = [text, remap, fill, output];
+  connect(layer, text.id, remap.id, 'path');
+  connect(layer, remap.id, fill.id, 'path');
+  connect(layer, fill.id, output.id, 'path');
+  return { doc, layer, text, remap };
+}
+
+function makeTextEdit(f, fonts, suspended = false) {
+  const input = evaluate(f.layer, fonts, f.doc.imageAssets, f.doc).run(f.text.id),
+    target = input.contours[0].points[0],
+    edit = enableRemapPoint(f.remap, input, target.id);
+  edit.params.position.value = [36, 18];
+  if (suspended) edit.pointId = 'missing-retained-point';
+}
 
 test('generated Rectangle point edit cannot disappear into a committed duplicate', () => {
   const f = fixture();
@@ -323,36 +352,156 @@ test('external Artwork expressions and opaque metadata stay unchanged', () => {
 });
 
 test('an edited Text path that needs unavailable runtime fonts is refused without state change', () => {
-  const data = fs.readFileSync(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url)),
-    buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
-    fonts = { default: parseFont(buffer) },
-    doc = blankDocument(),
-    layer = doc.layers[0],
-    text = node('Text'),
-    remap = node('Path Remap'),
-    fill = node('Fill'),
-    output = layer.nodes[0];
-  layer.nodes = [text, remap, fill, output];
-  connect(layer, text.id, remap.id, 'path');
-  connect(layer, remap.id, fill.id, 'path');
-  connect(layer, fill.id, output.id, 'path');
-  const input = evaluate(layer, fonts).run(text.id),
-    target = input.contours[0].points[0];
-  enableRemapPoint(remap, input, target.id).params.position.value = [36, 18];
-  const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc), {
-      fonts: () => fonts,
-    }),
+  const fonts = { default: parseFont(fontBytes('../public/fonts/DejaVuSans.ttf')) },
+    f = textRemapDocument();
+  makeTextEdit(f, fonts);
+  const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(f.doc)),
     before = serializeCompositionProject(owner.projectSnapshot()),
     state = owner.state,
     revision = owner.projectRevision;
   assert.throws(
     () =>
-      owner.dispatch({ ...owner.state, type: 'duplicate-layer', payload: { layerId: layer.id } }),
+      owner.dispatch({ ...owner.state, type: 'duplicate-layer', payload: { layerId: f.layer.id } }),
     /Path Remap.*unable to verify its input.*font/i,
   );
   assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
   assert.deepEqual(owner.state, state);
   assert.equal(owner.projectRevision, revision);
+});
+
+test('a Session-provided static font verifies both suspended inputs and allows the copy', () => {
+  const fonts = { default: parseFont(fontBytes('../public/fonts/DejaVuSans.ttf')) },
+    f = textRemapDocument();
+  makeTextEdit(f, fonts, true);
+  const direct = structuredClone(f.doc);
+  assert.throws(
+    () => duplicateLayerGeneric(direct, f.layer.id),
+    /unable to verify its input.*font/i,
+  );
+  assert.equal(direct.layers.length, 1);
+  const directCopy = duplicateLayerGeneric(direct, f.layer.id, { fonts });
+  assert.equal(
+    evaluate(
+      direct.layers.find((layer) => layer.id === directCopy.layerId),
+      fonts,
+    ).path.remapSuspended,
+    true,
+  );
+  const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(f.doc), {
+      fonts: () => fonts,
+    }),
+    send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload }),
+    before = serializeCompositionProject(owner.projectSnapshot()),
+    result = send('duplicate-layer', { layerId: f.layer.id }),
+    after = serializeCompositionProject(owner.projectSnapshot()),
+    copy = owner.activeDocument().layers.find((layer) => layer.id === result.layerId),
+    edit = copy.nodes.find((item) => item.type === 'Path Remap').edits[0];
+  assert.equal(edit.pointId, 'missing-retained-point');
+  assert.equal(evaluate(copy, fonts).path.remapSuspended, true);
+  send('undo');
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+  send('redo');
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), after);
+  const reopened = createCompositionSessionOwner(deserializeCompositionProject(after), {
+    fonts: () => fonts,
+  });
+  assert.equal(evaluate(reopened.activeDocument().layers[1], fonts).path.remapSuspended, true);
+});
+
+test('a loaded font does not bypass the guard for an active generated Text point', () => {
+  const fonts = { default: parseFont(fontBytes('../public/fonts/DejaVuSans.ttf')) },
+    f = textRemapDocument();
+  makeTextEdit(f, fonts);
+  const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(f.doc), {
+      fonts: () => fonts,
+    }),
+    before = serializeCompositionProject(owner.projectSnapshot()),
+    state = owner.state;
+  assert.throws(
+    () =>
+      owner.dispatch({ ...owner.state, type: 'duplicate-layer', payload: { layerId: f.layer.id } }),
+    /Path Remap.*binding/,
+  );
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+  assert.deepEqual(owner.state, state);
+});
+
+test('a static embedded font is resolved for the duplicate command', () => {
+  const f = textRemapDocument(),
+    asset = makeFontAsset(fontBytes('../public/fonts/DejaVuSans.ttf'), 'DejaVuSans.ttf');
+  f.doc.fontAssets = { [asset.id]: asset.asset };
+  f.text.font = asset.id;
+  makeTextEdit(f, resolveFonts(f.doc), true);
+  const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(f.doc)),
+    result = owner.dispatch({
+      ...owner.state,
+      type: 'duplicate-layer',
+      payload: { layerId: f.layer.id },
+    }),
+    doc = owner.activeDocument(),
+    copy = doc.layers.find((layer) => layer.id === result.layerId);
+  assert.equal(evaluate(copy, resolveFonts(doc)).path.remapSuspended, true);
+  assert.equal(doc.fontAssets[asset.id].data, asset.asset.data);
+});
+
+test('a prepared variable font is passed through, while missing preparation refuses atomically', async () => {
+  const f = textRemapDocument(),
+    asset = makeVariableFontAsset(
+      fontBytes('./fixtures/variable-font/Roboto-variable.ttf'),
+      'Roboto.ttf',
+    ),
+    workerFactory = () => {
+      const worker = new Worker(new URL('./variable-font-worker-node.mjs', import.meta.url)),
+        adapter = {
+          postMessage: (data) => worker.postMessage(data),
+          terminate: () => worker.terminate(),
+        };
+      worker.on('message', (data) => adapter.onmessage?.({ data }));
+      worker.on('error', (error) => adapter.onerror?.(error));
+      return adapter;
+    },
+    bridge = createVariableDocumentPreparer({ workerFactory });
+  f.doc.fontAssets = { [asset.id]: asset.asset };
+  f.text.font = asset.id;
+  f.text.text = 'AV';
+  f.text.variation = { version: 1, fontId: asset.id, axes: {} };
+  try {
+    bridge.activate(await bridge.prepareDocument(f.doc));
+    makeTextEdit(f, resolveFonts(f.doc, bridge.fonts()), true);
+    let prepared = true;
+    const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(f.doc), {
+        fonts: () => (prepared ? bridge.fonts() : {}),
+      }),
+      send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload });
+    send('set-document-settings', { key: 'width', value: 1200 });
+    send('undo');
+    const before = serializeCompositionProject(owner.projectSnapshot()),
+      state = owner.state,
+      redo = owner.historyView.redoToken,
+      revision = owner.projectRevision;
+    prepared = false;
+    assert.throws(
+      () => send('duplicate-layer', { layerId: f.layer.id }),
+      /unable to verify its input.*PREPARATION_REQUIRED/,
+    );
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+    assert.deepEqual(owner.state, state);
+    assert.equal(owner.projectRevision, revision);
+    assert.strictEqual(owner.historyView.redoToken, redo);
+    prepared = true;
+    const result = send('duplicate-layer', { layerId: f.layer.id }),
+      doc = owner.activeDocument(),
+      copy = doc.layers.find((layer) => layer.id === result.layerId);
+    assert.equal(evaluate(copy, resolveFonts(doc, bridge.fonts())).path.remapSuspended, true);
+    assert.equal(doc.fontAssets[asset.id].data, asset.asset.data);
+    const after = serializeCompositionProject(owner.projectSnapshot());
+    send('undo');
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+    send('redo');
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), after);
+  } finally {
+    bridge.dispose();
+  }
 });
 
 for (const type of ['Curve', 'Rectangle']) {
