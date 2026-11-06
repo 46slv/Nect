@@ -6713,6 +6713,7 @@ export class CommandSession {
         this.#history.doc,
         payload.sourceText,
         payload.compositionId,
+        payload,
       );
       assertNoAccidentalCurvePointRebind(this.#history.doc, imported, this.#nodeClipboard);
       this.#history.apply((candidate) => {

@@ -8949,10 +8949,11 @@ async function openCompositionImportDialog() {
   const dialog = document.createElement('dialog');
   dialog.className = 'composition-import-dialog';
   dialog.innerHTML =
-    '<form method="dialog"><h3>Project compositions</h3><fieldset><legend>Compositions to add</legend><div class="composition-import-choices" data-composition-choice></div><div class="composition-import-selection"><button type="button" data-composition-select-all>Select all</button><button type="button" data-composition-select-none>Clear</button></div></fieldset><output role="status"></output><footer><button type="button" value="cancel">Cancel</button><button value="import">Import</button></footer></form>';
+    '<form method="dialog"><h3>Project compositions</h3><fieldset><legend>Compositions to add</legend><div class="composition-import-choices" data-composition-choice></div><div class="composition-import-selection"><button type="button" data-composition-select-all>Select all</button><button type="button" data-composition-select-none>Clear</button></div></fieldset><output role="status"></output><footer><button type="button" value="cancel">Cancel</button><button type="button" data-composition-capture hidden>Capture Key colors &amp; import</button><button value="import">Import</button></footer></form>';
   const choices = dialog.querySelector('[data-composition-choice]');
   const status = dialog.querySelector('output');
   const importButton = dialog.querySelector('button[value="import"]');
+  const captureButton = dialog.querySelector('[data-composition-capture]');
   const destination = session.projectSnapshot(),
     destinationHasKeyColors = Object.hasOwn(destination, 'keyColorRecipe'),
     remaining = MAX_COMPOSITIONS - destination.compositions.length;
@@ -8982,8 +8983,10 @@ async function openCompositionImportDialog() {
       source,
       selected.flatMap((composition) => composition.layers),
     );
-    importButton.disabled =
-      !selected.length || selected.length > remaining || (linked && destinationHasKeyColors);
+    const validSelection = selected.length > 0 && selected.length <= remaining;
+    captureButton.hidden = !(linked && destinationHasKeyColors);
+    captureButton.disabled = !validSelection;
+    importButton.disabled = !validSelection || (linked && destinationHasKeyColors);
     status.textContent =
       remaining === 0
         ? `This project has the maximum of ${MAX_COMPOSITIONS} Compositions.`
@@ -8992,12 +8995,13 @@ async function openCompositionImportDialog() {
           : selected.length > remaining
             ? `Choose at most ${remaining} ${remaining === 1 ? 'Composition' : 'Compositions'}.`
             : linked && destinationHasKeyColors
-              ? 'This project already has Key colors. Choose Compositions without linked colors, or unbind them in the source.'
+              ? 'This project already has Key colors. Capture imports the selected linked Key colors as local values; the source stays unchanged.'
               : linked
                 ? 'Adds the full linked palette. Older Nect versions cannot open the result.'
                 : '';
   }
   choices.addEventListener('change', updateImportStatus);
+  captureButton.addEventListener('click', () => dialog.close('capture'));
   for (const [selector, checked] of [
     ['[data-composition-select-all]', true],
     ['[data-composition-select-none]', false],
@@ -9011,7 +9015,7 @@ async function openCompositionImportDialog() {
     const value = dialog.returnValue,
       selected = selectedCompositions();
     dialog.remove();
-    if (value !== 'import' || !selected.length) return;
+    if (!['import', 'capture'].includes(value) || !selected.length) return;
     try {
       if (
         session !== owner ||
@@ -9023,6 +9027,14 @@ async function openCompositionImportDialog() {
         variableAction
       )
         throw Error('Project changed while reading; import the file again');
+      if (
+        value === 'capture' &&
+        !importsLiveKeyColors(
+          source,
+          selected.flatMap((composition) => composition.layers),
+        )
+      )
+        throw Error('No linked colors to capture');
       saveCompositionViewState();
       const imported = session.dispatch({
         ...session.state,
@@ -9030,6 +9042,7 @@ async function openCompositionImportDialog() {
         payload: {
           sourceProject: source,
           compositionIds: selected.map((composition) => composition.id),
+          ...(value === 'capture' ? { captureLiveColors: true } : {}),
         },
       });
       resetTransient();

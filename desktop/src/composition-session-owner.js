@@ -521,6 +521,7 @@ export class CompositionSessionOwner {
         this.#history.doc,
         command.payload.sourceProject,
         command.payload.compositionIds,
+        command.payload,
       );
       const changed = this.#commitProject(
         prepared.project,

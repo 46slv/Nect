@@ -1,4 +1,8 @@
-import { importColorSlots, colorImportSchemaVersion } from './color-slots.js';
+import {
+  importColorSlots,
+  colorImportSchemaVersion,
+  readCaptureLiveColors,
+} from './color-slots.js';
 import { cloneDocument, deserialize, validate } from './core.js';
 import {
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
@@ -13,7 +17,8 @@ import {
   remapIds,
 } from './project-import-remap.js';
 
-export function prepareCompositionImport(current, sourceText, compositionId) {
+export function prepareCompositionImport(current, sourceText, compositionId, options = {}) {
+  const captureLiveColors = readCaptureLiveColors(options);
   const source = deserialize(sourceText);
   const selected = source.layers.find((layer) => layer.id === compositionId);
   if (!selected)
@@ -44,7 +49,7 @@ export function prepareCompositionImport(current, sourceText, compositionId) {
     occupied,
     source.schemaVersion,
   );
-  const colors = importColorSlots(current, source, copiedLayers, occupied);
+  const colors = importColorSlots(current, source, copiedLayers, occupied, captureLiveColors);
   const references = collectAssetReferences(copiedLayers);
   const fonts = mergeAssetRegistry(references.fonts, source.fontAssets, current.fontAssets, 'font');
   const images = mergeAssetRegistry(
