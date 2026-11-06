@@ -81,6 +81,64 @@ try {
   await ensureWorkspacePanel(page, 'inspector');
   await page.evaluate((text) => window.nect.load(text), serialize(f.doc));
   await page.locator('.node[data-id="fixture-transform"] .node-head strong').click();
+
+  // A numeric expression draft must not overwrite a change made while it is open.
+  await inspectorField('rotation').locator('[data-fx]').click();
+  const staleDialog = page.locator('dialog[open]');
+  await staleDialog.locator('[aria-label="Parameter expression"]').fill('42');
+  await page.evaluate(() => {
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: window.nect.document.width + 1 },
+    });
+    window.nect.dispatch({ ...window.nect.commandState, type: 'undo' });
+  });
+  const beforeStaleApply = await snapshot(),
+    beforeStaleState = await page.evaluate(() => window.nect.commandState);
+  await staleDialog.locator('[data-confirm]').click();
+  assert.deepEqual(await snapshot(), beforeStaleApply);
+  assert.deepEqual(await page.evaluate(() => window.nect.commandState), beforeStaleState);
+  assert.equal(await staleDialog.isVisible(), true);
+  assert.match(await staleDialog.getByRole('alert').innerText(), /Close and reopen/);
+  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'redo' }));
+  assert.equal((await snapshot()).width, beforeStaleApply.width + 1);
+  await staleDialog.locator('[data-cancel]').click();
+  await applyExpression('rotation', '42');
+  assert.equal((await transform()).params.rotation.expression, '42');
+  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'undo' }));
+  assert.equal((await transform()).params.rotation.expression, '');
+  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'redo' }));
+  assert.equal((await transform()).params.rotation.expression, '42');
+
+  // Replacing a project with the same IDs must not revive a Vector2 draft.
+  await page.evaluate((text) => window.nect.load(text), serialize(f.doc));
+  await page.locator('.node[data-id="fixture-transform"] .node-head strong').click();
+  await inspectorField('anchor').locator('[data-fx]').click();
+  const replacedDialog = page.locator('dialog[open]');
+  await replacedDialog.locator('[aria-label="Parameter expression"]').fill('12; 34');
+  await page.evaluate((text) => {
+    window.nect.load(text);
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: window.nect.document.width + 1 },
+    });
+    window.nect.dispatch({ ...window.nect.commandState, type: 'undo' });
+  }, serialize(f.doc));
+  const beforeReplacementApply = await snapshot(),
+    beforeReplacementState = await page.evaluate(() => window.nect.commandState);
+  await replacedDialog.locator('[data-confirm]').click();
+  assert.deepEqual(await snapshot(), beforeReplacementApply);
+  assert.deepEqual(await page.evaluate(() => window.nect.commandState), beforeReplacementState);
+  assert.equal(await replacedDialog.isVisible(), true);
+  assert.match(await replacedDialog.getByRole('alert').innerText(), /Close and reopen/);
+  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'redo' }));
+  assert.equal((await snapshot()).width, beforeReplacementApply.width + 1);
+  await replacedDialog.locator('[data-cancel]').click();
+
+  await page.evaluate((text) => window.nect.load(text), serialize(f.doc));
+  await page.locator('.node[data-id="fixture-transform"] .node-head strong').click();
   await applyExpression('rotation', source);
   assert.equal((await transform()).params.rotation.expression, source);
   await page.locator('.graph [data-point-panel-mode="fixture-curve"]').click();

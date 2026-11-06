@@ -64,6 +64,7 @@ import { nodeCategories, nodePickerItems, searchNodeItems } from './node-catalog
 import { createViewerState, mountViewers, updateViewers } from './node-viewers.js';
 import { createCompositionViewStateStore } from './composition-view-state.js';
 import { attachExpressionCompletion, expressionReferenceType } from './expression-completion.js';
+import { expressionTargetDisplay } from './expression-target-display.js';
 import { matchingNamedInstance } from './variable-font/named-instances.js';
 import { collectCharacterSnapGeometry, characterGapGuidePath } from './character-snapping.js';
 import { transformCharacterPoint } from './character-geometry.js';
@@ -4937,7 +4938,7 @@ function pointPanelIds(n, layer, doc) {
 function pointPanelSource(n, input, layer = current(), doc = history.doc) {
   if (n.type === 'Path Remap' && !input && n.params.path.source) {
     try {
-      input = evaluate(layer, resolveFonts(doc, activeFonts()), doc.imageAssets).run(
+      input = evaluate(layer, resolveFonts(doc, activeFonts()), doc.imageAssets, doc).run(
         n.params.path.source,
       );
     } catch {}
@@ -5354,7 +5355,7 @@ function compactFields(n) {
 }
 function textPathControls(n) {
   const attachment = n.pathAttachment,
-    targets = textPathTargets(current(), n.id, fonts, history.doc.imageAssets),
+    targets = textPathTargets(current(), n.id, fonts, history.doc.imageAssets, history.doc),
     value = attachment ? JSON.stringify([attachment.nodeId, attachment.contourId]) : '',
     missing =
       attachment &&
@@ -7183,7 +7184,10 @@ function directPointContext(n, doc = displayDocument()) {
     return {
       supported: true,
       matrix,
-      path: transformDirectPath(evaluate(penDraft.layer, fonts, doc.imageAssets).run(n.id), matrix),
+      path: transformDirectPath(
+        evaluate(penDraft.layer, fonts, doc.imageAssets, doc).run(n.id),
+        matrix,
+      ),
       nodeId: n.id,
     };
   }
@@ -7387,13 +7391,13 @@ function drawCanvas() {
       return;
     }
   }
-  const r = evaluate(l, fonts, display.imageAssets);
+  const r = evaluate(l, fonts, display.imageAssets, display);
   svg.innerHTML =
     gridOverlay() +
     canvasLayers(display)
       .filter((x) => layerShown(x))
       .map((x) => {
-        const value = x === l ? r : evaluate(x, fonts, display.imageAssets);
+        const value = x === l ? r : evaluate(x, fonts, display.imageAssets, display);
         return value.path && !value.error ? layerShape(x, value.path) : '';
       })
       .join('') +
@@ -10546,7 +10550,15 @@ app.addEventListener('click', async (e) => {
       input.value = q.expression || '';
       if (q.type === 'Color')
         dialog.querySelector('[data-insert-reference]').textContent = 'Insert reference…';
-      const expressionEnvelope = session.state;
+      const expressionOwner = session,
+        expressionEnvelope = expressionOwner.state,
+        expressionRevision = expressionOwner.projectRevision,
+        expressionComposition = expressionOwner.activeCompositionId,
+        expressionGeneration = documents.generation,
+        expressionStatus = document.createElement('p');
+      expressionStatus.setAttribute('role', 'alert');
+      expressionStatus.hidden = true;
+      dialog.querySelector('[data-confirm]').parentElement.before(expressionStatus);
       if (q.type === 'Color') {
         const check = (event) => {
           if (!event?.isComposing) colorDraftValidity(input, nn.id, f.dataset.key);
@@ -10565,11 +10577,7 @@ app.addEventListener('click', async (e) => {
         completion.hide();
         const start = input.selectionStart ?? input.value.length,
           end = input.selectionEnd ?? start;
-        const nameCounts = new Map();
-        for (const node of current().nodes) {
-          const name = node.name.normalize('NFC');
-          nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
-        }
+        const targetDisplay = expressionTargetDisplay(history.doc, current().id);
         const panel = openSearchPanel({
           title: 'Parameter references',
           action: 'Insert',
@@ -10587,17 +10595,7 @@ app.addEventListener('click', async (e) => {
             current(),
             nn.id,
             expressionReferenceType(input.value, start, q.type),
-          ).map((target) => ({
-            id: target.expression,
-            label: target.label,
-            pointOrdinal: target.pointOrdinal,
-            detail: target.pointOrdinal
-              ? nameCounts.get(target.name.normalize('NFC')) > 1
-                ? target.nodeId
-                : ''
-              : target.nodeId + ' · ' + target.expression,
-            searchText: target.pointOrdinal ? `${target.nodeId} ${target.key}` : '',
-          })),
+          ).map(targetDisplay.picker),
           onCommit(item) {
             if (!item) return;
             input.value = input.value.slice(0, start) + item.id + input.value.slice(end);
@@ -10613,6 +10611,20 @@ app.addEventListener('click', async (e) => {
       for (const button of dialog.querySelectorAll('[data-confirm], [data-cancel]'))
         button.onmousedown = (event) => event.preventDefault();
       dialog.querySelector('[data-confirm]').onclick = () => {
+        if (
+          session !== expressionOwner ||
+          documents.generation !== expressionGeneration ||
+          session.projectRevision !== expressionRevision ||
+          session.activeCompositionId !== expressionComposition ||
+          current().id !== payload.layerId ||
+          session.state.sessionId !== expressionEnvelope.sessionId ||
+          session.state.expectedRevision !== expressionEnvelope.expectedRevision
+        ) {
+          expressionStatus.textContent =
+            'Document changed. Close and reopen the expression editor.';
+          expressionStatus.hidden = false;
+          return;
+        }
         if (q.type === 'Color' && !colorDraftValidity(input, nn.id, f.dataset.key)) {
           input.reportValidity();
           return;
@@ -10623,7 +10635,7 @@ app.addEventListener('click', async (e) => {
             { ...payload, expression: input.value },
             'Parameter updated',
             false,
-            q.type === 'Color' ? expressionEnvelope : session.state,
+            expressionEnvelope,
           )
         )
           closeEditorDialog(dialog);
@@ -16908,6 +16920,7 @@ window.nect = {
       doc.layers.find((l) => l.id === activeLayer) || doc.layers[0],
       fonts,
       doc.imageAssets,
+      doc,
     );
   },
   get activeCompositionId() {

@@ -59,6 +59,7 @@ try {
       executablePath:
         process.env.CHROMIUM_PATH || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
       headless: true,
+      chromiumSandbox: true,
     });
     page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
     await page.goto(`http://127.0.0.1:${server.address().port}`);
@@ -117,6 +118,31 @@ try {
         ({ id, key }) => window.nect.document.layers[0].nodes.find((n) => n.id === id).params[key],
         { id: paint.id, key },
       );
+    if (type === 'Linear Gradient Fill') {
+      await field('startColor').locator('[data-fx]').click();
+      const staleDialog = page.locator('dialog[open]');
+      await staleDialog.locator('[aria-label="Parameter expression"]').fill('value');
+      await page.evaluate(() => {
+        window.nect.dispatch({
+          ...window.nect.commandState,
+          type: 'set-document-settings',
+          payload: { key: 'width', value: window.nect.document.width + 1 },
+        });
+        window.nect.dispatch({ ...window.nect.commandState, type: 'undo' });
+      });
+      const beforeStale = await saved(),
+        beforeState = await page.evaluate(() => window.nect.commandState);
+      await staleDialog.locator('[data-confirm]').click();
+      assert.equal(await saved(), beforeStale);
+      assert.deepEqual(await page.evaluate(() => window.nect.commandState), beforeState);
+      assert.equal(await staleDialog.isVisible(), true);
+      assert.match(await staleDialog.getByRole('alert').innerText(), /Close and reopen/);
+      await page.evaluate(() =>
+        window.nect.dispatch({ ...window.nect.commandState, type: 'redo' }),
+      );
+      assert.equal((await page.evaluate(() => window.nect.document)).width, 321);
+      await staleDialog.locator('[data-cancel]').click();
+    }
     const initial = await saved();
     await field('startColor').locator('[data-fx]').click();
     let input = page.getByRole('combobox', { name: 'Parameter expression' });
