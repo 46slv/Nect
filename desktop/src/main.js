@@ -9687,6 +9687,7 @@ function compositionActionBusy(allowedDialog = null) {
     sourceNavigationBusy(allowedDialog) ||
     documents.hasDraft() ||
     sharedColors.editing ||
+    pointDeltaDraft ||
     session.hasTextDrafts
   );
 }
@@ -9867,12 +9868,66 @@ function compositionHasExternalReferences(project, compositionId) {
   ];
   return references.some((ref) => ref.compositionId === compositionId);
 }
-function dispatchCompositionDeletion(command) {
-  const owner = session,
-    previousActive = owner.activeCompositionId,
+function captureCompositionDeletionAuthority() {
+  return {
+    owner: session,
+    generation: documents.generation,
+    activeId: session.activeCompositionId,
+    projectRevision: session.projectRevision,
+    envelope: session.state,
+  };
+}
+function assertCompositionDeletionAuthority(authority) {
+  const { owner, generation, activeId, projectRevision, envelope } = authority;
+  if (
+    session !== owner ||
+    documents.generation !== generation ||
+    owner.activeCompositionId !== activeId ||
+    owner.state.sessionId !== envelope.sessionId
+  )
+    throw Error('STALE_SESSION: document changed');
+  if (
+    owner.projectRevision !== projectRevision ||
+    owner.state.expectedRevision !== envelope.expectedRevision
+  )
+    throw Error('STALE_REVISION: document changed');
+}
+function dispatchCompositionDeletion(
+  command,
+  allowedDialog = null,
+  authority = captureCompositionDeletionAuthority(),
+) {
+  const { owner, generation, projectRevision } = authority;
+  const assertReady = () => {
+    assertCompositionDeletionAuthority(authority);
+    if (compositionActionBusy(allowedDialog))
+      throw Error('Finish or cancel the current edit before deleting a composition');
+    assertCompositionDeletionAuthority(authority);
+  };
+  assertReady();
+  const payload = command.payload;
+  const request = {
+    type: 'delete-composition',
+    sessionId: command.sessionId,
+    expectedRevision: command.expectedRevision,
+    payload: {
+      compositionId: payload?.compositionId,
+      expectedName: payload?.expectedName,
+      expectedProjectRevision: payload?.expectedProjectRevision,
+    },
+  };
+  assertReady();
+  const previousActive = owner.activeCompositionId,
     before = history.entryToken,
     currentView = saveCompositionViewState();
-  const result = owner.dispatch(command);
+  const result = owner.dispatch(request);
+  if (
+    session !== owner ||
+    documents.generation !== generation ||
+    owner.projectRevision !== projectRevision + (result.changed ? 1 : 0) ||
+    owner.state.sessionId !== result.sessionId
+  )
+    throw Error('STALE_SESSION: document changed');
   let graphScroll = null;
   if (result.changed) {
     const id = result.deletedCompositionId;
@@ -9883,6 +9938,42 @@ function dispatchCompositionDeletion(command) {
       compositionViewStates.prune(owner.projectSnapshot().compositions);
       graphScroll = restoreCompositionViewState();
     } else compositionViewStates.prune(owner.projectSnapshot().compositions);
+  }
+  return { result, graphScroll };
+}
+function dispatchDeletedCompositionHistory(command, type, authority, deleted) {
+  const { owner, generation, projectRevision, activeId } = authority;
+  assertCompositionDeletionAuthority(authority);
+  if (compositionActionBusy()) throw Error('Finish or cancel the current edit before Undo/Redo');
+  assertCompositionDeletionAuthority(authority);
+  const request = {
+    type,
+    sessionId: command.sessionId,
+    expectedRevision: command.expectedRevision,
+    payload: command.payload,
+  };
+  assertCompositionDeletionAuthority(authority);
+  if (compositionActionBusy()) throw Error('Finish or cancel the current edit before Undo/Redo');
+  assertCompositionDeletionAuthority(authority);
+  const entryToken = history.entryToken;
+  saveCompositionViewState();
+  const deletedView =
+    entryToken === deleted.before ? compositionViewStates.snapshot(deleted.compositionId) : null;
+  const result = owner.dispatch(request);
+  if (
+    session !== owner ||
+    documents.generation !== generation ||
+    owner.projectRevision !== projectRevision + (result.changed ? 1 : 0) ||
+    owner.state.sessionId !== result.sessionId
+  )
+    throw Error('STALE_SESSION: document changed');
+  let graphScroll = null;
+  if (result.changed) {
+    if (deletedView) deleted.view = deletedView;
+    const compositionChanged = owner.activeCompositionId !== activeId;
+    if (compositionChanged) resetTransient();
+    restoreDeletedCompositionView(deleted);
+    if (compositionChanged) graphScroll = restoreCompositionViewState();
   }
   return { result, graphScroll };
 }
@@ -9930,15 +10021,18 @@ function deleteCompositionDialog() {
         compositionActionBusy(dialog)
       )
         throw Error('Project changed. Close and reopen delete.');
-      const outcome = dispatchCompositionDeletion({
-        ...envelope,
-        type: 'delete-composition',
-        payload: {
-          compositionId,
-          expectedName: target.name,
-          expectedProjectRevision: projectRevision,
+      const outcome = dispatchCompositionDeletion(
+        {
+          ...envelope,
+          type: 'delete-composition',
+          payload: {
+            compositionId,
+            expectedName: target.name,
+            expectedProjectRevision: projectRevision,
+          },
         },
-      });
+        dialog,
+      );
       committed = outcome.result.changed;
       graphScroll = outcome.graphScroll;
       dialog.close();
@@ -17360,10 +17454,28 @@ window.nect = {
     return session.projectRevision;
   },
   dispatch(command) {
-    if (command.type === 'delete-composition') {
-      const { result, graphScroll } = dispatchCompositionDeletion(command);
+    const authority = captureCompositionDeletionAuthority();
+    const type = command.type;
+    if (type === 'delete-composition') {
+      const { result, graphScroll } = dispatchCompositionDeletion(command, null, authority);
       render(false, null, graphScroll);
       return result;
+    }
+    if (type === 'undo' || type === 'redo') {
+      assertCompositionDeletionAuthority(authority);
+      const targetToken = type === 'redo' ? history.redoToken : history.undoToken,
+        deleted =
+          targetToken && deletedCompositionHistory.get(history.entryToken)?.get(targetToken);
+      if (deleted) {
+        const { result, graphScroll } = dispatchDeletedCompositionHistory(
+          command,
+          type,
+          authority,
+          deleted,
+        );
+        render(false, null, graphScroll);
+        return result;
+      }
     }
     const result = session.dispatch(command);
     if (!['begin-text-draft', 'stage-text-draft', 'cancel-text-draft'].includes(command.type))

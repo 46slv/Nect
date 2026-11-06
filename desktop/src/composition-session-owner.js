@@ -898,8 +898,22 @@ export class CompositionSessionOwner {
   }
 
   #deleteComposition(compositionId, precommit) {
-    this.#assertQuiescent();
-    precommit?.();
+    const session = this.#session,
+      activeId = this.#activeCompositionId,
+      revision = this.#history.revision;
+    const assertReady = () => {
+      const assertCurrent = () => {
+        if (this.#session !== session || this.#activeCompositionId !== activeId)
+          throw Error('STALE_SESSION: document changed');
+        if (this.#history.revision !== revision) throw Error('STALE_REVISION: document changed');
+      };
+      assertCurrent();
+      precommit?.();
+      assertCurrent();
+      this.#assertQuiescent();
+      assertCurrent();
+    };
+    assertReady();
     const current = this.#history.doc;
     const index = current.compositions.findIndex((entry) => entry.id === compositionId);
     if (index < 0) throw Error('Unknown Composition ID');
@@ -913,7 +927,7 @@ export class CompositionSessionOwner {
       { ...current, compositions },
       nextActiveId,
       'delete-composition',
-      precommit,
+      assertReady,
     );
   }
 }
