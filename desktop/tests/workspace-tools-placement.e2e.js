@@ -35,6 +35,46 @@ const alignRail = page.locator('[data-workspace-panel="align"]');
 const snapshot = () => page.evaluate(() => window.nect.projectSnapshot());
 const state = () => page.evaluate(() => window.nect.commandState);
 
+async function waitForTextToolHit(textTool) {
+  try {
+    await page.waitForFunction(
+      () => {
+        const button = document.querySelector('.tools [data-tool="Text"]');
+        const shelf = button?.closest('.tools');
+        if (!button || !shelf || document.activeElement !== button) return false;
+        const rect = button.getBoundingClientRect();
+        const bounds = shelf.getBoundingClientRect();
+        const hit = document.elementFromPoint(
+          rect.left + rect.width / 2,
+          rect.top + rect.height / 2,
+        );
+        return (
+          rect.width > 20 &&
+          rect.height > 20 &&
+          rect.left >= bounds.left &&
+          rect.right <= bounds.right &&
+          (button === hit || button.contains(hit))
+        );
+      },
+      null,
+      { timeout: 5000 },
+    );
+  } catch (error) {
+    const observed = await textTool.evaluate((button) => {
+      const rect = button.getBoundingClientRect();
+      const shelf = button.closest('.tools')?.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return {
+        focused: document.activeElement === button,
+        rect: rect.toJSON(),
+        shelf: shelf?.toJSON(),
+        hit: hit?.outerHTML.slice(0, 300),
+      };
+    });
+    throw Error(`Horizontal Text was not reachable: ${JSON.stringify(observed)}`, { cause: error });
+  }
+}
+
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
@@ -83,45 +123,16 @@ try {
   await page.setViewportSize({ width: 1000, height: 650 });
   const textTool = tools.getByRole('button', { name: 'Horizontal Text', exact: true });
   await textTool.focus();
-  const box = await textTool.boundingBox();
-  assert.ok(box && box.width > 20 && box.height > 20);
-  assert.equal(
-    await textTool.evaluate(
-      (element, point) => {
-        const hit = document.elementFromPoint(point.x, point.y);
-        return element === hit || element.contains(hit);
-      },
-      { x: box.x + box.width / 2, y: box.y + box.height / 2 },
-    ),
-    true,
-  );
+  await waitForTextToolHit(textTool);
+  await textTool.click();
+  assert.equal(await textTool.getAttribute('aria-pressed'), 'true');
   await page.screenshot({ path: resolve(output, 'short.png') });
   await page.setViewportSize({ width: 420, height: 520 });
   await textTool.focus();
-  await page.waitForFunction(() => {
-    const shelf = document.querySelector('.tools');
-    const focused = document.activeElement;
-    const a = shelf.getBoundingClientRect();
-    const b = focused.getBoundingClientRect();
-    return (
-      focused.getAttribute('aria-label') === 'Horizontal Text' &&
-      b.left >= a.left &&
-      b.right <= a.right
-    );
-  });
-  const narrowBox = await textTool.boundingBox();
-  assert.ok(narrowBox && narrowBox.width > 20 && narrowBox.height > 20);
+  await waitForTextToolHit(textTool);
   await page.screenshot({ path: resolve(output, 'narrow-stress.png') });
-  assert.equal(
-    await textTool.evaluate(
-      (element, point) => {
-        const hit = document.elementFromPoint(point.x, point.y);
-        return element === hit || element.contains(hit);
-      },
-      { x: narrowBox.x + narrowBox.width / 2, y: narrowBox.y + narrowBox.height / 2 },
-    ),
-    true,
-  );
+  await textTool.click();
+  assert.equal(await textTool.getAttribute('aria-pressed'), 'true');
   await page.setViewportSize({ width: 1000, height: 650 });
 
   // A real pointer held on the tool must finish before a placement activation.
