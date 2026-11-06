@@ -8172,13 +8172,8 @@ export class CommandSession {
       pasteAuthority?.();
       assertPasteLocal();
     };
-    const assertPasteReady = () => {
-      if (!paste) return;
-      assertPasteCurrent();
-      const busy = this.#busy();
-      assertPasteCurrent();
+    const assertPasteDraftsClear = () => {
       if (
-        busy ||
         this.#gesture ||
         this.hasTextComposition ||
         [...this.#textDrafts.values()].some(
@@ -8186,7 +8181,18 @@ export class CommandSession {
         )
       )
         throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+    };
+    const assertPasteReady = () => {
+      if (!paste) return;
       assertPasteCurrent();
+      const busy = this.#busy();
+      assertPasteCurrent();
+      if (busy) throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+      assertPasteDraftsClear();
+      assertPasteCurrent();
+      // Authority is a callback too: it can start a draft without a revision.
+      // This final check reads only Session-private state before History writes.
+      assertPasteDraftsClear();
     };
     assertPasteCurrent();
     const artworkMove =

@@ -806,6 +806,62 @@ test('an unchanged Text draft retains the existing Color Paste behavior', () => 
   assert.equal(send('paste-nodes', { layerId: f.target.id }).nodeIds.length, 1);
 });
 
+for (const edit of ['text', 'gesture']) {
+  test(`a ${edit} begun by the last Paste authority check remains usable`, () => {
+    const f = fixture(),
+      text = node('Text');
+    text.id = 'authority-text';
+    text.text = 'A';
+    f.doc.layers[0].nodes.push(text);
+    let session,
+      armed = false,
+      calls = 0,
+      draft;
+    const send = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
+    session = new CommandSession(f.doc, {
+      beforeCandidateCommit: () => {
+        armed = true;
+      },
+      captureArtworkMoveAuthority: () => () => {
+        if (!armed || ++calls !== 3) return;
+        armed = false;
+        if (edit === 'text') {
+          draft = send('begin-text-draft', { layerId: f.target.id, nodeId: text.id });
+          draft = send('stage-text-draft', {
+            draftId: draft.draftId,
+            expectedDraftRevision: draft.draftRevision,
+            action: 'edit',
+            previousRaw: 'A',
+            nextRaw: 'AB',
+          });
+        } else {
+          draft = send('begin-gesture', {
+            target: { kind: 'graph-translate', layerId: f.target.id, nodeIds: [f.local.id] },
+          });
+          draft = send('update-gesture', { ...draft, update: { delta: [11, 7] } });
+        }
+      },
+    });
+    send('copy-nodes', { layerId: f.target.id, nodeIds: [f.sink.id] });
+    const before = serialize(session.snapshot()),
+      state = session.state;
+    assert.throws(() => send('paste-nodes', { layerId: f.target.id }), /draft|gesture|active/i);
+    assert.equal(serialize(session.snapshot()), before);
+    assert.deepEqual(session.state, state);
+    if (edit === 'text') {
+      send('commit-text-draft', {
+        draftId: draft.draftId,
+        expectedDraftRevision: draft.draftRevision,
+      });
+      assert.equal(session.snapshot().layers[0].nodes.find((n) => n.id === text.id).text, 'AB');
+    } else {
+      const preview = session.previewSnapshot(draft.gestureId).document;
+      send('commit-gesture', draft);
+      assert.equal(serialize(session.snapshot()), serialize(preview));
+    }
+  });
+}
+
 test('node Duplicate remains explicitly unsupported for Color Artwork references', () => {
   const f = fixture();
   const before = serialize(f.session.snapshot()),
