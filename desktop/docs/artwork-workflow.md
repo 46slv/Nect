@@ -21,17 +21,26 @@ Use **Delete layer** in a Layers row, or select artwork and press **Delete** wit
 
 Artwork drag and focused-artboard Arrow keys use the same conservative resolver. The supported graph is one Circle/Ellipse/Rectangle/Polygon/Star or unattached Text → solid Fill → Output, optionally with one existing Transform immediately before Fill. Direct Curve → solid Fill → Output and Image → Image Output are also supported. Disconnected nodes do not affect target choice.
 
+Canvas movement also supports two distinct direct shapes → Boolean A/B → an
+existing dedicated Transform → solid Fill → Output. Add and connect the
+Transform explicitly in the Graph first; moving does not insert or disconnect
+nodes. The two shapes and Boolean stay unchanged while the Transform's literal
+Position, or its legacy Offset, moves in artboard axes. Locked or driven route
+inputs, shared route consumers and references from any Composition refuse the
+move. This is a movement-only extension: the stricter Duplicate in place,
+alignment and node-output alignment routes do not change.
+
 Dragging translates the final artwork in artboard units through the current canvas transform. Hold Shift to constrain one axis; release Shift to move freely. Existing snapping and Alt bypass apply to pointer placement. Arrows move 1 document unit, or 10 with Shift, without snapping and independently of zoom. Each accepted keydown is one Undo step. Character editing takes priority. Fields, IME, dialogs, graph focus and active gestures do not invoke artwork nudging.
 
-A terminal Transform edits only its Offset in final artboard axes, including under rotation and negative scale. Direct shapes edit Center; direct Text/Image edit Position. Direct Curve moves all authored anchor Positions by one common delta, retaining relative handles, modes and closure. Its full ordered point IDs and all literal/unlocked Positions must remain valid. Whole-artwork Curve movement supports up to 128 anchors; larger curves show a reason and retain existing graph source editing, Save and export without truncation. No node is inserted and no input is disconnected. See [Curve placement boundaries](pen-artwork.md).
+A terminal Transform edits its Position, or legacy Offset, in final artboard axes, including under rotation and negative scale. Direct shapes edit Center; direct Text/Image edit Position. Direct Curve moves all authored anchor Positions by one common delta, retaining relative handles, modes and closure. Its full ordered point IDs and all literal/unlocked Positions must remain valid. Whole-artwork Curve movement supports up to 128 anchors; larger curves show a reason and retain existing graph source editing, Save and export without truncation. No node is inserted and no input is disconnected. See [Curve placement boundaries](pen-artwork.md).
 
-Other graphs remain selectable with a visible movement-unavailable reason. In particular, Boolean, Repeater, Remap, extra paint stacks, gradients, Type on Path, output-affecting non-path dependencies, bypassed routes, empty output and locked/driven positions are outside the safe capsule. Gradient coordinates are artboard-space, so moving geometry alone would change its paint.
+Other graphs remain selectable with a visible movement-unavailable reason. In particular, Boolean without the dedicated route above, Repeater, Remap, extra paint stacks, gradients, Type on Path, output-affecting non-path dependencies, bypassed routes, empty output and locked/driven positions are outside the safe capsule. Gradient coordinates are artboard-space, so moving geometry alone would change its paint.
 
 A completed pointer drag is one Undo step. Exact no-op/out-and-back gestures create no history. Escape, pointer cancellation, capture loss and window blur roll back the entire gesture. The target is resolved again during preview and before commit; an invalidated target is cancelled.
 
 ## Verification boundary
 
-Core tests cover six creation-helper types, atomic rejection, prior-layer/asset preservation and exact supported/refused movement routes. Synthetic DOM tests cover five toolbar tools, scope separation, placement, 1/10-unit nudging, no-op/cancel history, selection restoration, busy/focus/IME exclusions and capacity failure. Actual Chrome acceptance includes creation/export/reopen, final-artwork movement through terminal Transform, another-layer dragging, read-only reasons, source-stage handle priority and 1280×800 / 1600×1000 screenshots. Windows CI is the actual-browser and native packaging gate; synthetic DOM is not rendering proof. Native WebView2/IME and native file-dialog acceptance remain separate gates.
+Core tests cover six creation-helper types, atomic rejection, prior-layer/asset preservation and exact supported/refused movement routes. Synthetic DOM tests cover five toolbar tools, scope separation, placement, 1/10-unit nudging, no-op/cancel history, selection restoration, busy/focus/IME exclusions and capacity failure. Actual Chrome acceptance includes creation/export/reopen, final-artwork movement through terminal Transform, another-layer dragging, read-only reasons, source-stage handle priority and 1280×800 / 1600×1000 screenshots. `boolean-artwork-move.e2e.js` exercises the dedicated Boolean route, mixed selection, Cancel/Undo/Redo, SVG/PNG and JSON reopen. Windows CI is the actual-browser and native packaging gate; synthetic DOM is not rendering proof. Native WebView2/IME and native file-dialog acceptance remain separate gates.
 
 ## Independent copy in place
 

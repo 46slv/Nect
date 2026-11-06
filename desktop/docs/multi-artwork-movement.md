@@ -23,10 +23,11 @@ Each selected stable layer ID must pass the existing single-artwork resolver. Su
 - Circle/Ellipse/Rectangle/Polygon/Star or unattached Text -> one solid Fill -> Output, optionally one existing terminal Transform before Fill.
 - Direct Curve -> solid Fill -> Output, with 2–128 authored anchors.
 - Direct Image -> Image Output.
+- Two distinct direct shapes -> Boolean A/B -> dedicated existing Transform -> solid Fill -> Output, with literal route inputs and no other consumers in the project. This is available for movement only; strict duplication and alignment remain unchanged.
 
-Shapes edit Center, Text/Image edit Position, terminal Transforms edit Offset in final artboard axes, and Curves move every anchor Position by the same delta while retaining relative handles. No nodes are inserted or disconnected.
+Shapes edit Center, Text/Image edit Position, terminal Transforms edit Position or legacy Offset in final artboard axes, and Curves move every anchor Position by the same delta while retaining relative handles. No nodes are inserted or disconnected.
 
-A hidden, guide, locked, bypassed, empty, driven, unavailable or unsupported member prevents **every** selected artwork from moving. The Inspector and status give the offending layer's name and reason. Gradients, Boolean/Repeater/Remap, Type on Path, other paint stacks, side dependencies and Curves above 128 anchors retain the previous single-move restrictions. Unsupported artwork can still join the set through Layers; remove it with Shift-click or select a single supported layer to move. No subset is silently skipped.
+A hidden, guide, locked, bypassed, empty, driven, unavailable or unsupported member prevents **every** selected artwork from moving. The Inspector and status give the offending layer's name and reason. Other Boolean routes, gradients, Repeater/Remap, Type on Path, other paint stacks, side dependencies and Curves above 128 anchors retain the previous single-move restrictions. Unsupported artwork can still join the set through Layers; remove it with Shift-click or select a single supported layer to move. No subset is silently skipped.
 
 Pointer preview and release freshly re-resolve the entire set and compare IDs, routes and Curve topology. Every next position across every member is planned before the first write, including finite-value/overflow checks. Gesture cancellation restores the whole document snapshot. One completed drag records one History entry. Selection snapshots accompany movement history and existing artwork creation/deletion/duplication/order history. The save schema is unchanged.
 

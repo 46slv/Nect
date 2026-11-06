@@ -326,6 +326,74 @@ export function inheritProjectDocumentContext(source, target) {
     );
   return target;
 }
+
+// A Canvas-only move must not change another branch or Composition through a
+// reference to the route. Inspect the current active candidate plus the bound
+// project's other Compositions without exposing its private snapshot.
+export function hasExternalArtworkMoveConsumer(doc, layerId, nodeIds, allowedEdges) {
+  const protectedIds = new Set(nodeIds);
+  const binding = projectDocumentContexts.get(doc);
+  const groups = binding
+    ? binding.project.compositions.map((composition) => ({
+        id: composition.id,
+        layers: composition.id === binding.activeCompositionId ? doc.layers : composition.layers,
+      }))
+    : [{ id: null, layers: doc.layers }];
+  function* authoredInputs(n) {
+    yield* Object.entries(n.params || {});
+    for (const point of n.points || [])
+      for (const key of ['position', 'handleA', 'handleB'])
+        yield [`${point.id}.${key}`, point[key]];
+    for (const edit of n.edits || [])
+      for (const [key, q] of Object.entries(edit.params || {}))
+        yield [`remap.${edit.pointId}.${key}`, q];
+  }
+  try {
+    for (const group of groups)
+      for (const layer of group.layers)
+        for (const n of layer.nodes) {
+          if (
+            layer.id !== layerId &&
+            ['Composition Reference', 'SVG'].includes(n.type) &&
+            n.compositionReference?.compositionId === layerId
+          )
+            return true;
+          if (n.type === 'Reference' && protectedIds.has(n.reference?.nodeId)) return true;
+          if (n.type === 'Text' && protectedIds.has(n.pathAttachment?.nodeId)) return true;
+          for (const [key, q] of authoredInputs(n)) {
+            if (
+              !q ||
+              !['Scalar', 'Vector2', 'Color', 'Path', 'PaintedPath', 'Image', 'Boolean'].includes(
+                q.type,
+              )
+            )
+              continue;
+            if (protectedIds.has(q.source)) {
+              if (
+                layer.id !== layerId ||
+                !allowedEdges.some(
+                  (edge) => edge.source === q.source && edge.nodeId === n.id && edge.key === key,
+                )
+              )
+                return true;
+            }
+            if (!q.expression) continue;
+            for (const ref of expressionReferencesForSchema(q, doc.schemaVersion, {
+              preserveOpaque: true,
+            })) {
+              if (!protectedIds.has(ref.nodeId)) continue;
+              if (ref.compositionId && binding && ref.compositionId !== binding.activeCompositionId)
+                continue;
+              if (ref.layerId ? ref.layerId === layerId : layer.id === layerId) return true;
+            }
+          }
+        }
+  } catch {
+    // A failed inspection cannot establish that the route is exclusive.
+    return true;
+  }
+  return false;
+}
 // A v65 edit crosses all earlier syntax boundaries too. A standalone bound
 // Session and an isolated preview must check the same complete project as the
 // Composition owner before evaluating a promoted candidate.

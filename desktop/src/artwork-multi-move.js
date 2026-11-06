@@ -7,7 +7,9 @@ export function resolveArtworkMoveSelection(doc, layerIds, options = {}) {
     return { supported: false, reason: 'Choose a nonempty set of unique artwork layers.' };
   const targets = [];
   for (const id of ids) {
-    const resolved = resolveArtworkMoveTarget(doc, id, options);
+    // This resolver is the Canvas/translate-artworks route. Alignment and
+    // independent duplication continue to use their stricter resolvers.
+    const resolved = resolveArtworkMoveTarget(doc, id, { allowBooleanTransform: true, ...options });
     if (!resolved.supported) {
       if (ids.length === 1) return resolved;
       const name = doc.layers.find((l) => l.id === id)?.name || id;
