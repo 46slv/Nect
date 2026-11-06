@@ -326,6 +326,74 @@ export function inheritProjectDocumentContext(source, target) {
     );
   return target;
 }
+
+// A Canvas-only move must not change another branch or Composition through a
+// reference to the route. Inspect the current active candidate plus the bound
+// project's other Compositions without exposing its private snapshot.
+export function hasExternalArtworkMoveConsumer(doc, layerId, nodeIds, allowedEdges) {
+  const protectedIds = new Set(nodeIds);
+  const binding = projectDocumentContexts.get(doc);
+  const groups = binding
+    ? binding.project.compositions.map((composition) => ({
+        id: composition.id,
+        layers: composition.id === binding.activeCompositionId ? doc.layers : composition.layers,
+      }))
+    : [{ id: null, layers: doc.layers }];
+  function* authoredInputs(n) {
+    yield* Object.entries(n.params || {});
+    for (const point of n.points || [])
+      for (const key of ['position', 'handleA', 'handleB'])
+        yield [`${point.id}.${key}`, point[key]];
+    for (const edit of n.edits || [])
+      for (const [key, q] of Object.entries(edit.params || {}))
+        yield [`remap.${edit.pointId}.${key}`, q];
+  }
+  try {
+    for (const group of groups)
+      for (const layer of group.layers)
+        for (const n of layer.nodes) {
+          if (
+            layer.id !== layerId &&
+            ['Composition Reference', 'SVG'].includes(n.type) &&
+            n.compositionReference?.compositionId === layerId
+          )
+            return true;
+          if (n.type === 'Reference' && protectedIds.has(n.reference?.nodeId)) return true;
+          if (n.type === 'Text' && protectedIds.has(n.pathAttachment?.nodeId)) return true;
+          for (const [key, q] of authoredInputs(n)) {
+            if (
+              !q ||
+              !['Scalar', 'Vector2', 'Color', 'Path', 'PaintedPath', 'Image', 'Boolean'].includes(
+                q.type,
+              )
+            )
+              continue;
+            if (protectedIds.has(q.source)) {
+              if (
+                layer.id !== layerId ||
+                !allowedEdges.some(
+                  (edge) => edge.source === q.source && edge.nodeId === n.id && edge.key === key,
+                )
+              )
+                return true;
+            }
+            if (!q.expression) continue;
+            for (const ref of expressionReferencesForSchema(q, doc.schemaVersion, {
+              preserveOpaque: true,
+            })) {
+              if (!protectedIds.has(ref.nodeId)) continue;
+              if (ref.compositionId && binding && ref.compositionId !== binding.activeCompositionId)
+                continue;
+              if (ref.layerId ? ref.layerId === layerId : layer.id === layerId) return true;
+            }
+          }
+        }
+  } catch {
+    // A failed inspection cannot establish that the route is exclusive.
+    return true;
+  }
+  return false;
+}
 // A v65 edit crosses all earlier syntax boundaries too. A standalone bound
 // Session and an isolated preview must check the same complete project as the
 // Composition owner before evaluating a promoted candidate.
@@ -7003,6 +7071,7 @@ export class CommandSession {
   #prepareSequence = 0;
   #nodeClipboard = null;
   #beforeCandidateCommit;
+  #captureArtworkMoveAuthority;
   constructor(
     doc,
     {
@@ -7011,10 +7080,12 @@ export class CommandSession {
       onCommitted = () => {},
       retainHistory = true,
       beforeCandidateCommit = null,
+      captureArtworkMoveAuthority = () => () => {},
     } = {},
   ) {
     if (beforeCandidateCommit !== null && typeof beforeCandidateCommit !== 'function')
       throw Error('Invalid candidate preflight');
+    if (typeof captureArtworkMoveAuthority !== 'function') throw Error('Invalid artwork authority');
     validate(doc);
     if (Object.values(doc.fontAssets || {}).some((asset) => asset.kind === VARIABLE_KIND))
       assertVariableDocumentReady(doc, resolveFonts(doc, fonts()));
@@ -7023,6 +7094,7 @@ export class CommandSession {
     this.#busy = busy;
     this.#onCommitted = onCommitted;
     this.#beforeCandidateCommit = beforeCandidateCommit;
+    this.#captureArtworkMoveAuthority = captureArtworkMoveAuthority;
     this.id = uid('session');
   }
   setProjectContext(project, compositionId) {
@@ -7877,12 +7949,15 @@ export class CommandSession {
       fonts: { ...this.#fonts(), ...p.bridge.preparedFonts(p.ticket) },
     };
   }
-  #observeCommit(action) {
+  #observeCommit(action, { skipFailed = false } = {}) {
     const before = this.#history.revision;
+    let completed = false;
     try {
-      return action();
+      const result = action();
+      completed = true;
+      return result;
     } finally {
-      if (this.#history.revision !== before) {
+      if (this.#history.revision !== before && (!skipFailed || completed)) {
         const clipboard = this.#nodeClipboard;
         if (
           clipboard?.artworkReferences.length &&
@@ -7940,7 +8015,13 @@ export class CommandSession {
     bridge.cancel();
   }
   dispatch(command) {
-    return this.#observeCommit(() => this.#dispatch(command));
+    const artworkMove =
+      command?.type === 'translate-artworks' ||
+      (command?.type === 'begin-gesture' &&
+        command.payload?.target?.kind === 'artwork-translate') ||
+      (['update-gesture', 'commit-gesture'].includes(command?.type) &&
+        this.#gesture?.target.kind === 'artwork-translate');
+    return this.#observeCommit(() => this.#dispatch(command), { skipFailed: artworkMove });
   }
   #dispatch({ sessionId, expectedRevision, type, payload = {} }) {
     if (sessionId !== this.id) throw Error('STALE_SESSION: document changed');
@@ -7956,6 +8037,35 @@ export class CommandSession {
       throw Error('STALE_REVISION: document changed');
     if (!payload || typeof payload !== 'object' || Array.isArray(payload))
       throw Error('Invalid command payload');
+    const artworkMove =
+      type === 'translate-artworks' ||
+      (type === 'begin-gesture' && payload.target?.kind === 'artwork-translate') ||
+      (['update-gesture', 'commit-gesture'].includes(type) &&
+        this.#gesture?.target.kind === 'artwork-translate');
+    const moveDocument = artworkMove ? this.#history.doc : null;
+    const moveRevision = artworkMove ? this.#history.revision : null;
+    const moveBinding = artworkMove ? projectDocumentContexts.get(moveDocument) : null;
+    const moveDraft = artworkMove ? this.#gesture : null;
+    const moveDraftVersion = moveDraft?.version;
+    const ownerAuthority = artworkMove ? this.#captureArtworkMoveAuthority() : null;
+    const assertArtworkMoveCurrent = () => {
+      if (!artworkMove) return;
+      const assertLocal = () => {
+        if (
+          this.#history.doc !== moveDocument ||
+          this.#history.revision !== moveRevision ||
+          projectDocumentContexts.get(this.#history.doc) !== moveBinding
+        )
+          throw Error('STALE_REVISION: document changed');
+        if (this.#gesture !== moveDraft || (moveDraft && moveDraft.version !== moveDraftVersion))
+          throw Error('STALE_GESTURE: draft changed');
+        if (moveDraft && moveDraft.moveBinding !== moveBinding)
+          throw Error('STALE_GESTURE: project context changed');
+      };
+      assertLocal();
+      ownerAuthority?.();
+      assertLocal();
+    };
     if (type === 'import-composition') {
       const document = this.#history.doc;
       const revision = this.#history.revision;
@@ -8098,6 +8208,7 @@ export class CommandSession {
           })),
         };
       this.#gestureCandidate(base, target, initial);
+      assertArtworkMoveCurrent();
       this.#gesture = {
         id: uid('gesture'),
         target,
@@ -8105,6 +8216,7 @@ export class CommandSession {
         candidate: base,
         revision: this.#history.revision,
         version: 0,
+        ...(artworkMove ? { moveBinding } : {}),
       };
       return { ...this.state, ...this.gestureState };
     }
@@ -8136,24 +8248,32 @@ export class CommandSession {
         assertArtworkReferenceTransition(draft.base, candidate, this.#fonts());
         if (candidate.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION)
           this.#beforeCandidateCommit?.(this.#history.doc, candidate);
+        const update = clone(payload.update);
+        assertArtworkMoveCurrent();
         draft.candidate = candidate;
-        draft.update = clone(payload.update);
+        draft.update = update;
         draft.version++;
         return { ...this.state, ...this.gestureState };
       }
       // Font adoption allocates private asset IDs during preview. Commit that
       // validated candidate verbatim instead of allocating different IDs again.
-      if (draft.update && draft.target.kind !== 'text-font')
-        draft.candidate = this.#gestureCandidate(draft.base, draft.target, draft.update);
-      validate(draft.candidate);
-      assertNoAccidentalCurvePointRebind(draft.base, draft.candidate, this.#nodeClipboard);
-      assertArtworkReferenceTransition(draft.base, draft.candidate, this.#fonts());
-      assertVariableDocumentReady(draft.candidate, resolveFonts(draft.candidate, this.#fonts()));
+      const candidate =
+        draft.update && draft.target.kind !== 'text-font'
+          ? this.#gestureCandidate(draft.base, draft.target, draft.update)
+          : draft.candidate;
+      validate(candidate);
+      assertNoAccidentalCurvePointRebind(draft.base, candidate, this.#nodeClipboard);
+      assertArtworkReferenceTransition(draft.base, candidate, this.#fonts());
+      assertVariableDocumentReady(candidate, resolveFonts(candidate, this.#fonts()));
+      assertArtworkMoveCurrent();
       const revision = this.#history.revision;
-      if (!sameDocument(this.#history.doc, draft.candidate)) {
-        this.#beforeCandidateCommit?.(this.#history.doc, draft.candidate);
+      const changed = !sameDocument(this.#history.doc, candidate);
+      assertArtworkMoveCurrent();
+      if (changed) {
+        this.#beforeCandidateCommit?.(this.#history.doc, candidate);
+        assertArtworkMoveCurrent();
         this.#history.apply(() => {
-          this.#history.doc = draft.candidate;
+          this.#history.doc = candidate;
         });
       }
       this.#gesture = null;
@@ -8353,9 +8473,11 @@ export class CommandSession {
     assertVariableDocumentReady(candidate, resolveFonts(candidate, this.#fonts()));
     assertNoAccidentalCurvePointRebind(this.#history.doc, candidate, this.#nodeClipboard);
     assertArtworkReferenceTransition(this.#history.doc, candidate, this.#fonts());
+    assertArtworkMoveCurrent();
     const revision = this.#history.revision;
     if (!sameDocument(this.#history.doc, candidate)) {
       this.#beforeCandidateCommit?.(this.#history.doc, candidate);
+      assertArtworkMoveCurrent();
       this.#history.apply(() => {
         this.#history.doc = candidate;
       });
@@ -9065,6 +9187,15 @@ export class CommandSession {
           const resolved = resolveArtworkMoveSelection(candidate, payload.layerIds, options);
           if (!resolved.supported) throw Error(resolved.reason);
           translateArtworkTargets(candidate, resolved.target, payload.delta);
+          const targets =
+            resolved.target.scope === 'artwork-selection'
+              ? resolved.target.targets
+              : [resolved.target];
+          for (const target of targets) {
+            if (!target.canvasOnly) continue;
+            const check = resolveArtworkMoveSelection(candidate, [target.layerId], options);
+            if (!check.supported) throw Error(check.reason);
+          }
         } else {
           const edit =
             type === 'align-artworks'

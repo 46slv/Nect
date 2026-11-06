@@ -59,15 +59,19 @@ test('Curve movement budget and fresh synchronous resolution stay explicit', asy
     },
   });
   let source = await fs.readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.ok(
+    source.includes('import { resolveArtworkMoveSelection, translateArtworkTargets }'),
+    'instrument the current artwork selection resolver',
+  );
   source = source
     .replace("import './style.css';", '')
     .replace(
-      'import { resolveArtworkMoveTarget }',
-      'import { resolveArtworkMoveTarget as rawResolveArtworkMoveTarget }',
+      'import { resolveArtworkMoveSelection, translateArtworkTargets }',
+      'import { resolveArtworkMoveSelection as rawResolveArtworkMoveSelection, translateArtworkTargets }',
     )
     .replace(
       'const app =',
-      'const resolveArtworkMoveTarget = (...args) => { window.curveResolveCalls = (window.curveResolveCalls || 0) + 1; return rawResolveArtworkMoveTarget(...args); }; const app =',
+      'const resolveArtworkMoveSelection = (...args) => { window.curveResolveCalls = (window.curveResolveCalls || 0) + 1; return rawResolveArtworkMoveSelection(...args); }; const app =',
     )
     .replace(
       /from '(\.\/[^']+)'/g,

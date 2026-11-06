@@ -7,7 +7,9 @@ export function resolveArtworkMoveSelection(doc, layerIds, options = {}) {
     return { supported: false, reason: 'Choose a nonempty set of unique artwork layers.' };
   const targets = [];
   for (const id of ids) {
-    const resolved = resolveArtworkMoveTarget(doc, id, options);
+    // This resolver is the Canvas/translate-artworks route. Alignment and
+    // independent duplication continue to use their stricter resolvers.
+    const resolved = resolveArtworkMoveTarget(doc, id, { allowBooleanTransform: true, ...options });
     if (!resolved.supported) {
       if (ids.length === 1) return resolved;
       const name = doc.layers.find((l) => l.id === id)?.name || id;
@@ -76,8 +78,37 @@ export function translateArtworkMoves(doc, moves) {
       const next = value.map((v, axis) => v + delta[axis]);
       if (!next.every(Number.isFinite))
         throw Error('Artwork translation must keep every position finite');
-      plan.push([inputs[i], next]);
+      plan.push({ input: inputs[i], next, target: t, pointIndex: batch ? i : null });
     }
   }
-  for (const [input, next] of plan) input.value = next;
+  // JSON has no object aliases, but a programmatic caller can share a
+  // descriptor or any of its parents with other artwork or metadata. If a
+  // Boolean is selected, detach every edited path after the whole preflight.
+  if (moves.some(({ target }) => target.canvasOnly))
+    for (const { target } of moves) {
+      const layerIndex = doc.layers.findIndex((layer) => layer.id === target.layerId);
+      const originalLayer = doc.layers[layerIndex];
+      const nodeIndex = originalLayer.nodes.findIndex((node) => node.id === target.nodeId);
+      const originalNode = originalLayer.nodes[nodeIndex];
+      const copiedNode = { ...originalNode };
+      if (target.kind === 'curve-point-positions')
+        copiedNode.points = originalNode.points.map((point) => ({
+          ...point,
+          position: { ...point.position },
+        }));
+      else {
+        copiedNode.params = { ...originalNode.params };
+        copiedNode.params[target.parameter] = { ...originalNode.params[target.parameter] };
+      }
+      const copiedLayer = { ...originalLayer, nodes: [...originalLayer.nodes] };
+      copiedLayer.nodes[nodeIndex] = copiedNode;
+      doc.layers = [...doc.layers];
+      doc.layers[layerIndex] = copiedLayer;
+      for (const entry of plan.filter((entry) => entry.target === target))
+        entry.input =
+          entry.pointIndex === null
+            ? copiedNode.params[target.parameter]
+            : copiedNode.points[entry.pointIndex].position;
+    }
+  for (const { input, next } of plan) input.value = next;
 }

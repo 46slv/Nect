@@ -9,8 +9,8 @@ explicitly inspectable, not adopted defaults. Preview creates no shared slots,
 receipt or History entry. After an explicit B Preview, the user may add five
 trial shared colors and a receipt in one Undo, or explicitly choose a linked
 trial; A remains Preview-only. The linked choice is not a default and does not
-convert any existing palette. Choosing it displays the older-reader and current
-palette-detach limitations before creation. B uses
+convert any existing palette. Choosing it displays the older-reader
+incompatibility before creation; the trial can later be explicitly unlinked. B uses
 `experimental-affine-neutral-text-v1`, fresh draft-stable IDs and the same
 closed initialization preflight. Inputs, candidate
 changes and composing invalidate the preview; owner, revision or Composition
@@ -36,11 +36,11 @@ L is abbreviated as an approximation for scanning; exact L, ΔL, stable ID and
 diagnostics remain in each keyboard-accessible Details disclosure. Duplicate
 visible roles or shared-color names receive a distinguishing ID-derived suffix;
 all commands and comparisons continue to use the full stable ID.
-For retained B recipes, pairwise derived model L order compares effective L
+For B recipes, pairwise derived model L order compares effective L
 against the clamped zero-offset baseline by stable ID. Equality is exact; this
 informational result does not judge appearance, contrast or whether Apply is allowed.
 
-For a retained B trial, explicitly select two different stable IDs to check a
+For a B trial, explicitly select two different stable IDs to check a
 foreground/background pair. The advisory compares current shared literals and,
 only while valid, the detached Preview separately. It composites foreground
 alpha in encoded sRGB over an opaque background and compares the unrounded
@@ -78,7 +78,7 @@ literal until an explicit HSL change, and a hue-only edit on gray preserves HEX.
   `restoreKeyColorRecipe` / `editKeyColorRecipe` APIs. The comparison shows
   **current shared literals → proposed shared literals**, including alpha, for
   active targets only. Preview alone does not change Canvas, authored data or History.
-- For a retained B trial, **Show proposal on artwork** temporarily displays the
+- For a B trial, **Show proposal on artwork** temporarily displays the
   proposal through existing shared-color bindings. **Show saved artwork** restores
   the authored view while retaining the valid detached preview. Neither action
   changes the document or History; an expired preview restores the authored view.
@@ -88,24 +88,28 @@ literal until an explicit HSL change, and a hue-only edit on gray preserves HEX.
   so a silent/unobserved input change cannot dispatch the old valid result. A
   subsequent display-document read also expires the detached comparison and
   artwork projection if the fingerprint has changed.
-- **Apply · 1 Undo** calls `prepareKeyColorRecipeApplication` again, then sends
-  exactly `apply-key-color-recipe-snapshot` with the closed `{ snapshot }`
-  payload through the real app dispatcher and common Session. It does not inject
-  `layerId` or compose public set/retain commands. A null/undefined/false dispatch
-  result is an error, not a success notice.
+- **Apply · 1 Undo** repeats preflight through the real app dispatcher and common
+  Session. For a retained receipt it sends `apply-key-color-recipe-snapshot` with
+  `{ snapshot }`; for a linked trial it sends `edit-live-key-color-recipe` with
+  the captured palette revision and edited intent. The latter solves in the
+  receiving Session. Neither path injects `layerId` or composes public set/retain
+  commands. A null/undefined/false dispatch result is an error, not a success notice.
 
-A changed Apply atomically commits active literals and the historical receipt in
+A changed Apply atomically commits active literals and the recipe packet in
 one Undo. Equality is a no-op preserving revision, History and pending Redo. Every
 active legacy-locked target blocks the whole operation, even an equal Apply;
 the editor never unlocks, skips or partially updates targets. Dormant locks do
 not block active targets. Old `colorDesign`, Absolute Chroma/Neutral settings,
 roles, IDs, bindings and unrelated/dormant shared values remain untouched.
 
-The receipt is still **historical, not a live driver** after Apply. A later manual
-shared-color or legacy wheel edit may differ from it without rewriting it.
-Opening the editor reads retained intent, not a reverse-engineered live color.
-Native JSON saves/reopens both the changed literals and receipt; it stores no
-pending draft, preview or error. No solver or schema change is introduced here.
+For a retained-only recipe, the receipt remains historical after Apply: later
+manual shared-color or legacy wheel edits may differ from it without rewriting it.
+For a linked trial, Key color edits update its saved recipe and owned shared-slot
+values atomically, and existing bindings follow those values. Explicit Unlink
+keeps the saved values and IDs as independent shared colors, with Undo/Redo.
+Opening either editor reads saved intent, not a reverse-engineered color. Native
+JSON saves/reopens the changed literals and packet; it stores no pending draft,
+preview or error. Editing an existing packet does not change its schema.
 
 ## Cancellation, concurrency and legacy interaction
 

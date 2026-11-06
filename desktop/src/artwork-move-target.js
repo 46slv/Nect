@@ -1,5 +1,13 @@
-import { transformExtensions } from './transform-affine.js';
-import { definitions, evaluate, outputType, pathBounds, socketCompatible } from './core.js';
+import { transformExtensions, transformValues } from './transform-affine.js';
+import {
+  definitions,
+  evaluate,
+  hasExternalArtworkMoveConsumer,
+  outputType,
+  pathArea,
+  pathBounds,
+  socketCompatible,
+} from './core.js';
 
 const shapes = new Set(['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star']);
 const gradients = new Set([
@@ -15,14 +23,30 @@ const finitePoint = (value) =>
   Number.isFinite(value[0]) &&
   Number.isFinite(value[1]);
 const unsupported = (code, reason) => ({ supported: false, code, reason });
+function localPathArea(value) {
+  const origin = value.contours.find((contour) => contour.points.length)?.points[0].position;
+  if (!origin) return 0;
+  return pathArea({
+    ...value,
+    contours: value.contours.map((contour) => ({
+      ...contour,
+      points: contour.points.map((point) => ({
+        ...point,
+        position: point.position.map((coordinate, axis) => coordinate - origin[axis]),
+      })),
+    })),
+  });
+}
 
 /**
  * Resolve a final artwork layer, never the currently selected graph node.
  *
  * Deliberately bounded to generator -> Fill -> Output, optionally with ONE
  * existing Transform immediately before Fill, direct Curve -> Fill -> Output,
- * or Image -> Image Output. Curve moves are a batch of authored anchor Positions;
- * their relative handles and topology are never rewritten.
+ * or Image -> Image Output. Canvas may opt into a dedicated Transform after
+ * Boolean A/B with two direct shapes and no external route consumers. Curve
+ * moves are a batch of authored anchor Positions; their relative handles and
+ * topology are never rewritten.
  * All non-path inputs in that capsule must be literal, so no reference/data
  * branch can turn a translation into a simultaneous size, pivot or paint edit.
  * Disconnected nodes do not choose the target and are never modified.
@@ -39,7 +63,11 @@ const unsupported = (code, reason) => ({ supported: false, code, reason });
  * update selection or own History. Callers must re-resolve before committing.
  * Pass the same loaded fonts/image assets used to render the final artwork.
  */
-export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets } = {}) {
+export function resolveArtworkMoveTarget(
+  doc,
+  layerId,
+  { fonts = {}, imageAssets, allowBooleanTransform = false } = {},
+) {
   if (!doc || !Array.isArray(doc.layers) || typeof layerId !== 'string')
     return unsupported('invalid-artwork', 'Choose an artwork layer by its stable ID.');
   const matches = doc.layers.filter((layer) => layer?.id === layerId);
@@ -63,8 +91,8 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
     return unsupported('missing-output', 'The final artwork Output is unavailable.');
 
   // Follow named, typed sockets only. This is not a first-input graph walk.
-  function pathSource(n, type) {
-    const q = n.params?.path;
+  function pathSource(n, type, key = 'path') {
+    const q = n.params?.[key];
     if (
       !q ||
       q.type !== type ||
@@ -105,7 +133,13 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
       'Whole-artwork movement through an artboard-space gradient is not supported.',
     );
 
-  let generator, transform, target, parameter, kind, route;
+  let generator,
+    transform,
+    target,
+    parameter,
+    kind,
+    route,
+    canvasOnly = false;
   if (
     output.type === 'Output' &&
     (['Composition Reference', 'SVG'].includes(last.type) ||
@@ -155,35 +189,50 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
       transform = generator;
       generator = pathSource(transform, 'Path');
     }
-    if (
-      !generator ||
-      (!shapes.has(generator.type) &&
-        generator.type !== 'Text' &&
-        !['Curve', 'Multi Path'].includes(generator.type)) ||
-      (generator.type === 'Curve' && transform)
-    )
-      return unsupported(
-        'unsupported-graph',
-        'Whole-artwork Move supports direct Curve, shape or unattached Text artwork; shapes and Text may use one terminal Transform.',
-      );
-    if (generator.type === 'Text' && generator.pathAttachment != null)
-      return unsupported('attached-text', 'Detach Type on Path before using this artwork move.');
-    target = transform || generator;
-    parameter = transform
-      ? transform.params.position
-        ? 'position'
-        : 'offset'
-      : generator.type === 'Text'
-        ? 'position'
-        : 'center';
-    kind = transform
-      ? 'terminal-transform-offset'
-      : generator.type === 'Text'
-        ? 'text-position'
-        : ['Curve', 'Multi Path'].includes(generator.type)
-          ? 'curve-point-positions'
-          : 'shape-center';
-    route = transform ? [generator, transform, last, output] : [generator, last, output];
+    if (allowBooleanTransform && transform && generator?.type === 'Boolean') {
+      const a = pathSource(generator, 'Path', 'a'),
+        b = pathSource(generator, 'Path', 'b');
+      if (!a || !b || a.id === b.id || !shapes.has(a.type) || !shapes.has(b.type))
+        return unsupported(
+          'unsupported-graph',
+          'Boolean artwork movement needs two distinct direct shape inputs.',
+        );
+      target = transform;
+      parameter = transform.params.position ? 'position' : 'offset';
+      kind = 'terminal-transform-offset';
+      route = [a, b, generator, transform, last, output];
+      canvasOnly = true;
+    } else {
+      if (
+        !generator ||
+        (!shapes.has(generator.type) &&
+          generator.type !== 'Text' &&
+          !['Curve', 'Multi Path'].includes(generator.type)) ||
+        (generator.type === 'Curve' && transform)
+      )
+        return unsupported(
+          'unsupported-graph',
+          'Whole-artwork Move supports direct Curve, shape or unattached Text artwork; shapes and Text may use one terminal Transform.',
+        );
+      if (generator.type === 'Text' && generator.pathAttachment != null)
+        return unsupported('attached-text', 'Detach Type on Path before using this artwork move.');
+      target = transform || generator;
+      parameter = transform
+        ? transform.params.position
+          ? 'position'
+          : 'offset'
+        : generator.type === 'Text'
+          ? 'position'
+          : 'center';
+      kind = transform
+        ? 'terminal-transform-offset'
+        : generator.type === 'Text'
+          ? 'text-position'
+          : ['Curve', 'Multi Path'].includes(generator.type)
+            ? 'curve-point-positions'
+            : 'shape-center';
+      route = transform ? [generator, transform, last, output] : [generator, last, output];
+    }
   }
 
   for (const n of route) {
@@ -294,7 +343,8 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
           'invalid-parameters',
           'The artwork capsule has invalid parameter types.',
         );
-      if (key === 'path') continue;
+      if (key === 'path' || (canvasOnly && n.type === 'Boolean' && ['a', 'b'].includes(key)))
+        continue;
       if (input.source !== undefined || input.sourcePort !== undefined)
         return unsupported(
           'side-dependency',
@@ -302,7 +352,32 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
         );
       if (typeof input.expression !== 'string')
         return unsupported('invalid-parameters', 'The artwork capsule has an invalid expression.');
+      if (canvasOnly && input.expression)
+        return unsupported(
+          'side-dependency',
+          'Boolean artwork movement requires literal route inputs.',
+        );
     }
+  }
+
+  if (canvasOnly) {
+    const [a, b, boolean, moving, fill, out] = route;
+    const allowed = [
+      { source: a.id, nodeId: boolean.id, key: 'a' },
+      { source: b.id, nodeId: boolean.id, key: 'b' },
+      { source: boolean.id, nodeId: moving.id, key: 'path' },
+      { source: moving.id, nodeId: fill.id, key: 'path' },
+      { source: fill.id, nodeId: out.id, key: 'path' },
+    ];
+    if (
+      hasExternalArtworkMoveConsumer(
+        doc,
+        layerId,
+        route.map((n) => n.id),
+        allowed,
+      )
+    )
+      return unsupported('shared-route', 'The Boolean artwork route has other consumers.');
   }
 
   // Core evaluation diagnoses unavailable fonts/assets, invalid dimensions,
@@ -310,6 +385,14 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
   // clone so neither document state nor its evaluation cache is touched.
   let value, bounds;
   try {
+    if (canvasOnly) {
+      const { scale, scaleWidth } = transformValues(
+        transform,
+        (key) => transform.params[key].value,
+      );
+      if (scale === 0 || scaleWidth === 0)
+        return unsupported('empty-output', 'The final artwork has no nonzero area.');
+    }
     const result = evaluate(
       structuredClone(layer),
       fonts,
@@ -324,6 +407,8 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
     if (!bounds.flat().every(Number.isFinite))
       return unsupported('invalid-output', 'The final artwork bounds are not finite.');
     if (bounds.some(([min, , max]) => max <= min))
+      return unsupported('empty-output', 'The final artwork has no nonzero area.');
+    if (canvasOnly && !(localPathArea(value) > 0))
       return unsupported('empty-output', 'The final artwork has no nonzero area.');
     if (!['image', 'painted-group'].includes(value.kind) && (!value.fill || value.fill.alpha <= 0))
       return unsupported('empty-output', 'The final artwork has no visible solid Fill.');
@@ -353,6 +438,7 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
             value: [...positions[0].value],
           }),
       coordinateSpace: 'artboard',
+      ...(canvasOnly ? { canvasOnly: true } : {}),
       route: route.map((n) => ({ nodeId: n.id, type: n.type })),
     },
   };

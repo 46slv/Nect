@@ -846,7 +846,6 @@ import {
   resolveArtworkDuplicateTarget,
   resolveArtworkDuplicateSelection,
 } from './artwork-creation.js';
-import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-multi-move.js';
 import { artworkAlignments } from './artwork-alignment.js';
 import { artworkDistributions } from './artwork-distribution.js';
@@ -1728,17 +1727,27 @@ function selectArtwork(layerId, { toggle = false, preserve = false } = {}) {
   pointHover = null;
 }
 function artworkMove() {
-  return artworkSelection.size === 1
-    ? resolveArtworkMoveTarget(history.doc, artworkTarget, { fonts })
-    : resolveArtworkMoveSelection(history.doc, artworkSelection, { fonts });
+  return resolveArtworkMoveSelection(history.doc, artworkSelection, { fonts });
+}
+function hasCanvasOnlyMove(move) {
+  const targets =
+    move?.target?.scope === 'artwork-selection' ? move.target.targets : [move?.target];
+  return targets.some((target) => target?.canvasOnly);
 }
 function alignmentTargets(artworkResolution = null) {
-  if (artworkTarget)
+  if (artworkTarget) {
+    const move = artworkResolution || artworkMove();
     return {
       scope: 'artwork',
       ids: [...artworkSelection],
-      move: artworkResolution || artworkMove(),
+      move: hasCanvasOnlyMove(move)
+        ? resolveArtworkMoveSelection(history.doc, artworkSelection, {
+            fonts,
+            allowBooleanTransform: false,
+          })
+        : move,
     };
+  }
   if (!selection.size) return { ids: [], move: { supported: false } };
   const ids = [...selection],
     move = resolveNodeOutputTargets(history.doc, activeLayer, ids, { fonts });
@@ -6160,12 +6169,25 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   // One synchronous status resolution for both hint and Inspector; callers may
   // reuse a just-resolved unchanged document, never a persistent cached target.
   const move = artworkTarget ? artworkResolution || artworkMove() : null;
-  const duplication =
+  let duplication =
     artworkSelection.size > 1
       ? resolveArtworkDuplicateSelection(doc, artworkSelection, { fonts })
       : artworkTarget
-        ? resolveArtworkDuplicateTarget(doc, artworkTarget, { fonts }, move)
+        ? resolveArtworkDuplicateTarget(
+            doc,
+            artworkTarget,
+            { fonts },
+            move?.target?.canvasOnly ? undefined : move,
+          )
         : null;
+  if (duplication?.code === 'unsupported-graph' && hasCanvasOnlyMove(move))
+    duplication = {
+      ...duplication,
+      reason:
+        artworkSelection.size === 1
+          ? 'Duplicate in place is unavailable for this artwork.'
+          : 'Duplicate in place is unavailable for this selection.',
+    };
   snapLayerBounds = collectSnapLayerBounds(
     doc,
     results,

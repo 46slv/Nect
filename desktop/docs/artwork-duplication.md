@@ -10,7 +10,7 @@ This first slice requires the complete graph to be one of:
 - Curve → solid Fill → Output, with 2–128 authored anchors
 - Image → Image Output
 
-It reuses whole-artwork movement eligibility: visible, unlocked ordinary layers; unlocked, non-bypassed route nodes; a valid nonempty visible output; literal/unlocked movement Positions; and no output-affecting non-path data connections. Every layer node must belong to that route. Disconnected extras, Reference/data branches, Boolean/Remap/Repeater graphs, gradients, Stroke, Type on Path and suspended character adjustments are outside initial support. The Inspector disables the action and explains the reason. Source graph editing, Save and export retain their existing capabilities. The Curve limit is an initial whole-artwork interaction budget, not a new model or export limit.
+It uses the original strict whole-artwork movement eligibility: visible, unlocked ordinary layers; unlocked, non-bypassed route nodes; a valid nonempty visible output; literal/unlocked movement Positions; and no output-affecting non-path data connections. Every layer node must belong to that route. Disconnected extras, Reference/data branches, Boolean/Remap/Repeater graphs, gradients, Stroke, Type on Path and suspended character adjustments are outside initial support, including Boolean routes supported by the later Canvas-only movement extension. The Inspector disables the action and explains the reason. Source graph editing, Save and export retain their existing capabilities. The Curve limit is an initial whole-artwork interaction budget, not a new model or export limit.
 
 ## Copy and transaction guarantees
 
