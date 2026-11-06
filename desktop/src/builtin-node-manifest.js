@@ -11,6 +11,12 @@ import { joinGeometryDeclaration } from './join-geometry-declaration.js';
 import { evaluateJoinGeometry } from './join-geometry-binding.js';
 import { combineVectorDeclaration } from './combine-vector-declaration.js';
 import { evaluateCombineVector } from './combine-vector-binding.js';
+import {
+  valueDeclaration,
+  vectorDeclaration,
+  expressionDeclaration,
+} from './value-source-declarations.js';
+import { evaluateValueSource } from './value-source-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -36,5 +42,13 @@ export const builtinManifest = Object.freeze([
     { evaluate: evaluateCombineVector },
     'Separate Vector',
     'Separate Vector',
+  ),
+  entry(valueDeclaration, { evaluate: evaluateValueSource }, 'Instance on Points', 'Line Screen'),
+  entry(vectorDeclaration, { evaluate: evaluateValueSource }, 'Color', 'Math'),
+  entry(
+    expressionDeclaration,
+    { evaluate: evaluateValueSource },
+    'Composition Reference',
+    'Reference',
   ),
 ]);

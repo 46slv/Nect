@@ -691,15 +691,12 @@ const legacyDefinitions = {
     points: p('Path', null),
     alignTangent: p('Boolean', false),
   },
-  Value: { value: p('Scalar', 100) },
   Toggle: { value: p('Boolean', true) },
   Color: { value: p('Color', { hex: '#36434e', alpha: 1 }) },
-  Vector: { value: p('Vector2', [300, 250]) },
   Null: { position: p('Vector2', [300, 250]) },
   Reference: {},
   SVG: { position: p('Vector2', [0, 0]) },
   'Composition Reference': { position: p('Vector2', [0, 0]) },
-  Expression: { value: p('Scalar', 100) },
   Fill: { path: p('PaintedPath', null), color: p('Color', { hex: '#36434e', alpha: 1 }) },
   'Linear Gradient Fill': {
     path: p('PaintedPath', null),
@@ -1083,13 +1080,11 @@ export function outputType(n, port) {
   )
     return 'Image';
   if (n.type === 'Mask') return 'PaintedPath';
-  return ['Value', 'Expression'].includes(n.type)
-    ? 'Scalar'
-    : ['Vector', 'Null', 'Reference', 'Vector Transform'].includes(n.type)
-      ? 'Vector2'
-      : n.type === 'Toggle'
-        ? 'Boolean'
-        : 'Path';
+  return ['Null', 'Reference', 'Vector Transform'].includes(n.type)
+    ? 'Vector2'
+    : n.type === 'Toggle'
+      ? 'Boolean'
+      : 'Path';
 }
 // Deliberate identity contracts. Never guess the first socket of a new node type.
 const bypassInputs = Object.freeze({
@@ -3797,8 +3792,7 @@ export function evaluate(
         result = clone(run(n.reference.nodeId, referencePort(n.reference)));
         assertValue('Vector2', result);
       } else if (positionOutput || n.type === 'Null') result = read('position');
-      else if (['Value', 'Vector', 'Expression', 'Toggle', 'Color'].includes(n.type))
-        result = read('value');
+      else if (['Toggle', 'Color'].includes(n.type)) result = read('value');
       else if (n.type === 'Vector Transform')
         result = transformVector(transformValues(n, read), read('vector'));
       else if (builtinNodeRegistry.get(n.type)) {
