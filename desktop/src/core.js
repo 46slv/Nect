@@ -9349,7 +9349,8 @@ export class CommandSession {
               : duplicateArtworkLayers(candidate, payload.layerIds, options),
         };
       } else if (type === 'duplicate-layer') {
-        result = duplicateLayerGeneric(candidate, payload.layerId);
+        const fonts = resolveFonts(candidate, this.#fonts());
+        result = duplicateLayerGeneric(candidate, payload.layerId, { fonts });
       } else if (
         [
           'translate-artworks',
