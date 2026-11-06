@@ -6,6 +6,7 @@ import {
 import {
   validateCompositionProject,
   assertNoLegacyArtworkReferencePromotion,
+  assertNoLegacyHandleReferencePromotion,
 } from './composition-project-model.js';
 import { expressionReferencesForSchema, validate } from './core.js';
 import {
@@ -20,6 +21,7 @@ import {
   assertNoImportedArtworkReferenceRebind,
   nodesHaveLegacyCurveHandleReference,
   expressionParameters,
+  danglingExpressionIds,
 } from './curve-point-reference.js';
 import {
   collectAssetReferences,
@@ -125,6 +127,12 @@ export function prepareProjectCompositionsImport(
   const occupied = collectIds(current);
   if (current.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
     reserveDanglingArtworkReferenceIds(destinationLayers, occupied);
+  // Reserve all selected dangling identities before allocating any selected
+  // Composition, so selection order cannot revive another source's reference.
+  for (const layer of sourceLayers)
+    for (const id of danglingExpressionIds(layer.nodes)) occupied.add(id);
+  if (sourceProject.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
+    reserveDanglingArtworkReferenceIds(sourceLayers, occupied);
   const compositions = sourceCompositions.map((item) =>
     remapIds(item, collectIds(item), occupied, sourceProject.schemaVersion),
   );
@@ -181,6 +189,8 @@ export function prepareProjectCompositionsImport(
     colorImportSchemaVersion(sourceForColors, colors),
     referenceVersion,
   );
+  if (project.schemaVersion >= CURVE_HANDLE_REFERENCE_SCHEMA_VERSION)
+    assertNoLegacyHandleReferencePromotion(current);
   if (project.schemaVersion >= CURVE_POINT_REFERENCE_SCHEMA_VERSION)
     project.compositionSchemaVersion = CURVE_POINT_COMPOSITION_SCHEMA_VERSION;
   if (colors.colorSlots !== undefined) project.colorSlots = colors.colorSlots;

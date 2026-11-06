@@ -8,6 +8,8 @@ import {
   artworkExpressionReferences,
   hasArtworkReferenceSyntax,
   nodesHaveArtworkReferences,
+  nodesHaveArtworkReferenceSyntax,
+  nodesHaveLegacyCurveHandleReference,
   assertNoAccidentalCurvePointRebind,
   assertNoExternalPointReferenceRebind,
   curvePointReference,
@@ -1126,6 +1128,19 @@ function documentDependencyGraph(doc) {
   const nodes = new Map(
     doc.layers.map((layer) => [layer.id, new Map(layer.nodes.map((n) => [n.id, n]))]),
   );
+  // One graph describes one immutable candidate. Preserve parameter()'s first
+  // matching entry, including virtual descriptors, without rebuilding the
+  // entire Curve point list for every visited property.
+  const parameterIndexes = new WeakMap();
+  function graphParameter(n, key) {
+    let indexed = parameterIndexes.get(n);
+    if (!indexed) {
+      indexed = new Map();
+      for (const [name, value] of parameters(n)) if (!indexed.has(name)) indexed.set(name, value);
+      parameterIndexes.set(n, indexed);
+    }
+    return indexed.get(key) || parameterFallback(n, key);
+  }
   const output = (layerId, nodeId, port) => ({ layerId, nodeId, port });
   const property = (layerId, nodeId, key) => ({ layerId, nodeId, key });
   const keyOf = (v) =>
@@ -1138,7 +1153,7 @@ function documentDependencyGraph(doc) {
       let key = v.key;
       if (isTransform(n) && !n.params[key] && key === 'position') key = 'anchor';
       if (isTransform(n) && !n.params[key] && key === 'scaleWidth') key = 'scale';
-      const q = parameter(n, key);
+      const q = graphParameter(n, key);
       if (!q) return [];
       if (q.source) return [output(layer.id, q.source, q.sourcePort)];
       if (!q.expression) return [];
@@ -1172,7 +1187,9 @@ function assertDocumentReferenceAcyclic(doc) {
     if (active.has(key)) throw Error('Connection would create a cycle across Artwork layers');
     if (seen.has(key)) return;
     if (!graph.nodes.get(vertex.layerId)?.has(vertex.nodeId)) return;
-    if (active.size >= 512) throw Error('Graph depth exceeds the supported limit');
+    // Graph traversal alternates output and parameter vertices. The runtime's
+    // separate 512-step safety budget must not become a 256-node limit here.
+    if (active.size >= 1024) throw Error('Graph depth exceeds the supported limit');
     active.add(key);
     for (const dep of graph.edges(vertex)) visit(dep);
     active.delete(key);
@@ -1718,6 +1735,9 @@ export function translateRemapPoints(n, input, pointIds, delta) {
 export function parameter(n, key) {
   const actual = parameters(n).find(([k]) => k === key)?.[1];
   if (actual) return actual;
+  return parameterFallback(n, key);
+}
+function parameterFallback(n, key) {
   if (
     n.type === 'Boolean' &&
     key === booleanPendingInputKey &&
@@ -1870,7 +1890,35 @@ export function previewColorExpression(
     throw Error('Select a Color parameter');
   q.expression = source;
   assertAcyclic(draft);
-  const evaluation = evaluate(draft, fonts, imageAssets, documentContext);
+  const qualified = source && parameterExpressionUses(q).some((ref) => ref.layerId);
+  let previewDocument = documentContext;
+  if (qualified && documentContext) {
+    if (
+      documentContext.schemaVersion < CURVE_HANDLE_REFERENCE_SCHEMA_VERSION &&
+      (documentContext.layers.some((item) => nodesHaveLegacyCurveHandleReference(item.nodes)) ||
+        (documentContext.nodePresets || []).some((preset) =>
+          nodesHaveLegacyCurveHandleReference(preset.nodes || []),
+        ))
+    )
+      throw Error(
+        'Legacy unresolved Curve handle expression cannot be promoted to schemaVersion 61',
+      );
+    if (
+      documentContext.schemaVersion < ARTWORK_REFERENCE_SCHEMA_VERSION &&
+      (documentContext.layers.some((item) => nodesHaveArtworkReferenceSyntax(item.nodes)) ||
+        (documentContext.nodePresets || []).some((preset) =>
+          nodesHaveArtworkReferenceSyntax(preset.nodes || []),
+        ))
+    )
+      throw Error('Legacy opaque Artwork reference text cannot be promoted to schemaVersion 62');
+    previewDocument = {
+      ...documentContext,
+      schemaVersion: Math.max(documentContext.schemaVersion, ARTWORK_REFERENCE_SCHEMA_VERSION),
+      layers: documentContext.layers.map((item) => (item.id === draft.id ? draft : item)),
+    };
+    assertDocumentReferenceAcyclic(previewDocument);
+  }
+  const evaluation = evaluate(draft, fonts, imageAssets, previewDocument);
   const resolve = (ref, type = 'Scalar') => evaluation.resolveReference(ref, type);
   return source
     ? parameterExpression(q, resolve, parameterBaseValue(draft, n, key, q))
@@ -2007,19 +2055,36 @@ export function expressionReferenceTargets(layer, nodeId, type = 'Scalar') {
       ),
     );
 }
-export function expressionReferenceTargetsForDocument(doc, layerId, nodeId, type = 'Scalar') {
+export function expressionReferenceTargetsForDocument(
+  doc,
+  layerId,
+  nodeId,
+  type = 'Scalar',
+  targetKey,
+) {
   const layer = doc?.layers?.find((item) => item.id === layerId);
   if (!layer || !layer.nodes.some((n) => n.id === nodeId)) return [];
   const graph = documentDependencyGraph(doc);
   const reachesTarget = (vertex, seen = new Set()) => {
-    if (vertex.layerId === layerId && vertex.nodeId === nodeId) return true;
+    if (
+      vertex.layerId === layerId &&
+      vertex.nodeId === nodeId &&
+      (targetKey === undefined || vertex.key === targetKey)
+    )
+      return true;
     const key = graph.keyOf(vertex);
     if (seen.has(key)) return false;
     seen.add(key);
     return graph.edges(vertex).some((dep) => reachesTarget(dep, seen));
   };
+  const candidates = new Map();
+  const reachesFromCandidate = (vertex) => {
+    const key = graph.keyOf(vertex);
+    if (!candidates.has(key)) candidates.set(key, reachesTarget(vertex));
+    return candidates.get(key);
+  };
   const local = expressionReferenceTargets(layer, nodeId, type)
-    .filter((target) => !reachesTarget(graph.property(layer.id, target.nodeId, target.key)))
+    .filter((target) => !reachesFromCandidate(graph.property(layer.id, target.nodeId, target.key)))
     .map((target) => ({
       ...target,
       layerId: layer.id,
@@ -2030,9 +2095,10 @@ export function expressionReferenceTargetsForDocument(doc, layerId, nodeId, type
     doc.layers
       .filter((item) => item.id !== layerId)
       .flatMap((sourceLayer) =>
-        expressionReferenceTargets(sourceLayer, nodeId, type)
+        expressionReferenceTargets(sourceLayer, null, type)
           .filter(
-            (target) => !reachesTarget(graph.property(sourceLayer.id, target.nodeId, target.key)),
+            (target) =>
+              !reachesFromCandidate(graph.property(sourceLayer.id, target.nodeId, target.key)),
           )
           .map((target) => ({
             ...target,
@@ -2778,6 +2844,7 @@ export function evaluate(
   const values = new Map(),
     warnings = [],
     active = context.activeNodes,
+    layerActive = new Set(),
     versions = new Map(),
     textLayouts = new Map();
   let computed = 0,
@@ -2845,6 +2912,7 @@ export function evaluate(
   const outputKey = (id, port) =>
     byId.get(id)?.type === 'Text' && port === 'position' ? `${id}\0position` : id;
   const readingParameters = context.readingParameters;
+  const layerReadingParameters = new Set();
   function resolveExpressionReference(ref, type = 'Scalar') {
     if (
       ref.layerId &&
@@ -2876,14 +2944,16 @@ export function evaluate(
   function readParameter(n, key, indexed) {
     const id = `${layer.id}\0${n.id}\0${key}`;
     if (readingParameters.has(id)) throw Error('Expression reference cycle detected');
-    if (readingParameters.size >= 256) throw Error('Expression reference depth exceeds 256');
+    if (layerReadingParameters.size >= 256) throw Error('Expression reference depth exceeds 256');
     if (context.depth >= 512) throw Error('Evaluation depth exceeds the supported limit');
     readingParameters.add(id);
+    layerReadingParameters.add(id);
     context.depth++;
     try {
       return readParameterValue(n, key, indexed);
     } finally {
       readingParameters.delete(id);
+      layerReadingParameters.delete(id);
       context.depth--;
     }
   }
@@ -2940,13 +3010,14 @@ export function evaluate(
     const key = outputKey(id, port),
       positionOutput = key !== id;
     if (values.has(key)) return values.get(key);
-    const activeKey = `${layer.id}\0${id}`;
+    const activeKey = `${layer.id}\0${key}`;
     if (active.has(activeKey)) throw Error('Cycle detected');
-    if (active.size >= 256) throw Error('Graph depth exceeds 256 nodes');
+    if (layerActive.size >= 256) throw Error('Graph depth exceeds 256 nodes');
     if (context.depth >= 512) throw Error('Evaluation depth exceeds the supported limit');
     let n = byId.get(id);
     if (!n) throw Error('Missing source node');
     active.add(activeKey);
+    layerActive.add(activeKey);
     context.depth++;
     try {
       const inputs = positionOutput ? [['position', n.params.position]] : evaluatedParameters(n);
@@ -4334,6 +4405,7 @@ export function evaluate(
       return result;
     } finally {
       active.delete(activeKey);
+      layerActive.delete(activeKey);
       context.depth--;
     }
   }
@@ -4421,6 +4493,78 @@ export function evaluate(
 // Session commits and previews are the common boundary for source edits,
 // including gestures and prepared commands. A dangling identity cannot be
 // revived by an allocator, and affected cross-layer controls remain valid.
+function foreignAffectedNodes(before, candidate) {
+  const keyOf = (layerId, nodeId) => `${layerId}\0${nodeId}`;
+  const entries = (doc) =>
+    new Map(doc.layers.flatMap((layer) => layer.nodes.map((n) => [keyOf(layer.id, n.id), n])));
+  const prior = entries(before),
+    current = entries(candidate),
+    changed = new Set();
+  for (const key of new Set([...prior.keys(), ...current.keys()]))
+    if (JSON.stringify(prior.get(key)) !== JSON.stringify(current.get(key))) changed.add(key);
+  const layerFields = (layer) => {
+    const { nodes, ...fields } = layer;
+    return JSON.stringify(fields);
+  };
+  const oldLayers = new Map(before.layers.map((layer) => [layer.id, layer]));
+  for (const layer of candidate.layers) {
+    const old = oldLayers.get(layer.id);
+    if (!old || layerFields(old) !== layerFields(layer))
+      for (const n of layer.nodes) changed.add(keyOf(layer.id, n.id));
+  }
+  const registryChanged = (name) => {
+    const a = before[name] || {},
+      b = candidate[name] || {};
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+    return [...keys].some((key) => a[key] !== b[key]);
+  };
+  if (
+    ['width', 'height', 'colorSlots', 'keyColorRecipe'].some(
+      (key) => JSON.stringify(before[key]) !== JSON.stringify(candidate[key]),
+    ) ||
+    registryChanged('fontAssets') ||
+    registryChanged('imageAssets')
+  )
+    for (const key of current.keys()) changed.add(key);
+
+  // Traverse reverse dependencies from actual changes. The boolean records
+  // whether a path crossed an Artwork boundary; local checks already belong
+  // to the ordinary Session candidate validator.
+  const reverse = new Map();
+  for (const doc of [before, candidate]) {
+    const layers = new Map(doc.layers.map((layer) => [layer.id, layer]));
+    for (const layer of doc.layers)
+      for (const n of layer.nodes) {
+        const consumer = keyOf(layer.id, n.id);
+        const add = (sourceLayer, sourceNode, foreign) => {
+          const source = keyOf(sourceLayer, sourceNode);
+          if (!reverse.has(source)) reverse.set(source, []);
+          reverse.get(source).push({ consumer, foreign });
+        };
+        for (const dep of nodeDependencies(n, true))
+          add(dep.layerId || layer.id, dep.source, !!dep.layerId);
+        const target = ['Composition Reference', 'SVG'].includes(n.type)
+          ? layers.get(n.compositionReference?.compositionId)
+          : null;
+        if (target) add(target.id, target.output, true);
+      }
+  }
+  const queue = [...changed].map((key) => ({ key, foreign: false })),
+    seen = new Set(),
+    affected = new Set();
+  for (let i = 0; i < queue.length; i++) {
+    const item = queue[i],
+      marker = `${item.key}\0${item.foreign ? 1 : 0}`;
+    if (seen.has(marker)) continue;
+    seen.add(marker);
+    for (const edge of reverse.get(item.key) || []) {
+      const foreign = item.foreign || edge.foreign;
+      if (foreign && current.has(edge.consumer)) affected.add(edge.consumer);
+      queue.push({ key: edge.consumer, foreign });
+    }
+  }
+  return affected;
+}
 function assertArtworkReferenceTransition(before, candidate, fonts = {}) {
   const allRefs = (doc) =>
     doc.layers.flatMap((layer) =>
@@ -4450,43 +4594,33 @@ function assertArtworkReferenceTransition(before, candidate, fonts = {}) {
     )
       throw Error('New identity would retarget a missing Artwork reference');
 
+  const affected = foreignAffectedNodes(before, candidate);
+  if (!affected.size) return;
   const currentFonts = resolveFonts(candidate, fonts),
     oldFonts = resolveFonts(before, fonts),
-    effective = cloneDocument(candidate),
-    affected = new Set();
+    effective = cloneDocument(candidate);
   const nodeKey = (layerId, nodeId) => `${layerId}\0${nodeId}`;
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const layer of candidate.layers)
-      for (const n of layer.nodes) {
-        const key = nodeKey(layer.id, n.id);
-        if (affected.has(key)) continue;
-        const deps = nodeDependencies(n, true);
-        const target = ['Composition Reference', 'SVG'].includes(n.type)
-          ? candidate.layers.find((item) => item.id === n.compositionReference?.compositionId)
-          : null;
-        if (
-          deps.some((dep) => dep.layerId || affected.has(nodeKey(layer.id, dep.source))) ||
-          (target && affected.has(nodeKey(target.id, target.output)))
-        ) {
-          affected.add(key);
-          changed = true;
-        }
-      }
-  }
   for (const layer of candidate.layers) {
+    const affectedNodeIds = new Set(
+      layer.nodes.filter((n) => affected.has(nodeKey(layer.id, n.id))).map((n) => n.id),
+    );
+    if (!affectedNodeIds.size) continue;
     const old = before.layers.find((item) => item.id === layer.id);
     const projectedLayer = effective.layers.find((item) => item.id === layer.id);
-    const evaluation = evaluate(layer, currentFonts, candidate.imageAssets, candidate);
+    const evaluation = evaluate(layer, currentFonts, candidate.imageAssets, candidate, null, true);
     let oldEvaluation;
     const check = (now, was) => {
       try {
         now();
       } catch (error) {
-        if (isMissingReferenceTarget(error)) return;
+        if (
+          isMissingReferenceTarget(error) ||
+          ['COMPOSITION_TARGET_UNSET', 'COMPOSITION_TARGET_MISSING'].includes(error.code) ||
+          /^Connect (a |both )/.test(error.message)
+        )
+          return;
         if (old && was) {
-          oldEvaluation ||= evaluate(old, oldFonts, before.imageAssets, before);
+          oldEvaluation ||= evaluate(old, oldFonts, before.imageAssets, before, null, true);
           try {
             was(oldEvaluation);
           } catch (prior) {
@@ -4497,7 +4631,8 @@ function assertArtworkReferenceTransition(before, candidate, fonts = {}) {
       }
     };
     for (const n of layer.nodes) {
-      if (affected.has(nodeKey(layer.id, n.id))) {
+      if (!affectedNodeIds.has(n.id)) continue;
+      if (n.type !== 'Text' && !(n.type === 'Trim Path' && !n.params.path?.source)) {
         const projected = projectedLayer.nodes.find((item) => item.id === n.id);
         for (const [key, q] of parameters(n)) {
           if (!['Scalar', 'Vector2', 'Color'].includes(q.type)) continue;
@@ -4515,10 +4650,6 @@ function assertArtworkReferenceTransition(before, candidate, fonts = {}) {
             if (target) target.value = clone(value);
           }
         }
-        check(
-          () => evaluation.run(n.id),
-          (e) => e.run(n.id),
-        );
       }
       for (const [key, q] of parameters(n))
         if (q.expression && !q.source && artworkExpressionReferences(q.expression).length)
@@ -4558,6 +4689,7 @@ function assertArtworkReferenceTransition(before, candidate, fonts = {}) {
       oldFonts,
       candidate,
       before,
+      affectedNodeIds,
     );
   }
   // Reuse the same hard domain checks as saved values on a detached projection
@@ -4574,11 +4706,17 @@ export function assertTextPathChange(
   previousFonts = fonts,
   documentContext = null,
   previousDocumentContext = documentContext,
+  affectedNodeIds = null,
 ) {
-  const attached = layer.nodes.filter((n) => n.type === 'Text' && (n.pathAttachment || n.textWrap));
+  const attached = layer.nodes.filter(
+    (n) =>
+      n.type === 'Text' &&
+      (n.pathAttachment || n.textWrap) &&
+      (!affectedNodeIds || affectedNodeIds.has(n.id)),
+  );
   if (!attached.length) return;
   assertAcyclic(layer);
-  const current = evaluate(layer, fonts, imageAssets, documentContext);
+  const current = evaluate(layer, fonts, imageAssets, documentContext, null, !!affectedNodeIds);
   let previous;
   for (const n of attached) {
     try {
@@ -4589,7 +4727,14 @@ export function assertTextPathChange(
         (x) => x.id === n.id && (x.pathAttachment || x.textWrap),
       );
       if (old) {
-        previous ??= evaluate(previousLayer, previousFonts, imageAssets, previousDocumentContext);
+        previous ??= evaluate(
+          previousLayer,
+          previousFonts,
+          imageAssets,
+          previousDocumentContext,
+          null,
+          !!affectedNodeIds,
+        );
         try {
           previous.run(n.id);
         } catch (before) {
@@ -4687,6 +4832,7 @@ export function assertClosedOffsetChange(
   previousFonts = fonts,
   documentContext = null,
   previousDocumentContext = documentContext,
+  affectedNodeIds = null,
 ) {
   assertTextPathChange(
     layer,
@@ -4696,6 +4842,7 @@ export function assertClosedOffsetChange(
     previousFonts,
     documentContext,
     previousDocumentContext,
+    affectedNodeIds,
   );
   // Keep bounded geometry modifiers transactional, including upstream edits.
   const bounded = new Set([
@@ -4742,11 +4889,22 @@ export function assertClosedOffsetChange(
           : n.type === 'Instance on Points'
             ? ['path', 'points', 'alignTangent'].map((key) => n.params[key]?.source)
             : [n.params.path?.source];
-  if (!layer.nodes.some((n) => bounded.has(n.type) && boundedInputs(n).some(Boolean))) return;
-  const current = evaluate(layer, fonts, imageAssets, documentContext);
+  if (
+    !layer.nodes.some(
+      (n) =>
+        bounded.has(n.type) &&
+        boundedInputs(n).some(Boolean) &&
+        (!affectedNodeIds || affectedNodeIds.has(n.id)),
+    )
+  )
+    return;
+  const current = evaluate(layer, fonts, imageAssets, documentContext, null, !!affectedNodeIds);
   let previous;
   for (const n of layer.nodes.filter(
-    (n) => bounded.has(n.type) && boundedInputs(n).some(Boolean),
+    (n) =>
+      bounded.has(n.type) &&
+      boundedInputs(n).some(Boolean) &&
+      (!affectedNodeIds || affectedNodeIds.has(n.id)),
   )) {
     try {
       current.run(n.id);
@@ -4762,7 +4920,14 @@ export function assertClosedOffsetChange(
         (x) => x.id === n.id && bounded.has(x.type) && boundedInputs(x).some(Boolean),
       );
       if (old) {
-        previous ??= evaluate(previousLayer, previousFonts, imageAssets, previousDocumentContext);
+        previous ??= evaluate(
+          previousLayer,
+          previousFonts,
+          imageAssets,
+          previousDocumentContext,
+          null,
+          !!affectedNodeIds,
+        );
         try {
           previous.run(n.id);
         } catch (before) {
@@ -6019,10 +6184,19 @@ export class CommandSession {
   #prepared = null;
   #prepareSequence = 0;
   #nodeClipboard = null;
+  #beforeCandidateCommit;
   constructor(
     doc,
-    { fonts = () => ({}), busy = () => false, onCommitted = () => {}, retainHistory = true } = {},
+    {
+      fonts = () => ({}),
+      busy = () => false,
+      onCommitted = () => {},
+      retainHistory = true,
+      beforeCandidateCommit = null,
+    } = {},
   ) {
+    if (beforeCandidateCommit !== null && typeof beforeCandidateCommit !== 'function')
+      throw Error('Invalid candidate preflight');
     validate(doc);
     if (Object.values(doc.fontAssets || {}).some((asset) => asset.kind === VARIABLE_KIND))
       assertVariableDocumentReady(doc, resolveFonts(doc, fonts()));
@@ -6030,6 +6204,7 @@ export class CommandSession {
     this.#fonts = fonts;
     this.#busy = busy;
     this.#onCommitted = onCommitted;
+    this.#beforeCandidateCommit = beforeCandidateCommit;
     this.id = uid('session');
   }
   get historyView() {
@@ -6744,6 +6919,7 @@ export class CommandSession {
         this.#gesture = null;
         return { ...this.state, ...created, discarded: true, changed: false };
       }
+      this.#beforeCandidateCommit?.(this.#history.doc, candidate);
       this.#history.apply(() => {
         this.#history.doc = candidate;
       });
@@ -6918,6 +7094,7 @@ export class CommandSession {
         ...this.#fonts(),
         ...p.bridge.preparedFonts(p.ticket),
       });
+      this.#beforeCandidateCommit?.(this.#history.doc, p.candidate);
       this.#history.apply(() => {
         this.#history.doc = p.candidate;
       });
@@ -6981,6 +7158,8 @@ export class CommandSession {
       assertCurrent();
       assertNoAccidentalCurvePointRebind(document, imported, this.#nodeClipboard);
       assertArtworkReferenceTransition(document, imported, this.#fonts());
+      assertCurrent();
+      this.#beforeCandidateCommit?.(document, imported);
       assertCurrent();
       this.#history.apply(() => {
         this.#history.doc = imported;
@@ -7139,10 +7318,12 @@ export class CommandSession {
       assertArtworkReferenceTransition(draft.base, draft.candidate, this.#fonts());
       assertVariableDocumentReady(draft.candidate, resolveFonts(draft.candidate, this.#fonts()));
       const revision = this.#history.revision;
-      if (!sameDocument(this.#history.doc, draft.candidate))
+      if (!sameDocument(this.#history.doc, draft.candidate)) {
+        this.#beforeCandidateCommit?.(this.#history.doc, draft.candidate);
         this.#history.apply(() => {
           this.#history.doc = draft.candidate;
         });
+      }
       this.#gesture = null;
       return { ...this.state, changed: revision !== this.#history.revision };
     }
@@ -7291,10 +7472,12 @@ export class CommandSession {
     assertNoAccidentalCurvePointRebind(this.#history.doc, candidate, this.#nodeClipboard);
     assertArtworkReferenceTransition(this.#history.doc, candidate, this.#fonts());
     const revision = this.#history.revision;
-    if (!sameDocument(this.#history.doc, candidate))
+    if (!sameDocument(this.#history.doc, candidate)) {
+      this.#beforeCandidateCommit?.(this.#history.doc, candidate);
       this.#history.apply(() => {
         this.#history.doc = candidate;
       });
+    }
     if (type === 'paste-nodes' && revision !== this.#history.revision)
       this.#nodeClipboard.pasteCount++;
     if (type === 'import-svg') this.#nodeClipboard = null;

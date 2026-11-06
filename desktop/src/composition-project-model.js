@@ -3,9 +3,11 @@ import {
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
+  CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
   MAX_DOCUMENT_SCHEMA_VERSION,
   nodesKnownCurvePointReferenceVersion,
   nodesHaveArtworkReferenceSyntax,
+  nodesHaveLegacyCurveHandleReference,
   expressionParameters,
   hasArtworkReferenceSyntax,
 } from './curve-point-reference.js';
@@ -262,6 +264,38 @@ export function assertNoLegacyArtworkReferencePromotion(project) {
   )
     throw Error('Legacy opaque Artwork reference text cannot be promoted to schemaVersion 62');
 }
+export function assertNoLegacyArtworkDocumentPromotion(document) {
+  if (document.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION) return;
+  if (
+    document.layers.some((layer) => nodesHaveArtworkReferenceSyntax(layer.nodes)) ||
+    (document.nodePresets || []).some((preset) =>
+      nodesHaveArtworkReferenceSyntax(preset.nodes || []),
+    )
+  )
+    throw Error('Legacy opaque Artwork reference text cannot be promoted to schemaVersion 62');
+}
+export function assertNoLegacyHandleReferencePromotion(project) {
+  if (project.schemaVersion >= CURVE_HANDLE_REFERENCE_SCHEMA_VERSION) return;
+  if (
+    project.compositions.some((composition) =>
+      composition.layers.some((layer) => nodesHaveLegacyCurveHandleReference(layer.nodes)),
+    ) ||
+    (project.nodePresets || []).some((preset) =>
+      nodesHaveLegacyCurveHandleReference(preset.nodes || []),
+    )
+  )
+    throw Error('Legacy unresolved Curve handle expression cannot be promoted to schemaVersion 61');
+}
+function assertNoLegacyHandleDocumentPromotion(document) {
+  if (document.schemaVersion >= CURVE_HANDLE_REFERENCE_SCHEMA_VERSION) return;
+  if (
+    document.layers.some((layer) => nodesHaveLegacyCurveHandleReference(layer.nodes)) ||
+    (document.nodePresets || []).some((preset) =>
+      nodesHaveLegacyCurveHandleReference(preset.nodes || []),
+    )
+  )
+    throw Error('Legacy unresolved Curve handle expression cannot be promoted to schemaVersion 61');
+}
 
 function assertLayerReferenceScope(project) {
   const layerOwners = new Map();
@@ -409,8 +443,14 @@ export function applyActiveCompositionDocument(project, compositionId, editedDoc
   delete projectFields.compositions;
   Object.assign(projectFields, editedProjectFields);
   projectFields.schemaVersion = Math.max(base.schemaVersion, edited.schemaVersion);
-  if (projectFields.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
+  if (projectFields.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION) {
     assertNoLegacyArtworkReferencePromotion(base);
+    assertNoLegacyArtworkDocumentPromotion(edited);
+  }
+  if (projectFields.schemaVersion >= CURVE_HANDLE_REFERENCE_SCHEMA_VERSION) {
+    assertNoLegacyHandleReferencePromotion(base);
+    assertNoLegacyHandleDocumentPromotion(edited);
+  }
   // This optional project-global packet can be explicitly cleared through the
   // active Document projection. Do not resurrect it from the base globals.
   if (!Object.hasOwn(editedProjectFields, 'keyColorRecipe')) delete projectFields.keyColorRecipe;
