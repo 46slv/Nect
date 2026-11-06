@@ -461,10 +461,14 @@ try {
       '.inspector-body .field[data-node="mode-pucker"][data-key="autoCenter"] [data-value]',
     );
   assert.equal(await autoCenter.isChecked(), true);
+  const oldAutoCenter = await autoCenter.elementHandle();
   await autoCenter.click();
   assert.deepEqual(await snapshot(), beforeModeChange);
   assert.deepEqual(await page.evaluate(() => window.nect.commandState), beforeModeState);
+  await page.waitForFunction((element) => !element.isConnected, oldAutoCenter);
   assert.equal(await autoCenter.isChecked(), true);
+  assert.match(await page.locator('.status .message').textContent(), /finite/i);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
   await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'redo' }));
   assert.equal((await snapshot()).width, beforeModeChange.width + 1);
 
@@ -492,10 +496,16 @@ try {
       '.inspector-body .field[data-node="mode-toggle"][data-key="value"] [data-value]',
     );
   assert.equal(await toggleValue.isChecked(), true);
+  const oldToggleValue = await toggleValue.elementHandle();
   await toggleValue.click();
   assert.deepEqual(await snapshot(), beforeToggle);
   assert.deepEqual(await page.evaluate(() => window.nect.commandState), beforeToggleState);
+  // The rejected change schedules a structural render after pointer release.
+  // Assert the actual replacement rather than the transient old checkbox.
+  await page.waitForFunction((element) => !element.isConnected, oldToggleValue);
   assert.equal(await toggleValue.isChecked(), true);
+  assert.match(await page.locator('.status .message').textContent(), /finite/i);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
   await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'redo' }));
   assert.equal((await snapshot()).width, beforeToggle.width + 1);
 
