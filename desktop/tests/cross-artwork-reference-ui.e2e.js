@@ -123,6 +123,107 @@ try {
   await page.waitForFunction(() => window.nect);
   await page.evaluate((text) => window.nect.load(text), serialize(doc));
   await ensureWorkspacePanel(page, 'inspector');
+
+  // Copy and Paste through the graph retains an external Artwork source.
+  await page.evaluate(() => {
+    const send = (type, payload) =>
+      window.nect.dispatch({ ...window.nect.commandState, type, payload });
+    send('set-parameter', {
+      layerId: 'source-b',
+      nodeId: 'source-b-value',
+      key: 'value',
+      value: 7,
+    });
+    send('set-parameter-expression', {
+      layerId: 'target-artwork',
+      nodeId: 'target-transform',
+      key: 'rotation',
+      expression: 'ref(artwork, "source-b", "source-b-value", "value")',
+    });
+  });
+  await page.locator('.node[data-id="target-transform"] .node-head strong').click();
+  await page.locator('.graph-scroll').focus();
+  await page.keyboard.press('Control+c');
+  assert.match(await page.locator('.status').innerText(), /external input/i);
+  const beforePaste = await snapshot();
+  await page.keyboard.press('Control+v');
+  await page.waitForFunction(
+    () => window.nect.document.layers[0].nodes.filter((n) => n.type === 'Transform').length === 2,
+  );
+  const pastedSnapshot = await snapshot();
+  const pasted = pastedSnapshot.layers[0].nodes.find(
+    (n) => n.type === 'Transform' && n.id !== 'target-transform',
+  );
+  assert.ok(pasted);
+  assert.deepEqual(
+    await page
+      .locator('.graph .node.selected')
+      .evaluateAll((nodes) => nodes.map((n) => n.dataset.id)),
+    [pasted.id],
+  );
+  assert.equal(pasted.params.path.source, rectangle.id);
+  assert.equal(
+    pasted.params.rotation.expression,
+    'ref(artwork, "source-b", "source-b-value", "value")',
+  );
+  const pastedValue = () =>
+    page.evaluate(async (id) => {
+      const { evaluate } = await import('/src/core.js');
+      const current = window.nect.snapshot();
+      return evaluate(current.layers[0], {}, current.imageAssets, current).parameterValue(
+        id,
+        'rotation',
+      );
+    }, pasted.id);
+  assert.equal(await pastedValue(), 7);
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), beforePaste);
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await snapshot(), pastedSnapshot);
+  await mkdir('test-results/cross-artwork-reference', { recursive: true });
+  const clipboardDownload = page.waitForEvent('download');
+  await activateCommand(page, 'save-as');
+  const clipboardFile = resolve('test-results/cross-artwork-reference/clipboard-project.json');
+  await (await clipboardDownload).saveAs(clipboardFile);
+  const clipboardBytes = await readFile(clipboardFile);
+  await page.reload();
+  await page.waitForFunction(() => window.nect);
+  await page
+    .locator('#open-file')
+    .setInputFiles({ name: 'clipboard-project.json', buffer: clipboardBytes });
+  await page.waitForFunction(
+    () => window.nect.document.layers[0].nodes.filter((n) => n.type === 'Transform').length === 2,
+  );
+  assert.deepEqual(await snapshot(), pastedSnapshot);
+  await page.evaluate(() =>
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-parameter',
+      payload: { layerId: 'source-b', nodeId: 'source-b-value', key: 'value', value: 9 },
+    }),
+  );
+  assert.equal(await pastedValue(), 9);
+
+  // A removed source makes the copied graph snapshot unusable immediately.
+  await page.locator('.node[data-id="target-transform"] .node-head strong').click();
+  await page.locator('.graph-scroll').focus();
+  await page.keyboard.press('Control+c');
+  await page.evaluate(() =>
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'delete-node',
+      payload: { layerId: 'source-b', nodeId: 'source-b-value' },
+    }),
+  );
+  const missingSource = await snapshot(),
+    missingState = await page.evaluate(() => window.nect.commandState);
+  await page.locator('.graph-scroll').focus();
+  await page.keyboard.press('Control+v');
+  assert.match(await page.locator('.status').innerText(), /source.*copy again/i);
+  assert.deepEqual(await snapshot(), missingSource);
+  assert.deepEqual(await page.evaluate(() => window.nect.commandState), missingState);
+  await page.evaluate((text) => window.nect.load(text), serialize(doc));
+  await ensureWorkspacePanel(page, 'inspector');
   await page.locator('.node[data-id="target-transform"] .node-head strong').click();
   await rotation().locator('[data-fx]').click();
   const staleExpression = page
@@ -445,7 +546,7 @@ try {
   await largeDialog.locator('[data-confirm]').click();
   await largeDialog.waitFor({ state: 'detached' });
   assert.deepEqual(errors, []);
-  console.log('PASS cross-Artwork picker, source edit, Color scalar, Undo/Redo and JSON reopen');
+  console.log('PASS cross-Artwork picker, graph clipboard, source edit, Undo/Redo and JSON reopen');
 } finally {
   await browser.close();
 }
