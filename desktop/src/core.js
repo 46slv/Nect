@@ -6,6 +6,7 @@ import {
   CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   artworkExpressionReferences,
+  artworkReferencesInLayers,
   hasArtworkReferenceSyntax,
   nodesHaveArtworkReferences,
   nodesHaveArtworkReferenceSyntax,
@@ -1978,10 +1979,10 @@ export function expressionReferences(source) {
     );
   return refs;
 }
-function referenceParameter(layer, ref, type = 'Scalar') {
+function referenceParameter(layer, ref, type = 'Scalar', index = null) {
   if (ref.layerId && type !== 'Scalar')
     throw Error('Artwork references require a numeric parameter');
-  const target = layer.nodes.find((n) => n.id === ref.nodeId);
+  const target = index ? index.nodes.get(ref.nodeId) : layer.nodes.find((n) => n.id === ref.nodeId);
   if (!target)
     throw Object.assign(Error(`Expression reference target is missing: ${ref.nodeId}`), {
       code: 'EXPRESSION_REFERENCE_MISSING',
@@ -1989,7 +1990,9 @@ function referenceParameter(layer, ref, type = 'Scalar') {
   const pointRef = curvePointReference(ref.key, ref.component);
   if (pointRef && target.type === 'Curve') {
     if (type !== 'Scalar') throw Error('Curve point reference requires a Scalar component');
-    const point = target.points.find((item) => item.id === pointRef.id);
+    const point = index
+      ? index.points.get(target.id)?.get(pointRef.id)
+      : target.points.find((item) => item.id === pointRef.id);
     if (!point)
       throw Object.assign(Error(`Expression reference point is missing: ${pointRef.id}`), {
         code: 'EXPRESSION_REFERENCE_MISSING',
@@ -2013,6 +2016,38 @@ function referenceParameter(layer, ref, type = 'Scalar') {
   )
     throw Error('Expression reference requires a Scalar parameter or a Vector2 component');
   return target;
+}
+
+// Clipboard references preserve their original foreign targets only while each
+// target remains present. Once absent, a later reuse of the same ID is not proof
+// that it is the object copied by the user.
+function artworkClipboardTargetsIntact(doc, clipboard) {
+  if (!doc.layers.some((layer) => layer.id === clipboard.sourceLayerId)) return false;
+  const layers = new Map(doc.layers.map((layer) => [layer.id, layer])),
+    indexes = new Map();
+  for (const ref of clipboard.artworkReferences) {
+    const layer = layers.get(ref.layerId);
+    if (!layer || layer.id === clipboard.sourceLayerId) return false;
+    let index = indexes.get(layer.id);
+    if (!index) {
+      index = { nodes: new Map(layer.nodes.map((node) => [node.id, node])), points: new Map() };
+      indexes.set(layer.id, index);
+    }
+    const owner = index.nodes.get(ref.nodeId);
+    if (!owner || owner.type !== ref.ownerType) return false;
+    if (
+      owner.type === 'Curve' &&
+      curvePointReference(ref.key, ref.component) &&
+      !index.points.has(owner.id)
+    )
+      index.points.set(owner.id, new Map(owner.points.map((point) => [point.id, point])));
+    try {
+      referenceParameter(layer, ref, 'Scalar', index);
+    } catch {
+      return false;
+    }
+  }
+  return true;
 }
 function projectReferenceValue(ref, value) {
   if (ref.component === undefined) return value;
@@ -7263,6 +7298,13 @@ export class CommandSession {
       return action();
     } finally {
       if (this.#history.revision !== before) {
+        const clipboard = this.#nodeClipboard;
+        if (
+          clipboard?.artworkReferences.length &&
+          !clipboard.artworkReferencesExpired &&
+          !artworkClipboardTargetsIntact(this.#history.doc, clipboard)
+        )
+          clipboard.artworkReferencesExpired = true;
         // An adapter cannot roll back an already committed edit.
         try {
           this.#onCommitted(Object.freeze(this.state));
@@ -7605,7 +7647,16 @@ export class CommandSession {
         externalNodeIds = [
           ...new Set(
             [
-              ...nodes.flatMap((n) => nodeDependencies(n).map((d) => d.source)),
+              ...nodes.flatMap((n) => [
+                // A connected descriptor can retain arbitrary metadata named
+                // layerId; its socket source is still local to this Artwork.
+                ...parameters(n)
+                  .filter(([, q]) => q.source)
+                  .map(([, q]) => q.source),
+                ...nodeDependencies(n)
+                  .filter((d) => !d.layerId)
+                  .map((d) => d.source),
+              ]),
               ...curvePointReferenceOwners(nodes).filter((id) =>
                 layer.nodes.some((node) => node.id === id && node.type === 'Curve'),
               ),
@@ -7622,20 +7673,45 @@ export class CommandSession {
             .filter((id) => id && id !== 'default'),
         ),
         imageIds = new Set(nodes.filter((n) => n.type === 'Image').map((n) => n.asset));
-      this.#nodeClipboard = {
+      const artworkLayers = new Map(doc.layers.map((item) => [item.id, item]));
+      const artworkReferences = [
+        ...new Map(
+          artworkReferencesInLayers([{ nodes }]).map((ref) => [
+            JSON.stringify([ref.layerId, ref.nodeId, ref.key, ref.component]),
+            {
+              ...ref,
+              ownerType: artworkLayers
+                .get(ref.layerId)
+                ?.nodes.find((item) => item.id === ref.nodeId)?.type,
+            },
+          ]),
+        ).values(),
+      ];
+      if (doc.schemaVersion < ARTWORK_REFERENCE_SCHEMA_VERSION && artworkReferences.length)
+        throw Error('Legacy Artwork reference text cannot be copied into a newer schema');
+      const artworkInputCount = new Set(
+        artworkReferences.map((ref) => `${ref.layerId}\0${ref.nodeId}`),
+      ).size;
+      const clipboard = {
         nodes: clone(nodes),
         sourceLayerId: layer.id,
         schemaVersion: doc.schemaVersion,
         pasteCount: 0,
         externalNodeIds,
+        artworkReferences,
+        artworkInputCount,
+        artworkReferencesExpired: false,
         fonts: Object.fromEntries([...fontIds].map((id) => [id, doc.fontAssets?.[id]])),
         images: Object.fromEntries([...imageIds].map((id) => [id, doc.imageAssets?.[id]])),
       };
+      if (artworkReferences.length && !artworkClipboardTargetsIntact(doc, clipboard))
+        throw Error('Cannot copy: an Artwork source is missing or changed; restore it first');
+      this.#nodeClipboard = clipboard;
       return {
         ...this.state,
         changed: false,
         copiedCount: nodes.length,
-        externalInputCount: externalNodeIds.length,
+        externalInputCount: externalNodeIds.length + artworkInputCount,
         skippedOutputs: selected.length - nodes.length,
       };
     }
@@ -8734,12 +8810,19 @@ export class CommandSession {
       result = { nodeId: created.id };
     } else if (type === 'paste-nodes') {
       const clipboard = this.#nodeClipboard;
-      if (clipboard && nodesHaveArtworkReferences(clipboard.nodes))
-        throw Error('Pasting nodes with Artwork references is not supported');
       if (!clipboard)
         throw Error(
           'Node clipboard is empty. Copy in this document’s graph; OS/other-document paste is not supported',
         );
+      if (clipboard.artworkReferences.length) {
+        if (clipboard.sourceLayerId !== target.id)
+          throw Error('Paste nodes with Artwork references in their original Artwork');
+        if (
+          clipboard.artworkReferencesExpired ||
+          !artworkClipboardTargetsIntact(candidate, clipboard)
+        )
+          throw Error('Copied Artwork source is missing or changed; restore it and copy again');
+      }
       if (target.nodes.length + clipboard.nodes.length > 2000) throw Error('Too many nodes');
       if (
         clipboard.externalNodeIds.length &&
@@ -8792,7 +8875,7 @@ export class CommandSession {
       candidate.schemaVersion = Math.max(candidate.schemaVersion, clipboard.schemaVersion);
       result = {
         nodeIds: copies.map((n) => n.id),
-        externalInputCount: clipboard.externalNodeIds.length,
+        externalInputCount: clipboard.externalNodeIds.length + clipboard.artworkInputCount,
       };
     } else if (type === 'duplicate-nodes') {
       if (
