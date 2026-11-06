@@ -4,6 +4,7 @@ import { chromium } from 'playwright-core';
 import { blankDocument, node } from '../src/core.js';
 import { makeVariableFontAsset } from '../src/fonts.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import {
   migrateLegacyDocumentToCompositionProject,
   serializeCompositionProject,
@@ -44,7 +45,7 @@ target.id = 'variable-second';
 target.layers[0].nodes.find((entry) => entry.id === color.id).params.value.colorSlotId = 'brand';
 project.compositions.push(target);
 const json = serializeCompositionProject(project);
-const base = process.env.BASE_URL || 'http://127.0.0.1:5179/';
+const base = process.env.BASE_URL || 'http://127.0.0.1:5173/';
 
 // Ask Vite to discover and finish pre-bundling the worker-only fontkit import
 // before opening the test page. Otherwise its first discovery can reload an
@@ -81,6 +82,22 @@ page.on('framenavigated', (frame) => {
   if (frame === page.mainFrame()) mainNavigations++;
 });
 page.on('pageerror', (error) => errors.push(error.message));
+const currentView = () =>
+  page.evaluate(() => ({
+    selected: document.querySelector('.graph .node.selected')?.dataset.id ?? null,
+    canvasZoom: document.querySelector('[data-zoom="canvas"]')?.textContent,
+    graphZoom: document.querySelector('[data-zoom="graph"]')?.textContent,
+    graphScroll: [
+      document.querySelector('.graph-scroll').scrollLeft,
+      document.querySelector('.graph-scroll').scrollTop,
+    ],
+  }));
+const projectState = () =>
+  page.evaluate(() => ({
+    project: window.nect.projectSnapshot(),
+    revision: window.nect.projectRevision,
+    file: window.nect.fileState,
+  }));
 try {
   await page.goto(base);
   await page.waitForFunction(() => !!window.nect);
@@ -178,6 +195,16 @@ try {
     before,
   );
   await numeric.fill(numericBefore);
+  await activateBoundaryCommand(page, 'actual-size');
+  await activateBoundaryCommand(page, 'zoom-in');
+  await activateBoundaryCommand(page, 'graph-zoom-in');
+  await page.locator('.graph-scroll').evaluate((element) => {
+    element.scrollLeft = 120;
+    element.scrollTop = 70;
+  });
+  const firstView = await currentView();
+  assert.equal(firstView.selected, firstText.id);
+  assert.ok(firstView.graphScroll[0] > 0 && firstView.graphScroll[1] > 0);
   const cleanSelect = page.locator(`.inspector [data-text-wrap="${firstText.id}"]`);
   await cleanSelect.focus();
   await page.locator('[role="tab"][data-active-composition="variable-second"]').click();
@@ -215,12 +242,58 @@ try {
     text.id,
   );
   assert.equal(await page.evaluate(() => window.nect.export()), edited);
+  await page.locator('[data-action="undo"]').click();
+  await page.waitForFunction(
+    (id) => window.nect.document.layers[0].nodes.find((entry) => entry.id === id)?.text === 'AV',
+    text.id,
+  );
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await activateBoundaryCommand(page, 'actual-size');
+  await activateBoundaryCommand(page, 'zoom-out');
+  await activateBoundaryCommand(page, 'graph-zoom-out');
+  await page.locator('.graph-scroll').evaluate((element) => {
+    element.scrollLeft = 55;
+    element.scrollTop = 140;
+  });
+  const secondView = await currentView(),
+    beforeTabs = await projectState();
+  assert.equal(secondView.selected, text.id);
+  assert.notEqual(secondView.canvasZoom, firstView.canvasZoom);
+  assert.notEqual(secondView.graphZoom, firstView.graphZoom);
   const cleanReadySelect = page.locator(`.inspector [data-text-path="${text.id}"]`);
   await cleanReadySelect.focus();
   await page.locator('[role="tab"][data-active-composition="variable-first"]').click();
   await page.waitForFunction(() => window.nect.activeCompositionId === 'variable-first');
+  assert.deepEqual(await currentView(), firstView);
+  assert.deepEqual(await projectState(), beforeTabs);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
   await page.locator('[role="tab"][data-active-composition="variable-second"]').click();
   await page.waitForFunction(() => window.nect.activeCompositionId === 'variable-second');
+  assert.deepEqual(await currentView(), secondView);
+  assert.deepEqual(await projectState(), beforeTabs);
+  const secondTab = page.locator('[role="tab"][data-active-composition="variable-second"]');
+  await secondTab.focus();
+  await page.keyboard.press('ArrowLeft');
+  assert.equal(await page.evaluate(() => window.nect.activeCompositionId), 'variable-second');
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.dataset.activeComposition),
+    'variable-first',
+  );
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => window.nect.activeCompositionId === 'variable-first');
+  assert.deepEqual(await currentView(), firstView);
+  await page.locator('[role="tab"][data-active-composition="variable-first"]').focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Space');
+  await page.waitForFunction(() => window.nect.activeCompositionId === 'variable-second');
+  assert.deepEqual(await currentView(), secondView);
+  assert.deepEqual(await projectState(), beforeTabs);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await page.locator('[data-action="redo"]').click();
+  await page.waitForFunction(
+    (id) => window.nect.document.layers[0].nodes.find((entry) => entry.id === id)?.text === 'AW',
+    text.id,
+  );
   assert.equal(await page.evaluate(() => window.nect.export()), edited);
 
   await page.locator('#open-file').setInputFiles({
@@ -327,7 +400,7 @@ try {
   assert.deepEqual(errors, []);
   assert.equal(mainNavigations, 1, 'Vite must not reload the active test page');
   console.log(
-    'PASS: sandboxed Chrome Open, variable Composition tabs, Color uses, inline name race, SVG and Undo/Redo',
+    'PASS: sandboxed Chrome variable Composition view state, keyboard, History/Redo, Color uses, inline name race and SVG',
   );
 } finally {
   await browser.close();
