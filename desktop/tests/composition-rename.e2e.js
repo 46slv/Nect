@@ -91,6 +91,70 @@ try {
   await page.locator('[data-action="redo"]').click();
   assert.equal((await snapshot()).compositions[0].width, 961);
 
+  // The Shared Colors owner has an earlier pointer listener. A refused rename
+  // must not commit its live color preview while the Project menu is opened.
+  const colorProject = structuredClone(project);
+  colorProject.schemaVersion = Math.max(colorProject.schemaVersion, 54);
+  colorProject.colorSlots = [
+    { id: 'rename-color', name: 'Brand', value: { hex: '#808080', alpha: 1 } },
+  ];
+  await page.evaluate((text) => window.nect.load(text), serializeCompositionProject(colorProject));
+  await ensureWorkspacePanel(page, 'colors');
+  if (!(await page.locator('[data-color-advanced]').evaluate((el) => el.open)))
+    await page.locator('[data-color-advanced] summary').click();
+  await page.evaluate(() => {
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: 961 },
+    });
+    window.nect.dispatch({ ...window.nect.commandState, type: 'undo' });
+  });
+  const beforeColor = await snapshot(),
+    beforeColorState = await page.evaluate(() => ({
+      command: window.nect.commandState,
+      revision: window.nect.projectRevision,
+    }));
+  const hex = page.locator('[data-shared-color-row="rename-color"] [data-shared-color-edit="hex"]');
+  await hex.focus();
+  await hex.evaluate((el) => {
+    el.value = '#445566';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const colorMenu = await revealCommandMenu(page, 'Project');
+  assert.equal(await hex.inputValue(), '#445566');
+  assert.equal(await hex.evaluate((el) => document.activeElement === el), true);
+  assert.deepEqual(await snapshot(), beforeColor);
+  await colorMenu.locator('[data-action="rename-composition"]').click();
+  assert.equal(await dialog().count(), 0);
+  assert.equal(await hex.inputValue(), '#445566');
+  assert.equal(await hex.evaluate((el) => document.activeElement === el), true);
+  assert.deepEqual(await snapshot(), beforeColor);
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      command: window.nect.commandState,
+      revision: window.nect.projectRevision,
+    })),
+    beforeColorState,
+  );
+  await hex.press('Escape');
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await page.locator('[data-action="redo"]').click();
+  assert.equal((await snapshot()).compositions[0].width, 961);
+  const hexAgain = page.locator(
+    '[data-shared-color-row="rename-color"] [data-shared-color-edit="hex"]',
+  );
+  await hexAgain.focus();
+  await hexAgain.evaluate((el) => {
+    el.value = '#445566';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const otherColorMenu = await revealCommandMenu(page, 'Project');
+  await otherColorMenu.locator('[data-action="add-composition"]').click();
+  const colorCommitted = await snapshot();
+  assert.equal(colorCommitted.compositions.length, 3);
+  assert.equal(colorCommitted.colorSlots[0].value.hex, '#445566');
+
   // Text inputs normalize line breaks on assignment. Unchanged submission must
   // preserve the original model name, even when its displayed value differs.
   const unusual = structuredClone(project);
@@ -214,6 +278,93 @@ try {
   assert.equal(
     afterAdd.compositions[0].layers.find((layer) => layer.id === circleId).name,
     'Committed layer name',
+  );
+
+  // Renaming A must preserve B's current selection when Undo/Redo occurs in B.
+  await page.evaluate((text) => window.nect.load(text), serialized);
+  await page.locator('[data-active-composition="second"][role="tab"]').click();
+  await page.locator('[data-tool="Circle"]').click();
+  const otherCircle = (await snapshot()).compositions[1].layers.at(-1).id;
+  await page.locator('[data-tool="Rectangle"]').click();
+  const otherRectangle = (await snapshot()).compositions[1].layers.at(-1).id;
+  await ensureWorkspacePanel(page, 'layers');
+  await page.locator(`[data-select-layer="${otherCircle}"]`).click();
+  await page.locator('[data-active-composition="first"][role="tab"]').click();
+  const crossBefore = await snapshot();
+  await activateCommand(page, 'rename-composition');
+  await input().fill('Other composition renamed');
+  await input().press('Enter');
+  await dialog().waitFor({ state: 'detached' });
+  const crossAfter = await snapshot();
+  await page.locator('[data-active-composition="second"][role="tab"]').click();
+  assert.equal(
+    await page.locator(`[data-select-layer="${otherCircle}"]`).getAttribute('aria-pressed'),
+    'true',
+  );
+  await page.locator('[data-action="undo"]').click();
+  assert.deepEqual(await snapshot(), crossBefore);
+  assert.equal(
+    await page.locator(`[data-select-layer="${otherCircle}"]`).getAttribute('aria-pressed'),
+    'true',
+  );
+  await page.locator('[data-action="redo"]').click();
+  assert.deepEqual(await snapshot(), crossAfter);
+  await page.locator(`[data-select-layer="${otherRectangle}"]`).click();
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(
+    await page.locator(`[data-select-layer="${otherRectangle}"]`).getAttribute('aria-pressed'),
+    'true',
+  );
+  await page.locator('[data-action="redo"]').click();
+  assert.equal(
+    await page.locator(`[data-select-layer="${otherRectangle}"]`).getAttribute('aria-pressed'),
+    'true',
+  );
+
+  // Replacing the redo branch with an ordinary Artwork edit must restore its
+  // own selection history instead of inheriting the abandoned rename marker.
+  await page.locator('[data-action="undo"]').click();
+  await page.locator(`[data-select-layer="${otherCircle}"]`).click();
+  await page.locator('[data-tool="Polygon"]').click();
+  const polygon = (await snapshot()).compositions[1].layers.at(-1).id;
+  assert.equal(await page.locator('[data-action="redo"]').isDisabled(), true);
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(
+    await page.locator(`[data-select-layer="${otherCircle}"]`).getAttribute('aria-pressed'),
+    'true',
+  );
+  await page.locator('[data-action="redo"]').click();
+  assert.equal(
+    await page.locator(`[data-select-layer="${polygon}"]`).getAttribute('aria-pressed'),
+    'true',
+  );
+  const beforeMachineRename = await snapshot();
+  await page.evaluate(() => {
+    const owner = window.nect;
+    owner.dispatch({
+      ...owner.commandState,
+      type: 'rename-composition',
+      payload: {
+        compositionId: 'first',
+        name: 'API rename',
+        expectedName: owner.compositions.find((item) => item.id === 'first').name,
+        expectedProjectRevision: owner.projectRevision,
+      },
+    });
+  });
+  const afterMachineRename = await snapshot();
+  await page.locator(`[data-select-layer="${otherCircle}"]`).click();
+  await page.locator('[data-action="undo"]').click();
+  assert.deepEqual(await snapshot(), beforeMachineRename);
+  assert.equal(
+    await page.locator(`[data-select-layer="${otherCircle}"]`).getAttribute('aria-pressed'),
+    'true',
+  );
+  await page.locator('[data-action="redo"]').click();
+  assert.deepEqual(await snapshot(), afterMachineRename);
+  assert.equal(
+    await page.locator(`[data-select-layer="${otherCircle}"]`).getAttribute('aria-pressed'),
+    'true',
   );
 
   await page.evaluate((text) => window.nect.load(text), JSON.stringify(single));

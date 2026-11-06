@@ -1388,6 +1388,8 @@ document.addEventListener(
 const sessionOptions = {
   fonts: activeFonts,
   onCommitted: (state) => {
+    if (state.sessionId === session.id && state.operation === 'rename-composition')
+      rememberViewNeutralHistory(history.undoToken, history.entryToken);
     // A copied slot reference expires at the first committed removal, even if
     // another import later introduces the same ID while its panel is hidden.
     if (state.sessionId === session.id) sharedColors.observeCommittedProject();
@@ -1563,6 +1565,17 @@ let contextMenuScroll = new Map();
 const detailsState = new Map();
 const compositionViewStates = createCompositionViewStateStore({ resolvePointIds: pointPanelIds });
 const selectionHistory = new WeakMap();
+const viewNeutralHistory = new WeakMap();
+function rememberViewNeutralHistory(before, after) {
+  if (!before || !after) return;
+  for (const [from, to] of [
+    [before, after],
+    [after, before],
+  ]) {
+    if (!viewNeutralHistory.has(from)) viewNeutralHistory.set(from, new WeakSet());
+    viewNeutralHistory.get(from).add(to);
+  }
+}
 let focusedCompositionTabId = null,
   tabRenderSession = null,
   tabRenderCompositionId = null;
@@ -1590,6 +1603,24 @@ function selectionSnapshot(withEditSelection = false) {
       : {}),
   };
 }
+function restoreHistorySelection(state) {
+  ({ activeLayer, selected, artworkTarget } = state);
+  artworkSelection = new Set(state.artworkSelection);
+  selection = new Set(state.selection);
+  characterEdit = state.characterEdit ? structuredClone(state.characterEdit) : null;
+  if (state.restoreEditSelection) {
+    selectedGuide = state.selectedGuide;
+    const owner = current().nodes.find((n) => n.id === state.pointSelection?.nodeId);
+    const ids = new Set(pointPanelIds(owner, current(), history.doc) || []);
+    pointSelection = {
+      nodeId: owner?.id || null,
+      ids: new Set([...(state.pointSelection?.ids || [])].filter((id) => ids.has(id))),
+    };
+    pointFocus =
+      state.pointFocus && ids.has(state.pointFocus.pointId) ? { ...state.pointFocus } : null;
+    for (const [id, batch] of structuredClone(state.remapBatches)) remapBatches.set(id, batch);
+  }
+}
 function stepHistory(redo = false) {
   if (osTextDrafts.size) {
     notify('Apply or cancel the OS Text edit before Undo/Redo', true);
@@ -1600,8 +1631,13 @@ function stepHistory(redo = false) {
     return;
   }
   const priorCompositionId = session.activeCompositionId;
+  const targetToken = redo ? history.redoToken : history.undoToken;
+  const viewNeutral =
+    !!targetToken && !!viewNeutralHistory.get(history.entryToken)?.has(targetToken);
   saveCompositionViewState();
-  const priorUI = selectionSnapshot(selectionHistory.get(history.doc)?.restoreEditSelection);
+  const priorUI = selectionSnapshot(
+    viewNeutral || selectionHistory.get(history.doc)?.restoreEditSelection,
+  );
   resetTransient();
   selectionHistory.set(history.doc, priorUI);
   const target = (redo ? history.future : history.past).at(-1);
@@ -1613,6 +1649,7 @@ function stepHistory(redo = false) {
           const graphScroll = restoreCompositionViewState();
           render(false, null, graphScroll);
         } else {
+          if (viewNeutral) restoreHistorySelection(priorUI);
           activeLayer =
             history.doc.layers.find((l) => l.id === activeLayer)?.id || history.doc.layers[0].id;
           render();
@@ -1624,25 +1661,12 @@ function stepHistory(redo = false) {
   session.dispatch({ ...session.state, type: redo ? 'redo' : 'undo' });
   const compositionChanged = session.activeCompositionId !== priorCompositionId;
   compositionViewStates.prune(session.projectSnapshot().compositions);
-  const state = compositionChanged ? null : selectionHistory.get(history.doc);
-  if (state) {
-    ({ activeLayer, selected, artworkTarget } = state);
-    artworkSelection = new Set(state.artworkSelection);
-    selection = new Set(state.selection);
-    characterEdit = state.characterEdit ? structuredClone(state.characterEdit) : null;
-    if (state.restoreEditSelection) {
-      selectedGuide = state.selectedGuide;
-      const owner = current().nodes.find((n) => n.id === state.pointSelection?.nodeId);
-      const ids = new Set(pointPanelIds(owner, current(), history.doc) || []);
-      pointSelection = {
-        nodeId: owner?.id || null,
-        ids: new Set([...(state.pointSelection?.ids || [])].filter((id) => ids.has(id))),
-      };
-      pointFocus =
-        state.pointFocus && ids.has(state.pointFocus.pointId) ? { ...state.pointFocus } : null;
-      for (const [id, batch] of structuredClone(state.remapBatches)) remapBatches.set(id, batch);
-    }
-  }
+  const state = compositionChanged
+    ? null
+    : viewNeutral
+      ? priorUI
+      : selectionHistory.get(history.doc);
+  if (state) restoreHistorySelection(state);
   if (!history.doc.layers.some((layer) => layer.id === activeLayer)) {
     activeLayer = history.doc.layers[0].id;
     selected = null;
@@ -9623,23 +9647,26 @@ function compositionRenameBusy(allowedDialog = null) {
 
 // Preserve a focused draft while the Project menu is opened, then refuse this
 // specific action before pointer focus or the generic Pen auto-finish handler.
-app.addEventListener(
+document.addEventListener(
   'pointerdown',
   (event) => {
+    if (!app.contains(event.target)) return;
     const rename = event.target.closest?.('[data-action="rename-composition"]');
     if (rename && compositionRenameBusy()) {
       event.preventDefault();
-      event.stopImmediatePropagation();
+      event.stopPropagation();
       notify('Finish or cancel the current edit before renaming', true);
       return;
     }
     const summary = event.target.closest?.('summary');
     if (
       summary?.parentElement?.querySelector('[data-action="rename-composition"]') &&
-      editingControl(document.activeElement) &&
+      (editingControl(document.activeElement) || sharedColors.editing) &&
       compositionRenameBusy()
-    )
+    ) {
       event.preventDefault();
+      event.stopPropagation();
+    }
   },
   true,
 );

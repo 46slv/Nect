@@ -23,6 +23,7 @@ import {
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
   reserveDanglingArtworkReferenceIds,
 } from './curve-point-reference.js';
+const PROJECT_HISTORY_TOKEN = Symbol('project history token');
 // Only document-global identities can satisfy an Artwork reference. Character,
 // contour and remap-edit IDs stay scoped to their owning node.
 function documentEntityIds(document, ids = new Set()) {
@@ -274,6 +275,17 @@ export class CompositionSessionOwner {
     return views.get(compositionId);
   }
 
+  #projectHistoryToken(project) {
+    if (!project) return null;
+    let views = this.#historyViewCache.get(project);
+    if (!views) {
+      views = new Map();
+      this.#historyViewCache.set(project, views);
+    }
+    if (!views.has(PROJECT_HISTORY_TOKEN)) views.set(PROJECT_HISTORY_TOKEN, Object.freeze({}));
+    return views.get(PROJECT_HISTORY_TOKEN);
+  }
+
   #applyProjectEdit(edit) {
     const previous = this.#history.doc,
       views = this.#historyViewCache.get(previous),
@@ -439,6 +451,17 @@ export class CompositionSessionOwner {
     if (!this.#historyView) {
       const owner = this;
       this.#historyView = Object.freeze({
+        // Opaque identities are shared across Composition projections and follow
+        // the same cache transfer as the immutable document views.
+        get entryToken() {
+          return owner.#projectHistoryToken(owner.#history.doc);
+        },
+        get undoToken() {
+          return owner.#projectHistoryToken(owner.#history.past.at(-1));
+        },
+        get redoToken() {
+          return owner.#projectHistoryToken(owner.#history.future.at(-1));
+        },
         get doc() {
           return owner.#documentView(owner.#history.doc, owner.#activeCompositionId);
         },
