@@ -9,6 +9,7 @@ import {
 } from '../src/composition-project-model.js';
 import { activateCommand, revealCommandMenu } from './command-menu-actions.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { compoundFixture } from './fixtures/contour-navigation.js';
 
 const a = blankDocument(),
   b = blankDocument();
@@ -153,6 +154,25 @@ try {
       .evaluate((el) => document.activeElement === el),
     true,
   );
+  const dialogApiError = await page.evaluate(() => {
+    try {
+      window.nect.dispatch({
+        ...window.nect.commandState,
+        type: 'delete-composition',
+        payload: {
+          compositionId: 'second',
+          expectedName: 'Source · 日本語',
+          expectedProjectRevision: window.nect.projectRevision,
+        },
+      });
+    } catch (error) {
+      return error.message;
+    }
+    return '';
+  });
+  assert.match(dialogApiError, /finish|active/i);
+  assert.equal(await dialog().count(), 1);
+  assert.deepEqual(await snapshot(), before);
   await page.keyboard.press('Escape');
   await dialog().waitFor({ state: 'detached' });
   assert.deepEqual(await snapshot(), before);
@@ -251,10 +271,7 @@ try {
   // Machine dispatch goes through the same deletion adapter and project History.
   await page.evaluate((text) => window.nect.load(text), JSON.stringify(before));
   await page.locator('[data-active-composition="second"][role="tab"]').click();
-  assert.equal(
-    await page.locator(`[data-select-layer="${rectangle}"]`).getAttribute('aria-pressed'),
-    'false',
-  );
+  await page.locator(`[data-select-layer="${rectangle}"]`).click();
   await page.evaluate(() =>
     window.nect.dispatch({
       ...window.nect.commandState,
@@ -268,6 +285,43 @@ try {
   );
   assert.deepEqual(await snapshot(), deleted);
   assert.equal(await page.evaluate(() => window.nect.activeCompositionId), 'first');
+  const undoResult = await page.evaluate(() =>
+    window.nect.dispatch({ ...window.nect.commandState, type: 'undo' }),
+  );
+  assert.equal(undoResult.changed, true);
+  assert.deepEqual(await snapshot(), before);
+  await page.locator('[data-active-composition="second"][role="tab"]').click();
+  assert.equal(
+    await page.locator(`[data-select-layer="${rectangle}"]`).getAttribute('aria-pressed'),
+    'true',
+  );
+  const undoState = await state();
+  const staleRedo = await page.evaluate(() => {
+    try {
+      window.nect.dispatch({ ...window.nect.commandState, expectedRevision: -1, type: 'redo' });
+    } catch (error) {
+      return error.message;
+    }
+    return '';
+  });
+  assert.match(staleRedo, /STALE/);
+  assert.deepEqual(await snapshot(), before);
+  assert.deepEqual(await state(), undoState);
+  assert.equal(
+    await page.locator(`[data-select-layer="${rectangle}"]`).getAttribute('aria-pressed'),
+    'true',
+  );
+  const redoResult = await page.evaluate(() =>
+    window.nect.dispatch({ ...window.nect.commandState, type: 'redo' }),
+  );
+  assert.equal(redoResult.changed, true);
+  assert.deepEqual(await snapshot(), deleted);
+  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'undo' }));
+  await page.locator('[data-active-composition="second"][role="tab"]').click();
+  assert.equal(
+    await page.locator(`[data-select-layer="${rectangle}"]`).getAttribute('aria-pressed'),
+    'true',
+  );
 
   await page.evaluate((text) => window.nect.load(text), JSON.stringify(before));
   await page.locator('[data-active-composition="second"][role="tab"]').click();
@@ -287,7 +341,10 @@ try {
     }),
   );
   assert.equal(await page.evaluate(() => window.nect.activeCompositionId), 'first');
-  await page.locator('[data-action="undo"]').click();
+  const inactiveUndo = await page.evaluate(() =>
+    window.nect.dispatch({ ...window.nect.commandState, type: 'undo' }),
+  );
+  assert.equal(inactiveUndo.changed, true);
   assert.deepEqual(await snapshot(), before);
   assert.equal(
     await page
@@ -300,6 +357,98 @@ try {
     await page.locator(`[data-select-layer="${circle}"]`).getAttribute('aria-pressed'),
     'true',
   );
+
+  // A payload accessor may replace the project; an old owner must not alter the new view.
+  const reentry = await page.evaluate(
+    ({ original, rectangle }) => {
+      const oldState = window.nect.commandState,
+        revision = window.nect.projectRevision;
+      let nested,
+        nestedSelection,
+        error = '';
+      try {
+        window.nect.dispatch({
+          ...oldState,
+          type: 'delete-composition',
+          payload: {
+            compositionId: 'second',
+            expectedProjectRevision: revision,
+            get expectedName() {
+              window.nect.load(JSON.stringify(original));
+              document.querySelector('[data-active-composition="second"][role="tab"]').click();
+              document.querySelector(`[data-select-layer="${rectangle}"]`).click();
+              nested = window.nect.projectSnapshot();
+              nestedSelection = document
+                .querySelector(`[data-select-layer="${rectangle}"]`)
+                .getAttribute('aria-pressed');
+              return 'Source · 日本語';
+            },
+          },
+        });
+      } catch (cause) {
+        error = cause.message;
+      }
+      return {
+        error,
+        nested,
+        nestedSelection,
+        after: window.nect.projectSnapshot(),
+        afterSelection: document
+          .querySelector(`[data-select-layer="${rectangle}"]`)
+          .getAttribute('aria-pressed'),
+      };
+    },
+    { original: before, rectangle },
+  );
+  assert.match(reentry.error, /STALE/);
+  assert.deepEqual(reentry.after, reentry.nested);
+  assert.equal(reentry.nestedSelection, 'true');
+  assert.equal(reentry.afterSelection, 'true');
+  const typeReentry = await page.evaluate(
+    ({ original, rectangle }) => {
+      const oldState = window.nect.commandState,
+        revision = window.nect.projectRevision;
+      let nested,
+        nestedSelection,
+        error = '';
+      try {
+        window.nect.dispatch({
+          ...oldState,
+          get type() {
+            window.nect.load(JSON.stringify(original));
+            document.querySelector('[data-active-composition="second"][role="tab"]').click();
+            document.querySelector(`[data-select-layer="${rectangle}"]`).click();
+            nested = window.nect.projectSnapshot();
+            nestedSelection = document
+              .querySelector(`[data-select-layer="${rectangle}"]`)
+              .getAttribute('aria-pressed');
+            return 'delete-composition';
+          },
+          payload: {
+            compositionId: 'second',
+            expectedName: 'Source · 日本語',
+            expectedProjectRevision: revision,
+          },
+        });
+      } catch (cause) {
+        error = cause.message;
+      }
+      return {
+        error,
+        nested,
+        nestedSelection,
+        after: window.nect.projectSnapshot(),
+        afterSelection: document
+          .querySelector(`[data-select-layer="${rectangle}"]`)
+          .getAttribute('aria-pressed'),
+      };
+    },
+    { original: before, rectangle },
+  );
+  assert.match(typeReentry.error, /STALE/);
+  assert.deepEqual(typeReentry.after, typeReentry.nested);
+  assert.equal(typeReentry.nestedSelection, 'true');
+  assert.equal(typeReentry.afterSelection, 'true');
 
   // Pen and live Shared Colors drafts block the action before blur or commit.
   await page.evaluate((text) => window.nect.load(text), JSON.stringify(before));
@@ -332,6 +481,26 @@ try {
     el.value = '#445566';
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
+  const draftApiError = await page.evaluate(() => {
+    try {
+      window.nect.dispatch({
+        ...window.nect.commandState,
+        type: 'delete-composition',
+        payload: {
+          compositionId: 'second',
+          expectedName: 'Source · 日本語',
+          expectedProjectRevision: window.nect.projectRevision,
+        },
+      });
+    } catch (error) {
+      return error.message;
+    }
+    return '';
+  });
+  assert.match(draftApiError, /finish|active/i);
+  assert.equal(await hex.inputValue(), '#445566');
+  assert.deepEqual(await snapshot(), draftBefore);
+  assert.deepEqual(await state(), draftState);
   await activateCommand(page, 'delete-composition');
   assert.equal(await dialog().count(), 0);
   assert.equal(await hex.inputValue(), '#445566');
@@ -394,6 +563,53 @@ try {
   assert.deepEqual(await snapshot(), sameBefore);
   assert.deepEqual(await state(), sameState);
   assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+
+  // A point move stays a draft after blur and must not disappear on deletion.
+  const pointFixture = compoundFixture([8, 5, 7, 4]);
+  pointFixture.doc.schemaVersion = 42;
+  const pointProject = migrateLegacyDocumentToCompositionProject(pointFixture.doc),
+    pointOther = migrateLegacyDocumentToCompositionProject(blankDocument()).compositions[0];
+  pointProject.compositions[0].id = 'point-first';
+  pointOther.id = 'point-second';
+  pointProject.compositions.push(pointOther);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.evaluate((text) => window.nect.load(text), serializeCompositionProject(pointProject));
+  await page.evaluate(() => {
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: 721 },
+    });
+    window.nect.dispatch({ ...window.nect.commandState, type: 'undo' });
+  });
+  await ensureWorkspacePanel(page, 'inspector');
+  await page.locator(`.graph .node[data-id="${pointFixture.path.id}"] .node-head strong`).click();
+  await page
+    .locator(
+      `.canvas-stage .point-hit[data-point="${pointFixture.path.contours[0].points[1]}"]:not([data-handle])`,
+    )
+    .click();
+  await page
+    .locator(
+      `.canvas-stage .point-hit[data-point="${pointFixture.path.contours[3].points[2]}"]:not([data-handle])`,
+    )
+    .click({ modifiers: ['Shift'] });
+  const pointDelta = page.locator('.inspector-body [data-point-delta-axis="0"]');
+  await pointDelta.fill('12.5');
+  await pointDelta.press('Tab');
+  await page.keyboard.press('Tab');
+  const pointBefore = await snapshot(),
+    pointState = await state();
+  await activateCommand(page, 'delete-composition');
+  assert.equal(await dialog().count(), 0);
+  assert.equal(await pointDelta.inputValue(), '12.5');
+  assert.deepEqual(await snapshot(), pointBefore);
+  assert.deepEqual(await state(), pointState);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await page.locator('.inspector-body [data-cancel-point-delta]').click();
+  await activateCommand(page, 'delete-composition');
+  assert.equal(await dialog().count(), 1);
+  await dialog().locator('[data-cancel]').click();
 
   const reopened = await browser.newPage({ viewport: { width: 1000, height: 650 } });
   reopened.on('pageerror', (error) => errors.push(error.message));

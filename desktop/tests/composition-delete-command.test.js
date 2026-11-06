@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { blankDocument } from '../src/core.js';
+import { blankDocument, node } from '../src/core.js';
 import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
 import { migrateLegacyDocumentToCompositionProject } from '../src/composition-project-model.js';
 
-function fixture(options = {}) {
+function fixture(options = {}, prepare = () => {}) {
   const project = migrateLegacyDocumentToCompositionProject(blankDocument());
   project.compositions[0].id = 'first';
   project.compositions[0].name = 'First';
@@ -12,6 +12,7 @@ function fixture(options = {}) {
   other.id = 'second';
   other.name = 'Second';
   project.compositions.push(other);
+  prepare(project);
   return createCompositionSessionOwner(project, options);
 }
 function remove(owner, compositionId, overrides = {}) {
@@ -73,25 +74,30 @@ test('stale, missing and final-Composition deletion preserve the full envelope a
   assert.equal(owner.projectSnapshot().compositions[0].name, 'Temporary');
 });
 
-test('reentrant project edit is retained and stale outer deletion is rejected', () => {
-  let owner,
-    armed = false,
-    nested;
-  owner = fixture({
-    fonts: () => {
-      if (armed) {
-        armed = false;
-        owner.renameComposition('first', 'Nested');
-        nested = owner.projectSnapshot();
-      }
-      return {};
-    },
+for (const method of ['typed', 'direct']) {
+  test(`${method} deletion retains a reentrant project edit`, () => {
+    let owner,
+      armed = false,
+      nested;
+    owner = fixture({
+      fonts: () => {
+        if (armed) {
+          armed = false;
+          owner.renameComposition('first', 'Nested');
+          nested = owner.projectSnapshot();
+        }
+        return {};
+      },
+    });
+    armed = true;
+    assert.throws(
+      () => (method === 'typed' ? remove(owner, 'second') : owner.deleteComposition('second')),
+      /STALE/,
+    );
+    assert.deepEqual(owner.projectSnapshot(), nested);
+    assert.equal(owner.projectSnapshot().compositions.length, 2);
   });
-  armed = true;
-  assert.throws(() => remove(owner, 'second'), /STALE/);
-  assert.deepEqual(owner.projectSnapshot(), nested);
-  assert.equal(owner.projectSnapshot().compositions.length, 2);
-});
+}
 
 test('a payload getter cannot delete after a reentrant Composition switch', () => {
   const owner = fixture(),
@@ -131,3 +137,99 @@ test('busy deletion preserves the document and pending Redo', () => {
   step(owner, 'redo');
   assert.equal(owner.projectSnapshot().compositions[1].name, 'Temporary');
 });
+
+for (const method of ['typed', 'direct']) {
+  test(`${method} deletion refuses a Text draft started by the fonts callback`, () => {
+    let owner,
+      layerId,
+      textId,
+      draft,
+      armed = false;
+    owner = fixture(
+      {
+        fonts: () => {
+          if (armed) {
+            armed = false;
+            draft = owner.dispatch({
+              ...owner.state,
+              type: 'begin-text-draft',
+              payload: { layerId, nodeId: textId },
+            });
+            draft = owner.dispatch({
+              ...owner.state,
+              type: 'stage-text-draft',
+              payload: {
+                draftId: draft.draftId,
+                expectedDraftRevision: draft.draftRevision,
+                action: 'edit',
+                previousRaw: draft.text,
+                nextRaw: 'Unsaved nested edit',
+              },
+            });
+          }
+          return {};
+        },
+      },
+      (project) => {
+        const layer = project.compositions[0].layers[0],
+          text = node('Text');
+        layerId = layer.id;
+        textId = text.id;
+        layer.nodes.push(text);
+      },
+    );
+    owner.renameComposition('second', 'Temporary');
+    step(owner, 'undo');
+    const before = owner.projectSnapshot(),
+      state = owner.state,
+      history = owner.historyState;
+    armed = true;
+    assert.throws(
+      () => (method === 'typed' ? remove(owner, 'first') : owner.deleteComposition('first')),
+      /finish|active/i,
+    );
+    assert.deepEqual(owner.projectSnapshot(), before);
+    assert.deepEqual(owner.state, state);
+    assert.deepEqual(owner.historyState, history);
+    assert.equal(owner.hasTextDrafts, true);
+    assert.equal(
+      owner.textDraftSnapshot(draft.draftId).document.layers[0].nodes.find((n) => n.id === textId)
+        .text,
+      'Unsaved nested edit',
+    );
+    owner.dispatch({
+      ...owner.state,
+      type: 'cancel-text-draft',
+      payload: { draftId: draft.draftId },
+    });
+    step(owner, 'redo');
+    assert.equal(owner.projectSnapshot().compositions[1].name, 'Temporary');
+  });
+}
+
+for (const method of ['typed', 'direct']) {
+  test(`${method} deletion checks authority after the final busy callback`, () => {
+    let owner,
+      armed = false,
+      calls = 0,
+      nested;
+    owner = fixture({
+      busy: () => {
+        if (armed && ++calls === 2) {
+          armed = false;
+          owner.renameComposition('first', 'Nested from busy');
+          nested = owner.projectSnapshot();
+        }
+        return false;
+      },
+    });
+    armed = true;
+    assert.throws(
+      () => (method === 'typed' ? remove(owner, 'second') : owner.deleteComposition('second')),
+      /STALE/,
+    );
+    assert.ok(nested);
+    assert.deepEqual(owner.projectSnapshot(), nested);
+    assert.equal(owner.projectSnapshot().compositions.length, 2);
+  });
+}

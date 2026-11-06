@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
-import { node, serialize } from '../src/core.js';
+import { blankDocument, node, serialize } from '../src/core.js';
+import {
+  migrateLegacyDocumentToCompositionProject,
+  serializeCompositionProject,
+} from '../src/composition-project-model.js';
 import { compoundFixture } from './fixtures/contour-navigation.js';
 
 test('selected owned-point delta controls', async (t) => {
@@ -36,7 +40,7 @@ test('selected owned-point delta controls', async (t) => {
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
   source +=
-    '\nwindow.deltaState = () => ({ids: [...pointSelection.ids], past: history.past.length, draft: pointDeltaDraft});';
+    '\nwindow.deltaState = () => ({ids: [...pointSelection.ids], past: history.past.length, draft: pointDeltaDraft, spacing: pointSpacingDraft});';
   source += '\nwhile (!bundledFont) await new Promise(r => setTimeout(r, 10));';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   t.after(() => win.happyDOM.abort());
@@ -228,5 +232,49 @@ test('selected owned-point delta controls', async (t) => {
     pick(f.path.contours[0].points[0]);
     assert.equal(panel(), null);
     assert.ok($('.graph [data-batch-point]'));
+  });
+
+  await t.test('a blurred point move draft blocks Composition deletion until cancelled', () => {
+    const f = compoundFixture([8, 5, 7, 4]);
+    f.doc.schemaVersion = 42;
+    const project = migrateLegacyDocumentToCompositionProject(f.doc),
+      other = migrateLegacyDocumentToCompositionProject(blankDocument()).compositions[0];
+    project.compositions[0].id = 'delta-first';
+    other.id = 'delta-second';
+    project.compositions.push(other);
+    win.nect.load(serializeCompositionProject(project));
+    inspect(f.path.id);
+    pick(f.path.contours[0].points[1]);
+    pick(f.path.contours[3].points[2], true);
+    type(0, '12.5').dispatchEvent(new win.Event('change', { bubbles: true }));
+    const before = win.nect.projectSnapshot(),
+      state = win.nect.commandState;
+    $('[data-action="delete-composition"]').click();
+    assert.equal(!!$('.composition-delete-dialog[open]'), false);
+    assert.throws(
+      () =>
+        win.nect.dispatch({
+          ...state,
+          type: 'delete-composition',
+          payload: {
+            compositionId: project.compositions[0].id,
+            expectedName: project.compositions[0].name,
+            expectedProjectRevision: win.nect.projectRevision,
+          },
+        }),
+      /finish|active/i,
+    );
+    assert.equal(input().value, '12.5');
+    assert.deepEqual(win.nect.projectSnapshot(), before);
+    assert.deepEqual(win.nect.commandState, state);
+    panel().querySelector('[data-cancel-point-delta]').click();
+    const spacing = $('.graph [data-point-spacing]');
+    spacing.value = '20';
+    spacing.dispatchEvent(new win.Event('input', { bubbles: true }));
+    $('.graph [data-point-set-spacing="x"]').click();
+    assert.equal(win.deltaState().spacing?.value, '20');
+    $('[data-action="delete-composition"]').click();
+    assert.ok($('.composition-delete-dialog[open]'));
+    $('.composition-delete-dialog [data-cancel]').click();
   });
 });
