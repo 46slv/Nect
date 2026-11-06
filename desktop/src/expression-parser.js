@@ -45,8 +45,17 @@ export function expression(source, resolveReference, referencesOnly = false, bas
           throw Error('Reference requires quoted IDs and parameter keys');
         return token.slice(1, -1);
       };
-      let layerId;
-      if (tokens[i] === 'artwork') {
+      let layerId, compositionId;
+      if (tokens[i] === 'composition') {
+        i++;
+        if (tokens[i++] !== ',') throw Error('Invalid composition reference');
+        compositionId = readString();
+        if (!nodeIdPattern.test(compositionId) || tokens[i++] !== ',')
+          throw Error('Invalid composition reference');
+        layerId = readString();
+        if (!nodeIdPattern.test(layerId) || tokens[i++] !== ',')
+          throw Error('Invalid composition reference');
+      } else if (tokens[i] === 'artwork') {
         i++;
         if (tokens[i++] !== ',') throw Error('Invalid artwork reference');
         layerId = readString();
@@ -61,6 +70,8 @@ export function expression(source, resolveReference, referencesOnly = false, bas
         i++;
         component = readString();
       }
+      if (compositionId && component !== undefined)
+        throw Error('Composition references require a Scalar property');
       if (component !== undefined && !['x', 'y', 'length'].includes(component))
         throw Error('Reference component must be x, y or length');
       if (component === 'length' && !curvePointReference(key, component))
@@ -69,7 +80,13 @@ export function expression(source, resolveReference, referencesOnly = false, bas
         });
       if (tokens[i++] !== ')') throw Error('Invalid reference arguments');
       if (!resolveReference) throw Error('Reference requires a composition');
-      return resolveReference({ ...(layerId ? { layerId } : {}), nodeId, key, component });
+      return resolveReference({
+        ...(compositionId ? { compositionId } : {}),
+        ...(layerId ? { layerId } : {}),
+        nodeId,
+        key,
+        component,
+      });
     }
     if (Object.hasOwn(funcs, t)) {
       if (tokens[i++] !== '(') throw Error('Function requires parentheses');
@@ -132,7 +149,7 @@ export function qualifiedReferencesForCodec(q) {
         expression(
           source,
           (ref) => {
-            if (ref.layerId) throw Error('Artwork references require a numeric parameter');
+            if (ref.layerId) throw Error('Qualified references require a numeric parameter');
             refs.push({ ...ref, type: 'Color' });
             return dummy;
           },
