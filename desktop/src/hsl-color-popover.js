@@ -15,6 +15,7 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     pointer = null,
     scrub = null,
     dirtyInputs = new WeakSet(),
+    paintedInputs = new WeakMap(),
     composing = new Set(),
     paintedHue = null,
     trigger = null,
@@ -51,12 +52,21 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     const values = { h: hsl.h, s: hsl.s, l: hsl.l };
     for (const [channel, value] of Object.entries(values)) {
       const input = popover.querySelector('[data-hsl-number="' + channel + '"]');
-      if (input !== skip) input.value = String(Number(value.toFixed(2)));
+      if (input !== skip) {
+        input.value = String(Number(value.toFixed(2)));
+        paintedInputs.set(input, input.value);
+      }
     }
     const range = popover.querySelector('[data-hsl-hue]');
-    if (range !== skip) range.value = String(hsl.h);
+    if (range !== skip) {
+      range.value = String(hsl.h);
+      paintedInputs.set(range, range.value);
+    }
     const hexInput = popover.querySelector('[data-hsl-hex]');
-    if (hexInput !== skip) hexInput.value = hex.toUpperCase();
+    if (hexInput !== skip) {
+      hexInput.value = hex.toUpperCase();
+      paintedInputs.set(hexInput, hexInput.value);
+    }
     popover.querySelector('[data-hsl-preview]').style.background = hex;
     const marker = popover.querySelector('[data-hsl-marker]');
     marker.style.left = hsl.s + '%';
@@ -135,6 +145,7 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     hex = color.hex;
     hsl = hexToHsl(hex);
     dirtyInputs = new WeakSet();
+    paintedInputs = new WeakMap();
     const el = document.createElement('section');
     popover = el;
     el.className = 'hsl-color-popover';
@@ -210,7 +221,10 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
       hsl = hexToHsl(hex);
       paint(input);
     } else return;
-    if (commitChange) commit();
+    if (commitChange) {
+      commit();
+      paintedInputs.set(input, input.value);
+    }
   }
 
   // Local interaction never reaches graph shortcuts or numeric-expression handlers.
@@ -471,11 +485,41 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     );
   }
   document.defaultView?.addEventListener('blur', () => close());
+  function inputHasDraft(input) {
+    const painted = paintedInputs.get(input),
+      value = input.value;
+    if (typeof painted !== 'string') return true;
+    if (input.matches('[data-hsl-hex]'))
+      return !/^#[0-9a-f]{6}$/i.test(value) || !sameHex(value, painted);
+    if (input.matches('[data-hsl-number], [data-hsl-hue]')) {
+      const validity = input.validity;
+      return (
+        !value.trim() ||
+        !Number.isFinite(Number(value)) ||
+        !!validity?.badInput ||
+        !!validity?.rangeUnderflow ||
+        !!validity?.rangeOverflow ||
+        (input.matches('[data-hsl-number]') && !!validity?.stepMismatch) ||
+        Number(value) !== Number(painted)
+      );
+    }
+    return value !== painted;
+  }
   return {
     open,
     close,
     get element() {
       return popover;
+    },
+    get hasDraft() {
+      return !!(
+        popover &&
+        (pointer ||
+          scrub ||
+          composing.size ||
+          !sameHex(hex, committedHex) ||
+          [...popover.querySelectorAll('input')].some(inputHasDraft))
+      );
     },
   };
 }

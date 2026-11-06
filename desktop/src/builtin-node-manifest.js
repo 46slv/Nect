@@ -9,6 +9,14 @@ import { reversePathDeclaration } from './reverse-path-declaration.js';
 import { evaluateReversePath } from './reverse-path-binding.js';
 import { joinGeometryDeclaration } from './join-geometry-declaration.js';
 import { evaluateJoinGeometry } from './join-geometry-binding.js';
+import { combineVectorDeclaration } from './combine-vector-declaration.js';
+import { evaluateCombineVector } from './combine-vector-binding.js';
+import {
+  valueDeclaration,
+  vectorDeclaration,
+  expressionDeclaration,
+} from './value-source-declarations.js';
+import { evaluateValueSource } from './value-source-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -29,4 +37,18 @@ export const builtinManifest = Object.freeze([
   entry(vectorMathDeclaration, { evaluate: evaluateVectorMath }, 'Math', 'Vector'),
   entry(reversePathDeclaration, { evaluate: evaluateReversePath }, 'Auto Handles', 'Set Closure'),
   entry(joinGeometryDeclaration, { evaluate: evaluateJoinGeometry }, 'Boolean', 'Boolean'),
+  entry(
+    combineVectorDeclaration,
+    { evaluate: evaluateCombineVector },
+    'Separate Vector',
+    'Separate Vector',
+  ),
+  entry(valueDeclaration, { evaluate: evaluateValueSource }, 'Instance on Points', 'Line Screen'),
+  entry(vectorDeclaration, { evaluate: evaluateValueSource }, 'Color', 'Math'),
+  entry(
+    expressionDeclaration,
+    { evaluate: evaluateValueSource },
+    'Composition Reference',
+    'Reference',
+  ),
 ]);
