@@ -238,3 +238,52 @@ test('data descriptors are captured once without invoking nested Proxy property 
   assert.deepEqual(evaluateSampleFieldV1(noGet(position('frame')), request).values, [[4, 5]]);
   assert.deepEqual(reads, { domain: 1, count: 1, maxSamples: 1, position: 1 });
 });
+
+test('missing capabilities never fall back to inherited getters or setters', () => {
+  const saved = new Map(
+    ['frameToken', 'position', 'count'].map((key) => [
+      key,
+      Object.getOwnPropertyDescriptor(Object.prototype, key),
+    ]),
+  );
+  let calls = 0;
+  const fieldWithoutFrame = {
+    kind: 'Position',
+    version: 1,
+    valueType: 'Vector2',
+    role: 'position',
+    unit: 'fixture-unit',
+  };
+  const empty = { domain: 'Sample', count: 0, maxSamples: 0 };
+  try {
+    Object.defineProperty(Object.prototype, 'frameToken', {
+      configurable: true,
+      get() {
+        calls++;
+        return 'frame';
+      },
+    });
+    Object.defineProperty(Object.prototype, 'position', {
+      configurable: true,
+      get() {
+        calls++;
+        return { frameToken: 'frame', unit: 'fixture-unit', values: [] };
+      },
+    });
+    Object.defineProperty(Object.prototype, 'count', {
+      configurable: true,
+      set() {
+        calls++;
+      },
+    });
+    assert.throws(() => evaluateSampleFieldV1(fieldWithoutFrame, empty), /Sample Field v1/);
+    assert.throws(() => evaluateSampleFieldV1(position('frame'), empty), /Position capability/);
+    assert.equal(evaluateSampleFieldV1(constant('Scalar', 'scale', 'ratio', 1), empty).count, 0);
+    assert.equal(calls, 0);
+  } finally {
+    for (const [key, previous] of saved) {
+      if (previous) Object.defineProperty(Object.prototype, key, previous);
+      else delete Object.prototype[key];
+    }
+  }
+});

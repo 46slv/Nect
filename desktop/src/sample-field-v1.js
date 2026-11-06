@@ -13,7 +13,7 @@ function captureData(value, required, optional = []) {
     return null;
   const present = Reflect.ownKeys(value);
   if (present.some((key) => !required.includes(key) && !optional.includes(key))) return null;
-  const result = {};
+  const result = Object.create(null);
   for (const key of [...required, ...optional.filter((key) => present.includes(key))]) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (!descriptor || !Object.hasOwn(descriptor, 'value')) return null;
