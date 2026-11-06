@@ -8,14 +8,15 @@ retaining the query; a scoped empty result never silently becomes global.
 
 `src/node-catalog.js` is editor metadata, not document data. Each normally addable
 core type has one primary category. New unknown definitions remain visible as
-未分類, while the coverage test fails until metadata is supplied. Image, Image
-Output and Output remain excluded from generic creation. Join Geometry retains
+未分類, while the coverage test fails until metadata is supplied. Image, SVG,
+Image Output and Output remain excluded from generic creation. Join Geometry retains
 its stored ID and its Join Paths display label.
 
 Search retains NFKC normalization, case-insensitive AND word matching, and searches
-English IDs/labels, Japanese names, aliases and short descriptions. Ranking is
-exact name, name prefix, aliases, then remaining matches; ties retain definition
-order. Examples: 角丸, 塗り, ベクトル, Join Geometry and Join Paths.
+English IDs/labels, Japanese names, aliases and short descriptions. Results use
+normalized display-label order with numeric comparison; exact, prefix and alias
+matches do not take priority over that order. Examples: 角丸, 塗り, ベクトル,
+Join Geometry and Join Paths.
 
 Category selection and candidate highlighting do not change Graph selection,
 Inspector, Viewer bindings, Overview, evaluation, document dirty state or Undo.
@@ -28,7 +29,7 @@ refuses creation; the captured Session envelope also rejects stale revisions or
 replaced documents. Successful creation uses existing selection/reveal and one
 Undo entry.
 
-Category controls and search ranking are opt-in options of the shared dialog;
+Category controls and catalog search are opt-in options of the shared dialog;
 font family/weight/favorite filtering remains separate. No custom folders,
 favorites persistence, placed-node groups, Frame, schema or native package changes
 are included.
@@ -36,7 +37,7 @@ are included.
 ## Verification boundary
 
 `node --test tests/node-catalog.test.js tests/node-picker-dom.test.js` covers
-metadata completeness, unknown types, search ranking and aliases, scoped zero
+metadata completeness, unknown types, search order and aliases, scoped zero
 results/reset, highlight preservation, cancellation/focus, synthetic composition
 and repeated-key guards, stale elements, font-filter compatibility, real Add
 Session/history integration and changed/stale target rejection. Synthetic DOM
