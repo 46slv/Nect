@@ -670,6 +670,30 @@ export class CompositionSessionOwner {
   }
 
   dispatch(command) {
+    if (command?.type === 'delete-composition') {
+      const session = this.#session,
+        activeId = this.#activeCompositionId,
+        revision = this.#history.revision;
+      const assertCurrent = () => {
+        if (this.#session !== session || this.#activeCompositionId !== activeId)
+          throw Error('STALE_SESSION: document changed');
+        if (this.#history.revision !== revision) throw Error('STALE_REVISION: document changed');
+      };
+      this.#assertCurrentCommand(command);
+      assertCurrent();
+      const { compositionId, expectedName, expectedProjectRevision } = command.payload;
+      assertCurrent();
+      const target = this.#history.doc.compositions.find((entry) => entry.id === compositionId);
+      if (expectedProjectRevision !== revision || !target || target.name !== expectedName)
+        throw Error('STALE_REVISION: Composition changed');
+      const changed = this.#deleteComposition(compositionId, assertCurrent);
+      return {
+        ...this.state,
+        changed,
+        deletedCompositionId: compositionId,
+        projectRevision: this.#history.revision,
+      };
+    }
     if (command?.type === 'rename-composition') {
       const session = this.#session,
         activeId = this.#activeCompositionId,
@@ -870,7 +894,12 @@ export class CompositionSessionOwner {
   }
 
   deleteComposition(compositionId) {
+    this.#deleteComposition(compositionId);
+  }
+
+  #deleteComposition(compositionId, precommit) {
     this.#assertQuiescent();
+    precommit?.();
     const current = this.#history.doc;
     const index = current.compositions.findIndex((entry) => entry.id === compositionId);
     if (index < 0) throw Error('Unknown Composition ID');
@@ -880,6 +909,11 @@ export class CompositionSessionOwner {
       this.#activeCompositionId === compositionId
         ? compositions[Math.min(index, compositions.length - 1)].id
         : this.#activeCompositionId;
-    this.#commitProject({ ...current, compositions }, nextActiveId, 'delete-composition');
+    return this.#commitProject(
+      { ...current, compositions },
+      nextActiveId,
+      'delete-composition',
+      precommit,
+    );
   }
 }

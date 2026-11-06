@@ -177,8 +177,15 @@ try {
   await activateCommand(page, 'rename-composition');
   assert.equal(await input().inputValue(), '  Phone frame  ');
   await input().press('Enter');
-  await dialog().waitFor({ state: 'detached' });
+  // `open` clears before the close event restores focus to the prior tab.
+  await page.locator('.composition-rename-dialog').waitFor({ state: 'detached' });
   await page.locator('[data-active-composition="second"][role="tab"]').focus();
+  assert.equal(
+    await page
+      .locator('[data-active-composition="second"][role="tab"]')
+      .evaluate((tab) => tab === document.activeElement),
+    true,
+  );
   await page.keyboard.press('F2');
   assert.equal(await input().inputValue(), 'LineBreak');
   await input().press('Enter');

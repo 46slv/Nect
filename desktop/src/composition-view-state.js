@@ -121,6 +121,10 @@ export function createCompositionViewStateStore({ resolvePointIds } = {}) {
         throw Error('Composition ID is required for view state');
       states.set(compositionId, structuredClone(state));
     },
+    snapshot(compositionId) {
+      const state = states.get(compositionId);
+      return state === undefined ? null : structuredClone(state);
+    },
     restore(compositionId, document, defaults) {
       return sanitizeCompositionViewState(
         states.get(compositionId),

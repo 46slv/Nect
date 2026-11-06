@@ -1054,29 +1054,44 @@ dialog::backdrop {
   width: min(480px, calc(100vw - 24px));
 }
 
-.composition-rename-dialog {
+.composition-rename-dialog,
+.composition-delete-dialog {
   width: min(24rem, calc(100vw - 32px));
   box-sizing: border-box;
 }
 .composition-rename-dialog form,
+.composition-delete-dialog form,
 .composition-rename-dialog label {
   display: grid;
   gap: 8px;
 }
-.composition-rename-dialog h3 {
+.composition-rename-dialog h3,
+.composition-delete-dialog h3 {
   margin: 0;
 }
 .composition-rename-dialog input {
   width: 100%;
   box-sizing: border-box;
 }
-.composition-rename-dialog output:empty {
+.composition-rename-dialog output:empty,
+.composition-delete-dialog output:empty {
   display: none;
 }
-.composition-rename-dialog footer {
+.composition-rename-dialog footer,
+.composition-delete-dialog footer {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+.composition-delete-dialog p {
+  margin: 0;
+}
+.composition-delete-dialog [data-composition-name],
+.composition-delete-dialog [data-composition-identity] {
+  max-height: 6em;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 .composition-import-dialog form {
   display: grid;

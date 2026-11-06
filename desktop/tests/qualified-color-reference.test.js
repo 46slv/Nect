@@ -696,6 +696,15 @@ test('Color Composition removal retains missing expression and Undo restores the
   assert.deepEqual(read(owner), { hex: '#2468ac', alpha: 0.25 });
   send(owner, 'redo');
   assert.throws(() => read(owner), /missing/i);
+  send(owner, 'undo');
+  send(owner, 'delete-composition', {
+    compositionId: 'source-comp',
+    expectedName: 'Source',
+    expectedProjectRevision: owner.projectRevision,
+  });
+  assert.throws(() => read(owner), /missing/i);
+  send(owner, 'undo');
+  assert.deepEqual(read(owner), { hex: '#2468ac', alpha: 0.25 });
 });
 
 test('alpha operation retains hidden RGB from a zero-alpha Color source', () => {
