@@ -10,6 +10,7 @@ import {
   serialize,
   deserialize,
   bindProjectDocumentContext,
+  inheritProjectDocumentContext,
 } from '../src/core.js';
 import { migrateLegacyDocumentToCompositionProject } from '../src/composition-project-model.js';
 import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
@@ -189,6 +190,134 @@ test('directly rebinding a frozen History view cannot revive a Color clipboard',
   );
   assert.equal(serialize(session.snapshot()), before);
   assert.deepEqual(session.state, state);
+});
+
+test('rebind followed by History traversal cannot restore a Color clipboard', () => {
+  const f = fixture(),
+    project = migrateLegacyDocumentToCompositionProject(f.doc);
+  project.compositions[0].id = 'comp';
+  const doc = structuredClone(f.doc),
+    foreign = structuredClone(project);
+  foreign.colorSlots[0].value = { hex: '#ff0000', alpha: 1 };
+  bindProjectDocumentContext(doc, project, 'comp');
+  const session = new CommandSession(doc),
+    send = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
+  send('set-document-settings', { key: 'width', value: 961 });
+  send('copy-nodes', { layerId: f.target.id, nodeIds: [f.sink.id] });
+  bindProjectDocumentContext(session.historyView.doc, foreign, 'comp');
+  send('undo');
+  const before = serialize(session.snapshot()),
+    state = session.state,
+    future = session.historyView.future;
+  assert.throws(
+    () => send('paste-nodes', { layerId: f.target.id }),
+    /missing|changed|copy again|project/i,
+  );
+  assert.equal(serialize(session.snapshot()), before);
+  assert.deepEqual(session.state, state);
+  assert.deepEqual(session.historyView.future, future);
+  send('redo');
+  assert.throws(
+    () => send('paste-nodes', { layerId: f.target.id }),
+    /missing|changed|copy again|project/i,
+  );
+});
+
+test('inheriting an older binding after a public rebind cannot revive a Color clipboard', () => {
+  const f = fixture(),
+    project = migrateLegacyDocumentToCompositionProject(f.doc);
+  project.compositions[0].id = 'comp';
+  const doc = structuredClone(f.doc),
+    foreign = structuredClone(project);
+  foreign.colorSlots[0].value = { hex: '#ff0000', alpha: 1 };
+  bindProjectDocumentContext(doc, project, 'comp');
+  const session = new CommandSession(doc),
+    send = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
+  send('copy-nodes', { layerId: f.target.id, nodeIds: [f.sink.id] });
+  const old = session.snapshot(),
+    live = session.historyView.doc;
+  bindProjectDocumentContext(live, foreign, 'comp');
+  inheritProjectDocumentContext(old, live);
+  const before = serialize(session.snapshot()),
+    state = session.state;
+  assert.throws(
+    () => send('paste-nodes', { layerId: f.target.id }),
+    /missing|changed|copy again|project/i,
+  );
+  assert.equal(serialize(session.snapshot()), before);
+  assert.deepEqual(session.state, state);
+});
+
+for (const historySide of ['past', 'future']) {
+  test(`rebinding a retained ${historySide} root expires the Color clipboard`, () => {
+    const f = fixture(),
+      project = migrateLegacyDocumentToCompositionProject(f.doc);
+    project.compositions[0].id = 'comp';
+    const doc = structuredClone(f.doc),
+      foreign = structuredClone(project);
+    foreign.colorSlots[0].value = { hex: '#ff0000', alpha: 1 };
+    bindProjectDocumentContext(doc, project, 'comp');
+    const session = new CommandSession(doc),
+      send = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
+    send('set-document-settings', { key: 'width', value: 961 });
+    if (historySide === 'future') send('undo');
+    send('copy-nodes', { layerId: f.target.id, nodeIds: [f.sink.id] });
+    bindProjectDocumentContext(session.historyView[historySide].at(-1), foreign, 'comp');
+    const before = serialize(session.snapshot()),
+      state = session.state,
+      future = session.historyView.future;
+    assert.throws(
+      () => send('paste-nodes', { layerId: f.target.id }),
+      /missing|changed|copy again|project/i,
+    );
+    assert.equal(serialize(session.snapshot()), before);
+    assert.deepEqual(session.state, state);
+    assert.deepEqual(session.historyView.future, future);
+  });
+}
+
+test('a reentrant public bind preserves the nested project context', () => {
+  const f = fixture(),
+    reader = node('Value'),
+    foreignDoc = blankDocument();
+  reader.id = 'reader';
+  reader.params.value.expression =
+    'ref(composition, "foreign-comp", "foreign-art", "foreign-value", "value")';
+  f.doc.layers[0].nodes.push(reader);
+  foreignDoc.layers[0].id = 'foreign-art';
+  const value = node('Value');
+  value.id = 'foreign-value';
+  value.params.value.value = 11;
+  foreignDoc.layers[0].nodes.push(value);
+  const project = migrateLegacyDocumentToCompositionProject(f.doc);
+  project.compositions[0].id = 'comp';
+  project.compositions.push({
+    id: 'foreign-comp',
+    name: 'Foreign',
+    width: foreignDoc.width,
+    height: foreignDoc.height,
+    layers: foreignDoc.layers,
+    editor: foreignDoc.editor,
+  });
+  const other = structuredClone(project);
+  other.compositions[1].layers[0].nodes.find((n) => n.id === value.id).params.value.value = 22;
+  const doc = structuredClone(f.doc);
+  bindProjectDocumentContext(doc, project, 'comp');
+  const session = new CommandSession(doc),
+    live = session.historyView.doc;
+  let armed = true;
+  const outer = new Proxy(project, {
+    get(target, key, receiver) {
+      if (key === 'compositions' && armed) {
+        armed = false;
+        bindProjectDocumentContext(live, other, 'comp');
+      }
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  assert.throws(() => bindProjectDocumentContext(live, outer, 'comp'), /STALE/);
+  const saved = session.snapshot();
+  assert.equal(evaluate(saved.layers[0], {}, {}, saved).parameterValue(reader.id, 'value'), 22);
 });
 
 test('a nested project rebind cannot be overwritten by an older authority callback', () => {
@@ -492,6 +621,189 @@ test('a project switch during Color Artwork Paste cannot commit through the reti
   assert.deepEqual(saved.colorSlots[0].value, { hex: '#ee2211', alpha: 0.4 });
   assert.equal(saved.layers[0].nodes.filter((n) => n.type === 'Fill').length, 1);
   assert.throws(() => send('paste-nodes', { layerId: f.target.id }), /clipboard is empty/i);
+});
+
+for (const kind of ['plain', 'numeric Artwork']) {
+  test(`project ${kind} Paste retains a nested slot edit without splitting Session state`, () => {
+    const f = fixture(),
+      weight = node('Value'),
+      numeric = node('Value');
+    weight.id = 'weight';
+    weight.params.value.value = 7;
+    numeric.id = 'numeric';
+    numeric.params.value.expression = 'ref(artwork, "source-art", "weight", "value")';
+    f.doc.layers[1].nodes.push(weight);
+    f.doc.layers[0].nodes.push(numeric);
+    let owner,
+      armed = false;
+    const notifications = [],
+      send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload });
+    owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(f.doc), {
+      fonts: () => {
+        if (armed) {
+          armed = false;
+          send('set-color-slot', { slotId: 'brand', value: { hex: '#00bb00', alpha: 1 } });
+        }
+        return {};
+      },
+      onCommitted: (event) => notifications.push(event.projectRevision),
+    });
+    send('copy-nodes', {
+      layerId: f.target.id,
+      nodeIds: [kind === 'plain' ? f.local.id : numeric.id],
+    });
+    const oldLayers = owner.projectSnapshot().compositions[0].layers;
+    armed = true;
+    assert.throws(() => send('paste-nodes', { layerId: f.target.id }), /STALE/);
+    const saved = owner.snapshot(),
+      project = owner.projectSnapshot();
+    assert.deepEqual(saved.colorSlots[0].value, { hex: '#00bb00', alpha: 1 });
+    assert.deepEqual(saved.layers, oldLayers);
+    assert.deepEqual(saved.layers, project.compositions[0].layers);
+    assert.deepEqual(notifications, [1]);
+    const id = send('paste-nodes', { layerId: f.target.id }).nodeIds[0],
+      after = owner.snapshot();
+    if (kind === 'numeric Artwork')
+      assert.equal(evaluate(after.layers[0], {}, {}, after).parameterValue(id, 'value'), 7);
+    else assert.equal(after.layers[0].nodes.find((n) => n.id === id).type, 'Color');
+  });
+}
+
+for (const shouldReject of [false, true]) {
+  test(`${shouldReject ? 'rejected Color' : 'successful plain'} Copy reports a nested edit once`, () => {
+    const f = fixture(),
+      notifications = [];
+    const session = new CommandSession(f.doc, {
+      onCommitted: (state) => notifications.push(state.expectedRevision),
+    });
+    const send = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
+    let armed = true;
+    const command = {
+      ...session.state,
+      type: 'copy-nodes',
+      payload: {
+        layerId: f.target.id,
+        get nodeIds() {
+          if (armed) {
+            armed = false;
+            send('set-color-slot', { slotId: 'brand', value: { hex: '#00bb00', alpha: 1 } });
+          }
+          return [shouldReject ? f.sink.id : f.local.id];
+        },
+      },
+    };
+    if (shouldReject) assert.throws(() => session.dispatch(command), /STALE/);
+    else assert.equal(session.dispatch(command).copiedCount, 1);
+    assert.deepEqual(notifications, [1]);
+    assert.deepEqual(session.snapshot().colorSlots[0].value, { hex: '#00bb00', alpha: 1 });
+  });
+}
+
+for (const kind of ['document', 'composition']) {
+  for (const hook of ['fonts', 'beforeCandidateCommit', 'busy']) {
+    // Owner supplies its own precommit hook; exercise its public fonts seam.
+    if (kind === 'composition' && hook === 'beforeCandidateCommit') continue;
+    test(`${kind}: a Text draft begun during Paste through ${hook} stays editable`, () => {
+      const f = fixture(),
+        text = node('Text');
+      text.id = 'editable-text';
+      text.text = 'A';
+      f.doc.layers[0].nodes.push(text);
+      let session,
+        armed = false,
+        draft,
+        busyCalls = 0;
+      const send = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
+      const callback = () => {
+        if (armed && (hook !== 'busy' || ++busyCalls === 2)) {
+          armed = false;
+          draft = send('begin-text-draft', { layerId: f.target.id, nodeId: text.id });
+          draft = send('stage-text-draft', {
+            draftId: draft.draftId,
+            expectedDraftRevision: draft.draftRevision,
+            action: 'edit',
+            previousRaw: 'A',
+            nextRaw: 'AB',
+          });
+        }
+        return hook === 'busy' ? false : {};
+      };
+      const options = { [hook]: callback };
+      session =
+        kind === 'document'
+          ? new CommandSession(f.doc, options)
+          : createCompositionSessionOwner(
+              migrateLegacyDocumentToCompositionProject(f.doc),
+              options,
+            );
+      send('set-document-settings', { key: 'width', value: 961 });
+      send('undo');
+      send('copy-nodes', { layerId: f.target.id, nodeIds: [f.sink.id] });
+      const before = serialize(session.snapshot()),
+        state = session.state,
+        future = session.historyView.future;
+      armed = true;
+      assert.throws(() => send('paste-nodes', { layerId: f.target.id }), /draft|gesture|active/i);
+      assert.equal(serialize(session.snapshot()), before);
+      assert.deepEqual(session.state, state);
+      assert.deepEqual(session.historyView.future, future);
+      send('commit-text-draft', {
+        draftId: draft.draftId,
+        expectedDraftRevision: draft.draftRevision,
+      });
+      assert.equal(session.snapshot().layers[0].nodes.find((n) => n.id === text.id).text, 'AB');
+    });
+  }
+
+  test(`${kind}: a gesture begun during Paste keeps its preview and remains committable`, () => {
+    const f = fixture();
+    let session,
+      armed = false,
+      gesture;
+    const send = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
+    const options = {
+      fonts: () => {
+        if (armed) {
+          armed = false;
+          gesture = send('begin-gesture', {
+            target: { kind: 'graph-translate', layerId: f.target.id, nodeIds: [f.local.id] },
+          });
+          gesture = send('update-gesture', { ...gesture, update: { delta: [11, 7] } });
+        }
+        return {};
+      },
+    };
+    session =
+      kind === 'document'
+        ? new CommandSession(f.doc, options)
+        : createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(f.doc), options);
+    send('set-document-settings', { key: 'width', value: 961 });
+    send('undo');
+    send('copy-nodes', { layerId: f.target.id, nodeIds: [f.sink.id] });
+    const before = serialize(session.snapshot()),
+      state = session.state,
+      future = session.historyView.future;
+    armed = true;
+    assert.throws(() => send('paste-nodes', { layerId: f.target.id }), /draft|gesture|active/i);
+    assert.equal(serialize(session.snapshot()), before);
+    assert.deepEqual(session.state, state);
+    assert.deepEqual(session.historyView.future, future);
+    const preview = session.previewSnapshot(gesture.gestureId).document;
+    send('commit-gesture', gesture);
+    assert.equal(serialize(session.snapshot()), serialize(preview));
+  });
+}
+
+test('an unchanged Text draft retains the existing Color Paste behavior', () => {
+  const f = fixture(),
+    text = node('Text');
+  text.id = 'editable-text';
+  f.doc.layers[0].nodes.push(text);
+  const session = new CommandSession(f.doc),
+    send = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
+  send('copy-nodes', { layerId: f.target.id, nodeIds: [f.sink.id] });
+  send('begin-text-draft', { layerId: f.target.id, nodeId: text.id });
+  assert.equal(send('paste-nodes', { layerId: f.target.id }).nodeIds.length, 1);
 });
 
 test('node Duplicate remains explicitly unsupported for Color Artwork references', () => {
