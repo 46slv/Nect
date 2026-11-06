@@ -55,6 +55,13 @@ export function ensureCommandMenus(app, document, uiSound = null) {
   renameComposition.dataset.action = 'rename-composition';
   renameComposition.textContent = 'Rename composition…';
   project.querySelector('[data-action="add-composition"]')?.after(renameComposition);
+  const deleteComposition = document.createElement('button');
+  deleteComposition.type = 'button';
+  deleteComposition.dataset.action = 'delete-composition';
+  deleteComposition.textContent = 'Delete composition…';
+  deleteComposition.disabled =
+    app.querySelectorAll('[role="tab"][data-active-composition]').length < 2;
+  renameComposition.after(deleteComposition);
   if (uiSound) {
     const sound = makeMenu('Sound', [], false);
     sound.dataset.uiSoundSettings = '';

@@ -60,6 +60,7 @@ export async function activateCommand(page, action, { keyboard = false } = {}) {
     'save-as',
     'add-composition',
     'rename-composition',
+    'delete-composition',
     'asset-library',
   ].includes(action)
     ? 'Project'

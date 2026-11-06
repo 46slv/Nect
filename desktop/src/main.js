@@ -908,6 +908,14 @@ import {
 } from './composition-project-model.js';
 import { importsLiveKeyColors } from './color-slots.js';
 import { directSharedColorUses } from './shared-color-uses.js';
+import {
+  COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
+  QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
+  COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION,
+  compositionPropertyReferencesInProject,
+  qualifiedColorReferencesInProject,
+  componentCompositionReferencesInProject,
+} from './curve-point-reference.js';
 import { createCompositionSessionOwner } from './composition-session-owner-core.js';
 import {
   blankDocument,
@@ -1566,6 +1574,7 @@ const detailsState = new Map();
 const compositionViewStates = createCompositionViewStateStore({ resolvePointIds: pointPanelIds });
 const selectionHistory = new WeakMap();
 const viewNeutralHistory = new WeakMap();
+const deletedCompositionHistory = new WeakMap();
 function rememberViewNeutralHistory(before, after) {
   if (!before || !after) return;
   for (const [from, to] of [
@@ -1575,6 +1584,22 @@ function rememberViewNeutralHistory(before, after) {
     if (!viewNeutralHistory.has(from)) viewNeutralHistory.set(from, new WeakSet());
     viewNeutralHistory.get(from).add(to);
   }
+}
+function rememberDeletedComposition(before, after, compositionId, view) {
+  if (!before || !after) return;
+  const record = { before, after, compositionId, view };
+  for (const [from, to] of [
+    [before, after],
+    [after, before],
+  ]) {
+    if (!deletedCompositionHistory.has(from)) deletedCompositionHistory.set(from, new WeakMap());
+    deletedCompositionHistory.get(from).set(to, record);
+  }
+}
+function restoreDeletedCompositionView(record) {
+  compositionViewStates.prune(session.projectSnapshot().compositions);
+  if (record && history.entryToken === record.before && record.view)
+    compositionViewStates.save(record.compositionId, record.view);
 }
 let focusedCompositionTabId = null,
   tabRenderSession = null,
@@ -1631,10 +1656,14 @@ function stepHistory(redo = false) {
     return;
   }
   const priorCompositionId = session.activeCompositionId;
-  const targetToken = redo ? history.redoToken : history.undoToken;
-  const viewNeutral =
-    !!targetToken && !!viewNeutralHistory.get(history.entryToken)?.has(targetToken);
+  const entryToken = history.entryToken,
+    targetToken = redo ? history.redoToken : history.undoToken,
+    deleted = targetToken && deletedCompositionHistory.get(entryToken)?.get(targetToken),
+    viewNeutral =
+      !!targetToken && (!!deleted || !!viewNeutralHistory.get(entryToken)?.has(targetToken));
   saveCompositionViewState();
+  if (deleted && entryToken === deleted.before)
+    deleted.view = compositionViewStates.snapshot(deleted.compositionId) || deleted.view;
   const priorUI = selectionSnapshot(
     viewNeutral || selectionHistory.get(history.doc)?.restoreEditSelection,
   );
@@ -1642,12 +1671,26 @@ function stepHistory(redo = false) {
   selectionHistory.set(history.doc, priorUI);
   const target = (redo ? history.future : history.past).at(-1);
   if (hasVariableFonts(history.doc) || (target && hasVariableFonts(target))) {
-    // A rename does not alter the active Document. Restore its current view
-    // before async font preparation, so later user selection remains current.
+    // Preserve the current view before async preparation so a later user
+    // selection is not overwritten when the History step completes.
     if (viewNeutral) restoreHistorySelection(priorUI);
-    void preparedChange(redo ? 'redo' : 'undo', {}, redo ? 'Redone' : 'Undone').then((result) => {
+    const capturePendingDeletion = () => {
+      if (deleted && entryToken === deleted.before && history.entryToken === entryToken) {
+        saveCompositionViewState();
+        deleted.view = compositionViewStates.snapshot(deleted.compositionId) || deleted.view;
+      }
+      return true;
+    };
+    void preparedChange(
+      redo ? 'redo' : 'undo',
+      {},
+      redo ? 'Redone' : 'Undone',
+      session.state,
+      false,
+      capturePendingDeletion,
+    ).then((result) => {
       if (result) {
-        compositionViewStates.prune(session.projectSnapshot().compositions);
+        restoreDeletedCompositionView(deleted);
         if (session.activeCompositionId !== priorCompositionId) {
           const graphScroll = restoreCompositionViewState();
           render(false, null, graphScroll);
@@ -1662,7 +1705,7 @@ function stepHistory(redo = false) {
   }
   session.dispatch({ ...session.state, type: redo ? 'redo' : 'undo' });
   const compositionChanged = session.activeCompositionId !== priorCompositionId;
-  compositionViewStates.prune(session.projectSnapshot().compositions);
+  restoreDeletedCompositionView(deleted);
   const state = compositionChanged
     ? null
     : viewNeutral
@@ -1677,7 +1720,6 @@ function stepHistory(redo = false) {
     selection = new Set();
   }
   if (compositionChanged) {
-    compositionViewStates.prune(session.projectSnapshot().compositions);
     return restoreCompositionViewState();
   }
   return null;
@@ -9467,7 +9509,7 @@ function compositionViewDefaults(doc) {
 }
 function saveCompositionViewState() {
   const graph = app.querySelector('.graph-scroll');
-  compositionViewStates.save(session.activeCompositionId, {
+  const state = {
     activeLayer,
     selected,
     selection: [...selection],
@@ -9484,7 +9526,9 @@ function saveCompositionViewState() {
     graphScroll: graph ? [graph.scrollLeft, graph.scrollTop] : [0, 0],
     tool,
     viewerState,
-  });
+  };
+  compositionViewStates.save(session.activeCompositionId, state);
+  return state;
 }
 function restoreCompositionViewState() {
   const state = compositionViewStates.restore(
@@ -9638,7 +9682,7 @@ function addComposition() {
   render(false, null, graphScroll);
   updateDocumentStatus();
 }
-function compositionRenameBusy(allowedDialog = null) {
+function compositionActionBusy(allowedDialog = null) {
   return !!(
     sourceNavigationBusy(allowedDialog) ||
     documents.hasDraft() ||
@@ -9653,18 +9697,20 @@ document.addEventListener(
   'pointerdown',
   (event) => {
     if (!app.contains(event.target)) return;
-    const rename = event.target.closest?.('[data-action="rename-composition"]');
-    if (rename && compositionRenameBusy()) {
+    const action = event.target.closest?.(
+      '[data-action="rename-composition"], [data-action="delete-composition"]',
+    );
+    if (action && compositionActionBusy()) {
       event.preventDefault();
       event.stopPropagation();
-      notify('Finish or cancel the current edit before renaming', true);
+      notify('Finish or cancel the current edit before changing compositions', true);
       return;
     }
     const summary = event.target.closest?.('summary');
     if (
       summary?.parentElement?.querySelector('[data-action="rename-composition"]') &&
       (editingControl(document.activeElement) || sharedColors.editing) &&
-      compositionRenameBusy()
+      compositionActionBusy()
     ) {
       event.preventDefault();
       event.stopPropagation();
@@ -9675,17 +9721,22 @@ document.addEventListener(
 app.addEventListener(
   'click',
   (event) => {
-    if (!event.target.closest?.('[data-action="rename-composition"]') || !compositionRenameBusy())
+    if (
+      !event.target.closest?.(
+        '[data-action="rename-composition"], [data-action="delete-composition"]',
+      ) ||
+      !compositionActionBusy()
+    )
       return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    notify('Finish or cancel the current edit before renaming', true);
+    notify('Finish or cancel the current edit before changing compositions', true);
   },
   true,
 );
 
 function renameCompositionDialog(compositionId = session.activeCompositionId) {
-  if (compositionRenameBusy()) throw Error('Finish or cancel the current edit before renaming');
+  if (compositionActionBusy()) throw Error('Finish or cancel the current edit before renaming');
   const owner = session,
     envelope = session.state,
     projectRevision = session.projectRevision,
@@ -9741,7 +9792,7 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
         session.projectRevision !== projectRevision ||
         session.state.sessionId !== envelope.sessionId ||
         session.state.expectedRevision !== envelope.expectedRevision ||
-        compositionRenameBusy(dialog)
+        compositionActionBusy(dialog)
       )
         throw Error('Project changed. Close and reopen rename.');
       // Text inputs can sanitize an existing CR/LF name for display. Treat the
@@ -9797,6 +9848,129 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
   dialog.showModal();
   input.focus();
   input.select();
+}
+function compositionHasExternalReferences(project, compositionId) {
+  const other = {
+    ...project,
+    compositions: project.compositions.filter((item) => item.id !== compositionId),
+  };
+  const references = [
+    ...(project.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION
+      ? compositionPropertyReferencesInProject(other)
+      : []),
+    ...(project.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION
+      ? qualifiedColorReferencesInProject(other)
+      : []),
+    ...(project.schemaVersion >= COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION
+      ? componentCompositionReferencesInProject(other)
+      : []),
+  ];
+  return references.some((ref) => ref.compositionId === compositionId);
+}
+function dispatchCompositionDeletion(command) {
+  const owner = session,
+    previousActive = owner.activeCompositionId,
+    before = history.entryToken,
+    currentView = saveCompositionViewState();
+  const result = owner.dispatch(command);
+  let graphScroll = null;
+  if (result.changed) {
+    const id = result.deletedCompositionId;
+    const view = id === previousActive ? currentView : compositionViewStates.snapshot(id);
+    rememberDeletedComposition(before, history.entryToken, id, view);
+    if (owner.activeCompositionId !== previousActive) {
+      resetTransient();
+      compositionViewStates.prune(owner.projectSnapshot().compositions);
+      graphScroll = restoreCompositionViewState();
+    } else compositionViewStates.prune(owner.projectSnapshot().compositions);
+  }
+  return { result, graphScroll };
+}
+function deleteCompositionDialog() {
+  if (compositionActionBusy())
+    throw Error('Finish or cancel the current edit before deleting a composition');
+  const owner = session,
+    envelope = owner.state,
+    projectRevision = owner.projectRevision,
+    generation = documents.generation,
+    project = owner.projectSnapshot(),
+    compositionId = owner.activeCompositionId,
+    target = project.compositions.find((item) => item.id === compositionId);
+  if (!target) throw Error('Composition is unavailable');
+  if (project.compositions.length < 2) throw Error('Cannot delete the last Composition');
+  const dialog = document.createElement('dialog');
+  dialog.className = 'composition-delete-dialog';
+  dialog.setAttribute('aria-labelledby', 'composition-delete-heading');
+  dialog.innerHTML =
+    '<form><h3 id="composition-delete-heading">Delete composition?</h3><p data-composition-name></p><p data-composition-identity hidden></p><p data-composition-references hidden>References in other compositions may become unavailable.</p><output role="alert"></output><footer><button type="button" data-cancel>Cancel</button><button type="submit">Delete</button></footer></form>';
+  const name = dialog.querySelector('[data-composition-name]'),
+    identity = dialog.querySelector('[data-composition-identity]'),
+    status = dialog.querySelector('[role="alert"]');
+  name.textContent = target.name || '(unnamed)';
+  name.title = target.name;
+  identity.hidden = project.compositions.filter((item) => item.name === target.name).length < 2;
+  identity.textContent = `ID · ${target.id}`;
+  dialog.querySelector('[data-composition-references]').hidden = !compositionHasExternalReferences(
+    project,
+    compositionId,
+  );
+  let committed = false,
+    graphScroll = null;
+  dialog.querySelector('[data-cancel]').addEventListener('click', () => dialog.close());
+  dialog.querySelector('form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (event.isComposing || composing) return;
+    try {
+      if (
+        session !== owner ||
+        documents.generation !== generation ||
+        owner.projectRevision !== projectRevision ||
+        owner.state.sessionId !== envelope.sessionId ||
+        owner.state.expectedRevision !== envelope.expectedRevision ||
+        compositionActionBusy(dialog)
+      )
+        throw Error('Project changed. Close and reopen delete.');
+      const outcome = dispatchCompositionDeletion({
+        ...envelope,
+        type: 'delete-composition',
+        payload: {
+          compositionId,
+          expectedName: target.name,
+          expectedProjectRevision: projectRevision,
+        },
+      });
+      committed = outcome.result.changed;
+      graphScroll = outcome.graphScroll;
+      dialog.close();
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+  dialog.addEventListener('close', () => {
+    dialog.remove();
+    if (committed) {
+      render(false, null, graphScroll);
+      updateDocumentStatus();
+      notify('Composition deleted');
+    }
+    if (
+      session !== owner ||
+      documents.generation !== generation ||
+      (!committed &&
+        (owner.projectRevision !== projectRevision ||
+          owner.state.sessionId !== envelope.sessionId ||
+          owner.state.expectedRevision !== envelope.expectedRevision))
+    )
+      return;
+    const tab = [...app.querySelectorAll('[role="tab"][data-active-composition]')].find(
+      (item) => item.dataset.activeComposition === owner.activeCompositionId,
+    );
+    if (tab) focusCompositionTab(owner.activeCompositionId);
+    else app.querySelector('header .command-menu > summary')?.focus({ preventScroll: true });
+  });
+  document.body.append(dialog);
+  dialog.showModal();
+  dialog.querySelector('[data-cancel]').focus();
 }
 function download(text, name, type) {
   const a = document.createElement('a'),
@@ -9976,6 +10150,15 @@ app.addEventListener('click', async (e) => {
   if (d.action === 'rename-composition') {
     try {
       renameCompositionDialog();
+    } catch (error) {
+      notify(error.message, true);
+    }
+    return;
+  }
+  if (d.action === 'delete-composition') {
+    if (b.disabled) return;
+    try {
+      deleteCompositionDialog();
     } catch (error) {
       notify(error.message, true);
     }
@@ -17177,6 +17360,11 @@ window.nect = {
     return session.projectRevision;
   },
   dispatch(command) {
+    if (command.type === 'delete-composition') {
+      const { result, graphScroll } = dispatchCompositionDeletion(command);
+      render(false, null, graphScroll);
+      return result;
+    }
     const result = session.dispatch(command);
     if (!['begin-text-draft', 'stage-text-draft', 'cancel-text-draft'].includes(command.type))
       render();

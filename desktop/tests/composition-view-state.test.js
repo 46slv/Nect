@@ -66,6 +66,10 @@ test('Composition view snapshots stay isolated by stable Composition ID', () => 
   assert.equal(store.restore('composition-a', a, defaults('a')).graphFitInset, 25);
   assert.equal(store.restore('composition-a', a, defaults('a')).selectedGuide, 'guide-a');
   assert.equal(store.restore('composition-b', b, defaults('b')).zoom, 0.75);
+  const savedView = store.snapshot('composition-a');
+  savedView.pan[0] = 999;
+  assert.deepEqual(store.snapshot('composition-a').pan, [-32, 18]);
+  assert.equal(store.snapshot('missing'), null);
   const oldView = defaults('b');
   delete oldView.graphFitInset;
   store.save('old-view', oldView);

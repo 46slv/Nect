@@ -250,4 +250,78 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
       assert.equal(win.openStateForTest().activeLayer, circle);
     },
   );
+
+  await t.test(
+    'prepared Composition deletion retains the latest per-Composition selection',
+    async () => {
+      const document = blankDocument(),
+        texts = Array.from({ length: 8 }, (_, i) => {
+          const text = node('Text', 100 + i * 20, 40);
+          Object.assign(text, {
+            font: asset.id,
+            text: String.fromCharCode(65 + i),
+            variation: { version: 1, fontId: asset.id, axes: {} },
+          });
+          return text;
+        });
+      document.fontAssets = { [asset.id]: asset.asset };
+      document.layers[0].nodes.push(...texts);
+      document.layers[0].nodes[0].params.path.source = texts[0].id;
+      await win.openForTest(migrateLegacyDocumentToCompositionProject(document));
+      const root = win.document,
+        click = (selector) => {
+          const element = root.querySelector(selector);
+          assert.ok(element, selector);
+          element.click();
+        },
+        waitFor = async (predicate) => {
+          const deadline = Date.now() + 15000;
+          while (!predicate()) {
+            if (Date.now() >= deadline) throw Error('Variable-font test timed out');
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+        };
+      const first = win.nect.activeCompositionId;
+      click('[data-tool="Circle"]');
+      const firstCircle = win.nect.document.layers.at(-1).id;
+      click('[data-tool="Rectangle"]');
+      const firstRectangle = win.nect.document.layers.at(-1).id;
+      click('[data-action="add-composition"]');
+      const second = win.nect.activeCompositionId;
+      click('[data-tool="Circle"]');
+      const secondCircle = win.nect.document.layers.at(-1).id;
+      click('[data-tool="Rectangle"]');
+      const secondRectangle = win.nect.document.layers.at(-1).id;
+      openDOMPanel(root, 'layers');
+      click(`[data-select-layer="${secondCircle}"]`);
+      click(`[role="tab"][data-active-composition="${first}"]`);
+      click(`[data-select-layer="${firstCircle}"]`);
+      const targetName = win.nect.compositions.find((item) => item.id === second).name;
+      win.nect.dispatch({
+        ...win.nect.commandState,
+        type: 'delete-composition',
+        payload: {
+          compositionId: second,
+          expectedName: targetName,
+          expectedProjectRevision: win.nect.projectRevision,
+        },
+      });
+      assert.equal(win.nect.compositions.length, 1);
+      click('[data-action="undo"]');
+      assert.equal(win.variableBusyForTest(), true);
+      click(`[data-select-layer="${firstRectangle}"]`);
+      await waitFor(() => !win.variableBusyForTest() && win.nect.compositions.length === 2);
+      assert.equal(win.openStateForTest().activeLayer, firstRectangle);
+      click(`[role="tab"][data-active-composition="${second}"]`);
+      assert.equal(win.openStateForTest().activeLayer, secondCircle);
+      click('[data-action="redo"]');
+      assert.equal(win.variableBusyForTest(), true);
+      click(`[data-select-layer="${secondRectangle}"]`);
+      await waitFor(() => !win.variableBusyForTest() && win.nect.compositions.length === 1);
+      click('[data-action="undo"]');
+      await waitFor(() => !win.variableBusyForTest() && win.nect.compositions.length === 2);
+      click(`[role="tab"][data-active-composition="${second}"]`);
+      assert.equal(win.openStateForTest().activeLayer, secondRectangle);
+    },
+  );
 });

@@ -347,6 +347,14 @@ test('Composition deletion is dangling and import with one or both referenced Co
   assert.throws(() => read(owner), /missing/i);
   send(owner, 'undo');
   assert.equal(read(owner), 7);
+  send(owner, 'delete-composition', {
+    compositionId: 'comp-b',
+    expectedName: 'Source',
+    expectedProjectRevision: owner.projectRevision,
+  });
+  assert.throws(() => read(owner), /missing/i);
+  send(owner, 'undo');
+  assert.equal(read(owner), 7);
 });
 
 test('v62 opaque syntax is preserved by wrapper but blocks promotion even on connected or unsupported descriptors', () => {
