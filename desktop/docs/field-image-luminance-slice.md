@@ -24,3 +24,5 @@ published on failure. No implicit re-sampling or Space conversion occurs.
 The legacy Luminance node remains unchanged. This slice is not yet connected
 to a production node, project serialization, Image Color Field, or the complete
 Grid/Luminance/Instance user workflow.
+
+Numeric scope: affine centers compensate addition of the rounded products and translation; this is not exact real arithmetic for arbitrary products. Footprint overlap uses the supplied center and full basis, with addition residuals only to conservatively locate candidate pixel indices. Absolute endpoints need not each fit a single Number. The exact traversed candidate ranges are budgeted; an empty clipped dimension returns white without traversing rows. Nonfinite/collapsed endpoint ranges and spans that cannot be halved exactly (odd subnormal spans) reject. Center-relative subtraction still follows Number precision for very distant large footprints; no general exact-overlap guarantee is introduced.

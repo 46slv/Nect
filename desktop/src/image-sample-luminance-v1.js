@@ -77,6 +77,29 @@ function imageBytes(value, expectedLength) {
   return typedArrayByteLength.call(value) === expectedLength ? value : null;
 }
 
+// Remainder of finite Number addition; products are still ordinary Numbers.
+function additionRemainder(a, b, sum) {
+  const virtualB = sum - a;
+  return a - (sum - virtualB) + (b - virtualB);
+}
+
+function affineCoordinate(a, x, b, y, translation) {
+  const first = a * x,
+    second = b * y,
+    partial = first + second,
+    total = partial + translation;
+  return (
+    total +
+    (additionRemainder(first, second, partial) + additionRemainder(partial, translation, total))
+  );
+}
+
+function clippedIndex(bound, remainder, limit, upper) {
+  let index = upper ? Math.ceil(bound) : Math.floor(bound);
+  if (Number.isInteger(bound) && (upper ? remainder > 0 : remainder < 0)) index += upper ? 1 : -1;
+  return Math.max(0, Math.min(limit, index));
+}
+
 function rectangle(centerInput, basisInput, matrix, width, height) {
   const center = finiteArray(centerInput, 2),
     basis = captureArray(basisInput, 2),
@@ -89,8 +112,8 @@ function rectangle(centerInput, basisInput, matrix, width, height) {
     d = matrix[3],
     e = matrix[4],
     f = matrix[5],
-    x = a * center[0] + c * center[1] + e,
-    y = b * center[0] + d * center[1] + f,
+    x = affineCoordinate(a, center[0], c, center[1], e),
+    y = affineCoordinate(b, center[0], d, center[1], f),
     ux = a * u[0] + c * u[1],
     uy = b * u[0] + d * u[1],
     vx = a * v[0] + c * v[1],
@@ -104,21 +127,31 @@ function rectangle(centerInput, basisInput, matrix, width, height) {
     )
   )
     throw Error(`${LABEL} supports only nondegenerate axis-aligned image footprints`);
-  const halfWidth = (Math.abs(ux) + Math.abs(vx)) / 2,
-    halfHeight = (Math.abs(uy) + Math.abs(vy)) / 2,
+  const spanX = Math.abs(ux) + Math.abs(vx),
+    spanY = Math.abs(uy) + Math.abs(vy),
+    halfWidth = spanX / 2,
+    halfHeight = spanY / 2,
     minX = x - halfWidth,
     maxX = x + halfWidth,
     minY = y - halfHeight,
     maxY = y + halfHeight,
-    spanX = maxX - minX,
-    spanY = maxY - minY;
-  if (![minX, maxX, minY, maxY, spanX, spanY].every(Number.isFinite) || spanX <= 0 || spanY <= 0)
+    extentX = maxX - minX,
+    extentY = maxY - minY;
+  if (
+    ![minX, maxX, minY, maxY, spanX, spanY, extentX, extentY].every(Number.isFinite) ||
+    extentX <= 0 ||
+    extentY <= 0 ||
+    halfWidth * 2 !== spanX ||
+    halfHeight * 2 !== spanY
+  )
     throw Error(`${LABEL} footprint exceeds finite representable coordinates`);
-  const x0 = Math.floor(Math.max(0, Math.min(width, minX))),
-    x1 = Math.ceil(Math.max(0, Math.min(width, maxX))),
-    y0 = Math.floor(Math.max(0, Math.min(height, minY))),
-    y1 = Math.ceil(Math.max(0, Math.min(height, maxY)));
-  return { minX, maxX, minY, maxY, spanX, spanY, x0, x1, y0, y1 };
+  // Keep boundary residuals for conservative candidate indices, but integrate
+  // the original center/full basis instead of the rounded absolute endpoints.
+  const x0 = clippedIndex(minX, additionRemainder(x, -halfWidth, minX), width, false),
+    x1 = clippedIndex(maxX, additionRemainder(x, halfWidth, maxX), width, true),
+    y0 = clippedIndex(minY, additionRemainder(y, -halfHeight, minY), height, false),
+    y1 = clippedIndex(maxY, additionRemainder(y, halfHeight, maxY), height, true);
+  return { x, y, halfWidth, halfHeight, spanX, spanY, x0, x1, y0, y1 };
 }
 
 function linearize(byte) {
@@ -131,14 +164,23 @@ function clampUnit(value) {
 }
 
 function sampleRectangle(rect, bytes, width) {
+  if (rect.x0 === rect.x1 || rect.y0 === rect.y1) return 1;
   let red = 0,
     green = 0,
     blue = 0,
     alpha = 0;
   for (let y = rect.y0; y < rect.y1; y++) {
-    const wy = (Math.min(y + 1, rect.maxY) - Math.max(y, rect.minY)) / rect.spanY;
+    const wy =
+      Math.max(
+        0,
+        Math.min(rect.halfHeight, y + 1 - rect.y) - Math.max(-rect.halfHeight, y - rect.y),
+      ) / rect.spanY;
     for (let x = rect.x0; x < rect.x1; x++) {
-      const wx = (Math.min(x + 1, rect.maxX) - Math.max(x, rect.minX)) / rect.spanX,
+      const wx =
+          Math.max(
+            0,
+            Math.min(rect.halfWidth, x + 1 - rect.x) - Math.max(-rect.halfWidth, x - rect.x),
+          ) / rect.spanX,
         offset = (y * width + x) * 4,
         weightedAlpha = wx * wy * (bytes[offset + 3] / 255);
       alpha += weightedAlpha;

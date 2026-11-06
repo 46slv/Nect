@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { evaluateImageSampleLuminanceV1 } from '../src/image-sample-luminance-v1.js';
 import { encodeRgbaPng } from '../src/image-keyer.js';
 import { copyImageRgba } from '../src/image-luminance-field.js';
@@ -324,4 +325,217 @@ test('data accessors reject without executing; unrepresentable transformed geome
   assert.equal(calls, 0);
   const far = { ...data, footprint: { ...data.footprint, centers: [[1e308, 0]] } };
   assert.throws(() => evaluateImageSampleLuminanceV1(descriptor(), far), /representable/);
+});
+
+test('empty horizontal intersections consume no sample row work at a zero pixel budget', async () => {
+  const anchor = 'for (let y = rect.y0; y < rect.y1; y++) {';
+  const source = readFileSync(
+    new URL('../src/image-sample-luminance-v1.js', import.meta.url),
+    'utf8',
+  );
+  assert.equal(source.split(anchor).length, 2);
+  // Instrument a private in-memory module, never the production module or global Math.
+  const instrumented =
+    'let sampledRows = 0;\n' +
+    source.replace(anchor, anchor + ' sampledRows++;') +
+    '\nexport const sampledRowCount = () => sampledRows;';
+  const counted = await import(
+    'data:text/javascript;base64,' + Buffer.from(instrumented).toString('base64')
+  );
+  for (const x of [-1, 2]) {
+    const data = request(
+      1,
+      1000,
+      new Uint8Array(4000),
+      Array.from({ length: 3 }, () => [x, 500]),
+      Array.from({ length: 3 }, () => [
+        [1, 0],
+        [0, 1000],
+      ]),
+      0,
+    );
+    const before = structuredClone(data);
+    assert.deepEqual(counted.evaluateImageSampleLuminanceV1(descriptor(), data).values, [1, 1, 1]);
+    assert.deepEqual(
+      counted.evaluateImageSampleLuminanceV1(descriptor('darkness'), data).values,
+      [0, 0, 0],
+    );
+    assert.deepEqual(data, before);
+  }
+  assert.equal(counted.sampledRowCount(), 0);
+});
+
+test('symmetric tiny footprints keep their full basis coverage at pixel boundaries', () => {
+  const pixels = new Uint8Array([0, 0, 0, 255, 255, 255, 255, 255]);
+  for (const width of [2 ** -52, 3 * 2 ** -52, 2 ** -51]) {
+    for (const basis of [
+      [
+        [width, 0],
+        [0, 1],
+      ],
+      [
+        [-width, 0],
+        [0, 1],
+      ],
+      [
+        [0, 1],
+        [width, 0],
+      ],
+    ]) {
+      const data = request(2, 1, pixels, [[1, 0.5]], [basis]);
+      close(evaluateImageSampleLuminanceV1(descriptor(), data).values[0], 0.5);
+      close(evaluateImageSampleLuminanceV1(descriptor('darkness'), data).values[0], 0.5);
+      assert.throws(
+        () => evaluateImageSampleLuminanceV1(descriptor(), { ...data, maxPixelVisits: 1 }),
+        /pixel-visit budget/,
+      );
+    }
+    const vertical = request(
+      1,
+      2,
+      pixels,
+      [[0.5, 1]],
+      [
+        [
+          [1, 0],
+          [0, width],
+        ],
+      ],
+    );
+    close(evaluateImageSampleLuminanceV1(descriptor(), vertical).values[0], 0.5);
+  }
+});
+
+test('tiny boundary footprints retain transparent outside support without a tolerance or extra visits', () => {
+  const black = new Uint8Array([0, 0, 0, 255]);
+  for (const width of [2 ** -52, 3 * 2 ** -52, 2 ** -51]) {
+    for (const x of [0, 1]) {
+      const data = request(
+        1,
+        1,
+        black,
+        [[x, 0.5]],
+        [
+          [
+            [width, 0],
+            [0, 1],
+          ],
+        ],
+        1,
+      );
+      close(evaluateImageSampleLuminanceV1(descriptor(), data).values[0], 0.5);
+    }
+    for (const y of [0, 1]) {
+      const data = request(
+        1,
+        1,
+        black,
+        [[0.5, y]],
+        [
+          [
+            [1, 0],
+            [0, width],
+          ],
+        ],
+        1,
+      );
+      close(evaluateImageSampleLuminanceV1(descriptor(), data).values[0], 0.5);
+    }
+  }
+});
+
+test('affine cancellation preserves a representable center and its exact pixel budget', () => {
+  const rgba = new Uint8Array(36);
+  for (let y = 0; y < 3; y++)
+    for (let x = 0; x < 3; x++) {
+      const channel = x === 1 ? 255 : 0;
+      rgba.set([channel, channel, channel, 255], (y * 3 + x) * 4);
+    }
+  const field = descriptor();
+  field.transform.matrix = [1, 0, 1, 1, -(2 ** 53), 0];
+  const data = request(
+    3,
+    3,
+    rgba,
+    [[2 ** 53, 1.5]],
+    [
+      [
+        [1, 0],
+        [-1, 1],
+      ],
+    ],
+  );
+  const before = structuredClone(data);
+  close(evaluateImageSampleLuminanceV1(field, data).values[0], 1);
+  close(evaluateImageSampleLuminanceV1(field, { ...data, maxPixelVisits: 1 }).values[0], 1);
+  assert.deepEqual(data, before);
+});
+
+test('ordinary decimal footprints remain valid while complete coordinate collapse still rejects', () => {
+  const opaqueWhite = new Uint8Array([255, 255, 255, 255]);
+  for (const center of [0.1, 0.3, 0.7]) {
+    const data = request(
+      1,
+      1,
+      opaqueWhite,
+      [[center, center]],
+      [
+        [
+          [0.2, 0],
+          [0, 0.2],
+        ],
+      ],
+    );
+    close(evaluateImageSampleLuminanceV1(descriptor(), data).values[0], 1);
+  }
+  const collapsed = request(
+    1,
+    1,
+    opaqueWhite,
+    [[2, 0.5]],
+    [
+      [
+        [2 ** -52, 0],
+        [0, 1],
+      ],
+    ],
+  );
+  assert.throws(() => evaluateImageSampleLuminanceV1(descriptor(), collapsed), /representable/);
+});
+
+test('subnormal full spans require exact halves before footprint evaluation', () => {
+  const black = new Uint8Array([0, 0, 0, 255]);
+  for (const factor of [1, 3, 5, 7]) {
+    const width = factor * Number.MIN_VALUE;
+    const data = request(
+      1,
+      1,
+      black,
+      [[0, 0.5]],
+      [
+        [
+          [width, 0],
+          [0, 1],
+        ],
+      ],
+      1,
+    );
+    assert.throws(() => evaluateImageSampleLuminanceV1(descriptor(), data), /representable/);
+  }
+  for (const factor of [2, 4, 6, 8]) {
+    const data = request(
+      1,
+      1,
+      black,
+      [[0, 0.5]],
+      [
+        [
+          [factor * Number.MIN_VALUE, 0],
+          [0, 1],
+        ],
+      ],
+      1,
+    );
+    close(evaluateImageSampleLuminanceV1(descriptor(), data).values[0], 0.5);
+  }
 });
