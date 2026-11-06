@@ -20,11 +20,14 @@ nodes, with a visible notice. Pasting into another Composition requires those
 input/reference sources to be included in Copy. Otherwise Paste refuses and
 asks to copy the sources too. It never reconnects to a similar name or ID.
 
-An expression that references another Artwork can be pasted within its original
-Artwork, retaining its source. If that source layer, node or Curve point is
+An expression that references a numeric or Color property in another Artwork can
+be pasted within its original Artwork, retaining its source. Color references
+require a destination already at schema 64 or later and do not create shared
+Color bindings. If that source layer, node or Curve point is
 missing or replaced after Copy, restore it and Copy again; the same ID appearing
 later does not silently revive the clipboard reference. Pasting these nodes into
-another Artwork is currently refused.
+another Artwork and copying references to another outer Composition are currently
+refused.
 
 Embedded Image/font assets and SVG/Composition Reference targets stay shared
 by their exact same-document identities. Missing/changed assets, missing source
