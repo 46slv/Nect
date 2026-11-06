@@ -1393,6 +1393,7 @@ document.addEventListener(
   },
   true,
 );
+let closeFinalizing = false;
 const sessionOptions = {
   fonts: activeFonts,
   onCommitted: (state) => {
@@ -1419,6 +1420,7 @@ const sessionOptions = {
   // captures a gesture snapshot. Only its started phase owns an authored edit.
   busy: () =>
     !!(
+      closeFinalizing ||
       penDraft ||
       (drag && !drag.reservingGesture && (drag.type !== 'numeric' || drag.started)) ||
       wiring ||
@@ -1514,11 +1516,13 @@ const documents = new DocumentLifecycle({
   choose: chooseUnsaved,
   hasDraft: () =>
     !!(
+      closeFinalizing ||
       penDraft ||
       drag ||
       wiring ||
       composing ||
       session.hasTextComposition ||
+      session.hasChangedTextDrafts ||
       session.hasGesture ||
       keyColorRecipePanel.editing ||
       [...textDrafts.values()].some((draft) => draft.state.changed) ||
@@ -9450,6 +9454,7 @@ function replaceDocument(
   next,
   { binding = null, saved = false, preparedBridge = null, activeCompositionId = null } = {},
 ) {
+  if (closeFinalizing) throw Error('Close is finishing');
   const project = asCompositionProject(next);
   activeCompositionId ??= project.compositions[0].id;
   // Validate every Composition before retiring the current document's view state.
@@ -11079,6 +11084,7 @@ app.addEventListener('click', async (e) => {
         dialog.innerHTML = `<h3>Color expression</h3><input aria-label="Parameter expression" autocomplete="off" spellcheck="false" placeholder="value"><p><button data-insert-reference>Insert Color reference…</button></p><p><button data-confirm>Apply</button> <button data-cancel>Cancel</button></p>`;
       const input = dialog.querySelector('input');
       input.value = q.expression || '';
+      input.defaultValue = input.value;
       if (q.type === 'Color')
         dialog.querySelector('[data-insert-reference]').textContent = 'Insert reference…';
       const expressionOwner = session,
@@ -17394,12 +17400,83 @@ window.addEventListener('beforeunload', (e) => {
   }
 });
 render();
-registerClose(async () => {
+function closeHasPendingEdits() {
+  const pointNode = pointDeltaDraft && current().nodes.find((n) => n.id === pointDeltaDraft.nodeId),
+    points = pointNode ? selectedPointIds(pointNode) : [],
+    input = document.activeElement,
+    expression = document.querySelector('dialog[open] input[aria-label="Parameter expression"]');
+  return !!(
+    documents.hasDraft() ||
+    sharedColors.editing ||
+    variableAction ||
+    nameEdit ||
+    layoutDraft ||
+    gridOpacityDraft ||
+    (expression && expression.value !== expression.defaultValue) ||
+    (points.length &&
+      (selected === pointNode.id || !pointNode.collapsed) &&
+      pointDeltaMatches(pointNode.id, points)) ||
+    (input?.matches?.(
+      'input[type="number"], input[data-numeric-expression], input[data-expression], .shared-colors-panel [data-shared-color-edit]',
+    ) &&
+      input.value !== input.defaultValue)
+  );
+}
+registerClose(async (finishClose) => {
   try {
-    const canClose = await documents.guard('closing Nect');
+    let approved;
+    if (closeHasPendingEdits()) throw Error('Finish or cancel the active edit before closing.');
+    const canClose = await documents.guard('closing Nect', {
+      onApproved: () => {
+        if (closeHasPendingEdits()) throw Error('Finish or cancel the active edit before closing.');
+        approved = {
+          owner: session,
+          generation: documents.generation,
+          operation: documents.operation,
+          projectRevision: session.projectRevision,
+          envelope: session.state,
+        };
+      },
+    });
     updateDocumentStatus();
-    if (canClose) await recovery?.flush();
-    return canClose;
+    if (!canClose) return false;
+    await recovery?.flush();
+    const state = session.state,
+      pendingEdit = closeHasPendingEdits();
+    if (
+      session !== approved.owner ||
+      documents.generation !== approved.generation ||
+      documents.operation !== approved.operation ||
+      documents.saving ||
+      documents.transitioning ||
+      session.projectRevision !== approved.projectRevision ||
+      state.sessionId !== approved.envelope.sessionId ||
+      state.expectedRevision !== approved.envelope.expectedRevision ||
+      pendingEdit
+    ) {
+      notify(
+        pendingEdit
+          ? 'Finish or cancel the active edit before closing.'
+          : 'Document changed. Close again.',
+        true,
+      );
+      return false;
+    }
+    // Keep the UI and public command entry points closed until the native
+    // destroy request completes or fails. A failed request releases them.
+    closeFinalizing = true;
+    const wasInert = document.body.inert,
+      previousFocus = document.activeElement;
+    document.body.inert = true;
+    try {
+      await finishClose();
+    } finally {
+      document.body.inert = wasInert;
+      closeFinalizing = false;
+      if (!wasInert && previousFocus?.isConnected && previousFocus !== document.body)
+        previousFocus.focus({ preventScroll: true });
+    }
+    return true;
   } catch (error) {
     notify(error.message, true);
     return false;
@@ -17466,6 +17543,7 @@ window.nect = {
     return session.projectRevision;
   },
   dispatch(command) {
+    if (closeFinalizing) throw Error('Close is finishing');
     const authority = captureCompositionDeletionAuthority();
     const type = command.type;
     if (type === 'delete-composition') {
@@ -17529,6 +17607,7 @@ window.nect = {
   },
   projectSnapshot: () => session.projectSnapshot(),
   load(text) {
+    if (closeFinalizing) throw Error('Close is finishing');
     const project = deserializeProject(text),
       activeDocument = activeCompositionDocument(project, project.compositions[0].id);
     if (hasVariableFonts(activeDocument))

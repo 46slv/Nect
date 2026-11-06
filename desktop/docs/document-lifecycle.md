@@ -2,6 +2,8 @@
 
 Implemented on the imported Nect-SVG107a154 snapshot: file tokens and byte-accurate external-change refusal, Save versus Save As, saved snapshot/revision tracking, stale-save refusal, Save/Discard/Cancel transitions, titlebar Close, and separate history on New/Open. SVG Import remains undoable and clears the file binding. Export does not mark the project saved. Pen/gesture/IME drafts must be finished or cancelled before a document transition.
 
+Native Close owns one attempt through the final destroy request. Its approval is bound to the current project, session, revision and save operation; after recovery flush it refuses an intervening edit, draft, replacement or save. An approved Discard still applies to its unchanged dirty snapshot. During the final IPC handoff the UI and command entry points cannot start edits; failure restores input and permits retry. The controlled-IPC browser regression exercises this handoff; native titlebar operation on the current build remains a separate acceptance.
+
 Native verification on SHIRO-WS, Windows10.0.26200.9457, WebView2, 2026-10-16:
 
 - Owned executable: desktop/src-tauri/target/debug/nect-svg-desktop.exe, built offline with custom-protocol and locked Cargo dependencies. Rust1.99.1 toolchain is in ignored build-desktop-tools; user PATH/settings unchanged.

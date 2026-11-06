@@ -7219,6 +7219,11 @@ export class CommandSession {
   get hasTextDrafts() {
     return this.#textDrafts.size > 0;
   }
+  get hasChangedTextDrafts() {
+    return [...this.#textDrafts.values()].some(
+      (draft) => draft.revision === this.#history.revision && draft.state.changed,
+    );
+  }
   get hasGesture() {
     return this.#gesture !== null;
   }

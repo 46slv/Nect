@@ -89,8 +89,21 @@ export async function chooseUnsaved(action) {
 export async function registerClose(handler) {
   if (!desktop) return;
   const channel = new Channel();
+  let pending = false;
   channel.onmessage = async () => {
-    if (await handler()) await invoke('finish_close');
+    if (pending) return;
+    pending = true;
+    let finishing = false;
+    const finish = async () => {
+      if (finishing) throw Error('Close is already finishing');
+      finishing = true;
+      await invoke('finish_close');
+    };
+    try {
+      if ((await handler(finish)) && !finishing) await finish();
+    } finally {
+      pending = false;
+    }
   };
   await invoke('enable_close_guard', { channel });
 }
