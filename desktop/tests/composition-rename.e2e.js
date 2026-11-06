@@ -43,6 +43,52 @@ try {
   await page.waitForFunction(() => typeof window.nect?.load === 'function');
   const single = await snapshot();
 
+  // Closing must finish its own focus/render work before accepting the next
+  // tab navigation. Exercise the real handlers in one browser task so a queued
+  // native close event cannot silently steal that newer focus afterward.
+  await page.evaluate((text) => window.nect.load(text), serialized);
+  for (const route of ['unchanged', 'cancel-button', 'cancel-event', 'rename']) {
+    await activateCommand(page, 'rename-composition');
+    if (route === 'rename') await input().fill('Closed synchronously');
+    const closing = await page.evaluate(async (route) => {
+      const dialog = document.querySelector('.composition-rename-dialog[open]');
+      const closed = new Promise((resolve, reject) => {
+        const deadline = setTimeout(() => reject(Error('Rename close event did not arrive')), 5000);
+        dialog.addEventListener(
+          'close',
+          () => {
+            clearTimeout(deadline);
+            queueMicrotask(resolve);
+          },
+          { once: true },
+        );
+      });
+      if (route === 'cancel-button') dialog.querySelector('[data-cancel]').click();
+      else if (route === 'cancel-event')
+        dialog.dispatchEvent(new Event('cancel', { cancelable: true }));
+      else dialog.querySelector('button[type="submit"]').click();
+      const closedAtReturn = !dialog.open;
+      const restoredAtReturn = document.activeElement?.dataset.activeComposition;
+      document.activeElement.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+      );
+      const navigated = document.activeElement?.dataset.activeComposition;
+      await closed;
+      return {
+        closedAtReturn,
+        restoredAtReturn,
+        navigated,
+        settled: document.activeElement?.dataset.activeComposition,
+      };
+    }, route);
+    assert.deepEqual(
+      closing,
+      { closedAtReturn: true, restoredAtReturn: 'first', navigated: 'second', settled: 'second' },
+      route,
+    );
+    assert.equal(await page.evaluate(() => window.nect.activeCompositionId), 'first');
+  }
+
   // Opening the Project menu must not finish an unrelated live Pen path.
   await page.evaluate((text) => window.nect.load(text), serialized);
   await page.evaluate(() => {
