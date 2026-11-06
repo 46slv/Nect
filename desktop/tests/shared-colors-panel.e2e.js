@@ -71,8 +71,15 @@ const field = () =>
 const binding = () => field().locator('[data-shared-color-binding]');
 const row = (id) => page.locator(`[data-shared-color-row="${id}"]`);
 const change = async (locator, value) => {
+  const changedName =
+    (await locator.getAttribute('data-shared-color-edit')) === 'name' &&
+    (await locator.inputValue()) !== String(value);
+  const original = changedName ? await locator.elementHandle() : null;
   await locator.fill(String(value));
   await locator.press('Tab');
+  // A keyboard rename renders after Tab has moved focus. Wait until that
+  // replacement completes before the next synthetic change event.
+  if (original) await page.waitForFunction((element) => !element.isConnected, original);
 };
 const shapeHasColor = (hex, alpha) =>
   page.waitForFunction(

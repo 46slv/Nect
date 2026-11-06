@@ -80,3 +80,35 @@ test('workspace panel focus restores only the same visible section after replace
   assert.notEqual(win.document.activeElement, root.querySelector('#workspace-panel-inspector'));
   win.happyDOM.abort();
 });
+
+test('shared color action focus follows its stable row and falls back to a visible filter', () => {
+  const win = new Window(),
+    root = win.document.body;
+  const markup = (label, hidden = '') => `<div class="shared-colors-panel">
+    <input data-shared-color-filter aria-label="Find saved colors">
+    <div data-shared-color-row="a"><button data-shared-color-copy-toggle aria-label="Color actions for same">Actions</button></div>
+    <div data-shared-color-row="b" ${hidden}><button data-shared-color-copy-toggle aria-label="Color actions for ${label}">Actions</button></div>
+  </div>`;
+  root.innerHTML = markup('same');
+  root.querySelector('[data-shared-color-row="b"] button').focus();
+  const state = captureFocus(root);
+  root.innerHTML = markup('renamed');
+  restoreFocus(root, state);
+  assert.equal(
+    win.document.activeElement,
+    root.querySelector('[data-shared-color-row="b"] button'),
+  );
+
+  root.innerHTML = markup('renamed', 'hidden');
+  restoreFocus(root, state);
+  assert.equal(win.document.activeElement, root.querySelector('[data-shared-color-filter]'));
+  root.querySelector('[data-shared-color-filter]').hidden = true;
+  root.querySelector('[data-shared-color-filter]').blur();
+  restoreFocus(root, state);
+  assert.notEqual(win.document.activeElement, root.querySelector('[data-shared-color-filter]'));
+  assert.notEqual(
+    win.document.activeElement,
+    root.querySelector('[data-shared-color-row="a"] button'),
+  );
+  win.happyDOM.abort();
+});
