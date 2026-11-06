@@ -936,6 +936,7 @@ import {
   outputPorts,
   vectorReferenceTargets,
   expressionReferenceTargets,
+  expressionReferenceTargetsForDocument,
   previewColorExpression,
   referenceTarget,
   socketCompatibleFor,
@@ -4366,11 +4367,16 @@ function colorDraftValidity(input, nodeId, key) {
   input.title = error || 'Color expression';
   return !error;
 }
-function editorExpressionTargets(nodeId, type) {
+function authoredExpressionTargets(nodeId, type, targetKey) {
+  const layer = current();
+  if (penDraft?.layer === layer) return expressionReferenceTargets(layer, nodeId, type);
+  return expressionReferenceTargetsForDocument(history.doc, layer.id, nodeId, type, targetKey);
+}
+function editorExpressionTargets(nodeId, type, targetKey) {
   const display = expressionTargetDisplay(history.doc, current().id);
   return [
-    ...expressionReferenceTargets(current(), nodeId, type),
-    ...(type === 'Color' ? expressionReferenceTargets(current(), nodeId) : []),
+    ...authoredExpressionTargets(nodeId, type, targetKey),
+    ...(type === 'Color' ? authoredExpressionTargets(nodeId, 'Scalar', targetKey) : []),
   ].map(display.completion);
 }
 function transformUniformScale(n) {
@@ -10565,6 +10571,18 @@ app.addEventListener('click', async (e) => {
       expressionStatus.setAttribute('role', 'alert');
       expressionStatus.hidden = true;
       dialog.querySelector('[data-confirm]').parentElement.before(expressionStatus);
+      const expressionIsCurrent = () =>
+        session === expressionOwner &&
+        documents.generation === expressionGeneration &&
+        session.projectRevision === expressionRevision &&
+        session.activeCompositionId === expressionComposition &&
+        current().id === payload.layerId &&
+        session.state.sessionId === expressionEnvelope.sessionId &&
+        session.state.expectedRevision === expressionEnvelope.expectedRevision;
+      const showStaleExpression = () => {
+        expressionStatus.textContent = 'Document changed. Close and reopen the expression editor.';
+        expressionStatus.hidden = false;
+      };
       if (q.type === 'Color') {
         const check = (event) => {
           if (!event?.isComposing) colorDraftValidity(input, nn.id, f.dataset.key);
@@ -10575,7 +10593,7 @@ app.addEventListener('click', async (e) => {
       }
       const completion = attachExpressionCompletion(
         input,
-        () => editorExpressionTargets(nn.id, q.type),
+        () => editorExpressionTargets(nn.id, q.type, f.dataset.key),
         q.type,
         q.type === 'Color' ? () => colorDraftValidity(input, nn.id, f.dataset.key) : undefined,
       );
@@ -10598,13 +10616,19 @@ app.addEventListener('click', async (e) => {
               (item.pointOrdinal === Number(ordinal[1]) ? exact : remaining).push(item);
             return [...exact, ...remaining];
           },
-          items: expressionReferenceTargets(
-            current(),
+          items: authoredExpressionTargets(
             nn.id,
             expressionReferenceType(input.value, start, q.type),
+            f.dataset.key,
           ).map(targetDisplay.picker),
           onCommit(item) {
             if (!item) return;
+            if (!expressionIsCurrent()) {
+              panel.close();
+              showStaleExpression();
+              input.focus();
+              return;
+            }
             input.value = input.value.slice(0, start) + item.id + input.value.slice(end);
             panel.close();
             input.focus();
@@ -10618,18 +10642,8 @@ app.addEventListener('click', async (e) => {
       for (const button of dialog.querySelectorAll('[data-confirm], [data-cancel]'))
         button.onmousedown = (event) => event.preventDefault();
       dialog.querySelector('[data-confirm]').onclick = () => {
-        if (
-          session !== expressionOwner ||
-          documents.generation !== expressionGeneration ||
-          session.projectRevision !== expressionRevision ||
-          session.activeCompositionId !== expressionComposition ||
-          current().id !== payload.layerId ||
-          session.state.sessionId !== expressionEnvelope.sessionId ||
-          session.state.expectedRevision !== expressionEnvelope.expectedRevision
-        ) {
-          expressionStatus.textContent =
-            'Document changed. Close and reopen the expression editor.';
-          expressionStatus.hidden = false;
+        if (!expressionIsCurrent()) {
+          showStaleExpression();
           return;
         }
         if (q.type === 'Color' && !colorDraftValidity(input, nn.id, f.dataset.key)) {

@@ -7,7 +7,13 @@ import { cloneDocument, deserialize, validate } from './core.js';
 import {
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
   CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
+  ARTWORK_REFERENCE_SCHEMA_VERSION,
   nodesCurvePointReferenceVersion,
+  nodesHaveArtworkReferences,
+  nodesHaveArtworkReferenceSyntax,
+  artworkReferencesInLayers,
+  reserveDanglingArtworkReferenceIds,
+  assertNoImportedArtworkReferenceRebind,
 } from './curve-point-reference.js';
 import {
   collectAssetReferences,
@@ -39,10 +45,26 @@ export function prepareCompositionImport(current, sourceText, compositionId, opt
       const reference = node.compositionReference?.compositionId;
       if (reference) visit(reference);
     }
+    if (source.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
+      for (const ref of artworkReferencesInLayers([layer]))
+        if (layers.has(ref.layerId)) visit(ref.layerId);
   };
   visit(compositionId);
   const selectedLayers = [...needed].map((id) => layers.get(id));
+  const importsArtworkReferences =
+    source.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION &&
+    selectedLayers.some((layer) => nodesHaveArtworkReferences(layer.nodes));
+  if (
+    importsArtworkReferences &&
+    current.schemaVersion < ARTWORK_REFERENCE_SCHEMA_VERSION &&
+    current.layers.some((layer) => nodesHaveArtworkReferenceSyntax(layer.nodes))
+  )
+    throw Error('Legacy opaque Artwork reference text cannot be promoted to schemaVersion 62');
+  if (source.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
+    assertNoImportedArtworkReferenceRebind(selectedLayers, current.layers);
   const occupied = collectIds(current);
+  if (current.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
+    reserveDanglingArtworkReferenceIds(current.layers, occupied);
   const copiedLayers = remapIds(
     selectedLayers,
     collectIds(selectedLayers),
@@ -67,7 +89,13 @@ export function prepareCompositionImport(current, sourceText, compositionId, opt
       referenceVersion,
       nodesCurvePointReferenceVersion(layer.nodes, source.schemaVersion),
     );
+  if (importsArtworkReferences) referenceVersion = ARTWORK_REFERENCE_SCHEMA_VERSION;
   let colorSourceVersion = source.schemaVersion;
+  if (
+    colorSourceVersion === ARTWORK_REFERENCE_SCHEMA_VERSION &&
+    referenceVersion < ARTWORK_REFERENCE_SCHEMA_VERSION
+  )
+    colorSourceVersion--;
   if (
     colorSourceVersion === CURVE_HANDLE_REFERENCE_SCHEMA_VERSION &&
     referenceVersion < CURVE_HANDLE_REFERENCE_SCHEMA_VERSION

@@ -1,5 +1,12 @@
 import { characterPositionStatus, uid, validate } from './core.js';
-import { danglingExpressionIds, remapExpressionReferences } from './curve-point-reference.js';
+import {
+  artworkReferencesInLayers,
+  ARTWORK_REFERENCE_SCHEMA_VERSION,
+  danglingExpressionIds,
+  remapExpressionReferences,
+  remapArtworkExpressionReferences,
+  reserveDanglingArtworkReferenceIds,
+} from './curve-point-reference.js';
 import { candidateDocument } from './artwork-candidate.js';
 import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 
@@ -35,6 +42,13 @@ export function resolveArtworkDuplicateTarget(doc, layerId, options = {}, moveme
       );
     const layer = doc.layers.find((layer) => layer.id === layerId),
       route = new Set(move.target.route.map(({ nodeId }) => nodeId));
+    const selected = new Set(options.selectedLayerIds || [layerId]);
+    if (
+      doc.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION &&
+      layer &&
+      artworkReferencesInLayers([layer]).some((ref) => !selected.has(ref.layerId))
+    )
+      return unsupported('external-source', 'Select every Artwork referenced by this duplicate.');
     if (!layer || route.size !== layer.nodes.length || layer.nodes.some((n) => !route.has(n.id)))
       return unsupported(
         'extra-nodes',
@@ -102,6 +116,8 @@ function occupiedArtworkIds(doc) {
       for (const pt of n.points) occupied.add(pt.id);
     }
   }
+  if (doc.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
+    reserveDanglingArtworkReferenceIds(doc.layers, occupied);
   return occupied;
 }
 
@@ -168,7 +184,10 @@ export function resolveArtworkDuplicateSelection(doc, layerIds, options = {}) {
         `Duplicating ${ids.length} artwork layers would exceed 100 layers. No selected artwork duplicated.`,
       );
     for (const id of ids) {
-      const resolved = resolveArtworkDuplicateTarget(doc, id, options);
+      const resolved = resolveArtworkDuplicateTarget(doc, id, {
+        ...options,
+        selectedLayerIds: ids,
+      });
       if (!resolved.supported) {
         const name = doc.layers.find((l) => l.id === id)?.name || id;
         return unsupported(
@@ -212,6 +231,14 @@ export function stageArtworkDuplicates(doc, layerIds, options) {
       outputNodeId: layer.output,
     });
   });
+  const sourceLayers = copies.map((copy) =>
+    doc.layers.find((layer) => layer.id === copy.sourceLayerId),
+  );
+  if (doc.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
+    remapArtworkExpressionReferences(
+      sourceLayers,
+      copies.map((copy) => copy.layer),
+    );
   const candidate = candidateDocument(doc);
   for (const copy of copies) candidate.layers.splice(copy.index, 0, structuredClone(copy.layer));
   validate(candidate);
