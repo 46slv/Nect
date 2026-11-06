@@ -5,8 +5,9 @@
 Implemented on the isolated `dot/node-foundation-combine-20261107` worktree from
 `ba042631` (main after #208/#209). This slice owns only the existing Combine Vector
 migration and its tests. The primary editor worktree and its color/lifecycle work
-are unchanged. Existing publication HOLD and unrelated stopped scopes remain in
-force. No new Codex task, native app, browser server, font or image fixture is used.
+are unchanged. The user authorized Node Foundation GitHub work and ordinary main
+integration on 2026-11-07 JST. Unrelated stopped scopes remain in force. No new
+Codex task, native app, browser server, font or image fixture is used locally.
 
 The current Node Foundation design is
 [Node Foundation v1](https://app.notion.com/p/40ffd279a6f381a8a19adccfddc85829).
@@ -71,8 +72,10 @@ Prettier checks, JavaScript syntax and `git diff --check` pass.
 
 No full-suite, CI, actual browser/native runtime, physical IME or subjective
 acceptance was run. This does not verify the entire Node Foundation, general
-Path/PaintedPath adapters, script execution or Custom Node Builder. No remote
-publication, merge, release or stopped-scope resumption is part of this slice.
+Path/PaintedPath adapters, script execution or Custom Node Builder. These are the
+local checkpoint results; exact-head CI and normal mainline integration are
+recorded separately in the pull request. Release and unrelated stopped-scope
+resumption remain outside this slice.
 
 The migration is one isolated commit. Reverting it restores the old three legacy
 consumer entries and evaluator branch without a native-file migration.
