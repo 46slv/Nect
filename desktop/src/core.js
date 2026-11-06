@@ -692,7 +692,6 @@ const legacyDefinitions = {
     alignTangent: p('Boolean', false),
   },
   Value: { value: p('Scalar', 100) },
-  'Combine Vector': { x: p('Scalar', 0), y: p('Scalar', 0) },
   Toggle: { value: p('Boolean', true) },
   Color: { value: p('Color', { hex: '#36434e', alpha: 1 }) },
   Vector: { value: p('Vector2', [300, 250]) },
@@ -1086,7 +1085,7 @@ export function outputType(n, port) {
   if (n.type === 'Mask') return 'PaintedPath';
   return ['Value', 'Expression'].includes(n.type)
     ? 'Scalar'
-    : ['Vector', 'Combine Vector', 'Null', 'Reference', 'Vector Transform'].includes(n.type)
+    : ['Vector', 'Null', 'Reference', 'Vector Transform'].includes(n.type)
       ? 'Vector2'
       : n.type === 'Toggle'
         ? 'Boolean'
@@ -3819,9 +3818,6 @@ export function evaluate(
           : Object.freeze({ nodeId });
         result = registered.evaluate(n.operation, read, context);
         assertValue(registered.interface(n.operation, shape).resultType, result);
-      } else if (n.type === 'Combine Vector') {
-        result = [read('x'), read('y')];
-        assertValue('Vector2', result);
       } else if (n.type === 'Polygon' || n.type === 'Star') {
         result = radialPath(n, read);
       } else if (n.type === 'Circle' || n.type === 'Ellipse' || n.type === 'Rectangle') {

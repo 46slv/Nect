@@ -478,14 +478,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Combine Vector',
-    categoryId: 'value',
-    labelJa: 'ベクトル合成',
-    aliases: ['ベクトル合成'],
-    description: 'ベクトル合成',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Toggle',
     categoryId: 'value',
     labelJa: '切り替え',
