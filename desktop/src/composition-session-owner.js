@@ -23,6 +23,7 @@ import {
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
   reserveDanglingArtworkReferenceIds,
 } from './curve-point-reference.js';
+const PROJECT_HISTORY_TOKEN = Symbol('project history token');
 // Only document-global identities can satisfy an Artwork reference. Character,
 // contour and remap-edit IDs stay scoped to their owning node.
 function documentEntityIds(document, ids = new Set()) {
@@ -274,6 +275,17 @@ export class CompositionSessionOwner {
     return views.get(compositionId);
   }
 
+  #projectHistoryToken(project) {
+    if (!project) return null;
+    let views = this.#historyViewCache.get(project);
+    if (!views) {
+      views = new Map();
+      this.#historyViewCache.set(project, views);
+    }
+    if (!views.has(PROJECT_HISTORY_TOKEN)) views.set(PROJECT_HISTORY_TOKEN, Object.freeze({}));
+    return views.get(PROJECT_HISTORY_TOKEN);
+  }
+
   #applyProjectEdit(edit) {
     const previous = this.#history.doc,
       views = this.#historyViewCache.get(previous),
@@ -439,6 +451,17 @@ export class CompositionSessionOwner {
     if (!this.#historyView) {
       const owner = this;
       this.#historyView = Object.freeze({
+        // Opaque identities are shared across Composition projections and follow
+        // the same cache transfer as the immutable document views.
+        get entryToken() {
+          return owner.#projectHistoryToken(owner.#history.doc);
+        },
+        get undoToken() {
+          return owner.#projectHistoryToken(owner.#history.past.at(-1));
+        },
+        get redoToken() {
+          return owner.#projectHistoryToken(owner.#history.future.at(-1));
+        },
         get doc() {
           return owner.#documentView(owner.#history.doc, owner.#activeCompositionId);
         },
@@ -647,6 +670,24 @@ export class CompositionSessionOwner {
   }
 
   dispatch(command) {
+    if (command?.type === 'rename-composition') {
+      const session = this.#session,
+        activeId = this.#activeCompositionId,
+        revision = this.#history.revision;
+      const assertCurrent = () => {
+        if (this.#session !== session || this.#activeCompositionId !== activeId)
+          throw Error('STALE_SESSION: document changed');
+        if (this.#history.revision !== revision) throw Error('STALE_REVISION: document changed');
+      };
+      this.#assertCurrentCommand(command);
+      assertCurrent();
+      const { compositionId, name, expectedName, expectedProjectRevision } = command.payload;
+      const target = this.#history.doc.compositions.find((entry) => entry.id === compositionId);
+      if (expectedProjectRevision !== revision || !target || target.name !== expectedName)
+        throw Error('STALE_REVISION: Composition changed');
+      const changed = this.#renameComposition(compositionId, name, assertCurrent);
+      return { ...this.state, changed, projectRevision: this.#history.revision };
+    }
     if (command?.type === 'delete-color-slot') {
       this.#assertCurrentCommand(command);
       this.#assertQuiescent();
@@ -792,6 +833,10 @@ export class CompositionSessionOwner {
   }
 
   renameComposition(compositionId, name) {
+    return this.#renameComposition(compositionId, name);
+  }
+
+  #renameComposition(compositionId, name, precommit) {
     this.#assertQuiescent();
     const current = this.#history.doc;
     if (!current.compositions.some((entry) => entry.id === compositionId))
@@ -802,7 +847,12 @@ export class CompositionSessionOwner {
         entry.id === compositionId ? { ...entry, name } : entry,
       ),
     };
-    return this.#commitProject(candidate, this.#activeCompositionId, 'rename-composition');
+    return this.#commitProject(
+      candidate,
+      this.#activeCompositionId,
+      'rename-composition',
+      precommit,
+    );
   }
 
   resizeComposition(compositionId, width, height) {

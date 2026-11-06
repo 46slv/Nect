@@ -314,6 +314,43 @@ test('session-compatible History views stay stable across project edits and Comp
   );
 });
 
+test('opaque project History tokens follow entries across Composition switches and branches', () => {
+  const { owner, firstId, secondId } = fixture(),
+    history = owner.historyView,
+    originalProject = serializeCompositionProject(owner.projectSnapshot()),
+    original = history.entryToken;
+  assert.ok(Object.isFrozen(original));
+  assert.deepEqual(Reflect.ownKeys(original), []);
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), originalProject);
+
+  owner.renameComposition(firstId, 'Renamed');
+  const renamed = history.entryToken;
+  assert.notStrictEqual(renamed, original);
+  assert.strictEqual(history.undoToken, original);
+  owner.switchComposition(secondId);
+  assert.strictEqual(history.entryToken, renamed);
+  assert.strictEqual(history.undoToken, original);
+  send(owner, 'undo');
+  assert.strictEqual(history.entryToken, original);
+  assert.strictEqual(history.redoToken, renamed);
+  send(owner, 'redo');
+  assert.strictEqual(history.entryToken, renamed);
+  assert.strictEqual(history.undoToken, original);
+
+  send(owner, 'undo');
+  owner.renameComposition(firstId, 'Branch');
+  assert.equal(history.redoToken, null);
+  assert.notStrictEqual(history.entryToken, renamed);
+  assert.strictEqual(history.undoToken, original);
+  const branch = history.entryToken;
+  owner.renameComposition(firstId, 'Branch');
+  assert.strictEqual(history.entryToken, branch, 'no-op keeps the same entry');
+  const reopened = new CompositionSessionOwner(owner.projectSnapshot(), runtime);
+  assert.notStrictEqual(reopened.historyView.entryToken, branch);
+  assert.equal(reopened.historyView.undoToken, null);
+  assert.equal(reopened.historyView.redoToken, null);
+});
+
 test('prepared edits enter project History and variable-aware Undo restores the project snapshot', async () => {
   const { owner, firstId } = fixture(),
     bridge = {
@@ -328,18 +365,24 @@ test('prepared edits enter project History and variable-aware Undo restores the 
       cancel() {},
     };
 
+  const historyBefore = owner.historyView.entryToken;
   const editToken = await owner.prepareCommand(
     { ...owner.state, type: 'set-document-settings', payload: { key: 'width', value: 1280 } },
     bridge,
   );
   assert.equal(owner.preparedSnapshot(editToken).document.width, 1280);
   owner.commitPrepared(editToken);
+  const historyAfter = owner.historyView.entryToken;
+  assert.notStrictEqual(historyAfter, historyBefore);
+  assert.strictEqual(owner.historyView.undoToken, historyBefore);
   assert.equal(owner.projectSnapshot().compositions[0].width, 1280);
   assert.equal(owner.historyState.canUndo, true);
 
   const undoToken = await owner.prepareCommand({ ...owner.state, type: 'undo' }, bridge);
   assert.equal(owner.preparedSnapshot(undoToken).document.width, 960);
   owner.commitPrepared(undoToken);
+  assert.strictEqual(owner.historyView.entryToken, historyBefore);
+  assert.strictEqual(owner.historyView.redoToken, historyAfter);
   assert.equal(owner.activeCompositionId, firstId);
   assert.equal(owner.projectSnapshot().compositions[0].width, 960);
   assert.equal(owner.historyState.canRedo, true);

@@ -1053,6 +1053,31 @@ dialog::backdrop {
   box-sizing: border-box;
   width: min(480px, calc(100vw - 24px));
 }
+
+.composition-rename-dialog {
+  width: min(24rem, calc(100vw - 32px));
+  box-sizing: border-box;
+}
+.composition-rename-dialog form,
+.composition-rename-dialog label {
+  display: grid;
+  gap: 8px;
+}
+.composition-rename-dialog h3 {
+  margin: 0;
+}
+.composition-rename-dialog input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.composition-rename-dialog output:empty {
+  display: none;
+}
+.composition-rename-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .composition-import-dialog form {
   display: grid;
   gap: 12px;

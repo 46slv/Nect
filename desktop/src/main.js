@@ -1388,6 +1388,8 @@ document.addEventListener(
 const sessionOptions = {
   fonts: activeFonts,
   onCommitted: (state) => {
+    if (state.sessionId === session.id && state.operation === 'rename-composition')
+      rememberViewNeutralHistory(history.undoToken, history.entryToken);
     // A copied slot reference expires at the first committed removal, even if
     // another import later introduces the same ID while its panel is hidden.
     if (state.sessionId === session.id) sharedColors.observeCommittedProject();
@@ -1563,6 +1565,17 @@ let contextMenuScroll = new Map();
 const detailsState = new Map();
 const compositionViewStates = createCompositionViewStateStore({ resolvePointIds: pointPanelIds });
 const selectionHistory = new WeakMap();
+const viewNeutralHistory = new WeakMap();
+function rememberViewNeutralHistory(before, after) {
+  if (!before || !after) return;
+  for (const [from, to] of [
+    [before, after],
+    [after, before],
+  ]) {
+    if (!viewNeutralHistory.has(from)) viewNeutralHistory.set(from, new WeakSet());
+    viewNeutralHistory.get(from).add(to);
+  }
+}
 let focusedCompositionTabId = null,
   tabRenderSession = null,
   tabRenderCompositionId = null;
@@ -1590,6 +1603,24 @@ function selectionSnapshot(withEditSelection = false) {
       : {}),
   };
 }
+function restoreHistorySelection(state) {
+  ({ activeLayer, selected, artworkTarget } = state);
+  artworkSelection = new Set(state.artworkSelection);
+  selection = new Set(state.selection);
+  characterEdit = state.characterEdit ? structuredClone(state.characterEdit) : null;
+  if (state.restoreEditSelection) {
+    selectedGuide = state.selectedGuide;
+    const owner = current().nodes.find((n) => n.id === state.pointSelection?.nodeId);
+    const ids = new Set(pointPanelIds(owner, current(), history.doc) || []);
+    pointSelection = {
+      nodeId: owner?.id || null,
+      ids: new Set([...(state.pointSelection?.ids || [])].filter((id) => ids.has(id))),
+    };
+    pointFocus =
+      state.pointFocus && ids.has(state.pointFocus.pointId) ? { ...state.pointFocus } : null;
+    for (const [id, batch] of structuredClone(state.remapBatches)) remapBatches.set(id, batch);
+  }
+}
 function stepHistory(redo = false) {
   if (osTextDrafts.size) {
     notify('Apply or cancel the OS Text edit before Undo/Redo', true);
@@ -1600,12 +1631,20 @@ function stepHistory(redo = false) {
     return;
   }
   const priorCompositionId = session.activeCompositionId;
+  const targetToken = redo ? history.redoToken : history.undoToken;
+  const viewNeutral =
+    !!targetToken && !!viewNeutralHistory.get(history.entryToken)?.has(targetToken);
   saveCompositionViewState();
-  const priorUI = selectionSnapshot(selectionHistory.get(history.doc)?.restoreEditSelection);
+  const priorUI = selectionSnapshot(
+    viewNeutral || selectionHistory.get(history.doc)?.restoreEditSelection,
+  );
   resetTransient();
   selectionHistory.set(history.doc, priorUI);
   const target = (redo ? history.future : history.past).at(-1);
   if (hasVariableFonts(history.doc) || (target && hasVariableFonts(target))) {
+    // A rename does not alter the active Document. Restore its current view
+    // before async font preparation, so later user selection remains current.
+    if (viewNeutral) restoreHistorySelection(priorUI);
     void preparedChange(redo ? 'redo' : 'undo', {}, redo ? 'Redone' : 'Undone').then((result) => {
       if (result) {
         compositionViewStates.prune(session.projectSnapshot().compositions);
@@ -1624,25 +1663,12 @@ function stepHistory(redo = false) {
   session.dispatch({ ...session.state, type: redo ? 'redo' : 'undo' });
   const compositionChanged = session.activeCompositionId !== priorCompositionId;
   compositionViewStates.prune(session.projectSnapshot().compositions);
-  const state = compositionChanged ? null : selectionHistory.get(history.doc);
-  if (state) {
-    ({ activeLayer, selected, artworkTarget } = state);
-    artworkSelection = new Set(state.artworkSelection);
-    selection = new Set(state.selection);
-    characterEdit = state.characterEdit ? structuredClone(state.characterEdit) : null;
-    if (state.restoreEditSelection) {
-      selectedGuide = state.selectedGuide;
-      const owner = current().nodes.find((n) => n.id === state.pointSelection?.nodeId);
-      const ids = new Set(pointPanelIds(owner, current(), history.doc) || []);
-      pointSelection = {
-        nodeId: owner?.id || null,
-        ids: new Set([...(state.pointSelection?.ids || [])].filter((id) => ids.has(id))),
-      };
-      pointFocus =
-        state.pointFocus && ids.has(state.pointFocus.pointId) ? { ...state.pointFocus } : null;
-      for (const [id, batch] of structuredClone(state.remapBatches)) remapBatches.set(id, batch);
-    }
-  }
+  const state = compositionChanged
+    ? null
+    : viewNeutral
+      ? priorUI
+      : selectionHistory.get(history.doc);
+  if (state) restoreHistorySelection(state);
   if (!history.doc.layers.some((layer) => layer.id === activeLayer)) {
     activeLayer = history.doc.layers[0].id;
     selected = null;
@@ -9532,6 +9558,7 @@ function renderCompositionTablist() {
     tab.setAttribute('aria-selected', String(composition.id === activeId));
     tab.tabIndex = composition.id === focusedCompositionTabId ? 0 : -1;
     tab.title = composition.name;
+    tab.setAttribute('aria-keyshortcuts', 'F2');
     tab.textContent = composition.name;
     tablist.append(tab);
   }
@@ -9585,6 +9612,14 @@ app.addEventListener('keydown', (event) => {
       event.preventDefault();
       activateCompositionTab(tab.dataset.activeComposition);
       return;
+    case 'F2':
+      event.preventDefault();
+      try {
+        renameCompositionDialog(tab.dataset.activeComposition);
+      } catch (error) {
+        notify(error.message, true);
+      }
+      return;
     default:
       return;
   }
@@ -9602,6 +9637,166 @@ function addComposition() {
   const graphScroll = restoreCompositionViewState();
   render(false, null, graphScroll);
   updateDocumentStatus();
+}
+function compositionRenameBusy(allowedDialog = null) {
+  return !!(
+    sourceNavigationBusy(allowedDialog) ||
+    documents.hasDraft() ||
+    sharedColors.editing ||
+    session.hasTextDrafts
+  );
+}
+
+// Preserve a focused draft while the Project menu is opened, then refuse this
+// specific action before pointer focus or the generic Pen auto-finish handler.
+document.addEventListener(
+  'pointerdown',
+  (event) => {
+    if (!app.contains(event.target)) return;
+    const rename = event.target.closest?.('[data-action="rename-composition"]');
+    if (rename && compositionRenameBusy()) {
+      event.preventDefault();
+      event.stopPropagation();
+      notify('Finish or cancel the current edit before renaming', true);
+      return;
+    }
+    const summary = event.target.closest?.('summary');
+    if (
+      summary?.parentElement?.querySelector('[data-action="rename-composition"]') &&
+      (editingControl(document.activeElement) || sharedColors.editing) &&
+      compositionRenameBusy()
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  },
+  true,
+);
+app.addEventListener(
+  'click',
+  (event) => {
+    if (!event.target.closest?.('[data-action="rename-composition"]') || !compositionRenameBusy())
+      return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    notify('Finish or cancel the current edit before renaming', true);
+  },
+  true,
+);
+
+function renameCompositionDialog(compositionId = session.activeCompositionId) {
+  if (compositionRenameBusy()) throw Error('Finish or cancel the current edit before renaming');
+  const owner = session,
+    envelope = session.state,
+    projectRevision = session.projectRevision,
+    generation = documents.generation,
+    target = session.projectSnapshot().compositions.find((item) => item.id === compositionId);
+  if (!target) throw Error('Composition is unavailable');
+  const dialog = document.createElement('dialog');
+  dialog.className = 'composition-rename-dialog';
+  dialog.setAttribute('aria-labelledby', 'composition-rename-heading');
+  dialog.innerHTML =
+    '<form><h3 id="composition-rename-heading">Rename composition</h3><label>Name<input data-composition-name maxlength="100000" spellcheck="false"></label><output role="alert"></output><footer><button type="button" data-cancel>Cancel</button><button type="submit">Rename</button></footer></form>';
+  const input = dialog.querySelector('input'),
+    status = dialog.querySelector('output');
+  input.value = target.name;
+  const initialInputValue = input.value;
+  let composingName = false,
+    committed = false;
+  dialog.addEventListener('compositionstart', () => {
+    composingName = true;
+  });
+  dialog.addEventListener('compositionend', () => {
+    composingName = false;
+  });
+  dialog.addEventListener('cancel', (event) => {
+    if (composingName) event.preventDefault();
+  });
+  dialog.addEventListener('keydown', (event) => {
+    if (
+      (composingName || event.isComposing || event.keyCode === 229) &&
+      ['Enter', 'Escape'].includes(event.key)
+    )
+      event.preventDefault();
+  });
+  input.addEventListener('input', () => {
+    status.textContent = '';
+  });
+  dialog.querySelector('[data-cancel]').addEventListener('click', () => {
+    if (!composingName) dialog.close();
+  });
+  dialog.querySelector('form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (composingName || event.isComposing) return;
+    const name = input.value;
+    if (name !== initialInputValue && !name.trim()) {
+      status.textContent = 'Name cannot be empty.';
+      input.focus();
+      return;
+    }
+    try {
+      if (
+        session !== owner ||
+        documents.generation !== generation ||
+        session.projectRevision !== projectRevision ||
+        session.state.sessionId !== envelope.sessionId ||
+        session.state.expectedRevision !== envelope.expectedRevision ||
+        compositionRenameBusy(dialog)
+      )
+        throw Error('Project changed. Close and reopen rename.');
+      // Text inputs can sanitize an existing CR/LF name for display. Treat the
+      // unchanged displayed value as a no-op without rewriting the saved name.
+      if (name === initialInputValue) {
+        dialog.close();
+        return;
+      }
+      const priorUI = selectionSnapshot(true);
+      const result = session.dispatch({
+        ...envelope,
+        type: 'rename-composition',
+        payload: {
+          compositionId,
+          name,
+          expectedName: target.name,
+          expectedProjectRevision: projectRevision,
+        },
+      });
+      committed = result.changed;
+      if (committed) {
+        selectionHistory.set(history.past.at(-1), priorUI);
+        selectionHistory.set(history.doc, selectionSnapshot(true));
+      }
+      dialog.close();
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+  dialog.addEventListener('close', () => {
+    dialog.remove();
+    if (committed) {
+      render();
+      updateDocumentStatus();
+      notify('Composition renamed');
+    }
+    if (
+      session !== owner ||
+      documents.generation !== generation ||
+      (!committed &&
+        (session.projectRevision !== projectRevision ||
+          session.state.sessionId !== envelope.sessionId ||
+          session.state.expectedRevision !== envelope.expectedRevision))
+    )
+      return;
+    const tab = [...app.querySelectorAll('[role="tab"][data-active-composition]')].find(
+      (item) => item.dataset.activeComposition === compositionId,
+    );
+    if (tab) focusCompositionTab(compositionId);
+    else app.querySelector('header .command-menu > summary')?.focus({ preventScroll: true });
+  });
+  document.body.append(dialog);
+  dialog.showModal();
+  input.focus();
+  input.select();
 }
 function download(text, name, type) {
   const a = document.createElement('a'),
@@ -9776,6 +9971,14 @@ app.addEventListener('click', async (e) => {
   // Layer deletion must never auto-finish a Pen draft or cancel a live gesture.
   if (d.deleteLayer !== undefined) {
     deleteArtwork(d.deleteLayer);
+    return;
+  }
+  if (d.action === 'rename-composition') {
+    try {
+      renameCompositionDialog();
+    } catch (error) {
+      notify(error.message, true);
+    }
     return;
   }
   if (
@@ -16969,6 +17172,9 @@ window.nect = {
   previewSnapshot: (gestureId) => session.previewSnapshot(gestureId),
   get commandState() {
     return session.state;
+  },
+  get projectRevision() {
+    return session.projectRevision;
   },
   dispatch(command) {
     const result = session.dispatch(command);
