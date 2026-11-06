@@ -25,7 +25,7 @@ Group remapping preserves authored whitespace, including spaces, tabs and newlin
 
 ## UI integration
 
-`expressionReferenceTargets(layer, currentNodeId)` returns numeric choices with `nodeId`, `name`, `key`, optional `component`, `label`, and ready-to-insert `expression`. Use the returned expression at the editor selection. `parameterReferenceExpression(nodeId, key, component)` produces the same validated syntax. Apply with the existing `set-parameter-expression` command. Effective results remain read-only. Scalar and Vector2 inputs now expose separate authored Base controls while driven; these use `set-parameter-base`, not the ordinary `set-parameter` command.
+`expressionReferenceTargetsForDocument(document, layerId, nodeId, type, targetKey)` returns local and eligible other-Artwork choices with their stable owner IDs and ready-to-insert expressions. The target key permits a different property of the destination node to participate without creating a false cycle; the existing same-Artwork exclusion remains. The editor names the source Artwork and distinguishes matching names by ID. Long names remain searchable in full and are available on the visible option. Pen drafts use the existing local `expressionReferenceTargets` until they become authored Artwork. Apply with the existing `set-parameter-expression` command. Effective results remain read-only. Scalar and Vector2 inputs expose separate authored Base controls while driven; these use `set-parameter-base`, not the ordinary `set-parameter` command.
 
 ## Related interaction corrections
 
