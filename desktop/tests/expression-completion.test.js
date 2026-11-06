@@ -77,6 +77,22 @@ test('live composition targets exclude nonnumeric operands, self and downstream 
   assert.equal(suggest('cont', expressionReferenceTargets(layer, destination.id)).length, 0);
 });
 
+test('qualified target suggestions show and search their owning Artwork without changing identity', () => {
+  const remote = {
+    ...target,
+    contextLabel: 'Illustration · …1234',
+    contextSearchTerms: ['artwork-1234'],
+    expression: 'ref(artwork, "artwork-1234", "n-controller", "position", "x")',
+  };
+  for (const prefix of ['illu', 'artwork']) {
+    const item = suggest(prefix, [remote])[0];
+    assert.equal(item.text, remote.expression);
+    assert.equal(item.label, 'Illustration · …1234 · Main Controller · position.x');
+    assert.match(item.detail, /n-controller/);
+  }
+  assert.equal(suggest('main', [target])[0].label, target.label);
+});
+
 function editor() {
   const win = new Window();
   win.document.body.innerHTML = '<dialog open><input><button>Apply</button></dialog>';

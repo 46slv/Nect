@@ -113,7 +113,7 @@ export function expressionCompletions(value, start, end, targets = [], parameter
       .filter((target) => (color ? target.type === 'Color' : target.type !== 'Color'))
       .map((target) => ({
         id: target.expression,
-        label: target.label,
+        label: target.contextLabel ? `${target.contextLabel} · ${target.label}` : target.label,
         detail: `${target.type === 'Color' ? 'Color' : target.component === 'length' ? 'Vector2 length → Scalar' : target.component ? `Vector2.${target.component.toUpperCase()} → Scalar` : 'Scalar'} · ${target.nodeId}`,
         text: target.expression,
         terms: [
@@ -121,6 +121,8 @@ export function expressionCompletions(value, start, end, targets = [], parameter
           target.key,
           `${target.key}.${target.component || ''}`,
           ...(target.pointOrdinal ? [`point${target.pointOrdinal}`] : []),
+          ...(target.contextLabel ? [target.contextLabel] : []),
+          ...(target.contextSearchTerms || []),
           'ref',
           ...target.name.split(/\s+/),
         ],
