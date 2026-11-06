@@ -4,7 +4,8 @@ export const CURVE_HANDLE_REFERENCE_SCHEMA_VERSION = 61;
 export const ARTWORK_REFERENCE_SCHEMA_VERSION = 62;
 export const COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION = 63;
 export const QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION = 64;
-export const MAX_DOCUMENT_SCHEMA_VERSION = QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION;
+export const COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION = 65;
+export const MAX_DOCUMENT_SCHEMA_VERSION = COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION;
 export const CURVE_POINT_COMPOSITION_SCHEMA_VERSION = 2;
 
 const pointKey = /^([a-zA-Z0-9][a-zA-Z0-9:_-]{0,180})\.(position|handleA|handleB)$/;
@@ -23,6 +24,36 @@ const colorArtworkArguments =
   /\bref\s*\(\s*colorArtwork\s*,\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_.-]+)"\s*\)/g;
 const colorCompositionArguments =
   /\bref\s*\(\s*colorComposition\s*,\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_.-]+)"\s*\)/g;
+const componentCompositionArguments =
+  /\bref\s*\(\s*componentComposition\s*,\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_-]+)"\s*,\s*"([a-zA-Z0-9:_.-]+)"\s*,\s*"(x|y|length)"\s*\)/g;
+// Guard the reserved prefix, not just a valid parse: old wrappers could store
+// malformed expressions in inactive, connected or unsupported descriptors.
+export const hasComponentCompositionReferenceSyntax = (source) =>
+  /\bref\s*\(\s*componentComposition\b/.test(source);
+export function componentCompositionReferences(source) {
+  return [...source.matchAll(componentCompositionArguments)].map((match) => ({
+    componentComposition: true,
+    compositionId: match[1],
+    layerId: match[2],
+    nodeId: match[3],
+    key: match[4],
+    component: match[5],
+  }));
+}
+export function nodesHaveComponentCompositionReferenceSyntax(nodes) {
+  return nodes.some((node) =>
+    allExpressionParameters(node).some((q) => hasComponentCompositionReferenceSyntax(q.expression)),
+  );
+}
+export function componentCompositionReferencesInProject(project) {
+  return project.compositions.flatMap((composition) =>
+    composition.layers.flatMap((layer) =>
+      layer.nodes.flatMap((node) =>
+        allExpressionParameters(node).flatMap((q) => componentCompositionReferences(q.expression)),
+      ),
+    ),
+  );
+}
 export const hasQualifiedColorReferenceSyntax = (source) =>
   /\bref\s*\(\s*(?:colorArtwork|colorComposition)\b/.test(source);
 export function qualifiedColorReferences(source) {

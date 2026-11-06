@@ -4,6 +4,8 @@ import {
   assertNoLegacyArtworkReferencePromotion,
   assertNoLegacyQualifiedColorReferencePromotion,
   assertNoLegacyQualifiedColorDocumentPromotion,
+  assertNoLegacyComponentCompositionReferencePromotion,
+  assertNoLegacyComponentCompositionDocumentPromotion,
   assertNoLegacyCompositionPropertyReferencePromotion,
   assertNoLegacyCompositionPropertyDocumentPromotion,
   assertNoLegacyHandleReferencePromotion,
@@ -15,6 +17,7 @@ import {
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
   QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
+  COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION,
   CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
@@ -76,6 +79,10 @@ function documentFor(project, compositionId, cloneDocument) {
 function projectWithDocument(project, compositionId, document, adapters) {
   const { width, height, layers, editor, ...shared } = document;
   shared.schemaVersion = Math.max(project.schemaVersion, shared.schemaVersion);
+  if (shared.schemaVersion >= COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION) {
+    assertNoLegacyComponentCompositionReferencePromotion(project);
+    assertNoLegacyComponentCompositionDocumentPromotion(document);
+  }
   if (shared.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION) {
     assertNoLegacyQualifiedColorReferencePromotion(project);
     assertNoLegacyQualifiedColorDocumentPromotion(document);

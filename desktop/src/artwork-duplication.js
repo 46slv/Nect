@@ -4,6 +4,8 @@ import {
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
   QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
+  COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION,
+  nodesHaveComponentCompositionReferenceSyntax,
   nodesHaveQualifiedColorReferenceSyntax,
   nodesHaveCompositionPropertyReferenceSyntax,
   danglingExpressionIds,
@@ -47,6 +49,15 @@ export function resolveArtworkDuplicateTarget(doc, layerId, options = {}, moveme
     const layer = doc.layers.find((layer) => layer.id === layerId),
       route = new Set(move.target.route.map(({ nodeId }) => nodeId));
     const selected = new Set(options.selectedLayerIds || [layerId]);
+    if (
+      doc.schemaVersion >= COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION &&
+      layer &&
+      nodesHaveComponentCompositionReferenceSyntax(layer.nodes)
+    )
+      return unsupported(
+        'component-composition-reference',
+        'Duplicating artwork with Component Composition references is not supported.',
+      );
     if (
       doc.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION &&
       layer &&
@@ -289,6 +300,11 @@ export function duplicateArtworkLayer(doc, layerId, options) {
 export function duplicateLayerGeneric(doc, layerId) {
   const source = doc?.layers?.find((layer) => layer.id === layerId);
   if (!source) throw Error('Layer is unavailable; select it again');
+  if (
+    doc.schemaVersion >= COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION &&
+    nodesHaveComponentCompositionReferenceSyntax(source.nodes)
+  )
+    throw Error('Duplicating artwork with Component Composition references is not supported');
   if (
     doc.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION &&
     nodesHaveQualifiedColorReferenceSyntax(source.nodes)
