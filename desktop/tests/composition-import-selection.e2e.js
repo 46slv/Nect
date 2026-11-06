@@ -427,6 +427,17 @@ try {
   });
   const beforeCapture = await snapshot(),
     beforeCaptureState = await state();
+  for (const dismiss of ['cancel', 'escape']) {
+    await openImport();
+    assert.equal(await dialog.locator('[data-composition-capture]').isEnabled(), true);
+    await choices().last().uncheck();
+    if (dismiss === 'cancel') await dialog.locator('button[value="cancel"]').click();
+    else await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'detached' });
+    assert.deepEqual(await snapshot(), beforeCapture);
+    assert.deepEqual(await state(), beforeCaptureState);
+    assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  }
   await openImport();
   assert.equal(await dialog.locator('button[value="import"]').isDisabled(), true);
   const capture = dialog.locator('[data-composition-capture]');
