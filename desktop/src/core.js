@@ -9348,9 +9348,17 @@ export class CommandSession {
         copy.position = clipboard.nodes[i].position.map((v, axis) => v + offset[axis]);
       });
       target.nodes.push(...copies);
-      if (clipboard.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION)
+      // Schemas 63 and 64 add only the two reference forms rejected above,
+      // including dormant and unsupported descriptors. A v64 source therefore
+      // transfers no feature newer than v62; retain the historical conservative
+      // source version unchanged for every older clipboard.
+      const transferredSchemaVersion =
+        clipboard.schemaVersion === QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION
+          ? ARTWORK_REFERENCE_SCHEMA_VERSION
+          : clipboard.schemaVersion;
+      if (transferredSchemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION)
         assertNoLegacyQualifiedColorDocumentPromotion(candidate);
-      candidate.schemaVersion = Math.max(candidate.schemaVersion, clipboard.schemaVersion);
+      candidate.schemaVersion = Math.max(candidate.schemaVersion, transferredSchemaVersion);
       result = {
         nodeIds: copies.map((n) => n.id),
         externalInputCount: clipboard.externalNodeIds.length + clipboard.artworkInputCount,
