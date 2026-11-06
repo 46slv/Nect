@@ -454,22 +454,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Value',
-    categoryId: 'value',
-    labelJa: '数値',
-    aliases: ['数値'],
-    description: '数値',
-    creationRoute: 'add',
-  },
-  {
-    typeId: 'Vector',
-    categoryId: 'value',
-    labelJa: 'ベクトル',
-    aliases: ['ベクトル', '座標'],
-    description: 'ベクトル 座標',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Vector Transform',
     categoryId: 'value',
     labelJa: 'ベクトル変換',
@@ -507,14 +491,6 @@ const legacyNodeCatalog = [
     labelJa: '参照',
     aliases: ['参照'],
     description: '参照',
-    creationRoute: 'add',
-  },
-  {
-    typeId: 'Expression',
-    categoryId: 'value',
-    labelJa: '式',
-    aliases: ['式'],
-    description: '式',
     creationRoute: 'add',
   },
 ];

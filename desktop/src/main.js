@@ -9995,7 +9995,8 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
   input.value = target.name;
   const initialInputValue = input.value;
   let composingName = false,
-    committed = false;
+    committed = false,
+    settled = false;
   dialog.addEventListener('compositionstart', () => {
     composingName = true;
   });
@@ -10003,7 +10004,8 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
     composingName = false;
   });
   dialog.addEventListener('cancel', (event) => {
-    if (composingName) event.preventDefault();
+    event.preventDefault();
+    if (!composingName) closeDialog();
   });
   dialog.addEventListener('keydown', (event) => {
     if (
@@ -10016,7 +10018,7 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
     status.textContent = '';
   });
   dialog.querySelector('[data-cancel]').addEventListener('click', () => {
-    if (!composingName) dialog.close();
+    if (!composingName) closeDialog();
   });
   dialog.querySelector('form').addEventListener('submit', (event) => {
     event.preventDefault();
@@ -10040,7 +10042,7 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
       // Text inputs can sanitize an existing CR/LF name for display. Treat the
       // unchanged displayed value as a no-op without rewriting the saved name.
       if (name === initialInputValue) {
-        dialog.close();
+        closeDialog();
         return;
       }
       const priorUI = selectionSnapshot(true);
@@ -10059,12 +10061,14 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
         selectionHistory.set(history.past.at(-1), priorUI);
         selectionHistory.set(history.doc, selectionSnapshot(true));
       }
-      dialog.close();
+      closeDialog();
     } catch (error) {
       status.textContent = error.message;
     }
   });
-  dialog.addEventListener('close', () => {
+  function finishDialog() {
+    if (settled) return;
+    settled = true;
     dialog.remove();
     if (committed) {
       render();
@@ -10085,7 +10089,14 @@ function renameCompositionDialog(compositionId = session.activeCompositionId) {
     );
     if (tab) focusCompositionTab(compositionId);
     else app.querySelector('header .command-menu > summary')?.focus({ preventScroll: true });
-  });
+  }
+  function closeDialog() {
+    dialog.close();
+    // Native close events are queued. Finish now so a later close task cannot
+    // rerender or restore focus over the user's next keyboard/pointer action.
+    finishDialog();
+  }
+  dialog.addEventListener('close', finishDialog);
   document.body.append(dialog);
   dialog.showModal();
   input.focus();
