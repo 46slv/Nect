@@ -96,22 +96,29 @@ export class DocumentLifecycle {
       this.saving = false;
     }
   }
-  async guard(action) {
+  async guard(action, { onApproved = () => {} } = {}) {
     if (this.saving || this.transitioning) return false;
     if (this.hasDraft()) throw Error('Finish or cancel the active edit before changing documents.');
     this.transitioning = true;
     const generation = this.generation,
       before = this.observe();
     try {
-      if (!this.dirty) return true;
+      const approve = () => {
+        onApproved();
+        return true;
+      };
+      if (!this.dirty) return approve();
       const choice = await this.choose(action);
       if (generation !== this.generation || before !== this.observe() || this.hasDraft())
         return false;
-      if (choice === 'discard') return true;
+      if (choice === 'discard') return approve();
       if (choice !== 'save') return false;
-      return (
-        (await this.save()) && !this.dirty && !this.hasDraft() && generation === this.generation
-      );
+      return (await this.save()) &&
+        !this.dirty &&
+        !this.hasDraft() &&
+        generation === this.generation
+        ? approve()
+        : false;
     } finally {
       this.transitioning = false;
     }

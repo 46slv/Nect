@@ -1393,6 +1393,42 @@ document.addEventListener(
   },
   true,
 );
+let closeFinalizing = false,
+  closeGuardReady = !desktop,
+  closeGuardFailed = false;
+const startupBodyInert = document.body.inert;
+if (!closeGuardReady) document.body.inert = true;
+const closeInputBlocked = () => closeFinalizing || !closeGuardReady;
+for (const type of [
+  'pointerdown',
+  'pointerup',
+  'click',
+  'dblclick',
+  'contextmenu',
+  'keydown',
+  'keyup',
+  'paste',
+  'cut',
+  'dragstart',
+  'dragover',
+  'drop',
+  'beforeinput',
+  'input',
+  'change',
+  'compositionstart',
+  'compositionupdate',
+  'compositionend',
+  'submit',
+])
+  window.addEventListener(
+    type,
+    (event) => {
+      if (!closeInputBlocked()) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    },
+    true,
+  );
 const sessionOptions = {
   fonts: activeFonts,
   onCommitted: (state) => {
@@ -1419,6 +1455,7 @@ const sessionOptions = {
   // captures a gesture snapshot. Only its started phase owns an authored edit.
   busy: () =>
     !!(
+      closeInputBlocked() ||
       penDraft ||
       (drag && !drag.reservingGesture && (drag.type !== 'numeric' || drag.started)) ||
       wiring ||
@@ -1514,11 +1551,13 @@ const documents = new DocumentLifecycle({
   choose: chooseUnsaved,
   hasDraft: () =>
     !!(
+      closeInputBlocked() ||
       penDraft ||
       drag ||
       wiring ||
       composing ||
       session.hasTextComposition ||
+      session.hasChangedTextDrafts ||
       session.hasGesture ||
       keyColorRecipePanel.editing ||
       [...textDrafts.values()].some((draft) => draft.state.changed) ||
@@ -1901,6 +1940,10 @@ function alignmentPanel(move) {
 }
 let privateFontMissingStatus = null;
 function notify(text, bad = false) {
+  if (closeGuardFailed) {
+    text = 'Close protection unavailable. Restart Nect.';
+    bad = true;
+  }
   privateFontMissingStatus = null;
   message = text;
   error = bad;
@@ -6149,6 +6192,10 @@ function refreshNodeControlInspector(afterFocus = false) {
 }
 
 function render(resetView = false, artworkResolution = null, graphScrollOverride = null) {
+  if (closeFinalizing) {
+    needsRender = true;
+    return;
+  }
   keyColorRecipePanel.reconcile();
   keyerInputPicker?.validate();
   textTools?.cancel();
@@ -9450,6 +9497,7 @@ function replaceDocument(
   next,
   { binding = null, saved = false, preparedBridge = null, activeCompositionId = null } = {},
 ) {
+  if (closeInputBlocked()) throw Error('Close protection is not ready');
   const project = asCompositionProject(next);
   activeCompositionId ??= project.compositions[0].id;
   // Validate every Composition before retiring the current document's view state.
@@ -17394,17 +17442,149 @@ window.addEventListener('beforeunload', (e) => {
   }
 });
 render();
-registerClose(async () => {
+function closeHasPendingEdits() {
+  const pointNode = pointDeltaDraft && current().nodes.find((n) => n.id === pointDeltaDraft.nodeId),
+    points = pointNode ? selectedPointIds(pointNode) : [],
+    input = document.activeElement;
+  return !!(
+    documents.hasDraft() ||
+    document.querySelector('dialog[open]') ||
+    hslPicker.element ||
+    sharedColors.editing ||
+    variableAction ||
+    nameEdit ||
+    layoutDraft ||
+    gridOpacityDraft ||
+    (points.length &&
+      (selected === pointNode.id || !pointNode.collapsed) &&
+      pointDeltaMatches(pointNode.id, points)) ||
+    (input?.matches?.(
+      'input[type="number"], input[data-numeric-expression], input[data-expression], .shared-colors-panel [data-shared-color-edit]',
+    ) &&
+      input.value !== input.defaultValue)
+  );
+}
+let startupRecoveryPending = desktop;
+let startupRecoveryAcceptancePending = true;
+function startRecoveryWhenReady() {
+  if (!startupRecoveryPending || !closeGuardReady || closeFinalizing) return;
+  startupRecoveryPending = false;
+  showRecoveryCopies(true).catch((error) => {
+    recovery.report(recovery.current, { phase: 'failed', error: error.message || String(error) });
+  });
+}
+function startRecoveryAcceptanceWhenReady() {
+  if (
+    typeof __NECT_RECOVERY_ACCEPTANCE_BUILD__ === 'undefined' ||
+    !__NECT_RECOVERY_ACCEPTANCE_BUILD__ ||
+    !startupRecoveryAcceptancePending ||
+    closeInputBlocked() ||
+    !window.nect
+  )
+    return;
+  startupRecoveryAcceptancePending = false;
+  void import('./recovery-acceptance-test.js').then(({ runRecoveryAcceptance }) => {
+    if (closeInputBlocked()) {
+      startupRecoveryAcceptancePending = true;
+      return;
+    }
+    return runRecoveryAcceptance(recovery, window.nect);
+  });
+}
+async function finishProtectedClose(finishClose) {
+  const startup = !closeGuardReady,
+    wasInert = document.body.inert,
+    previousFocus = document.activeElement,
+    previousViewFocus = captureFocus(app),
+    dialogs = [...document.querySelectorAll('dialog[open]')].map((dialog) => [
+      dialog,
+      dialog.inert,
+    ]);
+  closeFinalizing = true;
+  document.body.inert = true;
+  for (const [dialog] of dialogs) dialog.inert = true;
+  let completed = false;
   try {
-    const canClose = await documents.guard('closing Nect');
+    await finishClose();
+    completed = true;
+  } finally {
+    if (!completed) {
+      for (const [dialog, wasDialogInert] of dialogs) dialog.inert = wasDialogInert;
+      document.body.inert = startup ? !closeGuardReady || startupBodyInert : wasInert;
+      closeFinalizing = false;
+      if (!document.body.inert) {
+        if (previousFocus?.isConnected && previousFocus !== document.body)
+          previousFocus.focus({ preventScroll: true });
+        else restoreFocus(app, previousViewFocus);
+      }
+      if (needsRender) scheduleRender();
+      startRecoveryWhenReady();
+      startRecoveryAcceptanceWhenReady();
+    }
+  }
+  return true;
+}
+registerClose(async (finishClose) => {
+  try {
+    // Until registration completes, no editing or recovery selection is possible.
+    // A native Close delivered during that interval can safely finish directly.
+    if (!closeGuardReady) return await finishProtectedClose(finishClose);
+    let approved;
+    if (closeHasPendingEdits()) throw Error('Finish or cancel the active edit before closing.');
+    const canClose = await documents.guard('closing Nect', {
+      onApproved: () => {
+        if (closeHasPendingEdits()) throw Error('Finish or cancel the active edit before closing.');
+        approved = {
+          owner: session,
+          generation: documents.generation,
+          operation: documents.operation,
+          projectRevision: session.projectRevision,
+          envelope: session.state,
+        };
+      },
+    });
     updateDocumentStatus();
-    if (canClose) await recovery?.flush();
-    return canClose;
+    if (!canClose) return false;
+    await recovery?.flush();
+    const state = session.state,
+      pendingEdit = closeHasPendingEdits();
+    if (
+      session !== approved.owner ||
+      documents.generation !== approved.generation ||
+      documents.operation !== approved.operation ||
+      documents.saving ||
+      documents.transitioning ||
+      session.projectRevision !== approved.projectRevision ||
+      state.sessionId !== approved.envelope.sessionId ||
+      state.expectedRevision !== approved.envelope.expectedRevision ||
+      pendingEdit
+    ) {
+      notify(
+        pendingEdit
+          ? 'Finish or cancel the active edit before closing.'
+          : 'Document changed. Close again.',
+        true,
+      );
+      return false;
+    }
+    // Keep the UI and public command entry points closed until the native
+    // destroy request completes or fails. A failed request releases them.
+    return await finishProtectedClose(finishClose);
   } catch (error) {
     notify(error.message, true);
     return false;
   }
-}).catch((error) => notify(`Close protection unavailable: ${error.message}`, true));
+})
+  .then(() => {
+    closeGuardReady = true;
+    if (!closeFinalizing) document.body.inert = startupBodyInert;
+    startRecoveryWhenReady();
+    startRecoveryAcceptanceWhenReady();
+  })
+  .catch(() => {
+    closeGuardFailed = true;
+    notify('Close protection unavailable. Restart Nect.', true);
+  });
 new window.MutationObserver(updateDocumentStatus).observe(app, { childList: true });
 if (
   desktop &&
@@ -17412,10 +17592,6 @@ if (
 )
   void refreshOsFontCatalog();
 updateDocumentStatus();
-if (desktop)
-  showRecoveryCopies(true).catch((error) => {
-    recovery.report(recovery.current, { phase: 'failed', error: error.message || String(error) });
-  });
 if (desktop)
   listSystemFonts()
     .then((items) => {
@@ -17466,6 +17642,7 @@ window.nect = {
     return session.projectRevision;
   },
   dispatch(command) {
+    if (closeInputBlocked()) throw Error('Close protection is not ready');
     const authority = captureCompositionDeletionAuthority();
     const type = command.type;
     if (type === 'delete-composition') {
@@ -17529,6 +17706,7 @@ window.nect = {
   },
   projectSnapshot: () => session.projectSnapshot(),
   load(text) {
+    if (closeInputBlocked()) throw Error('Close protection is not ready');
     const project = deserializeProject(text),
       activeDocument = activeCompositionDocument(project, project.compositions[0].id);
     if (hasVariableFonts(activeDocument))
@@ -17657,11 +17835,4 @@ document.addEventListener('keydown', (event) => {
 });
 
 // Compile-time only. Vite removes this branch and module from ordinary builds.
-if (
-  typeof __NECT_RECOVERY_ACCEPTANCE_BUILD__ !== 'undefined' &&
-  __NECT_RECOVERY_ACCEPTANCE_BUILD__
-) {
-  void import('./recovery-acceptance-test.js').then(({ runRecoveryAcceptance }) =>
-    runRecoveryAcceptance(recovery, window.nect),
-  );
-}
+startRecoveryAcceptanceWhenReady();

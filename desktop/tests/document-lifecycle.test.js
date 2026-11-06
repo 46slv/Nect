@@ -96,6 +96,18 @@ test('transition Save/Discard/Cancel and in-flight editing never silently discar
   await assert.rejects(d.save(), /Finish or cancel/);
 });
 
+test('close approval is captured before the guard promise exposes a later edit', async () => {
+  const f = fixture(),
+    d = f.lifecycle;
+  f.choose('discard');
+  let approved;
+  const transition = d.guard('close', { onApproved: () => (approved = d.observe()) });
+  queueMicrotask(() => f.edit('later'));
+  assert.equal(await transition, true);
+  assert.equal(approved, 'a');
+  assert.equal(d.observe(), 'later');
+});
+
 test('replace and Save As retire only obsolete bindings; cancellation/failure retain the save target', async () => {
   const released = [],
     f = fixture({ release: async ({ token }) => released.push(token) }),
