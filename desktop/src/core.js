@@ -293,6 +293,7 @@ export function bindProjectDocumentContext(document, project, compositionId) {
     project: { ...project },
     activeCompositionId: compositionId,
     activeDocument: document,
+    normalizedCompositions: new Map(),
   });
   return document;
 }
@@ -305,17 +306,46 @@ export function inheritProjectDocumentContext(source, target) {
     );
   return target;
 }
+// Normalize in the source project's original schema, just as an active
+// CommandSession does. Cache one detached projection per bound snapshot so
+// migrations that allocate IDs are stable across evaluation and commit.
+function normalizedProjectSource(binding, compositionId) {
+  if (binding.normalizedCompositions.has(compositionId))
+    return binding.normalizedCompositions.get(compositionId);
+  const source = binding.project.compositions.find((item) => item.id === compositionId);
+  if (!source) return null;
+  const { compositionSchemaVersion, compositions, ...shared } = binding.project;
+  const document = cloneDocument({
+    ...shared,
+    width: source.width,
+    height: source.height,
+    ...(source.editor === undefined ? {} : { editor: source.editor }),
+    layers: source.layers,
+  });
+  validate(document);
+  binding.normalizedCompositions.set(compositionId, document);
+  return document;
+}
+
+// Owner promotion uses exactly the same migrated IDs as the read that preceded
+// candidate admission. The clone prevents validation from mutating the cache.
+export function normalizedProjectSourceForDocument(document, compositionId) {
+  const binding = projectDocumentContexts.get(document);
+  if (!binding) throw Error('Composition property reference requires project context');
+  const source = normalizedProjectSource(binding, compositionId);
+  return source && cloneDocument(source);
+}
+
 function projectFrameDocument(binding, compositionId, context) {
   if (!context.projectDocuments) context.projectDocuments = new Map();
   if (compositionId === binding.activeCompositionId) return binding.activeDocument;
   if (context.projectDocuments.has(compositionId))
     return context.projectDocuments.get(compositionId);
-  const source = binding.project.compositions.find((item) => item.id === compositionId);
+  const source = normalizedProjectSource(binding, compositionId);
   if (!source) return null;
-  const { compositionSchemaVersion, compositions, ...shared } = binding.project;
+  const { width, height, editor, layers, ...shared } = binding.activeDocument;
   const doc = {
     ...shared,
-    schemaVersion: Math.max(shared.schemaVersion, binding.activeDocument.schemaVersion),
     width: source.width,
     height: source.height,
     ...(source.editor === undefined ? {} : { editor: source.editor }),
@@ -2287,7 +2317,9 @@ export function expressionReferenceTargetsForProject(
 ) {
   const composition = project?.compositions?.find((item) => item.id === compositionId);
   if (!composition) return [];
-  const document = projectAsReferenceDocument(project);
+  const document = projectAsReferenceDocument(project, { normalize: true });
+  const binding = projectDocumentContexts.get(document);
+  const normalizedComposition = normalizedProjectSource(binding, compositionId);
   const graph = documentDependencyGraph(document);
   const reaches = (vertex, seen = new Set()) => {
     if (
@@ -2301,11 +2333,11 @@ export function expressionReferenceTargetsForProject(
     seen.add(key);
     return graph.edges(vertex).some((dep) => reaches(dep, seen));
   };
-  const localDoc = { ...document, layers: composition.layers };
+  const localDoc = { ...document, layers: normalizedComposition.layers };
   const local = expressionReferenceTargetsForDocument(localDoc, layerId, nodeId, type, targetKey)
     .filter((target) => !reaches(graph.property(target.layerId, target.nodeId, target.key)))
     .map((target) => ({ ...target, compositionId }));
-  const targetNode = composition.layers
+  const targetNode = normalizedComposition.layers
     .find((item) => item.id === layerId)
     ?.nodes.find((item) => item.id === nodeId);
   const destination =
@@ -2316,10 +2348,13 @@ export function expressionReferenceTargetsForProject(
     project.compositions
       .filter((item) => item.id !== compositionId)
       .flatMap((source) =>
-        source.layers.flatMap((sourceLayer) =>
+        normalizedProjectSource(binding, source.id).layers.flatMap((sourceLayer) =>
           expressionReferenceTargets(sourceLayer, null, 'Scalar')
             .filter(
               (target) =>
+                source.layers
+                  .find((item) => item.id === sourceLayer.id)
+                  ?.nodes.some((item) => item.id === target.nodeId) &&
                 target.component === undefined &&
                 parameter(
                   sourceLayer.nodes.find((n) => n.id === target.nodeId),
@@ -5143,7 +5178,7 @@ function assertArtworkReferenceTransition(
   // of the affected effective values; authored fallbacks are never changed.
   validateEffective(effective);
 }
-function projectAsReferenceDocument(project) {
+function projectAsReferenceDocument(project, { normalize = false } = {}) {
   const { compositionSchemaVersion, compositions, ...shared } = project;
   const first = compositions[0];
   const doc = {
@@ -5153,14 +5188,27 @@ function projectAsReferenceDocument(project) {
     ...(first.editor === undefined ? {} : { editor: first.editor }),
     layers: compositions.flatMap((composition) => composition.layers),
   };
-  return bindProjectDocumentContext(doc, project, first.id);
+  bindProjectDocumentContext(doc, project, first.id);
+  if (normalize) {
+    const binding = projectDocumentContexts.get(doc);
+    doc.layers = compositions.flatMap(
+      (composition) => normalizedProjectSource(binding, composition.id).layers,
+    );
+  }
+  return doc;
 }
 
 // Check exact identity, graph cycles and changed dependent values against the
 // whole project candidate, before either Session or project History commits.
 export function assertProjectReferenceTransition(before, candidate, fonts = {}) {
-  const previous = compositionPropertyReferencesInProject(before);
-  const next = compositionPropertyReferencesInProject(candidate);
+  const previous =
+    before.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION
+      ? compositionPropertyReferencesInProject(before)
+      : [];
+  const next =
+    candidate.schemaVersion >= COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION
+      ? compositionPropertyReferencesInProject(candidate)
+      : [];
   if (!previous.length && !next.length) return;
   const key = (ref) => `${ref.compositionId}\0${ref.layerId}\0${ref.nodeId}\0${ref.key}`;
   const remaining = new Set(next.map(key));
@@ -5172,14 +5220,15 @@ export function assertProjectReferenceTransition(before, candidate, fonts = {}) 
   for (const ref of previous)
     if (remaining.has(key(ref)) && !resolves(before, ref) && resolves(candidate, ref))
       throw Error('New identity would retarget a missing Composition property reference');
+  const oldDoc = projectAsReferenceDocument(before, { normalize: true }),
+    nextDoc = projectAsReferenceDocument(candidate, { normalize: true });
+  const binding = projectDocumentContexts.get(nextDoc);
   for (const ref of next) {
-    const layer = candidate.compositions
-      .find((c) => c.id === ref.compositionId)
-      ?.layers.find((item) => item.id === ref.layerId);
+    const layer = normalizedProjectSource(binding, ref.compositionId)?.layers.find(
+      (item) => item.id === ref.layerId,
+    );
     if (layer?.nodes.some((n) => n.id === ref.nodeId)) referenceParameter(layer, ref, 'Scalar');
   }
-  const oldDoc = projectAsReferenceDocument(before),
-    nextDoc = projectAsReferenceDocument(candidate);
   assertDocumentReferenceAcyclic(nextDoc);
   assertArtworkReferenceTransition(oldDoc, nextDoc, fonts, (effective) => {
     for (const composition of candidate.compositions) {
@@ -6682,7 +6731,12 @@ export function updateTextTypography(target, ids, patch, doc, layer, fonts = {})
 }
 
 export function createVariableDocumentPreparer(options = {}) {
-  return createVariableBridge({ ...options, resolveFonts, validate });
+  return createVariableBridge({
+    ...options,
+    resolveFonts,
+    validate,
+    cloneDocument: (document) => inheritProjectDocumentContext(document, clone(document)),
+  });
 }
 
 export class CommandSession {
