@@ -44,6 +44,27 @@ target.id = 'variable-second';
 target.layers[0].nodes.find((entry) => entry.id === color.id).params.value.colorSlotId = 'brand';
 project.compositions.push(target);
 const json = serializeCompositionProject(project);
+const base = process.env.BASE_URL || 'http://127.0.0.1:5179/';
+
+// Ask Vite to discover and finish pre-bundling the worker-only fontkit import
+// before opening the test page. Otherwise its first discovery can reload an
+// already-running test. An outdated-dependency response asks for a fresh URL.
+async function warmVariableWorkerDependency() {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const module = await fetch(new URL('/src/variable-font/backend.js', base));
+    if (!module.ok) throw Error(`Variable worker module unavailable: ${module.status}`);
+    const source = await module.text();
+    const match = source.match(/\bfrom\s+["']([^"']*\/fontkit\.js(?:\?[^"']*)?)["']/);
+    if (!match) throw Error('Vite did not expose the optimized variable worker dependency');
+    const dependency = await fetch(new URL(match[1], base));
+    if (dependency.status === 504 && dependency.statusText === 'Outdated Optimize Dep') continue;
+    if (!dependency.ok) throw Error(`Variable worker dependency unavailable: ${dependency.status}`);
+    await dependency.arrayBuffer();
+    return;
+  }
+  throw Error('Vite kept replacing the optimized variable worker dependency');
+}
+await warmVariableWorkerDependency();
 const browser = await chromium.launch({
   executablePath:
     process.env.CHROMIUM_PATH ||
@@ -55,9 +76,13 @@ const browser = await chromium.launch({
 });
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 const errors = [];
+let mainNavigations = 0;
+page.on('framenavigated', (frame) => {
+  if (frame === page.mainFrame()) mainNavigations++;
+});
 page.on('pageerror', (error) => errors.push(error.message));
 try {
-  await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5179/');
+  await page.goto(base);
   await page.waitForFunction(() => !!window.nect);
   await page.locator('#open-file').setInputFiles({
     name: 'two-compositions.nect',
@@ -112,15 +137,23 @@ try {
   const hslButton = page.locator('.inspector [data-hsl-picker-open]');
   await hslButton.click();
   const hslHex = page.locator('[data-hsl-hex]');
+  const originalHex = await hslHex.inputValue();
   await hslHex.fill('#445566');
   await page.locator('[role="tab"][data-active-composition="variable-second"]').click();
   assert.equal(await page.evaluate(() => window.nect.activeCompositionId), 'variable-first');
   assert.equal(await hslHex.inputValue(), '#445566');
   assert.equal(await hslHex.evaluate((element) => document.activeElement === element), true);
-  await hslHex.press('Escape');
-  await hslButton.click();
+  await hslHex.fill(originalHex.toLowerCase());
   await page.locator('[role="tab"][data-active-composition="variable-second"]').click();
   await page.waitForFunction(() => window.nect.activeCompositionId === 'variable-second');
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      project: window.nect.projectSnapshot(),
+      revision: window.nect.projectRevision,
+      file: window.nect.fileState,
+    })),
+    before,
+  );
   await page.locator('#open-file').setInputFiles({
     name: 'two-compositions.nect',
     mimeType: 'application/json',
@@ -292,6 +325,7 @@ try {
   );
   await nameInput.press('Escape');
   assert.deepEqual(errors, []);
+  assert.equal(mainNavigations, 1, 'Vite must not reload the active test page');
   console.log(
     'PASS: sandboxed Chrome Open, variable Composition tabs, Color uses, inline name race, SVG and Undo/Redo',
   );

@@ -485,6 +485,26 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
     );
   }
   document.defaultView?.addEventListener('blur', () => close());
+  function inputHasDraft(input) {
+    const painted = paintedInputs.get(input),
+      value = input.value;
+    if (typeof painted !== 'string') return true;
+    if (input.matches('[data-hsl-hex]'))
+      return !/^#[0-9a-f]{6}$/i.test(value) || !sameHex(value, painted);
+    if (input.matches('[data-hsl-number], [data-hsl-hue]')) {
+      const validity = input.validity;
+      return (
+        !value.trim() ||
+        !Number.isFinite(Number(value)) ||
+        !!validity?.badInput ||
+        !!validity?.rangeUnderflow ||
+        !!validity?.rangeOverflow ||
+        (input.matches('[data-hsl-number]') && !!validity?.stepMismatch) ||
+        Number(value) !== Number(painted)
+      );
+    }
+    return value !== painted;
+  }
   return {
     open,
     close,
@@ -498,9 +518,7 @@ export function createHslColorPicker({ document, onCommit, onError = () => {} })
           scrub ||
           composing.size ||
           !sameHex(hex, committedHex) ||
-          [...popover.querySelectorAll('input')].some(
-            (input) => dirtyInputs.has(input) || input.value !== paintedInputs.get(input),
-          ))
+          [...popover.querySelectorAll('input')].some(inputHasDraft))
       );
     },
   };

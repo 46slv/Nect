@@ -393,6 +393,7 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
       hex = await openHsl();
       assert.ok(hex);
       hex.focus();
+      const originalHex = hex.value;
       hex.value = '#445566';
       hex.dispatchEvent(new win.Event('input', { bubbles: true }));
       const colorBefore = win.openStateForTest();
@@ -400,7 +401,12 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
       assert.equal(win.document.activeElement, hex);
       assert.equal(hex.value, '#445566');
       assert.deepEqual(win.openStateForTest(), colorBefore);
-      hex.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      hex.value = originalHex.toLowerCase();
+      hex.dispatchEvent(new win.Event('input', { bubbles: true }));
+      assert.equal(attempt(), false, 'returning to the original color allows the tab switch');
+      assert.equal(win.nect.activeCompositionId, target.id);
+      assert.deepEqual(win.nect.projectSnapshot(), colorBefore.project);
+      assert.deepEqual(win.openStateForTest().historyState, colorBefore.historyState);
 
       const imeProject = structuredClone(project);
       imeProject.schemaVersion = 54;

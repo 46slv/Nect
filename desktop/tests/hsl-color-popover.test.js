@@ -124,6 +124,86 @@ test('invalid input and Escape do not author a Color change', (t) => {
   assert.deepEqual(commits, []);
 });
 
+test('returning HEX and HSL inputs to their committed values clears the draft', (t) => {
+  const win = new Window();
+  t.after(() => win.happyDOM.abort());
+  const document = win.document;
+  document.body.innerHTML = '<button id="swatch">Color</button>';
+  const commits = [];
+  const picker = createHslColorPicker({ document, onCommit: (value) => commits.push(value) });
+  const popup = picker.open({
+    anchor: document.querySelector('#swatch'),
+    label: 'Paint',
+    color: { hex: '#ff0000', alpha: 1 },
+    context: { nodeId: 'a' },
+  });
+  const hex = popup.querySelector('[data-hsl-hex]');
+  const input = (element, value) => {
+    element.value = value;
+    element.dispatchEvent(new win.Event('input', { bubbles: true }));
+  };
+  input(hex, '#445566');
+  assert.equal(picker.hasDraft, true);
+  input(hex, '#FF0000');
+  assert.equal(picker.hasDraft, false);
+  input(hex, '#ff0000');
+  assert.equal(picker.hasDraft, false, 'hex letter case has no color meaning');
+  input(hex, '#ff000');
+  assert.equal(picker.hasDraft, true, 'an incomplete hex value remains a draft');
+  input(hex, '#FF0000');
+  assert.equal(picker.hasDraft, false);
+  const hue = popup.querySelector('[data-hsl-number="h"]');
+  input(hue, '0.01');
+  assert.equal(picker.hasDraft, true, 'a changed HSL value remains a draft even if hex rounds');
+  input(hue, '0.00');
+  assert.equal(picker.hasDraft, false, 'equivalent numeric spellings are clean');
+  input(hue, '');
+  assert.equal(picker.hasDraft, true, 'an incomplete numeric value remains a draft');
+  input(hue, '400');
+  assert.equal(picker.hasDraft, true, 'an out-of-range numeric value remains a draft');
+  input(hue, '0.00');
+  assert.equal(picker.hasDraft, false);
+  hue.dispatchEvent(
+    new win.PointerEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+      pointerId: 8,
+      isPrimary: true,
+    }),
+  );
+  assert.equal(picker.hasDraft, true, 'a pending numeric scrub is protected');
+  document.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 8 }));
+  assert.equal(picker.hasDraft, false);
+  hue.dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
+  assert.equal(picker.hasDraft, true);
+  hue.dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true }));
+  assert.equal(picker.hasDraft, false);
+  assert.deepEqual(commits, []);
+  hue.dispatchEvent(
+    new win.PointerEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+      pointerId: 9,
+      isPrimary: true,
+      clientX: 0,
+    }),
+  );
+  document.dispatchEvent(
+    new win.PointerEvent('pointermove', { bubbles: true, pointerId: 9, clientX: 20 }),
+  );
+  assert.equal(picker.hasDraft, true);
+  document.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 9 }));
+  assert.equal(commits.length, 1, 'scrub still settles the prior input and commits once');
+  assert.equal(picker.hasDraft, false);
+  picker.open({
+    anchor: document.querySelector('#swatch'),
+    label: 'Paint',
+    color: { hex: '#36434e', alpha: 1 },
+    context: { nodeId: 'a' },
+  });
+  assert.equal(picker.hasDraft, false, 'an untouched fractional slider value is clean');
+});
+
 test('plane gesture changes saturation/lightness once at pointer release', (t) => {
   const win = new Window();
   t.after(() => win.happyDOM.abort());
@@ -163,6 +243,7 @@ test('plane gesture changes saturation/lightness once at pointer release', (t) =
     }),
   );
   assert.equal(commits.length, 0);
+  assert.equal(picker.hasDraft, true);
   document.dispatchEvent(
     new win.PointerEvent('pointerup', {
       bubbles: true,
@@ -173,6 +254,7 @@ test('plane gesture changes saturation/lightness once at pointer release', (t) =
   );
   assert.equal(commits.length, 1);
   assert.equal(commits[0], '#bf4040');
+  assert.equal(picker.hasDraft, false);
 });
 
 test('Escape cancels an active plane gesture regardless of keyboard focus and ignores its late release', (t) => {
