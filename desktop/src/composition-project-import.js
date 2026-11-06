@@ -5,9 +5,11 @@ import {
 } from './color-slots.js';
 import {
   validateCompositionProject,
+  serializeCompositionProject,
   assertNoLegacyArtworkReferencePromotion,
   assertNoLegacyHandleReferencePromotion,
 } from './composition-project-model.js';
+import { MAX_PROJECT_BYTES, utf8ByteLength } from './fonts.js';
 import { expressionReferencesForSchema, validate } from './core.js';
 import {
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
@@ -243,7 +245,9 @@ export function prepareProjectCompositionsImport(
   project.fontAssets = fonts.assets;
   project.imageAssets = images.assets;
   project.compositions.push(...compositions);
-  validateCompositionProject(project);
+  // Use the same compact UTF-8 project representation as Save and Recovery.
+  if (utf8ByteLength(serializeCompositionProject(project)) > MAX_PROJECT_BYTES)
+    throw Error('Project exceeds 50 MB');
   return { project, compositionIds: compositions.map((item) => item.id) };
 }
 
