@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { evaluateSampleFieldV1 } from '../src/sample-field-v1.js';
 import { legacyPointPathToSamples } from '../src/legacy-point-path-adapter.js';
 
@@ -218,4 +219,31 @@ test('missing Attribute data cannot be supplied by inherited getters', () => {
       else delete Object.prototype[key];
     }
   }
+});
+
+test('Attribute snapshots preserve values and reject NaN with inherited numeric accessors', () => {
+  const program = `
+    import { evaluateSampleFieldV1 as evaluate } from ${JSON.stringify(new URL('../src/sample-field-v1.js', import.meta.url).href)};
+    const saved = Object.getOwnPropertyDescriptor(Object.prototype, '0');
+    const field = { kind: 'Attribute', version: 1, valueType: 'Scalar', role: 'luminance', unit: null, attributeName: 'luminance' };
+    const attribute = { name: 'luminance', domain: 'Sample', valueType: 'Scalar', role: 'luminance', unit: null, values: [NaN] };
+    const request = { domain: 'Sample', count: 1, maxSamples: 1, attribute };
+    const good = { ...request, attribute: { ...attribute, values: [-0] } };
+    let calls = 0, rejected = false, result;
+    try {
+      Object.defineProperty(Object.prototype, '0', {
+        configurable: true,
+        get() { calls++; return 0.5; },
+        set() { calls++; },
+      });
+      try { evaluate(field, request); } catch { rejected = true; }
+      result = evaluate(field, good);
+    } finally {
+      if (saved) Object.defineProperty(Object.prototype, '0', saved);
+      else delete Object.prototype[0];
+    }
+    if (!rejected || calls !== 0 || !Object.hasOwn(result.values, 0) || !Object.is(result.values[0], -0))
+      throw Error('numeric prototype accessor changed an Attribute value');
+  `;
+  execFileSync(process.execPath, ['--input-type=module', '--eval', program], { timeout: 10_000 });
 });
