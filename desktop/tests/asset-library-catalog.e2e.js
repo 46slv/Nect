@@ -7,14 +7,16 @@ import { activateCommand } from './command-menu-actions.js';
 const root = resolve('dist'),
   out = resolve('test-results/asset-catalog');
 const config = JSON.parse(await readFile('src-tauri/tauri.conf.json', 'utf8'));
-await mkdir(out + '/A', { recursive: true });
-await mkdir(out + '/B', { recursive: true });
+const firstFolder = out + '/ProjectA/assets',
+  secondFolder = out + '/ProjectB/assets';
+await mkdir(firstFolder, { recursive: true });
+await mkdir(secondFolder, { recursive: true });
 await writeFile(
-  out + '/A/old.svg',
+  firstFolder + '/old.svg',
   '<svg width="20" height="20"><rect width="10" height="10"/></svg>',
 );
 await writeFile(
-  out + '/B/other.svg',
+  secondFolder + '/other.svg',
   '<svg width="20" height="20"><circle cx="10" cy="10" r="5"/></svg>',
 );
 const server = createServer(async (req, res) => {
@@ -44,6 +46,7 @@ try {
     executablePath:
       process.env.CHROMIUM_PATH || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
     headless: true,
+    chromiumSandbox: true,
   });
   const url = `http://127.0.0.1:${server.address().port}`;
   for (const mode of ['browser-refresh', 'native-reselection']) {
@@ -60,8 +63,8 @@ try {
           window.catalogGeneration = 0;
           window.lastCatalogRefresh = null;
           const roots = {
-            'folder-a': { id: 'folder-a', name: 'A' },
-            'folder-b': { id: 'folder-b', name: 'B' },
+            'folder-a': { id: 'folder-a', name: 'assets', path: 'C:\\ProjectA\\assets' },
+            'folder-b': { id: 'folder-b', name: 'assets', path: 'C:\\ProjectB\\assets' },
           };
           window.__TAURI_INTERNALS__ = {
             transformCallback: () => 1,
@@ -109,7 +112,7 @@ try {
             () => !document.querySelector('[data-asset-library] select').disabled,
           );
         };
-        await pick('Add folder', out + '/A');
+        await pick('Add folder', firstFolder);
         const id = await select.inputValue();
         assert.equal(await select.locator('option').count(), 1);
         await panel.getByRole('button', { name: 'old.svg', exact: true }).click();
@@ -122,13 +125,13 @@ try {
         const svgBefore = await page.evaluate(() => window.nect.export());
         for (let i = 0; i < 20; i++) {
           if (i === 2) {
-            await unlink(out + '/A/old.svg');
+            await unlink(firstFolder + '/old.svg');
             await writeFile(
-              out + '/A/new.svg',
+              firstFolder + '/new.svg',
               '<svg width="30" height="20"><rect width="25" height="15" fill="#0000ff"/></svg>',
             );
           }
-          await pick('Refresh', out + '/A');
+          await pick('Refresh', firstFolder);
           assert.equal(await select.inputValue(), id, `Refresh ${i} retargeted root identity`);
           assert.equal(await select.locator('option').count(), 1, `Refresh ${i} duplicated root`);
           await panel
@@ -140,8 +143,63 @@ try {
               0,
             );
         }
-        await pick('Add folder', out + '/B');
+        await pick('Add folder', secondFolder);
         assert.equal(await select.locator('option').count(), 2);
+        const secondId = await select.inputValue();
+        const labels = await select.locator('option').allTextContents();
+        assert.equal(
+          new Set(labels).size,
+          2,
+          'same-basename browser roots must be visibly distinct',
+        );
+        assert.ok(labels.every((text) => text.includes('assets')));
+        assert.ok(
+          labels.every((text) => !text.includes('ProjectA') && !text.includes('ProjectB')),
+          'browser directory selection must not invent hidden parent paths',
+        );
+        const projectBeforeSecondPlacement = await page.evaluate(() =>
+          window.nect.projectSnapshot(),
+        );
+        await panel.getByRole('button', { name: 'other.svg', exact: true }).click();
+        await panel.locator('[data-asset-place-layer]:enabled').waitFor();
+        await panel.locator('[data-asset-place-layer]').click();
+        await page.waitForFunction(
+          (id) =>
+            window.nect.document.layers.some((layer) =>
+              layer.nodes.some((n) => n.svgAsset?.rootId === id),
+            ),
+          secondId,
+        );
+        const secondPlacement = await page.evaluate(
+          (id) =>
+            window.nect.document.layers
+              .flatMap((layer) => layer.nodes)
+              .find((n) => n.svgAsset?.rootId === id).svgAsset,
+          secondId,
+        );
+        assert.equal(secondPlacement.relativePath, 'other.svg');
+        await activateCommand(page, 'undo');
+        assert.deepEqual(
+          await page.evaluate(() => window.nect.projectSnapshot()),
+          projectBeforeSecondPlacement,
+        );
+        await page.setViewportSize({ width: 420, height: 520 });
+        const bounds = await select.evaluate((el) => {
+          const box = el.getBoundingClientRect(),
+            panel = el.closest('[data-asset-library]').getBoundingClientRect();
+          return {
+            left: box.left,
+            right: box.right,
+            panelLeft: panel.left,
+            panelRight: panel.right,
+          };
+        });
+        assert.ok(
+          bounds.left >= bounds.panelLeft - 1 && bounds.right <= bounds.panelRight + 1,
+          'folder selector must fit the fixed narrow panel: ' + JSON.stringify(bounds),
+        );
+        await page.screenshot({ path: out + '/same-name-browser-narrow.png' });
+        await page.setViewportSize({ width: 1280, height: 900 });
         const state = await select.evaluate((el) => ({
           value: el.value,
           options: [...el.options].map((o) => [o.value, o.textContent]),
@@ -160,8 +218,8 @@ try {
         await panel.getByRole('button', { name: 'other.svg', exact: true }).waitFor();
         // Zero files can be an empty directory or Cancel. Keep the previous
         // snapshot until the user explicitly removes that registration.
-        await unlink(out + '/B/other.svg');
-        await pick('Refresh', out + '/B');
+        await unlink(secondFolder + '/other.svg');
+        await pick('Refresh', secondFolder);
         assert.deepEqual(
           await select.evaluate((el) => ({
             value: el.value,
@@ -175,16 +233,16 @@ try {
         await page.waitForFunction(
           () => document.querySelectorAll('[aria-label="Asset folder"] option').length === 1,
         );
-        assert.deepEqual(await readdir(out + '/B'), []);
+        assert.deepEqual(await readdir(secondFolder), []);
         await panel.getByRole('button', { name: 'new.svg', exact: true }).waitFor();
-        const originalFile = await readFile(out + '/A/new.svg', 'utf8');
+        const originalFile = await readFile(firstFolder + '/new.svg', 'utf8');
         await panel.getByRole('button', { name: 'Remove', exact: true }).click();
         await page.waitForFunction(
           () =>
             document.querySelectorAll('[aria-label="Asset folder"] option').length === 0 &&
             document.querySelectorAll('.asset-library-grid button').length === 0,
         );
-        assert.equal(await readFile(out + '/A/new.svg', 'utf8'), originalFile);
+        assert.equal(await readFile(firstFolder + '/new.svg', 'utf8'), originalFile);
         assert.equal(await page.evaluate(() => window.nect.export()), svgBefore);
         await page.evaluate((document) => window.nect.load(document), before);
         assert.equal(await page.evaluate(() => window.nect.export()), svgBefore);
@@ -214,11 +272,42 @@ try {
           assert.equal(await page.evaluate(() => window.lastCatalogRefresh), id);
         }
         assert.equal(await select.locator('option').count(), 2);
+        const nativeLabels = await select.locator('option').allTextContents();
+        assert.equal(
+          new Set(nativeLabels).size,
+          2,
+          'same-basename native roots must be visibly distinct',
+        );
+        assert.match(nativeLabels[0], /ProjectA/);
+        assert.match(nativeLabels[1], /ProjectB/);
+        assert.equal(
+          await select.locator('option[value="folder-b"]').getAttribute('title'),
+          'C:\\ProjectB\\assets',
+        );
+        await page.setViewportSize({ width: 420, height: 520 });
+        const nativeBounds = await select.evaluate((el) => {
+          const box = el.getBoundingClientRect(),
+            panel = el.closest('[data-asset-library]').getBoundingClientRect();
+          return {
+            left: box.left,
+            right: box.right,
+            panelLeft: panel.left,
+            panelRight: panel.right,
+          };
+        });
+        assert.ok(
+          nativeBounds.left >= nativeBounds.panelLeft - 1 &&
+            nativeBounds.right <= nativeBounds.panelRight + 1,
+          'native root selector must fit the fixed narrow panel: ' + JSON.stringify(nativeBounds),
+        );
+        await page.screenshot({ path: out + '/same-name-native-stub-narrow.png' });
+        await page.setViewportSize({ width: 1280, height: 900 });
         results[mode] = {
           passed: true,
           selected: 'folder-a',
           rootCount: 2,
           desktopIoIsExplicitStub: true,
+          labels: await select.locator('option').allTextContents(),
         };
       }
       assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), before);

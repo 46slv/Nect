@@ -123,6 +123,22 @@ cannot verify an absolute OS path; explicit re-selection supplies that capabilit
 Native registration returns `{ roots, selectedRootId }`, including an existing
 root selected again. The UI never infers that selection from list position.
 
+When registered folder names collide after Unicode/whitespace normalization, the
+chooser prefixes every option with a stable session display number and includes
+the existing native root path when available. Unique names remain compact. The
+number stays attached to the opaque root ID across Refresh and panel remounts;
+removing another root does not renumber the survivors. These labels are local UI
+state, not registry keys, authored provenance or a document-format change. Closed
+panels cannot redraw or refresh a newer catalog after a delayed Remove completes.
+Browser directory selections do not expose absolute parent paths, so their labels
+use only the supplied folder name and session number. Native option titles retain
+the supplied full path. No additional filesystem read or path inference is used.
+
+The same-name regression covers exact root selection/removal, browser placement
+provenance and Undo, 20 repeated refreshes, Cancel, panel remount, delayed Remove
+and a 420 CSS-pixel viewport. Headless native IPC stubs cover path hints and
+reselection; this is not physical OS-picker or native WebView2 acceptance.
+
 Browser-only limit: an empty folder can produce the same zero-file/cancel outcome
 as dismissing the chooser. That outcome keeps the previous selection snapshot;
 it does not claim the physical folder is still populated. The status names the

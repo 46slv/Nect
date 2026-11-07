@@ -6,6 +6,9 @@ import { readSVGSource, importSVGTree } from './svg-import.js';
 import { exportSVG } from './core.js';
 
 const browserRoots = new Map();
+// Presentation only: root IDs still own registration, refresh and placement.
+const rootDisplayNumbers = new Map();
+let nextRootDisplayNumber = 1;
 let mounted;
 let closeMounted;
 const composingInputs = new WeakSet();
@@ -247,8 +250,25 @@ export function mountAssetLibrary({
   close.onclick = closePanel;
   document.addEventListener('keydown', keydown);
   function drawRoots(id = rootSelect.value) {
+    if (!alive) return;
+    const ids = new Set(roots.map((root) => root.id));
+    for (const key of rootDisplayNumbers.keys()) if (!ids.has(key)) rootDisplayNumbers.delete(key);
+    const names = roots.map((root) =>
+      String(root.name ?? '')
+        .normalize('NFC')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    );
+    const ambiguous = new Set(names).size !== roots.length;
     rootSelect.replaceChildren();
-    for (const r of roots) rootSelect.append(element('option', r.name, { value: r.id }));
+    for (const r of roots) {
+      if (!rootDisplayNumbers.has(r.id)) rootDisplayNumbers.set(r.id, nextRootDisplayNumber++);
+      const path = typeof r.path === 'string' ? r.path : '';
+      const label = ambiguous
+        ? `${rootDisplayNumbers.get(r.id)}. ${r.name}${path ? ' — ' + path : ''}`
+        : r.name;
+      rootSelect.append(element('option', label, { value: r.id, title: path || label }));
+    }
     const selectedId = roots.some((r) => r.id === id) ? id : roots[0]?.id;
     if (selectedId !== undefined) rootSelect.value = selectedId;
     buttons();
@@ -578,6 +598,8 @@ export function mountAssetLibrary({
         browserRoots.delete(id);
         roots = [...browserRoots.values()];
       }
+      // The unregister may finish after Close; do not mutate a newer view or refresh it.
+      if (!alive) return;
       drawRoots();
       await refreshRoot();
     } catch (error) {
