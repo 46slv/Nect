@@ -5331,25 +5331,22 @@ function assertArtworkReferenceTransition(
   fonts = {},
   validateEffective = validate,
 ) {
-  const allRefs = (doc) =>
-    doc.layers.flatMap((layer) =>
-      layer.nodes.flatMap((n) =>
-        parameters(n).flatMap(([, q]) =>
-          typeof q.expression === 'string'
-            ? [
-                ...artworkExpressionReferences(q.expression),
-                ...compositionPropertyReferences(q.expression),
-                ...(doc.schemaVersion >= COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION
-                  ? componentCompositionReferences(q.expression)
-                  : []),
-                ...(doc.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION
-                  ? qualifiedColorReferences(q.expression)
-                  : []),
-              ]
-            : [],
-        ),
-      ),
-    );
+  const allRefs = (doc) => {
+    const refs = [];
+    for (const layer of doc.layers)
+      for (const n of layer.nodes)
+        for (const [, q] of parameters(n)) {
+          const expression = q.expression;
+          if (typeof expression !== 'string' || expression.length === 0) continue;
+          for (const ref of artworkExpressionReferences(expression)) refs.push(ref);
+          for (const ref of compositionPropertyReferences(expression)) refs.push(ref);
+          if (doc.schemaVersion >= COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION)
+            for (const ref of componentCompositionReferences(expression)) refs.push(ref);
+          if (doc.schemaVersion >= QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION)
+            for (const ref of qualifiedColorReferences(expression)) refs.push(ref);
+        }
+    return refs;
+  };
   const previous = allRefs(before),
     next = allRefs(candidate);
   if (!previous.length && !next.length) return;
