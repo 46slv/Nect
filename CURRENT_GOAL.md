@@ -36,7 +36,7 @@ Approach: one source writer per scope, exact-candidate evidence and ordinary non
 
 Done for next: advance the highest-value accepted remaining obligation with source-bound evidence, or record its exact local blocker. A passed native artwork vertical is not full product completion.
 
-State: primary D:/Documents/Codex/2026-11-02/task/Nect-pr178-combination is clean/pushed on dot/nect-production-stabilization-20261107; read Git for the current documentation HEAD. Its desktop files match application 66761990. #224 source branch stays preserved at c2e6675e. Source and finite native GUI ownership are released; no app process remains. This root-only checkpoint does not change application files.
+State: primary D:/Documents/Codex/2026-11-02/task/Nect-pr178-combination is clean/pushed on dot/nect-production-stabilization-20261107; read Git for the current documentation HEAD. Its desktop files match application 66761990. #224 source branch stays preserved at c2e6675e. Source and finite native GUI ownership are released; no owned Nect process remains. This root-only checkpoint does not change application files.
 
 Residuals: actual OS/human physical IME, OS color picker, dirty-close/save-pending guards, linked/Capture native, malformed/disk-failure paths, full SVG pixel comparison, installer/signing/distribution and Shiro's subjective review remain unverified. GUI availability is a per-slot local coordination condition, not the former missing-controller block. Final presets, legacy palette migration, broader transfer/ambiguous clipboard provenance, large-scene performance and full REQ-2/3/34/211 remain incomplete. Image Luminance remains internal/unconnected with no public node/full Field-workflow claim.
 
