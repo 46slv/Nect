@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { blankDocument, CommandSession, connect, node, serialize } from '../src/core.js';
@@ -110,21 +111,52 @@ destination.schemaVersion = 54;
 destination.colorSlots = [
   { id: 'fresh-derived', name: 'Existing', value: { hex: '#112233', alpha: 1 } },
 ];
-const browser = await chromium.launch({
-  executablePath:
-    process.env.CHROMIUM_PATH ||
-    (process.platform === 'win32'
-      ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
-      : '/usr/bin/chromium'),
-  headless: true,
-  chromiumSandbox: true,
-});
-const page = await browser.newPage({ viewport: { width: 900, height: 620 } });
-const errors = [];
-page.on('pageerror', (error) => errors.push(error.message));
+let server, browser, page, dialog;
+const errors = [],
+  processes = [];
+async function launchBrowser() {
+  server = await chromium.launchServer({
+    executablePath:
+      process.env.CHROMIUM_PATH ||
+      (process.platform === 'win32'
+        ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+        : '/usr/bin/chromium'),
+    headless: true,
+    chromiumSandbox: true,
+  });
+  const proc = server.process();
+  assert.ok(!proc.spawnargs.includes('--no-sandbox'));
+  processes.push({ pid: proc.pid, startedAt: new Date().toISOString() });
+  browser = await chromium.connect(server.wsEndpoint());
+  page = await browser.newPage({ viewport: { width: 900, height: 620 } });
+  page.on('pageerror', (error) => errors.push(error.message));
+  dialog = page.locator('.composition-import-dialog[open]');
+}
+async function closeBrowser() {
+  if (!server) return;
+  const proc = server.process(),
+    record = processes.at(-1);
+  try {
+    await browser?.close();
+  } finally {
+    await server.close();
+  }
+  for (let i = 0; i < 40 && proc.exitCode === null && proc.signalCode === null; i++)
+    await delay(50);
+  let alive = true;
+  try {
+    process.kill(proc.pid, 0);
+  } catch (error) {
+    if (error.code !== 'ESRCH') throw error;
+    alive = false;
+  }
+  record.exited = !alive;
+  record.exitCode = proc.exitCode;
+  assert.equal(alive, false, 'owned Chrome process must exit before a fresh launch');
+  server = browser = page = dialog = null;
+}
 const snapshot = () => page.evaluate(() => window.nect.projectSnapshot());
 const state = () => page.evaluate(() => window.nect.commandState);
-const dialog = page.locator('.composition-import-dialog[open]');
 const choices = () => dialog.locator('[data-composition-choice] input');
 async function openImport(text = sourceText) {
   const chooser = page.waitForEvent('filechooser');
@@ -139,6 +171,7 @@ async function openImport(text = sourceText) {
   await dialog.waitFor();
 }
 try {
+  await launchBrowser();
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
   await page.evaluate((text) => window.nect.load(text), serialize(destination));
@@ -495,8 +528,18 @@ try {
   const captureFile = resolve(output, 'captured-local-colors.json');
   await (await captureDownload).saveAs(captureFile);
   assert.deepEqual(JSON.parse(await readFile(captureFile, 'utf8')), captured);
+  await page.waitForFunction(() => !window.nect.fileState.saving && !window.nect.fileState.dirty);
+  // A new page in the same browser would not establish process-restart acceptance.
+  await closeBrowser();
+  await launchBrowser();
+  assert.equal(processes[0].exited, true);
+  assert.equal(processes.length, 2);
+  await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  await page.waitForFunction(() => window.nect);
+  const freshDirty = await page.evaluate(() => window.nect.fileState.dirty);
   const captureChooser = page.waitForEvent('filechooser');
   await activateCommand(page, 'open');
+  if (freshDirty) await page.locator('dialog[open] button[value="discard"]').click();
   await (await captureChooser).setFiles(captureFile);
   await page.waitForFunction(
     (expected) => JSON.stringify(window.nect.projectSnapshot()) === expected,
@@ -513,6 +556,19 @@ try {
     reopenedPalette.revision,
   );
   const afterDestinationEdit = await snapshot();
+  assert.equal(
+    afterDestinationEdit.keyColorRecipe.committedSnapshot.revision,
+    reopenedPalette.revision + 1,
+  );
+  assert.deepEqual(afterDestinationEdit.keyColorRecipe.committedSnapshot.intent.keyColor.value, {
+    hex: '#A04030',
+    alpha: 1,
+  });
+  const keyId = reopenedPalette.intent.keyColor.id;
+  assert.notDeepEqual(
+    afterDestinationEdit.colorSlots.find((slot) => slot.id === keyId).value,
+    captured.colorSlots.find((slot) => slot.id === keyId).value,
+  );
   for (const composition of afterDestinationEdit.compositions.slice(-2)) {
     const color = composition.layers[0].nodes.find((entry) => entry.type === 'Fill').params.color;
     assert.equal(color.colorSlotId, undefined);
@@ -542,8 +598,12 @@ try {
   assert.equal(serializeCompositionProject(source), sourceText);
   assert.deepEqual(errors, []);
   console.log(
-    'PASS selected Compositions: linked import, explicit local Capture, history, stale owner and browser reopen',
+    'PASS selected Compositions: linked import, explicit local Capture, history, stale owner and cold browser restart',
   );
 } finally {
-  await browser.close();
+  await closeBrowser();
+  await writeFile(
+    resolve(output, 'browser-processes.json'),
+    JSON.stringify({ processes, pageErrors: errors }, null, 2) + '\n',
+  );
 }

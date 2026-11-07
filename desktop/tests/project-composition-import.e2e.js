@@ -100,16 +100,16 @@ try {
       };
     });
   const openImportDialog = async () => {
+    const chooser = page.waitForEvent('filechooser');
     await page.getByText('Import', { exact: true }).click();
     await page.getByText('Project composition', { exact: true }).click();
-    await page
-      .locator('body > input[type="file"]')
-      .last()
-      .setInputFiles({
-        name: 'source.json',
-        mimeType: 'application/json',
-        buffer: Buffer.from(sourceText),
-      });
+    await (
+      await chooser
+    ).setFiles({
+      name: 'source.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(sourceText),
+    });
     await page.waitForSelector('dialog[open] [data-composition-choice]');
   };
 
@@ -200,16 +200,16 @@ try {
   );
 
   const beforeInvalid = JSON.stringify(await page.evaluate(() => window.nect.projectSnapshot()));
+  const invalidChooser = page.waitForEvent('filechooser');
   await page.getByText('Import', { exact: true }).click();
   await page.getByText('Project composition', { exact: true }).click();
-  await page
-    .locator('body > input[type="file"]')
-    .last()
-    .setInputFiles({
-      name: 'invalid.json',
-      mimeType: 'application/json',
-      buffer: Buffer.from('{}'),
-    });
+  await (
+    await invalidChooser
+  ).setFiles({
+    name: 'invalid.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from('{}'),
+  });
   await page.waitForFunction(() =>
     document.querySelector('.status .message')?.textContent.includes('rejected'),
   );

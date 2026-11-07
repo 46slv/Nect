@@ -172,7 +172,10 @@ test('browser composition import settles and releases its file picker without ch
       assert.equal(dialogs().length, 1, 'successful selection opens the composition chooser once');
       assert.deepEqual(snapshot(), before, 'reading alone must not change project state');
       const dialog = dialogs()[0];
-      dialog.querySelector('[data-composition-choice]').value = '__all__';
+      const choices = dialog.querySelectorAll('[data-composition-choice] input[type="checkbox"]');
+      assert.equal(choices.length, 1);
+      assert.equal(choices[0].checked, true);
+      assert.equal(dialog.querySelector('button[value="import"]').disabled, false);
       close(dialog, 'import');
       const imported = api.projectSnapshot();
       assert.equal(imported.compositions.length, before.project.compositions.length + 1);

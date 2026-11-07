@@ -64,3 +64,16 @@ Then select a valid project, cancel the composition dialog, select again and
 import. Confirm existing work is preserved and one Undo/Redo removes/restores
 only the imported composition set. GitHub CI results must be bound to the final
 PR head; a passing DOM run does not close this real-picker acceptance row.
+
+## 2026-11-07 recovery
+
+This historical PR91 repair was absent from main47df6ea8 and has been recovered
+without replacing the surrounding modern import function. Fresh baseline replay
+reproduced pending Cancel and retained controls; the repaired current source
+passes all eight DOM checks. The legacy test selection assertion was adapted to
+the current checkbox dialog, and the browser importer test now uses a filechooser
+event rather than a control that automatic headless Cancel should already remove.
+Current color/import acceptance, cold process restart, fresh checks and limitations
+are in [the recovery receipt](color-composition-capture-restart.md). The original
+2026-10-25/26 results above remain historical. Actual native OS Cancel/Esc remains
+unverified.

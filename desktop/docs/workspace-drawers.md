@@ -1,5 +1,9 @@
 # Workspace drawers (trial)
 
+Release policy: panels use fixed positions. Arrangement changes are development-time
+improvements, not a user-configurable Adobe-style docking feature. The trial
+controls below do not authorize a generic docking or movable-panel system.
+
 The later [Workspace action](https://app.notion.com/p/40ffd279a6f38132856ce92091df60ea)
 authorizes staged implementation; it does not itself establish subjective product
 acceptance. The editor's job is artwork creation and graph editing; the Artboard and Node Graph
