@@ -108,7 +108,7 @@ source, Session ownership, validation path or history behavior was changed.
 - shiro-WS, Windows x64, Node v24.14.1. The raw receipt records the CPU model,
   timestamp and SHA-256 of each original module.
 - Isolated detached worktree at the exact base. Primary checkout was clean.
-  The parent confirmed the former writer stopped/released; no matching benchmark
+  The former writer's stop/release was confirmed; no matching benchmark
   process or competing Stage 0 worktree was found before entry. No shared GUI
   or native app was launched or controlled.
 - One instrumented process, then one uninstrumented control process, each with
