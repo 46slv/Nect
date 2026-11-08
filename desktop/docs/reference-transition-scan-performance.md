@@ -232,3 +232,82 @@ are descriptive and do not establish p95 or a universal regression threshold.
 Raw portable evidence is under [stage0-reference-dispatch-20261108](evidence/stage0-reference-dispatch-20261108/):
 instrumented per-dispatch spans/source hashes, uninstrumented control,
 historical-profile summary, pooled exclusive accounting and focused-test log.
+
+## Same-snapshot graph reuse trial: not adopted (2026-11-08 UTC)
+
+A follow-on to issue #222 Stage 0 implemented and measured one bounded reuse
+candidate. **It did not demonstrate a performance benefit and was removed.**
+The source in this checkpoint is byte-for-byte equal to the Stage 0 baseline.
+No main merge, release, GUI/Worker work or broader optimization was performed.
+
+### Exact candidate and protected scope
+
+Baseline: Stage 0 checkpoint
+`26a3bf394760dae622f7903059c96f0eeff36b03`, with product source identical to
+main `8281ae7ea992b8824e03eeb2b5abe2c66f30008e`.
+The candidate touched only `desktop/src/core.js` (64 added / 26 removed lines,
+including formatting). It retained graph-local parameter enumeration and
+optionally memoized dependency edges. The same normalized candidate graph was
+passed from project acyclicity validation to foreign-impact validation. Reuse
+required exact Document object identity, never node-ID equality or a persistent
+cross-dispatch cache; the before snapshot kept a separate graph.
+
+Before entry, live primary/remote main were still 8281ae7e and clean; the Stage 0
+writer had released, with no matching benchmark process or graph-reuse worktree.
+The trial used a new isolated worktree and branch. The rejected candidate patch,
+source SHA-256 pair, full raw samples, runner and focused-test output are preserved
+in [graph-snapshot-reuse-20261108](evidence/graph-snapshot-reuse-20261108/).
+The patch is evidence, not an enabled feature or a recommendation to apply it.
+
+### Same-condition finite comparison
+
+Windows x64, Node v24.14.1, shiro-WS, the unchanged
+`bench-cross-composition-edit.mjs` fixture. Six separate Node processes ran
+sequentially in **AB / BA / AB** order. Each process measured exactly 5 dispatches
+per size, yielding 15 samples per side per size. No timer instrumentation was
+loaded. Owned tests ran before/after, not during the timed comparisons.
+Unrelated machine activity remained uncontrolled; no p95 or universal latency
+claim follows from this finite sample.
+
+All processes exited successfully, including the benchmark's live-value,
+one-step Undo/Redo, serialization equality and reopened-value assertions.
+Setup and correctness checks were outside timing as in Stage 0.
+
+| Points | Baseline pooled median ms | Candidate pooled median ms | Observed change |
+| ------ | ------------------------: | -------------------------: | --------------: |
+| 100    |                     14.58 |                      15.42 |    5.76% slower |
+| 1,000  |                    108.33 |                     110.16 |    1.69% slower |
+| 10,000 |                   1305.62 |                    1349.21 |    3.34% slower |
+
+The 10k ranges overlap: baseline 1241.05–
+1386.50 ms, candidate
+1170.75–1541.72 ms.
+Individual 10k process-pair medians:
+
+- Pair 1: 1305.62 -> 1339.99 ms.
+- Pair 2: 1297.63 -> 1259.37 ms.
+- Pair 3: 1308.86 -> 1363.91 ms.
+
+This is evidence of **no demonstrated benefit**, not proof that every use of
+same-snapshot graph reuse is intrinsically slower. Extra cache lookup/retention,
+allocation and GC are possible offsets, but this trial did not isolate their
+causal contributions. Do not select the one faster pair and discard the others.
+
+### Semantic checks, disposition and next step
+
+The candidate passed the same 10 focused reference files used in Stage 0:
+**176 passed, zero failures/skips/cancellations**, plus the original benchmark
+assertions in all six processes. The preliminary three-file smoke passed 52.
+These are focused semantics, not a full aggregate/build/native/CI acceptance.
+
+After preserving the patch and evidence, the trial restored core.js from the
+exact baseline and verified its SHA-256 equals the baseline measurement hash.
+No trial implementation remains active in the checkpoint.
+
+Next useful investigation: attribute the nine cloneDocument calls and the two
+project-candidate materializations by call site and lifetime before proposing
+another bounded change. Stage 0 measured those disjoint exclusive buckets at
+34.26% and 11.95% of the 10k dispatch window. Do not weaken validation, canonical
+Session/history ownership, detached effective-value projection, or atomic
+rejection merely to reduce copies. Reworking the full graph traversal or adding
+a persistent cache is not authorized by this failed trial's evidence.

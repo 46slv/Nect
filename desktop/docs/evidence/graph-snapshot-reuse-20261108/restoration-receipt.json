@@ -1,0 +1,8 @@
+{
+  "timestamp": "2026-11-08T22:43:31.083Z",
+  "candidateSha256": "c3b344a3d5c57eb1007444b7d148cc8d48255fdd716da92bd84827eace0be47f",
+  "restoredSha256": "c8c12c3c57bb8ebce3b368050c0f3d00c6ff116222795aebca3e71fdbfbf581b",
+  "expectedBaselineSha256": "c8c12c3c57bb8ebce3b368050c0f3d00c6ff116222795aebca3e71fdbfbf581b",
+  "disposition": "not adopted; source restored; evidence preserved",
+  "tests": "176 passed, 0 failures/skips/cancellations"
+}
