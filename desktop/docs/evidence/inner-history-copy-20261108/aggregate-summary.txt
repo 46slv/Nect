@@ -1,0 +1,15 @@
+笨・Assets owner can defer workspace selection and close until its edit ends (11.6047ms)
+笨・unsupported fixed-side declarations leave an active portal and preferences untouched (11.7963ms)
+邃ｹ tests 3872
+邃ｹ suites 0
+邃ｹ pass 3867
+邃ｹ fail 0
+邃ｹ cancelled 0
+邃ｹ skipped 5
+邃ｹ todo 0
+邃ｹ duration_ms 1710788.4738
+
+
+・｣ optional installed licensed face: DejaVuSans-Bold.ttf (0.0984ms) # SKIP
+・｣ optional installed licensed face: DejaVuSans-Oblique.ttf (0.0936ms) # SKIP
+・｣ optional installed licensed face: DejaVuSans-BoldOblique.ttf (0.1445ms) # SKIP

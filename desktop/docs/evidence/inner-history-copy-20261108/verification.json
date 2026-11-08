@@ -1,0 +1,54 @@
+{
+  "timestamp": "2026-11-08T23:22:05.584Z",
+  "base": "8281ae7ea992b8824e03eeb2b5abe2c66f30008e",
+  "parent": "aff149190d4b3c47dc1a7c3867858337d5c1aa25",
+  "sourceSha256": "6e0057ee7530378981daefcfc1bfd913cb45a147f8f1587a31fdf5c9af9dd550",
+  "newTestsSha256": "ea4448a032e26dca89af141305f4c3d31157180b88863e2a15b5a451b3133d16",
+  "focused": {
+    "command": "node --test --test-concurrency=1 [six new no-history cases; ten Stage 0 reference files; composition-session-owner.test.js]",
+    "exitCode": 0,
+    "total": 191,
+    "passed": 191,
+    "failed": 0,
+    "skipped": 0,
+    "logSha256": "5d0db376e8b3185eb5b65a80f74c2b1655e8499c35bc66d4103eb20ede5dee41"
+  },
+  "aggregate": {
+    "command": "npm test",
+    "exitCode": 0,
+    "total": 3872,
+    "passed": 3867,
+    "failed": 0,
+    "skipped": 5,
+    "durationMs": 1710788.4738,
+    "skipLines": [
+      "・｣ optional installed licensed face: DejaVuSans-Bold.ttf (0.0984ms) # SKIP",
+      "・｣ optional installed licensed face: DejaVuSans-Oblique.ttf (0.0936ms) # SKIP",
+      "・｣ optional installed licensed face: DejaVuSans-BoldOblique.ttf (0.1445ms) # SKIP"
+    ],
+    "logSha256": "957d278b2a925f14cbff54a3385d7c66779c3ff6661a78fa4832b2378c0c2f7c"
+  },
+  "build": {
+    "command": "npm run build",
+    "exitCode": 0,
+    "stdoutSha256": "8e07d5c546fa08bf0f2f1a97a62d7df2f6801ac153fe5834823b6ff374f71af6",
+    "stderrSha256": "46e94c985d16b33154911c0d055a6ba1a89601c215b961454fb672eb3a6e2f88",
+    "warnings": "npm.cmd : \u001b[33m\r\n発生場所 行:1 文字:1352\r\n+ ... g -Tail 10; npm.cmd run build > test-results/history-copy/build.log 2 ...\r\n+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : NotSpecified: (\u001b[33m:String) [], RemoteException\r\n    + FullyQualifiedErrorId : NativeCommandError\r\n \r\n(!) Some chunks are larger than 500 kB after minification. Consider:\r\n- Using dynamic import() to code-split the application\r\n- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-m\r\nanualchunks\r\n- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.\u001b[39m\r\n"
+  },
+  "format": {
+    "command": "prettier --check src/core.js tests/command-session-no-history-commit.test.js and changed documentation/evidence",
+    "status": "passed"
+  },
+  "review": {
+    "mode": "independent static review",
+    "blockingFindings": 0,
+    "limitation": "No independent test/benchmark run; suggested preflight-to-noop and stale-envelope cases added and included in final tests."
+  },
+  "notRun": [
+    "native GUI/WebView2 input-to-paint",
+    "Rust/native build",
+    "browser E2E",
+    "CI acceptance before publication"
+  ],
+  "disposition": "retain bounded no-history replacement optimization; no main merge/release"
+}

@@ -1,0 +1,306 @@
+{
+  "kind": "Historical V8 sampled CPU, 3 edits; not current per-dispatch wall time",
+  "rows": [
+    {
+      "nodeId": 79,
+      "inclusiveMs": 419.10100000000006,
+      "ancestors": [
+        {
+          "name": "normalizedProjectSource",
+          "line": 444,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "",
+          "line": 5514,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "projectAsReferenceDocument",
+          "line": 5500,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "assertProjectReferenceTransition",
+          "line": 5522,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "beforeCandidateCommit",
+          "line": 348,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/composition-session-owner.js"
+        },
+        {
+          "name": "#dispatch",
+          "line": 8131,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "#observeCommit.skipFailed",
+          "line": 8126,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "#observeCommit",
+          "line": 8035,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "dispatch",
+          "line": 8110,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "dispatch",
+          "line": 779,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/composition-session-owner.js"
+        },
+        {
+          "name": "send",
+          "line": 3,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/test-results/cross-comp-repaired.mjs"
+        },
+        {
+          "name": "",
+          "line": 0,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/test-results/cross-comp-repaired.mjs"
+        },
+        {
+          "name": "(root)",
+          "line": 0,
+          "url": ""
+        }
+      ]
+    },
+    {
+      "nodeId": 13,
+      "inclusiveMs": 209.31299999999993,
+      "ancestors": [
+        {
+          "name": "#commandCandidate",
+          "line": 8670,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "#dispatch",
+          "line": 8131,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "#observeCommit.skipFailed",
+          "line": 8126,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "#observeCommit",
+          "line": 8035,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "dispatch",
+          "line": 8110,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "dispatch",
+          "line": 779,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/composition-session-owner.js"
+        },
+        {
+          "name": "send",
+          "line": 3,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/test-results/cross-comp-repaired.mjs"
+        },
+        {
+          "name": "",
+          "line": 0,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/test-results/cross-comp-repaired.mjs"
+        },
+        {
+          "name": "(root)",
+          "line": 0,
+          "url": ""
+        }
+      ]
+    },
+    {
+      "nodeId": 184,
+      "inclusiveMs": 202.71200000000005,
+      "ancestors": [
+        {
+          "name": "snapshot",
+          "line": 7971,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "dispatch",
+          "line": 779,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/composition-session-owner.js"
+        },
+        {
+          "name": "send",
+          "line": 3,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/test-results/cross-comp-repaired.mjs"
+        },
+        {
+          "name": "",
+          "line": 0,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/test-results/cross-comp-repaired.mjs"
+        },
+        {
+          "name": "(root)",
+          "line": 0,
+          "url": ""
+        }
+      ]
+    },
+    {
+      "nodeId": 178,
+      "inclusiveMs": 197.75400000000002,
+      "ancestors": [
+        {
+          "name": "apply",
+          "line": 7006,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "#dispatch",
+          "line": 8131,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "#observeCommit.skipFailed",
+          "line": 8126,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "#observeCommit",
+          "line": 8035,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "dispatch",
+          "line": 8110,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "dispatch",
+          "line": 779,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/composition-session-owner.js"
+        },
+        {
+          "name": "send",
+          "line": 3,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/test-results/cross-comp-repaired.mjs"
+        },
+        {
+          "name": "",
+          "line": 0,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/test-results/cross-comp-repaired.mjs"
+        },
+        {
+          "name": "(root)",
+          "line": 0,
+          "url": ""
+        }
+      ]
+    },
+    {
+      "nodeId": 209,
+      "inclusiveMs": 196.95200000000006,
+      "ancestors": [
+        {
+          "name": "apply",
+          "line": 7006,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "#applyProjectEdit",
+          "line": 290,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/composition-session-owner.js"
+        },
+        {
+          "name": "dispatch",
+          "line": 779,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/composition-session-owner.js"
+        },
+        {
+          "name": "send",
+          "line": 3,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/test-results/cross-comp-repaired.mjs"
+        },
+        {
+          "name": "",
+          "line": 0,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/test-results/cross-comp-repaired.mjs"
+        },
+        {
+          "name": "(root)",
+          "line": 0,
+          "url": ""
+        }
+      ]
+    },
+    {
+      "nodeId": 121,
+      "inclusiveMs": 187.77999999999994,
+      "ancestors": [
+        {
+          "name": "assertArtworkReferenceTransition",
+          "line": 5328,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "assertProjectReferenceTransition",
+          "line": 5522,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "beforeCandidateCommit",
+          "line": 348,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/composition-session-owner.js"
+        },
+        {
+          "name": "#dispatch",
+          "line": 8131,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "#observeCommit.skipFailed",
+          "line": 8126,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "#observeCommit",
+          "line": 8035,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "dispatch",
+          "line": 8110,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js"
+        },
+        {
+          "name": "dispatch",
+          "line": 779,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/composition-session-owner.js"
+        },
+        {
+          "name": "send",
+          "line": 3,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/test-results/cross-comp-repaired.mjs"
+        },
+        {
+          "name": "",
+          "line": 0,
+          "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/test-results/cross-comp-repaired.mjs"
+        },
+        {
+          "name": "(root)",
+          "line": 0,
+          "url": ""
+        }
+      ]
+    }
+  ]
+}

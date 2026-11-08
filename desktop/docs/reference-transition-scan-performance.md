@@ -311,3 +311,108 @@ another bounded change. Stage 0 measured those disjoint exclusive buckets at
 Session/history ownership, detached effective-value projection, or atomic
 rejection merely to reduce copies. Reworking the full graph traversal or adding
 a persistent cache is not authorized by this failed trial's evidence.
+
+## Copy lifetimes and one discarded inner backup (2026-11-08 UTC)
+
+The follow-on decomposed Stage 0's nine cloneDocument calls and two
+project-candidate stages. It found one bounded copy that can be removed without
+sharing the public snapshot or canonical project History.
+
+### Callers, multiplicity and lifetime
+
+For the unchanged two-Composition dense fixture, the nine calls are:
+
+| Call site                                              | Calls/dispatch | Data lifetime / reason                                                                                                                              |
+| ------------------------------------------------------ | -------------: | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CommandSession command candidate                       |              1 | Detached authored edit; becomes the admitted inner snapshot. Keep isolation from the old document.                                                  |
+| normalizedProjectSource via projectAsReferenceDocument |              4 | Two Compositions in each of before/candidate bindings. Validation can normalize defaults/IDs, so keep separate detached projections.                |
+| assertArtworkReferenceTransition effective projection  |              1 | Effective values are written only into this detached copy; authored fallback values must not change.                                                |
+| Inner History.apply backup                             |              1 | Generic rollback copy. For the selected no-history full replacement only, no code mutates the old snapshot and the backup is immediately discarded. |
+| CommandSession.snapshot after inner commit             |              1 | Detached adapter/public boundary used to build the outer project candidate. Keep this ownership boundary.                                           |
+| Outer project History.apply backup                     |              1 | Canonical project Undo/Redo and rollback; replaceRecord mutates the outer target. Keep this copy.                                                   |
+
+The preserved historical three-edit CPU profile independently attributes
+1,413.612 ms of sampled inclusive clone time: normalized source projections
+419.101 ms, command candidate 209.313 ms, snapshot 202.712 ms, inner backup
+197.754 ms, outer backup 196.952 ms and effective projection 187.780 ms.
+These are historical sampled sums, not current per-dispatch timings.
+
+**Correction to the broad candidate label:** the two projectWithDocument
+stages are shallow project projection plus validateCompositionProject
+(assertJsonTree and schema checks), not two additional deep cloneDocument
+calls. The first runs during preflight, the second after the committed inner
+snapshot is copied. Reusing across that boundary would require a separate
+ownership, reentrancy and stale-authority contract; this patch does not do it.
+
+### Bounded implementation
+
+Only the ordinary CommandSession candidate-commit path changes. With
+retainHistory=true it uses the original History.apply. With retainHistory=false,
+all existing candidate/preflight/authority checks still run, then the already
+detached candidate replaces the whole private document. The existing second
+sameDocument check and History.record preserve no-op, revision and notification
+behavior. No callback mutates the prior document in this replacement span, so
+the old rollback clone is unnecessary. Generic mutable History.apply is
+unchanged, as are prepared/gesture paths, public snapshots, effective-value
+copies, project validation and outer project History.
+
+A separate instrumented diagnostic used the existing Stage 0 probe and confirms
+**8 cloneDocument calls instead of 9**, with **2 project candidates retained**
+on every measured dispatch at all three sizes. This diagnostic is not mixed
+into the uninstrumented performance comparison.
+
+### Finite same-condition performance comparison
+
+Baseline product source is main
+`8281ae7ea992b8824e03eeb2b5abe2c66f30008e`; the worktree starts from the
+documentation-only checkpoint aff149190d4b3c47dc1a7c3867858337d5c1aa25.
+Remote main and ownership were fresh-checked before creating the isolated
+history-copy worktree. No competing measurement/source writer was observed.
+
+Windows x64, Node v24.14.1, shiro-WS. The original benchmark ran in six
+sequential processes ordered AB / BA / AB, five synchronous dispatches per
+size per process, 15 samples per side per size. No probe instrumentation was
+loaded in these six processes. Setup, value/Undo/Redo/serialization/reopen
+checks and output logging stayed outside timing. Owned tests/builds ran
+afterwards. Unrelated host activity was not controlled.
+
+| Points | Baseline pooled median ms | Candidate pooled median ms | Median reduction |
+| ------ | ------------------------: | -------------------------: | ---------------: |
+| 100    |                     14.53 |                      14.54 |           -0.06% |
+| 1,000  |                    110.03 |                     110.19 |           -0.15% |
+| 10,000 |                   1346.82 |                    1258.51 |            6.56% |
+
+The small sizes are effectively flat, not a demonstrated regression or speedup.
+Individual 10k pair medians (including the pair that got slower):
+
+- Pair 1: 1387.04 -> 1238.27 ms.
+- Pair 2: 1358.86 -> 1407.94 ms.
+- Pair 3: 1273.04 -> 1248.58 ms.
+
+The 10k pooled median is 6.56% lower in this run. This is limited evidence,
+not a universal latency guarantee or p95 claim. The structural reduction from
+nine copies to eight supports the measured direction, but 10k edits still
+take about 1.26 seconds and remain slow. No native/frame-rate improvement is
+claimed.
+
+### Verification, evidence and residuals
+
+Six new regression cases cover frozen old-view and snapshot isolation,
+no-op/revision/notification parity, preflight rejection, ordinary history-on/off
+result parity and retained Undo/Redo, generic mutable History rollback,
+preflight normalization back to a no-op and stale-envelope rejection.
+Independent static review found no blocking issue and requested the latter
+two explicit cases; both were added before final checks.
+
+The exact focused/aggregate/build results and source hash are saved in
+[inner-history-copy-20261108](evidence/inner-history-copy-20261108/verification.json).
+That directory also contains all comparison samples, diagnostic spans,
+historical clone caller stacks and the comparison runner. The six timing
+processes all passed their semantic assertions.
+
+No main merge, release, native app operation or Worker work was performed.
+The two project-candidate validation passes and eight remaining dense/other
+copies are not silently removed. A possible next investigation is the
+preflight-to-outer-project handoff, but only with exact session/project
+identity, revision, reentrancy and failed-adapter rollback proofs. Public
+snapshot sharing or weakening effective validation is not a safe shortcut.
