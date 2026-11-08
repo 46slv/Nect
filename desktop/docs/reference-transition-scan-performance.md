@@ -92,3 +92,143 @@ The release uses fixed panel positions; no panel/docking code changes. Native
 WebView2/physical IME and subjective acceptance remain separate LOCAL_WAIT.
 This optimization completes only this bounded hot-path reduction, not the
 performance Mission or full Nect product.
+
+## Issue #222 Stage 0: synchronous dispatch attribution (2026-11-08 UTC)
+
+This is a bounded measurement, not an optimization or a GUI/Worker experiment.
+Exact base and freshly checked remote main:
+`8281ae7ea992b8824e03eeb2b5abe2c66f30008e`.
+The existing benchmark and its semantic assertions were reused unchanged on disk.
+The probe in [profile-reference-stage0.mjs](../scripts/profile-reference-stage0.mjs)
+transforms three modules only in memory through Node load hooks. No product
+source, Session ownership, validation path or history behavior was changed.
+
+### Conditions and reproducibility
+
+- shiro-WS, Windows x64, Node v24.14.1. The raw receipt records the CPU model,
+  timestamp and SHA-256 of each original module.
+- Isolated detached worktree at the exact base. Primary checkout was clean.
+  The parent confirmed the former writer stopped/released; no matching benchmark
+  process or competing Stage 0 worktree was found before entry. No shared GUI
+  or native app was launched or controlled.
+- One instrumented process, then one uninstrumented control process, each with
+  exactly 5 dispatches at 100, 1,000 and 10,000 points. No repeated timing loop.
+  Owned focused tests ran before/after, not during either measurement process.
+  Unrelated machine activity was not controlled, so this is not a quiet-host
+  performance guarantee.
+- Setup, expression binding, Composition switches, value checks, Undo/Redo,
+  serialization equality and reopened-value checks stay outside the timed
+  dispatch. All logging and report serialization are also outside timing.
+- Timer/wrapper overhead remains in the instrumented samples. This single
+  sequential control pair cannot distinguish instrumentation overhead from
+  process warmup, GC or machine noise. No warmup dispatch was added.
+
+From `desktop`:
+
+```sh
+node scripts/profile-reference-stage0.mjs > stage0.json
+node scripts/bench-cross-composition-edit.mjs > stage0-control.json
+node --import ./scripts/profile-reference-stage0.mjs --test --test-concurrency=1 tests/reference-transition-density.test.js tests/artwork-parameter-reference.test.js tests/artwork-parameter-reference-regressions.test.js tests/composition-property-reference.test.js tests/composition-reference-owner.test.js tests/cross-composition-vector-reference.test.js tests/cross-composition-vector-review-regressions.test.js tests/qualified-color-reference.test.js tests/artwork-reference-clipboard.test.js tests/curve-point-reference.test.js
+```
+
+The load-hook probe requires a Node runtime supporting `module.registerHooks`;
+this receipt used Node 24.14.1. Anchors fail closed if source structure drifts.
+The source hashes and exact base are part of the receipt, not a promise that
+future main gives the same measurement.
+
+### Results
+
+| Points | Instrumented median | Uninstrumented control median |        Control range |
+| ------ | ------------------: | ----------------------------: | -------------------: |
+| 100    |            17.30 ms |                      14.71 ms |       13.18–16.98 ms |
+| 1,000  |           110.31 ms |                     110.86 ms |     104.77–119.30 ms |
+| 10,000 |         1,348.15 ms |                   1,316.15 ms | 1,275.68–1,438.25 ms |
+
+Selected stage medians in the instrumented run:
+
+| Stage                                             | 100 points inclusive/exclusive ms | 1,000 points inclusive/exclusive ms | 10,000 points inclusive/exclusive ms |
+| ------------------------------------------------- | --------------------------------: | ----------------------------------: | -----------------------------------: |
+| cloneDocument, 9 calls/dispatch                   |                       4.58 / 4.58 |                       40.17 / 40.17 |                      463.31 / 463.31 |
+| Foreign graph enumeration and reverse-index build |                       3.03 / 2.99 |                       22.65 / 22.63 |                      314.48 / 314.45 |
+| Project candidate, 2 calls/dispatch               |                       2.89 / 2.89 |                       15.40 / 15.40 |                      162.78 / 162.78 |
+| Changed-node detection                            |                       0.23 / 0.23 |                         2.41 / 2.41 |                        29.89 / 29.89 |
+| Changed-vertex seeding                            |                       0.43 / 0.43 |                         5.17 / 5.17 |                        59.56 / 59.56 |
+| foreignAffectedVertices total                     |                       3.77 / 0.02 |                        29.65 / 0.06 |                        400.25 / 0.13 |
+| Effective projection/evaluation                   |                       1.57 / 0.79 |                         7.48 / 1.79 |                        89.89 / 19.89 |
+| Effective domain validation                       |                       0.49 / 0.02 |                         2.09 / 0.02 |                         27.63 / 0.02 |
+| validate, 7 calls/dispatch                        |                       1.85 / 1.85 |                         6.69 / 6.69 |                        89.81 / 89.81 |
+| Session command candidate                         |                       1.27 / 0.13 |                         8.01 / 0.47 |                         93.37 / 4.97 |
+
+**Inclusive includes all nested measured stages. Exclusive subtracts only nested
+instrumented spans; it is not V8 CPU self-time.** Uninstrumented callees remain
+in their containing stage. Project candidate therefore includes its underlying
+project validation/copy routines. cloneDocument aggregates calls across several
+parents, including candidate construction and effective projection. Do not add
+inclusive rows together, or add their independently computed medians.
+
+At 10,000 points the three reverse traversals are respectively 0.011 ms
+(foreign closure), 0.014 ms (reachable closure) and 0.012 ms (affected closure).
+Effective-input activation is 0.032 ms in this fixture. This does not establish
+their cost for a graph with many foreign edges or dynamic Boolean activation.
+
+The `documentDependencyGraph` constructor itself totals only 0.034 ms across
+3 calls/dispatch. Its returned graph is lazy: full vertex enumeration, parameter
+indexing, dependency edges and reverse-index assembly execute later in the
+314.48 ms stage. Timing only the constructor would misidentify the hotspot.
+
+Using **sums of exclusive times divided by the sum of dispatch times** across
+all five 10k samples, rather than ratios of independent medians:
+
+- cloneDocument: 34.26%.
+- Foreign graph enumeration/reverse-index build: 23.43%.
+- Project candidate: 11.95%.
+- Changed-vertex seeding: 4.70%; changed-node detection: 2.08%.
+- The three reverse traversals combined: 0.0034%.
+- All exclusive stages together account for 99.9975% of the dispatch window.
+  This is a nesting/accounting check, not accuracy at sub-microsecond scale.
+
+### Existing evidence reconciliation and next candidate
+
+The saved CPU profile was inspected before adding instrumentation, and its
+sample totals were re-derived rather than recollecting that profile.
+SHA-256: `e86231ea55ec3a103626cd1fac05f452a3461cf36b7123d3e01cbeb29922581d`.
+It covers a different 3-edit run lasting 4,562.57 ms:
+`foreignAffectedVertices` inclusive 985.744 ms, `allRefs` 20.712 ms,
+`cloneDocument` 1,413.612 ms and project-candidate path 435.590 ms.
+These sampled inclusive sums are not directly comparable with this run's
+per-dispatch wall-clock medians. They do independently support the same broad
+cloning/graph-work cost centers.
+
+**Finding:** cloning/candidate materialization is the largest aggregate cost.
+Within foreign-reference processing, all-vertex enumeration and reverse-index
+construction dominate; propagation itself does not. A changed-node-only
+shortcut targets roughly 2% of this fixture and should not be sold as the
+primary repair.
+
+For one bounded follow-on investigation, prioritize the enumeration/index-build
+stage and investigate reuse of dependency/index data for the **same immutable
+snapshot within one transition**, including candidate acyclicity work. Do not
+confuse caching the cheap constructor with avoiding its lazy traversal, and do
+not reuse before/candidate data merely because their node IDs match. This is a
+candidate to qualify against existing semantics, not an implemented change or
+a claim that reuse will remove all 314 ms. Broad clone/history ownership changes
+are a separate, higher-risk candidate.
+
+### Verification and limits
+
+The instrumented modules passed the 10 focused files above: **176 tests passed,
+zero failures, skips or cancellations**. Their existing cases include dense
+terminal-point liveness, Undo/Redo/reopen, inactive invalid dependents and atomic
+rejection, missing-point identity reuse, qualified references/Color/clipboard,
+mixed cycles, and dynamic/reactivated dependencies. Both timing processes also
+passed the original benchmark's semantic assertions at every size.
+
+No product source changed. GUI/native input-to-paint, Worker startup/IPC, new
+optimization implementation, full aggregate tests, production build and CI were
+not run for this measurement-only packet. No frame-rate, native responsiveness,
+broad requirement completion or performance improvement is claimed. Five samples
+are descriptive and do not establish p95 or a universal regression threshold.
+
+Raw portable evidence is under [stage0-reference-dispatch-20261108](evidence/stage0-reference-dispatch-20261108/):
+instrumented per-dispatch spans/source hashes, uninstrumented control,
+historical-profile summary, pooled exclusive accounting and focused-test log.
