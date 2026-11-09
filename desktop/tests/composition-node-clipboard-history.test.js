@@ -115,7 +115,7 @@ test('empty Undo/Redo keeps Copy, while a separate project owner starts empty', 
   );
 });
 
-test('Composition switching and a history fallback to another Composition clear Copy', () => {
+test('Composition switching and History fallback retain a self-contained Copy', () => {
   const f = fixture(),
     original = f.session.activeCompositionId,
     added = f.session.createComposition({ name: 'Other' });
@@ -123,7 +123,8 @@ test('Composition switching and a history fallback to another Composition clear 
   f.copy();
   f.session.switchComposition(added);
   f.session.switchComposition(original);
-  assert.throws(() => f.paste(), /clipboard is empty/i);
+  assert.equal(f.paste().nodeIds.length, 2);
+  f.send('undo');
   f.session.switchComposition(added);
   const layer = f.session.snapshot().layers[0];
   const addedNode = f.send('create-node', { layerId: layer.id, nodeType: 'Value' });
@@ -131,7 +132,7 @@ test('Composition switching and a history fallback to another Composition clear 
   f.send('undo');
   f.send('undo');
   assert.equal(f.session.activeCompositionId, original);
-  assert.throws(() => f.paste(), /clipboard is empty/i);
+  assert.equal(f.paste().nodeIds.length, 1);
 });
 
 test('prepared project Undo/Redo and cancellation retain the same Copy snapshot', async () => {
@@ -175,14 +176,14 @@ test('history inheritance requires its non-null owner and isolates mutable clipb
     payload: { layerId: doc.layers[0].id, nodeIds: [value.id] },
   });
   for (const options of [
-    { historyClipboardFrom: source },
-    { nodeClipboardOwner: {}, historyClipboardFrom: source },
-    { nodeClipboardOwner: owner, historyClipboardFrom: {} },
+    { nodeClipboardFrom: source },
+    { nodeClipboardOwner: {}, nodeClipboardFrom: source },
+    { nodeClipboardOwner: owner, nodeClipboardFrom: {} },
   ])
     assert.throws(() => new CommandSession(doc, options), /clipboard owner/);
   const first = new CommandSession(doc, {
     nodeClipboardOwner: owner,
-    historyClipboardFrom: source,
+    nodeClipboardFrom: source,
   });
   const firstId = first.dispatch({
     ...first.state,
@@ -191,7 +192,7 @@ test('history inheritance requires its non-null owner and isolates mutable clipb
   }).nodeIds[0];
   const second = new CommandSession(doc, {
     nodeClipboardOwner: owner,
-    historyClipboardFrom: source,
+    nodeClipboardFrom: source,
   });
   const secondId = second.dispatch({
     ...second.state,

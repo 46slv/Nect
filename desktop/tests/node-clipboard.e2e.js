@@ -6,6 +6,10 @@ import { createServer } from 'node:http';
 import { resolve, extname, sep } from 'node:path';
 import { chromium } from 'playwright-core';
 import { blankDocument, blankLayer, node, connect, serialize, exportSVG } from '../src/core.js';
+import {
+  migrateLegacyDocumentToCompositionProject,
+  serializeCompositionProject,
+} from '../src/composition-project-model.js';
 import { encodeRgbaPng } from '../src/image-keyer.js';
 import { encodeImage } from '../src/images.js';
 
@@ -320,6 +324,115 @@ try {
   await writeFile('test-results/node-clipboard/example.json', saved);
   await writeFile('test-results/node-clipboard/example.svg', exported);
   await page.screenshot({ path: 'test-results/node-clipboard/result.png' });
+
+  // Real outer Composition tabs, not the legacy Layer switch above.
+  const outerSource = blankDocument(),
+    outerTarget = blankDocument(),
+    outerRectangle = node('Rectangle', 40, 70),
+    outerFill = node('Fill', 360, 70);
+  outerSource.width = outerSource.height = outerTarget.width = outerTarget.height = 160;
+  outerRectangle.params.center.value = [80, 80];
+  outerRectangle.params.size.value = [90, 70];
+  outerFill.params.color.value = { hex: '#1755dd', alpha: 1 };
+  outerSource.layers[0].nodes.push(outerRectangle, outerFill);
+  connect(outerSource.layers[0], outerRectangle.id, outerFill.id, 'path');
+  connect(outerSource.layers[0], outerFill.id, outerSource.layers[0].output, 'path');
+  const outerProject = migrateLegacyDocumentToCompositionProject(outerSource),
+    outerSecond = migrateLegacyDocumentToCompositionProject(outerTarget).compositions[0];
+  outerProject.compositions[0].id = 'clipboard-source';
+  outerProject.compositions[0].name = 'Copy source';
+  outerSecond.id = 'clipboard-target';
+  outerSecond.name = 'Paste target';
+  outerProject.compositions.push(outerSecond);
+  await page.evaluate((text) => window.nect.load(text), serializeCompositionProject(outerProject));
+  await page.waitForFunction(() => window.nect.activeCompositionId === 'clipboard-source');
+  await activateBoundaryCommand(page, 'graph-fit');
+  await page.locator(`.graph .node[data-id="${outerRectangle.id}"] .node-head .type-tag`).click();
+  await page.locator('.graph-scroll').focus();
+  await page.keyboard.press('Control+a');
+  const projectState = () =>
+    page.evaluate(() => ({
+      project: window.nect.projectSnapshot(),
+      revision: window.nect.projectRevision,
+      file: window.nect.fileState,
+    }));
+  const beforeOuterCopy = await projectState();
+  await page.keyboard.press('Control+c');
+  assert.match(await page.locator('.status').innerText(), /2 nodes copied.*1 Output skipped/);
+  assert.deepEqual(await projectState(), beforeOuterCopy);
+  await page.evaluate(
+    ({ layerId, nodeId }) =>
+      window.nect.dispatch({
+        ...window.nect.commandState,
+        type: 'set-parameter',
+        payload: { layerId, nodeId, key: 'size', value: [30, 30] },
+      }),
+    { layerId: outerSource.layers[0].id, nodeId: outerRectangle.id },
+  );
+  const beforeOuterSwitch = await projectState();
+  const outerTab = (id) => page.locator(`[data-active-composition="${id}"][role="tab"]`);
+  await outerTab('clipboard-target').click();
+  await page.waitForFunction(() => window.nect.activeCompositionId === 'clipboard-target');
+  assert.deepEqual(await projectState(), beforeOuterSwitch, 'tab switching is view-only');
+  await page.locator('.graph-scroll').focus();
+  await page.keyboard.press('Control+v');
+  const firstOuter = await page.evaluate(() => window.nect.projectSnapshot()),
+    outerLayer = firstOuter.compositions[1].layers[0],
+    outerCopies = outerLayer.nodes.filter((item) => item.id !== outerLayer.output),
+    outerRectCopy = outerCopies.find((item) => item.type === 'Rectangle'),
+    outerFillCopy = outerCopies.find((item) => item.type === 'Fill');
+  assert.equal(outerCopies.length, 2);
+  assert.notEqual(outerRectCopy.id, outerRectangle.id);
+  assert.notEqual(outerFillCopy.id, outerFill.id);
+  assert.deepEqual(outerRectCopy.params.size.value, [90, 70]);
+  assert.equal(outerFillCopy.params.path.source, outerRectCopy.id);
+  assert.deepEqual(outerRectCopy.position, [70, 100]);
+  assert.equal(outerLayer.output, outerTarget.layers[0].output);
+  assert.deepEqual(firstOuter.compositions[0], beforeOuterSwitch.project.compositions[0]);
+  await page.locator('.graph-scroll').focus();
+  await page.keyboard.press('Control+z');
+  assert.deepEqual(
+    await page.evaluate(() => window.nect.projectSnapshot()),
+    beforeOuterSwitch.project,
+  );
+  await page.locator('.graph-scroll').focus();
+  await page.keyboard.press('Control+Shift+z');
+  assert.deepEqual(await page.evaluate(() => window.nect.projectSnapshot()), firstOuter);
+  await outerTab('clipboard-source').click();
+  await page.waitForFunction(() => window.nect.activeCompositionId === 'clipboard-source');
+  await outerTab('clipboard-target').click();
+  await page.waitForFunction(() => window.nect.activeCompositionId === 'clipboard-target');
+  await page.locator('.graph-scroll').focus();
+  await page.keyboard.press('Control+v');
+  const twiceOuter = await page.evaluate(() => window.nect.projectSnapshot()),
+    secondOuterCopies = twiceOuter.compositions[1].layers[0].nodes.filter(
+      (item) => item.id !== outerLayer.output && !outerCopies.some((first) => first.id === item.id),
+    );
+  assert.equal(secondOuterCopies.length, 2);
+  assert.deepEqual(
+    secondOuterCopies.find((item) => item.type === 'Rectangle').position,
+    [100, 130],
+  );
+  assert.ok(secondOuterCopies.every((item) => !outerCopies.some((first) => first.id === item.id)));
+  await page.locator('.graph-scroll').focus();
+  await page.keyboard.press('Control+z');
+  assert.deepEqual(await page.evaluate(() => window.nect.projectSnapshot()), firstOuter);
+  await activateBoundaryCommand(page, 'graph-fit');
+  await page.locator(`.graph [data-preview="${outerFillCopy.id}"]`).click();
+  const savedOuter = await page.evaluate(() => window.nect.projectSnapshot()),
+    savedOuterText = serializeCompositionProject(savedOuter);
+  await page.evaluate((text) => window.nect.load(text), savedOuterText);
+  await outerTab('clipboard-target').click();
+  await page.waitForFunction(() => window.nect.activeCompositionId === 'clipboard-target');
+  assert.deepEqual(await page.evaluate(() => window.nect.projectSnapshot()), savedOuter);
+  const reopenedOuter = await projectState();
+  await page.locator('.graph-scroll').focus();
+  await page.keyboard.press('Control+v');
+  assert.match(await page.locator('.status').innerText(), /clipboard is empty/);
+  assert.deepEqual(await projectState(), reopenedOuter);
+  assert.deepEqual(errors, []);
+  await writeFile('test-results/node-clipboard/outer-project.json', savedOuterText);
+  await page.screenshot({ path: 'test-results/node-clipboard/outer-project-result.png' });
   await writeFile(
     'test-results/node-clipboard/receipt.json',
     JSON.stringify(
@@ -343,6 +456,12 @@ try {
         imeAndInputNative: true,
         jsonReopenExactSvg: true,
         newOpenClearsClipboard: true,
+        outerCompositionTabs: true,
+        outerTabCopySnapshotAndInternalEdges: true,
+        outerTabSwitchNoHistoryOrDirty: true,
+        outerTabPasteOneUndoRedo: true,
+        outerTabRepeatedOffsetAndFreshIds: true,
+        outerTabProjectReopenClearsClipboard: true,
         osClipboardUsed: false,
         pageErrors: errors,
       },
@@ -351,7 +470,7 @@ try {
     ),
   );
   console.log(
-    'Graph clipboard production shortcuts, assets, cross-Composition, Undo/reopen and guards passed',
+    'Graph clipboard production shortcuts, assets, real outer tabs, Undo/reopen and guards passed',
   );
 } catch (error) {
   if (typeof error.actual === 'string' && typeof error.expected === 'string') {
