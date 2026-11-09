@@ -1004,7 +1004,7 @@ test('history clipboard inheritance cannot revive a publicly rebound Color conte
   bindProjectDocumentContext(target, project, compositionId);
   const next = new CommandSession(target, {
       nodeClipboardOwner: owner,
-      historyClipboardFrom: previous,
+      nodeClipboardFrom: previous,
     }),
     before = serialize(next.snapshot()),
     state = next.state;
@@ -1032,7 +1032,7 @@ test('expiring a retired source Session cannot poison its inherited Color clipbo
   bindProjectDocumentContext(target, project, compositionId);
   const current = new CommandSession(target, {
     nodeClipboardOwner: owner,
-    historyClipboardFrom: previous,
+    nodeClipboardFrom: previous,
   });
   previous.dispatch({
     ...previous.state,
@@ -1053,4 +1053,26 @@ test('expiring a retired source Session cannot poison its inherited Color clipbo
       }),
     /source.*copy again/i,
   );
+});
+
+test('read-only clipboard freshness detects Copy, public context rebind and failed-Paste expiry', () => {
+  const f = fixture(),
+    project = migrateLegacyDocumentToCompositionProject(f.doc),
+    compositionId = project.compositions[0].id;
+  bindProjectDocumentContext(f.doc, project, compositionId);
+  const session = new CommandSession(f.doc),
+    send = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
+  const empty = session.captureNodeClipboardFreshness();
+  empty();
+  send('copy-nodes', { layerId: f.target.id, nodeIds: [f.sink.id] });
+  assert.throws(empty, /STALE.*clipboard/i);
+  const copied = session.captureNodeClipboardFreshness(),
+    state = session.state;
+  bindProjectDocumentContext(session.historyView.doc, project, compositionId);
+  assert.deepEqual(session.state, state);
+  assert.throws(copied, /STALE.*clipboard/i);
+  const beforeExpiry = session.captureNodeClipboardFreshness();
+  assert.throws(() => send('paste-nodes', { layerId: f.target.id }), /source.*copy again/i);
+  assert.deepEqual(session.state, state);
+  assert.throws(beforeExpiry, /STALE.*clipboard/i);
 });

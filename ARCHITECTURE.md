@@ -59,6 +59,13 @@ An authored Anchor is distinct from derived bounds center. Shared Session creati
 
 The desktop owns its document's live Session; API/MCP forward to that Session. Headless execution is a separate explicit lane. Different documents may have different Sessions; no global singleton is implied.
 
+The Desktop project owner may carry a private graph Copy snapshot between its
+active Composition Sessions using an opaque owner token. This is transient
+same-project editing state, not an OS clipboard or persisted authored data.
+Only self-contained payloads cross Composition boundaries; ordinary reference,
+asset, candidate-validation and freshness guards still apply. Views and adapters
+do not maintain a second clipboard or transfer raw Session payloads.
+
 Live requests identify document/session and expected revision so an old request cannot edit a different document after open/restart. M0 JSON-lines is not a formal MCP adapter. GUI, API and MCP must share commands and failure semantics, not maintain synchronized document copies.
 
 ## Semantic automation

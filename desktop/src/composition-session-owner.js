@@ -326,14 +326,14 @@ export class CompositionSessionOwner {
     return prepared;
   }
 
-  #makeSession(project, compositionId, fonts = this.#fonts, historyClipboardFrom = null) {
+  #makeSession(project, compositionId, fonts = this.#fonts, nodeClipboardFrom = null) {
     let session;
     session = new this.#CommandSession(this.#documentFor(project, compositionId), {
       fonts,
       busy: this.#busy,
       retainHistory: false,
       nodeClipboardOwner: this.#nodeClipboardOwner,
-      historyClipboardFrom,
+      nodeClipboardFrom,
       retainColorClipboardForProjectContext: (nextProject, nextCompositionId) =>
         this.#session === session &&
         this.#history.doc === nextProject &&
@@ -394,12 +394,34 @@ export class CompositionSessionOwner {
   }
 
   #commitProject(candidate, activeCompositionId = this.#activeCompositionId, operation, precommit) {
+    const retainClipboard = [
+      'create-composition',
+      'rename-composition',
+      'resize-composition',
+      'delete-composition',
+    ].includes(operation);
+    const session = this.#session,
+      revision = this.#history.revision,
+      compositionId = this.#activeCompositionId,
+      assertClipboard = retainClipboard ? session.captureNodeClipboardFreshness?.() : null;
+    const assertCurrent = () => {
+      if (!retainClipboard) return;
+      if (
+        this.#session !== session ||
+        this.#history.revision !== revision ||
+        this.#activeCompositionId !== compositionId
+      )
+        throw Error('STALE_REVISION: document changed');
+      assertClipboard?.();
+    };
     validateCompositionProject(candidate);
     this.#assertProjectReferenceTransition(this.#history.doc, candidate, this.#fonts());
+    assertCurrent();
     if (!candidate.compositions.some((entry) => entry.id === activeCompositionId))
       throw Error('Unknown active Composition ID');
     if (this.#sameDocument(this.#history.doc, candidate)) {
       precommit?.();
+      assertCurrent();
       return false;
     }
 
@@ -414,8 +436,15 @@ export class CompositionSessionOwner {
       activeCompositionId === this.#activeCompositionId &&
       this.#sameDocument(this.#session.snapshot(), nextActiveDocument)
         ? this.#session
-        : this.#makeSession(candidate, activeCompositionId);
+        : this.#makeSession(
+            candidate,
+            activeCompositionId,
+            this.#fonts,
+            retainClipboard ? session : null,
+          );
+    assertCurrent();
     precommit?.();
+    assertCurrent();
     this.#applyProjectEdit((history) => {
       replaceRecord(history, candidate);
     });
@@ -430,7 +459,8 @@ export class CompositionSessionOwner {
     this.#assertCurrentCommand(command);
     const session = this.#session,
       revision = this.#history.revision,
-      compositionId = this.#activeCompositionId;
+      compositionId = this.#activeCompositionId,
+      assertClipboard = session.captureNodeClipboardFreshness?.();
     const assertCurrent = () => {
       this.#assertCurrentCommand(command);
       if (
@@ -439,6 +469,7 @@ export class CompositionSessionOwner {
         this.#activeCompositionId !== compositionId
       )
         throw Error('STALE_REVISION: document changed');
+      assertClipboard?.();
     };
     this.#assertQuiescent();
     assertCurrent();
@@ -451,12 +482,7 @@ export class CompositionSessionOwner {
     )
       ? this.#activeCompositionId
       : candidate.compositions[0].id;
-    const nextSession = this.#makeSession(
-      candidate,
-      activeCompositionId,
-      this.#fonts,
-      activeCompositionId === compositionId ? session : null,
-    );
+    const nextSession = this.#makeSession(candidate, activeCompositionId, this.#fonts, session);
     assertCurrent();
     this.#history[direction]();
     this.#activeCompositionId = activeCompositionId;
@@ -709,13 +735,25 @@ export class CompositionSessionOwner {
       targetId: compositionId,
       projectRevision: this.#history.revision,
     };
+    const assertClipboard = request.session.captureNodeClipboardFreshness?.();
+    const assertCurrent = () => {
+      this.#assertCompositionSwitchCurrent(request);
+      assertClipboard?.();
+    };
     // Construct first: an unprepared target must not discard the current view/draft.
-    const nextSession = this.#makeSession(this.#history.doc, compositionId);
-    this.#assertCompositionSwitchCurrent(request);
+    const nextSession = this.#makeSession(
+      this.#history.doc,
+      compositionId,
+      this.#fonts,
+      request.session,
+    );
+    assertCurrent();
     this.#assertQuiescent({ allowTextDrafts: true });
+    assertCurrent();
     beforeCommit();
-    this.#assertCompositionSwitchCurrent(request);
+    assertCurrent();
     this.#assertQuiescent();
+    assertCurrent();
     this.#activeCompositionId = compositionId;
     this.#session = nextSession;
     return true;
@@ -776,19 +814,32 @@ export class CompositionSessionOwner {
     if (!request || request.token !== token) throw Error('STALE_OPERATION');
     const { bridge, ticket, targetId } = request;
     this.#assertCompositionSwitchCurrent(request);
+    const assertClipboard = request.session.captureNodeClipboardFreshness?.();
+    const assertCurrent = () => {
+      if (this.#preparedCompositionSwitch !== request) throw Error('STALE_OPERATION');
+      this.#assertCompositionSwitchCurrent(request);
+      assertClipboard?.();
+    };
     bridge.assertFresh(ticket);
+    assertCurrent();
     let preview = true;
-    const nextSession = this.#makeSession(this.#history.doc, targetId, () =>
-      preview ? { ...this.#fonts(), ...bridge.preparedFonts(ticket) } : this.#fonts(),
+    const nextSession = this.#makeSession(
+      this.#history.doc,
+      targetId,
+      () => (preview ? { ...this.#fonts(), ...bridge.preparedFonts(ticket) } : this.#fonts()),
+      request.session,
     );
-    this.#assertCompositionSwitchCurrent(request);
+    assertCurrent();
     bridge.assertFresh(ticket);
+    assertCurrent();
     this.#assertQuiescent({ allowTextDrafts: true });
+    assertCurrent();
     beforeCommit();
-    if (this.#preparedCompositionSwitch !== request) throw Error('STALE_OPERATION');
-    this.#assertCompositionSwitchCurrent(request);
+    assertCurrent();
     this.#assertQuiescent();
+    assertCurrent();
     bridge.assertFresh(ticket);
+    assertCurrent();
     // No fallible work follows activation; publish the bank and tab together.
     bridge.activate(ticket);
     preview = false;

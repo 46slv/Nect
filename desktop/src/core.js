@@ -7118,17 +7118,17 @@ export class CommandSession {
       captureArtworkMoveAuthority = () => () => {},
       retainColorClipboardForProjectContext = null,
       nodeClipboardOwner = null,
-      historyClipboardFrom = null,
+      nodeClipboardFrom = null,
     } = {},
   ) {
     if (
       (nodeClipboardOwner !== null && typeof nodeClipboardOwner !== 'object') ||
-      (historyClipboardFrom !== null &&
+      (nodeClipboardFrom !== null &&
         (!nodeClipboardOwner ||
-          !(historyClipboardFrom instanceof CommandSession) ||
-          historyClipboardFrom.#nodeClipboardOwner !== nodeClipboardOwner))
+          !(nodeClipboardFrom instanceof CommandSession) ||
+          nodeClipboardFrom.#nodeClipboardOwner !== nodeClipboardOwner))
     )
-      throw Error('Invalid history clipboard owner');
+      throw Error('Invalid node clipboard owner');
     this.#nodeClipboardOwner = nodeClipboardOwner;
     if (beforeCandidateCommit !== null && typeof beforeCandidateCommit !== 'function')
       throw Error('Invalid candidate preflight');
@@ -7150,9 +7150,9 @@ export class CommandSession {
     this.#captureArtworkMoveAuthority = captureArtworkMoveAuthority;
     this.#retainColorClipboardForProjectContext = retainColorClipboardForProjectContext;
     this.id = uid('session');
-    if (historyClipboardFrom) this.#inheritHistoryClipboard(historyClipboardFrom);
+    if (nodeClipboardFrom) this.#inheritNodeClipboard(nodeClipboardFrom);
   }
-  #inheritHistoryClipboard(previous) {
+  #inheritNodeClipboard(previous) {
     const source = previous.#nodeClipboard;
     if (!source) return;
     // Only the metadata is mutable. Keep the private captured graph/assets,
@@ -7162,8 +7162,16 @@ export class CommandSession {
       after = this.#history.doc,
       beforeBinding = projectDocumentContexts.get(before),
       afterBinding = projectDocumentContexts.get(after);
+    if (
+      (beforeBinding?.activeCompositionId ?? null) !==
+        (afterBinding?.activeCompositionId ?? null) &&
+      (clipboard.externalNodeIds.length ||
+        clipboard.artworkReferences.length ||
+        clipboard.nodes.some((node) => node.compositionReference))
+    )
+      return;
     if (clipboard.colorArtworkReferences) {
-      // A trusted History edge can renew a valid context, never revive an
+      // A trusted same-Composition transition can renew a valid context, never revive an
       // externally rebound context or a reference which already expired.
       if (
         !beforeBinding ||
@@ -7184,6 +7192,31 @@ export class CommandSession {
     )
       clipboard.artworkReferencesExpired = true;
     this.#nodeClipboard = clipboard;
+  }
+  captureNodeClipboardFreshness() {
+    const document = this.#history.doc,
+      revision = this.#history.revision,
+      binding = projectDocumentContexts.get(document),
+      contextEpoch = this.#projectContextOwner.epoch,
+      clipboard = this.#nodeClipboard,
+      pasteCount = clipboard?.pasteCount,
+      expired = clipboard?.artworkReferencesExpired,
+      colorIdentity = clipboard?.colorContextIdentity,
+      colorEpoch = clipboard?.colorContextEpoch;
+    return () => {
+      if (
+        this.#history.doc !== document ||
+        this.#history.revision !== revision ||
+        projectDocumentContexts.get(document) !== binding ||
+        this.#projectContextOwner.epoch !== contextEpoch ||
+        this.#nodeClipboard !== clipboard ||
+        clipboard?.pasteCount !== pasteCount ||
+        clipboard?.artworkReferencesExpired !== expired ||
+        clipboard?.colorContextIdentity !== colorIdentity ||
+        clipboard?.colorContextEpoch !== colorEpoch
+      )
+        throw Error('STALE_REVISION: node clipboard changed');
+    };
   }
   #trackProjectContextRoots() {
     const roots = [this.#history.doc, ...this.#history.past, ...this.#history.future];

@@ -6,11 +6,19 @@ ordinary selected text, dialogs, IME and other viewports retain native shortcuts
 
 The clipboard is **inside this open Document only**. It is not the OS clipboard,
 does not export image/font data, and resets on New/Open/reload. Saved pasted
-nodes remain ordinary authored nodes and reopen normally. Undo/Redo within the
-same active outer Composition keeps the captured Copy and subsequent Paste offset.
-Switching outer Composition tabs, including a History step which removes the
-active Composition and selects another, clears Copy. A restored foreign Artwork
-source does not revive a reference which expired while it was absent; Copy again.
+nodes remain ordinary authored nodes and reopen normally. A self-contained Copy
+and its subsequent Paste offset survive outer Composition tab switches, ordinary
+Composition create/rename/resize/delete, and project Undo/Redo. Copy and tab
+switches do not add History or dirty the project. Existing SVG/project Import
+paths still reset Copy.
+
+Only self-contained node subgraphs cross outer Composition tabs. A Copy with
+unselected input/reference nodes, numeric/Color Artwork references, or a legacy
+Layer-graph Composition Reference is cleared on that crossing. Include local
+input sources in Copy to make a closed subgraph; foreign Artwork and Layer-graph
+references remain local. This never reconnects to coincident destination IDs.
+A restored foreign Artwork source does not revive a reference which expired
+while it was absent; Copy again.
 
 Copy captures the authored settings at that moment. Paste creates fresh node,
 point and contour IDs using the existing duplication contract, remaps internal
@@ -19,8 +27,8 @@ the pasted nodes and records one Undo. Each subsequent Paste offsets the group.
 Output nodes are skipped with a visible count; the destination retains its own
 Output. Use as output connects the chosen pasted result explicitly.
 
-In the original Composition, external inputs keep referencing the original
-nodes, with a visible notice. Pasting into another Composition requires those
+In the original Artwork (Layer graph), external inputs keep referencing the
+original nodes, with a visible notice. Pasting into another Artwork requires those
 input/reference sources to be included in Copy. Otherwise Paste refuses and
 asks to copy the sources too. It never reconnects to a similar name or ID.
 
@@ -33,8 +41,9 @@ later does not silently revive the clipboard reference. Pasting these nodes into
 another Artwork and copying references to another outer Composition are currently
 refused.
 
-Embedded Image/font assets and SVG/Composition Reference targets stay shared
-by their exact same-document identities. Missing/changed assets, missing source
+Embedded Image/font assets stay shared by their exact same-project identities.
+Legacy SVG/Composition Reference targets stay shared within their original outer
+Composition; they do not render or transfer another outer Composition. Missing/changed assets, missing source
 Compositions, locked destinations and cycles refuse atomically. An edited Path
 Remap together with its source retains the existing duplication refusal; no
 retained point edits are silently rebound. Node/resource/document limits remain.
