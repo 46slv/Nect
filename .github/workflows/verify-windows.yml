@@ -141,6 +141,9 @@ jobs:
             desktop/test-results/asset-drag/*.png
             desktop/test-results/asset-drag/results.json
             desktop/test-results/color-coverage/results.json
+            desktop/test-results/node-clipboard/*.png
+            desktop/test-results/node-clipboard/*.json
+            desktop/test-results/node-clipboard/*.svg
             desktop/test-results/shared-colors-panel/*.png
             desktop/test-results/shared-colors-panel/*.json
             desktop/test-results/harmony-wheel-panel/*.png

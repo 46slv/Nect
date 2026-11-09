@@ -84,6 +84,28 @@ for (const kind of ['document', 'composition']) {
     assert.equal(serialize(f.session.snapshot()), beforePaste);
     f.send('redo');
     assert.equal(serialize(f.session.snapshot()), encoded);
+    assert.equal(f.send('paste-nodes', { layerId: f.target.id }).nodeIds.length, 2);
+  });
+
+  test(`${kind}: History cannot revive a clipboard whose foreign source disappeared during Undo`, () => {
+    const f = fixture(kind),
+      created = f.send('create-node', { layerId: f.source.id, nodeType: 'Value' });
+    f.send('set-parameter-expression', {
+      layerId: f.target.id,
+      nodeId: f.sink.id,
+      key: 'value',
+      expression: `ref(artwork, "${f.source.id}", "${created.nodeId}", "value")`,
+    });
+    f.send('copy-nodes', { layerId: f.target.id, nodeIds: [f.sink.id] });
+    f.send('undo');
+    f.send('undo');
+    f.send('redo');
+    f.send('redo');
+    const before = serialize(f.session.snapshot()),
+      state = f.session.state;
+    assert.throws(() => f.send('paste-nodes', { layerId: f.target.id }), /source.*copy again/i);
+    assert.equal(serialize(f.session.snapshot()), before);
+    assert.deepEqual(f.session.state, state);
   });
 }
 

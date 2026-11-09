@@ -203,6 +203,39 @@ try {
   await page.locator('.graph-scroll').focus();
   await page.keyboard.press('Control+Shift+z');
   assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), after);
+  // Undo/Redo replaces the production inner Session, but Copy stays with this
+  // open Composition. Repeated actual-key Paste must keep its snapshot/offset.
+  let previousIds = copies.map((item) => item.id);
+  for (const offset of [30, 60]) {
+    await page.locator('.graph-scroll').focus();
+    await page.keyboard.press('Control+v');
+    const next = await page.evaluate(
+      (id) => window.nect.document.layers.find((layer) => layer.id === id),
+      dst.id,
+    );
+    assert.equal(next.nodes.length, 13);
+    const added = next.nodes.filter(
+      (item) => item.id !== dst.output && !copies.some((original) => original.id === item.id),
+    );
+    assert.equal(added.length, 6);
+    assert.ok(added.every((item) => !previousIds.includes(item.id)));
+    for (const item of added)
+      assert.deepEqual(
+        item.position,
+        copy(item.type).position.map((value) => value + offset),
+      );
+    previousIds = added.map((item) => item.id);
+    const repeated = await page.evaluate(() => JSON.stringify(window.nect.document));
+    await page.keyboard.press('Control+z');
+    assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), after);
+    if (offset === 60) {
+      await page.locator('.graph-scroll').focus();
+      await page.keyboard.press('Control+Shift+z');
+      assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), repeated);
+      await page.keyboard.press('Control+z');
+      assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), after);
+    }
+  }
   await activateBoundaryCommand(page, 'graph-fit');
   await page.locator(`.graph .node[data-id="${copy('Mask').id}"] .node-head .type-tag`).click();
   await page.locator(`.graph [data-preview="${copy('Mask').id}"]`).click();
@@ -303,6 +336,8 @@ try {
         sameDocumentAssets: true,
         outputUnchanged: true,
         oneUndoRedo: true,
+        copySurvivesUndoRedo: true,
+        repeatedPasteAfterUndoKeepsOffsetAndFreshIds: true,
         lockedRefused: true,
         externalInputRefused: true,
         imeAndInputNative: true,

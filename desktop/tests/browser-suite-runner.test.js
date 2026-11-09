@@ -155,10 +155,17 @@ test('browser runner preserves all 55 original scripts, arguments, order, and CS
     'tests/composition-delete.e2e.js',
     'tests/variable-composition-switch.e2e.js',
     'tests/close-recovery-race.e2e.js',
+    'tests/node-clipboard.e2e.js',
   ]);
-  assert.equal(browserTestFiles.length, 114);
-  assert.equal(new Set(browserTestFiles).size, 114);
+  assert.equal(browserTestFiles.length, 115);
+  assert.equal(new Set(browserTestFiles).size, 115);
   assert.ok(Object.isFrozen(browserTestFiles));
+  const workflow = await readFile(
+    new URL('../../.github/workflows/verify-windows.yml', import.meta.url),
+    'utf8',
+  );
+  for (const extension of ['png', 'json', 'svg'])
+    assert.ok(workflow.includes(`desktop/test-results/node-clipboard/*.${extension}`));
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(
     pkg.scripts['test:e2e'],

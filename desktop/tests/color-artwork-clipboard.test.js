@@ -78,23 +78,31 @@ for (const kind of ['document', 'composition']) {
     assert.equal(serialize(f.session.snapshot()), beforePaste);
     f.send('redo');
     assert.equal(serialize(f.session.snapshot()), encoded);
+    const nextCopy = f.paste().nodeIds[0],
+      nextDocument = f.session.snapshot();
+    assert.deepEqual(
+      evaluate(nextDocument.layers[0], {}, {}, nextDocument).parameterValue(nextCopy, 'color'),
+      next,
+    );
   });
 }
 
-test('a removed Color source permanently expires the clipboard and preserves Redo', () => {
-  const f = fixture();
-  f.copy();
-  f.send('delete-node', { layerId: f.source.id, nodeId: f.color.id });
-  assert.throws(() => f.paste(), /missing|changed|copy again/i);
-  f.send('undo');
-  const before = serialize(f.session.snapshot()),
-    state = f.session.state,
-    future = f.session.historyView.future;
-  assert.throws(() => f.paste(), /missing|changed|copy again/i);
-  assert.equal(serialize(f.session.snapshot()), before);
-  assert.deepEqual(f.session.state, state);
-  assert.deepEqual(f.session.historyView.future, future);
-});
+for (const kind of ['document', 'composition']) {
+  test(`${kind}: a removed Color source permanently expires the clipboard and preserves Redo`, () => {
+    const f = fixture(kind);
+    f.copy();
+    f.send('delete-node', { layerId: f.source.id, nodeId: f.color.id });
+    assert.throws(() => f.paste(), /missing|changed|copy again/i);
+    f.send('undo');
+    const before = serialize(f.session.snapshot()),
+      state = f.session.state,
+      future = f.session.historyView.future;
+    assert.throws(() => f.paste(), /missing|changed|copy again/i);
+    assert.equal(serialize(f.session.snapshot()), before);
+    assert.deepEqual(f.session.state, state);
+    assert.deepEqual(f.session.historyView.future, future);
+  });
+}
 
 test('a pasted expression remains missing after source deletion and Undo restores its value', () => {
   const f = fixture();
@@ -974,4 +982,75 @@ test('a live palette update by the same project owner retains the copied Color r
     hex: '#d03270',
     alpha: 0,
   });
+});
+
+test('history clipboard inheritance cannot revive a publicly rebound Color context', () => {
+  const f = fixture(),
+    project = migrateLegacyDocumentToCompositionProject(f.doc),
+    compositionId = project.compositions[0].id,
+    owner = Object.freeze({});
+  bindProjectDocumentContext(f.doc, project, compositionId);
+  const previous = new CommandSession(f.doc, { nodeClipboardOwner: owner });
+  previous.dispatch({
+    ...previous.state,
+    type: 'copy-nodes',
+    payload: { layerId: f.target.id, nodeIds: [f.sink.id] },
+  });
+  const foreign = structuredClone(project);
+  foreign.colorSlots[0].value = { hex: '#ff0000', alpha: 1 };
+  bindProjectDocumentContext(previous.historyView.doc, foreign, compositionId);
+  bindProjectDocumentContext(previous.historyView.doc, project, compositionId);
+  const target = structuredClone(f.doc);
+  bindProjectDocumentContext(target, project, compositionId);
+  const next = new CommandSession(target, {
+      nodeClipboardOwner: owner,
+      historyClipboardFrom: previous,
+    }),
+    before = serialize(next.snapshot()),
+    state = next.state;
+  assert.throws(
+    () => next.dispatch({ ...next.state, type: 'paste-nodes', payload: { layerId: f.target.id } }),
+    /source.*copy again/i,
+  );
+  assert.equal(serialize(next.snapshot()), before);
+  assert.deepEqual(next.state, state);
+});
+
+test('expiring a retired source Session cannot poison its inherited Color clipboard', () => {
+  const f = fixture(),
+    project = migrateLegacyDocumentToCompositionProject(f.doc),
+    compositionId = project.compositions[0].id,
+    owner = Object.freeze({});
+  bindProjectDocumentContext(f.doc, project, compositionId);
+  const previous = new CommandSession(f.doc, { nodeClipboardOwner: owner });
+  previous.dispatch({
+    ...previous.state,
+    type: 'copy-nodes',
+    payload: { layerId: f.target.id, nodeIds: [f.sink.id] },
+  });
+  const target = structuredClone(f.doc);
+  bindProjectDocumentContext(target, project, compositionId);
+  const current = new CommandSession(target, {
+    nodeClipboardOwner: owner,
+    historyClipboardFrom: previous,
+  });
+  previous.dispatch({
+    ...previous.state,
+    type: 'delete-node',
+    payload: { layerId: f.source.id, nodeId: f.color.id },
+  });
+  assert.equal(
+    current.dispatch({ ...current.state, type: 'paste-nodes', payload: { layerId: f.target.id } })
+      .nodeIds.length,
+    1,
+  );
+  assert.throws(
+    () =>
+      previous.dispatch({
+        ...previous.state,
+        type: 'paste-nodes',
+        payload: { layerId: f.target.id },
+      }),
+    /source.*copy again/i,
+  );
 });
