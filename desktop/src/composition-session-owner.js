@@ -150,6 +150,18 @@ function projectWithDocument(project, compositionId, document, adapters) {
   return validateCompositionProject(candidate);
 }
 
+// Keep the retained fonts reader outside the switching request's scope.
+// A shared closure context would otherwise keep retired CommandSessions alive.
+function preparedCompositionFonts(fonts, bridge, ticket) {
+  let preview = true;
+  return {
+    read: () => (preview ? { ...fonts(), ...bridge.preparedFonts(ticket) } : fonts()),
+    useLive() {
+      preview = false;
+    },
+  };
+}
+
 function replaceRecord(target, source) {
   for (const key of Object.keys(target)) delete target[key];
   Object.assign(target, source);
@@ -822,13 +834,8 @@ export class CompositionSessionOwner {
     };
     bridge.assertFresh(ticket);
     assertCurrent();
-    let preview = true;
-    const nextSession = this.#makeSession(
-      this.#history.doc,
-      targetId,
-      () => (preview ? { ...this.#fonts(), ...bridge.preparedFonts(ticket) } : this.#fonts()),
-      request.session,
-    );
+    const fonts = preparedCompositionFonts(this.#fonts, bridge, ticket);
+    const nextSession = this.#makeSession(this.#history.doc, targetId, fonts.read, request.session);
     assertCurrent();
     bridge.assertFresh(ticket);
     assertCurrent();
@@ -842,7 +849,7 @@ export class CompositionSessionOwner {
     assertCurrent();
     // No fallible work follows activation; publish the bank and tab together.
     bridge.activate(ticket);
-    preview = false;
+    fonts.useLive();
     this.#activeCompositionId = targetId;
     this.#session = nextSession;
     this.#preparedCompositionSwitch = null;
