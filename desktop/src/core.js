@@ -7102,6 +7102,7 @@ export class CommandSession {
   #prepared = null;
   #prepareSequence = 0;
   #nodeClipboard = null;
+  #nodeClipboardOwner;
   #beforeCandidateCommit;
   #captureArtworkMoveAuthority;
   #retainColorClipboardForProjectContext;
@@ -7116,8 +7117,19 @@ export class CommandSession {
       beforeCandidateCommit = null,
       captureArtworkMoveAuthority = () => () => {},
       retainColorClipboardForProjectContext = null,
+      nodeClipboardOwner = null,
+      historyClipboardFrom = null,
     } = {},
   ) {
+    if (
+      (nodeClipboardOwner !== null && typeof nodeClipboardOwner !== 'object') ||
+      (historyClipboardFrom !== null &&
+        (!nodeClipboardOwner ||
+          !(historyClipboardFrom instanceof CommandSession) ||
+          historyClipboardFrom.#nodeClipboardOwner !== nodeClipboardOwner))
+    )
+      throw Error('Invalid history clipboard owner');
+    this.#nodeClipboardOwner = nodeClipboardOwner;
     if (beforeCandidateCommit !== null && typeof beforeCandidateCommit !== 'function')
       throw Error('Invalid candidate preflight');
     if (typeof captureArtworkMoveAuthority !== 'function') throw Error('Invalid artwork authority');
@@ -7138,6 +7150,40 @@ export class CommandSession {
     this.#captureArtworkMoveAuthority = captureArtworkMoveAuthority;
     this.#retainColorClipboardForProjectContext = retainColorClipboardForProjectContext;
     this.id = uid('session');
+    if (historyClipboardFrom) this.#inheritHistoryClipboard(historyClipboardFrom);
+  }
+  #inheritHistoryClipboard(previous) {
+    const source = previous.#nodeClipboard;
+    if (!source) return;
+    // Only the metadata is mutable. Keep the private captured graph/assets,
+    // but never let a retired Session advance this Session's offset or expiry.
+    const clipboard = { ...source },
+      before = previous.#history.doc,
+      after = this.#history.doc,
+      beforeBinding = projectDocumentContexts.get(before),
+      afterBinding = projectDocumentContexts.get(after);
+    if (clipboard.colorArtworkReferences) {
+      // A trusted History edge can renew a valid context, never revive an
+      // externally rebound context or a reference which already expired.
+      if (
+        !beforeBinding ||
+        !afterBinding ||
+        beforeBinding.activeCompositionId !== afterBinding.activeCompositionId ||
+        source.colorContextIdentity !== beforeBinding.clipboardIdentity ||
+        source.colorContextEpoch !== previous.#projectContextOwner.epoch
+      )
+        clipboard.artworkReferencesExpired = true;
+      clipboard.colorContextIdentity = afterBinding?.clipboardIdentity ?? null;
+      clipboard.colorContextEpoch = this.#projectContextOwner.epoch;
+    }
+    if (
+      clipboard.artworkReferences.length &&
+      !clipboard.artworkReferencesExpired &&
+      (!artworkClipboardTargetsIntact(before, clipboard) ||
+        !artworkClipboardTargetsIntact(after, clipboard))
+    )
+      clipboard.artworkReferencesExpired = true;
+    this.#nodeClipboard = clipboard;
   }
   #trackProjectContextRoots() {
     const roots = [this.#history.doc, ...this.#history.past, ...this.#history.future];

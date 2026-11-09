@@ -176,6 +176,7 @@ export class CompositionSessionOwner {
   #history;
   #activeCompositionId;
   #session;
+  #nodeClipboardOwner = Object.freeze({});
   #History;
   #CommandSession;
   #blankDocument;
@@ -325,12 +326,14 @@ export class CompositionSessionOwner {
     return prepared;
   }
 
-  #makeSession(project, compositionId, fonts = this.#fonts) {
+  #makeSession(project, compositionId, fonts = this.#fonts, historyClipboardFrom = null) {
     let session;
     session = new this.#CommandSession(this.#documentFor(project, compositionId), {
       fonts,
       busy: this.#busy,
       retainHistory: false,
+      nodeClipboardOwner: this.#nodeClipboardOwner,
+      historyClipboardFrom,
       retainColorClipboardForProjectContext: (nextProject, nextCompositionId) =>
         this.#session === session &&
         this.#history.doc === nextProject &&
@@ -425,7 +428,20 @@ export class CompositionSessionOwner {
 
   #stepHistory(direction, command) {
     this.#assertCurrentCommand(command);
+    const session = this.#session,
+      revision = this.#history.revision,
+      compositionId = this.#activeCompositionId;
+    const assertCurrent = () => {
+      this.#assertCurrentCommand(command);
+      if (
+        this.#session !== session ||
+        this.#history.revision !== revision ||
+        this.#activeCompositionId !== compositionId
+      )
+        throw Error('STALE_REVISION: document changed');
+    };
     this.#assertQuiescent();
+    assertCurrent();
     const candidate = (direction === 'undo' ? this.#history.past : this.#history.future).at(-1);
     if (!candidate)
       return { ...this.state, changed: false, projectRevision: this.#history.revision };
@@ -435,7 +451,13 @@ export class CompositionSessionOwner {
     )
       ? this.#activeCompositionId
       : candidate.compositions[0].id;
-    const nextSession = this.#makeSession(candidate, activeCompositionId);
+    const nextSession = this.#makeSession(
+      candidate,
+      activeCompositionId,
+      this.#fonts,
+      activeCompositionId === compositionId ? session : null,
+    );
+    assertCurrent();
     this.#history[direction]();
     this.#activeCompositionId = activeCompositionId;
     this.#session = nextSession;

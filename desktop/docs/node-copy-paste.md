@@ -6,7 +6,11 @@ ordinary selected text, dialogs, IME and other viewports retain native shortcuts
 
 The clipboard is **inside this open Document only**. It is not the OS clipboard,
 does not export image/font data, and resets on New/Open/reload. Saved pasted
-nodes remain ordinary authored nodes and reopen normally.
+nodes remain ordinary authored nodes and reopen normally. Undo/Redo within the
+same active outer Composition keeps the captured Copy and subsequent Paste offset.
+Switching outer Composition tabs, including a History step which removes the
+active Composition and selects another, clears Copy. A restored foreign Artwork
+source does not revive a reference which expired while it was absent; Copy again.
 
 Copy captures the authored settings at that moment. Paste creates fresh node,
 point and contour IDs using the existing duplication contract, remaps internal
