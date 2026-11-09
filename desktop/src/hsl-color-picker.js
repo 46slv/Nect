@@ -50,12 +50,13 @@ export function hslToHex(h, s, l) {
     .join('')}`;
 }
 
-export function updateHexHsl(hex, channel, raw) {
+export function updateHexHsl(hex, channel, raw, neutralHue) {
   if (!['h', 's', 'l'].includes(channel)) throw Error('Invalid HSL channel');
   if (typeof raw !== 'string' || !raw.trim()) throw Error('Enter an HSL value');
   const value = Number(raw);
   if (!Number.isFinite(value)) throw Error('Enter a finite HSL value');
   const hsl = hexToHsl(hex);
+  if (hsl.s === 0 && neutralHue !== undefined) hsl.h = neutralHue;
   hsl[channel] = value;
   return hslToHex(hsl.h, hsl.s, hsl.l);
 }
@@ -69,10 +70,15 @@ export function renderHslFields(
     disabled = false,
     base = false,
     scrub = false,
+    neutralHue,
   } = {},
 ) {
   if (!['parameter', 'shared'].includes(mode)) throw Error('Invalid HSL input mode');
   const values = hexToHsl(hex);
+  if (values.s === 0 && neutralHue !== undefined) {
+    hslToHex(neutralHue, values.s, values.l); // Keep view hints in the same strict domain.
+    values.h = neutralHue;
+  }
   const label = esc(name);
   const fields = [
     ['h', 'H', 360, '°'],

@@ -679,6 +679,70 @@ try {
   );
   assert.deepEqual(await page.evaluate(() => window.nect.commandState), grayState);
   assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  // Hue is undefined in gray RGB. Keep a chosen hue as view state only until
+  // saturation creates a representable color; do not add a phantom Undo step.
+  const neutralField = (channel) =>
+    row('key').locator('[data-shared-color-edit="hsl-' + channel + '"]');
+  await change(neutralField('h'), '240');
+  assert.equal(await neutralField('h').inputValue(), '240');
+  assert.deepEqual(await snapshot(), grayBefore);
+  assert.deepEqual(await page.evaluate(() => window.nect.commandState), grayState);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await neutralField('h').fill('120');
+  await neutralField('h').press('Escape');
+  assert.equal(
+    await neutralField('h').inputValue(),
+    '240',
+    'Escape discards only the uncommitted hue',
+  );
+  await change(neutralField('h'), '400');
+  assert.equal(
+    await neutralField('h').inputValue(),
+    '240',
+    'invalid input cannot replace hue intent',
+  );
+  await change(neutralField('s'), '100');
+  const blue = await snapshot(),
+    expectedBlue = structuredClone(grayBefore);
+  expectedBlue.colorSlots.find((slot) => slot.id === 'key').value.hex = '#5555ff';
+  assert.deepEqual(blue, expectedBlue, 'saturation uses the chosen blue hue and preserves alpha0');
+  assert.equal(
+    (await page.evaluate(() => window.nect.commandState)).expectedRevision,
+    grayState.expectedRevision + 1,
+  );
+  await activateCommand(page, 'undo');
+  assert.deepEqual(
+    await snapshot(),
+    grayBefore,
+    'one Undo restores the exact original gray literal',
+  );
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await snapshot(), blue);
+  await page.evaluate((text) => window.nect.load(text), JSON.stringify(grayBefore));
+  await openAdvanced();
+  assert.equal(
+    await neutralField('h').inputValue(),
+    '0',
+    'reopening does not serialize the hue hint',
+  );
+  const reopenedGray = await snapshot(),
+    reopenedState = await page.evaluate(() => window.nect.commandState);
+  await scrubHue('cancel');
+  assert.equal(await neutralField('h').inputValue(), '0');
+  await scrubHue('commit');
+  assert.equal(
+    await neutralField('h').inputValue(),
+    '20',
+    'a completed gray hue scrub retains local intent',
+  );
+  assert.deepEqual(await snapshot(), reopenedGray);
+  assert.deepEqual(await page.evaluate(() => window.nect.commandState), reopenedState);
+  await change(neutralField('s'), '100');
+  assert.equal(
+    (await snapshot()).colorSlots.find((slot) => slot.id === 'key').value.hex,
+    updateHexHsl('#AAAAAA', 's', '100', 20),
+  );
+  await row('key').screenshot({ path: resolve(output, 'neutral-hue-after-saturation.png') });
   assert.deepEqual(errors, []);
   await writeFile(
     resolve(output, 'result.json'),
@@ -702,6 +766,9 @@ try {
         coverageDoesNotAuthorState: true,
         viewportWidths: [1440, 1000, 900],
         hslBoundary,
+        neutralHueBeforeSaturation: true,
+        neutralHueCancelInvalidAndProjectReopen: true,
+        neutralHueScrubCommitCancel: true,
         nativeDialogs: 'NOT_RUN',
         errors,
       },
