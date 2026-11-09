@@ -1,0 +1,176 @@
+diff --git a/desktop/src/core.js b/desktop/src/core.js
+index 9d0c88a65..227418df1 100644
+--- a/desktop/src/core.js
++++ b/desktop/src/core.js
+@@ -1351,7 +1351,7 @@ function assertAcyclic(layer) {
+ // A parameter read does not read its node's output. In particular, reading a
+ // Composition Reference's Position must not evaluate its referenced output,
+ // and Text's Position port must not evaluate its path or outline.
+-function documentDependencyGraph(doc) {
++function documentDependencyGraph(doc, cacheEdges = false) {
+   const layers = new Map(doc.layers.map((layer) => [layer.id, layer]));
+   const nodes = new Map(
+     doc.layers.map((layer) => [layer.id, new Map(layer.nodes.map((n) => [n.id, n]))]),
+@@ -1359,12 +1359,18 @@ function documentDependencyGraph(doc) {
+   // One graph describes one immutable candidate. Preserve parameter()'s first
+   // matching entry, including virtual descriptors, without rebuilding the
+   // entire Curve point list for every visited property.
+-  const parameterIndexes = new WeakMap();
++  const parameterIndexes = new WeakMap(),
++    parameterEntries = new WeakMap();
++  function graphParameters(n) {
++    if (!parameterEntries.has(n)) parameterEntries.set(n, parameters(n));
++    return parameterEntries.get(n);
++  }
+   function graphParameter(n, key) {
+     let indexed = parameterIndexes.get(n);
+     if (!indexed) {
+       indexed = new Map();
+-      for (const [name, value] of parameters(n)) if (!indexed.has(name)) indexed.set(name, value);
++      for (const [name, value] of graphParameters(n))
++        if (!indexed.has(name)) indexed.set(name, value);
+       parameterIndexes.set(n, indexed);
+     }
+     return indexed.get(key) || parameterFallback(n, key);
+@@ -1373,7 +1379,7 @@ function documentDependencyGraph(doc) {
+   const property = (layerId, nodeId, key) => ({ layerId, nodeId, key });
+   const keyOf = (v) =>
+     `${v.layerId}\0${v.nodeId}\0${v.key === undefined ? `out:${v.port || ''}` : `param:${v.key}`}`;
+-  function edges(v) {
++  function dependencies(v) {
+     const layer = layers.get(v.layerId),
+       n = nodes.get(v.layerId)?.get(v.nodeId);
+     if (!n) return [];
+@@ -1407,10 +1413,30 @@ function documentDependencyGraph(doc) {
+     }
+     return result;
+   }
+-  return { layers, nodes, output, property, keyOf, edges, parameter: graphParameter };
++  // Only the project transition opts in: the exact normalized candidate is
++  // read by acyclicity and foreign-impact validation without intervening edits.
++  // No cache escapes this graph or survives into another dispatch.
++  const edgeCache = cacheEdges ? new Map() : null;
++  function edges(vertex) {
++    if (!edgeCache) return dependencies(vertex);
++    const key = keyOf(vertex);
++    if (!edgeCache.has(key)) edgeCache.set(key, dependencies(vertex));
++    return edgeCache.get(key);
++  }
++  return {
++    document: doc,
++    layers,
++    nodes,
++    output,
++    property,
++    keyOf,
++    edges,
++    parameter: graphParameter,
++    parameters: graphParameters,
++  };
+ }
+-function assertDocumentReferenceAcyclic(doc) {
+-  const graph = documentDependencyGraph(doc);
++function assertDocumentReferenceAcyclic(doc, preparedGraph = null) {
++  const graph = preparedGraph?.document === doc ? preparedGraph : documentDependencyGraph(doc);
+   const seen = new Set(),
+     active = new Set();
+   function visit(vertex) {
+@@ -1430,7 +1456,7 @@ function assertDocumentReferenceAcyclic(doc) {
+     for (const n of layer.nodes) {
+       visit(graph.output(layer.id, n.id));
+       if (n.type === 'Text') visit(graph.output(layer.id, n.id, 'position'));
+-      for (const [key] of parameters(n)) visit(graph.property(layer.id, n.id, key));
++      for (const [key] of graph.parameters(n)) visit(graph.property(layer.id, n.id, key));
+     }
+ }
+ export function setReference(layer, nodeId, target) {
+@@ -5106,7 +5132,7 @@ export function evaluate(
+ // Session commits and previews are the common boundary for source edits,
+ // including gestures and prepared commands. A dangling identity cannot be
+ // revived by an allocator, and affected cross-layer controls remain valid.
+-function foreignAffectedVertices(before, candidate, fonts) {
++function foreignAffectedVertices(before, candidate, fonts, preparedCandidateGraph = null) {
+   const nodeKey = (layerId, nodeId) => `${layerId}\0${nodeId}`;
+   const entries = (doc) =>
+     new Map(doc.layers.flatMap((layer) => layer.nodes.map((n) => [nodeKey(layer.id, n.id), n])));
+@@ -5156,7 +5182,10 @@ function foreignAffectedVertices(before, candidate, fonts) {
+     directForeign = new Set();
+   let candidateGraph, priorGraph;
+   for (const doc of [before, candidate]) {
+-    const graph = documentDependencyGraph(doc),
++    const graph =
++        doc === candidate && preparedCandidateGraph?.document === doc
++          ? preparedCandidateGraph
++          : documentDependencyGraph(doc),
+       queue = [],
+       seen = new Set();
+     if (doc === candidate) candidateGraph = graph;
+@@ -5164,7 +5193,7 @@ function foreignAffectedVertices(before, candidate, fonts) {
+     for (const layer of doc.layers)
+       for (const n of layer.nodes) {
+         for (const port of outputPorts(n)) queue.push(graph.output(layer.id, n.id, port.id));
+-        for (const [key] of parameters(n)) queue.push(graph.property(layer.id, n.id, key));
++        for (const [key] of graph.parameters(n)) queue.push(graph.property(layer.id, n.id, key));
+       }
+     for (let i = 0; i < queue.length; i++) {
+       const vertex = queue[i],
+@@ -5330,6 +5359,7 @@ function assertArtworkReferenceTransition(
+   candidate,
+   fonts = {},
+   validateEffective = validate,
++  preparedCandidateGraph = null,
+ ) {
+   const allRefs = (doc) => {
+     const refs = [];
+@@ -5372,6 +5402,7 @@ function assertArtworkReferenceTransition(
+     before,
+     candidate,
+     fonts,
++    preparedCandidateGraph,
+   );
+   if (!affected.length) return;
+   const currentFonts = resolveFonts(candidate, fonts),
+@@ -5575,21 +5606,28 @@ export function assertProjectReferenceTransition(before, candidate, fonts = {})
+       }
+     }
+   }
+-  assertDocumentReferenceAcyclic(nextDoc);
+-  assertArtworkReferenceTransition(oldDoc, nextDoc, fonts, (effective) => {
+-    for (const composition of candidate.compositions) {
+-      const ids = new Set(composition.layers.map((layer) => layer.id));
+-      const doc = {
+-        ...effective,
+-        width: composition.width,
+-        height: composition.height,
+-        layers: effective.layers.filter((layer) => ids.has(layer.id)),
+-      };
+-      if (composition.editor === undefined) delete doc.editor;
+-      else doc.editor = composition.editor;
+-      validate(doc);
+-    }
+-  });
++  const candidateGraph = documentDependencyGraph(nextDoc, true);
++  assertDocumentReferenceAcyclic(nextDoc, candidateGraph);
++  assertArtworkReferenceTransition(
++    oldDoc,
++    nextDoc,
++    fonts,
++    (effective) => {
++      for (const composition of candidate.compositions) {
++        const ids = new Set(composition.layers.map((layer) => layer.id));
++        const doc = {
++          ...effective,
++          width: composition.width,
++          height: composition.height,
++          layers: effective.layers.filter((layer) => ids.has(layer.id)),
++        };
++        if (composition.editor === undefined) delete doc.editor;
++        else doc.editor = composition.editor;
++        validate(doc);
++      }
++    },
++    candidateGraph,
++  );
+ }
+ 
+ // All attached/wrapped text is checked, even when it is not the displayed Output. A failed

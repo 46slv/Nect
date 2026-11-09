@@ -1,0 +1,64 @@
+{
+  "path": "D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/test-results/cross-comp-profile.json",
+  "sha256": "e86231ea55ec3a103626cd1fac05f452a3461cf36b7123d3e01cbeb29922581d",
+  "durationMs": 4562.571,
+  "caveat": "Historical V8 sampled CPU profile; different run, 3 edits; do not compare sampled inclusive sums with current wall-clock medians.",
+  "rows": [
+    {
+      "name": "cloneDocument",
+      "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js",
+      "line": 490,
+      "inclusiveMs": 1413.6119999999996,
+      "exclusiveMs": 0
+    },
+    {
+      "name": "foreignAffectedVertices",
+      "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js",
+      "line": 5109,
+      "inclusiveMs": 985.7439999999992,
+      "exclusiveMs": 646.6169999999994
+    },
+    {
+      "name": "validateCompositionProject",
+      "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/composition-project-model.js",
+      "line": 540,
+      "inclusiveMs": 435.59000000000003,
+      "exclusiveMs": 0
+    },
+    {
+      "name": "projectWithDocument",
+      "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/composition-session-owner.js",
+      "line": 80,
+      "inclusiveMs": 435.59000000000003,
+      "exclusiveMs": 0
+    },
+    {
+      "name": "#projectWithDocument",
+      "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/composition-session-owner.js",
+      "line": 260,
+      "inclusiveMs": 435.59000000000003,
+      "exclusiveMs": 0
+    },
+    {
+      "name": "#commandCandidate",
+      "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js",
+      "line": 8670,
+      "inclusiveMs": 269.5759999999999,
+      "exclusiveMs": 1.847
+    },
+    {
+      "name": "validate",
+      "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js",
+      "line": 5993,
+      "inclusiveMs": 219.3340000000001,
+      "exclusiveMs": 62.373000000000005
+    },
+    {
+      "name": "allRefs",
+      "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js",
+      "line": 5334,
+      "inclusiveMs": 20.712,
+      "exclusiveMs": 9.389
+    }
+  ]
+}

@@ -1,0 +1,375 @@
+{
+  "pooled": [
+    {
+      "count": 100,
+      "instrumentedMedianMs": 17.299800000000005,
+      "control": {
+        "count": 100,
+        "sampleCount": 5,
+        "samples": [
+          16.304900000000032, 14.561499999999967, 14.713700000000017, 13.183500000000038,
+          16.977499999999964
+        ],
+        "medianMs": 14.713700000000017,
+        "minMs": 13.183500000000038,
+        "maxMs": 16.977499999999964,
+        "value": 104
+      },
+      "exclusiveShares": [
+        {
+          "name": "cloneDocument",
+          "sharePercent": 28.41915424646039
+        },
+        {
+          "name": "foreign.graphEnumerationAndReverseBuild",
+          "sharePercent": 19.30616693323492
+        },
+        {
+          "name": "owner.projectCandidate",
+          "sharePercent": 16.61347091100373
+        },
+        {
+          "name": "validate",
+          "sharePercent": 10.589022094520844
+        },
+        {
+          "name": "assertProjectReferenceTransition",
+          "sharePercent": 6.133435242718957
+        },
+        {
+          "name": "transition.effectiveProjectionAndEvaluation",
+          "sharePercent": 4.1815874274013165
+        },
+        {
+          "name": "sameDocument",
+          "sharePercent": 4.350492797931551
+        },
+        {
+          "name": "foreign.changedVertexSeeding",
+          "sharePercent": 2.989931730147713
+        },
+        {
+          "name": "foreign.changedNodeDetection",
+          "sharePercent": 1.427203200709701
+        },
+        {
+          "name": "session.dispatch",
+          "sharePercent": 1.4134029714134941
+        },
+        {
+          "name": "assertArtworkReferenceTransition",
+          "sharePercent": 1.6075497869810378
+        },
+        {
+          "name": "session.commandCandidate",
+          "sharePercent": 0.9482054983887921
+        },
+        {
+          "name": "owner.dispatch",
+          "sharePercent": 0.6789241010976937
+        },
+        {
+          "name": "projectAsReferenceDocument",
+          "sharePercent": 0.48005925842067904
+        },
+        {
+          "name": "transition.effectiveDomainValidation",
+          "sharePercent": 0.1651309488426171
+        },
+        {
+          "name": "foreignAffectedVertices",
+          "sharePercent": 0.19544427302274373
+        },
+        {
+          "name": "documentDependencyGraph",
+          "sharePercent": 0.147910149891871
+        },
+        {
+          "name": "foreign.effectiveInputActivation",
+          "sharePercent": 0.1374125395724883
+        },
+        {
+          "name": "foreign.reverseAffectedClosure",
+          "sharePercent": 0.05284190362965624
+        },
+        {
+          "name": "foreign.reverseReachableClosure",
+          "sharePercent": 0.0287799653696307
+        },
+        {
+          "name": "foreign.reverseForeignClosure",
+          "sharePercent": 0.024061938259891447
+        }
+      ],
+      "accountedPercent": 99.89018791901972
+    },
+    {
+      "count": 1000,
+      "instrumentedMedianMs": 110.31359999999995,
+      "control": {
+        "count": 1000,
+        "sampleCount": 5,
+        "samples": [
+          119.29729999999995, 110.697, 104.77009999999996, 114.04840000000002, 110.86090000000013
+        ],
+        "medianMs": 110.86090000000013,
+        "minMs": 104.77009999999996,
+        "maxMs": 119.29729999999995,
+        "value": 1004
+      },
+      "exclusiveShares": [
+        {
+          "name": "cloneDocument",
+          "sharePercent": 36.9804038503314
+        },
+        {
+          "name": "foreign.graphEnumerationAndReverseBuild",
+          "sharePercent": 19.387173798883655
+        },
+        {
+          "name": "owner.projectCandidate",
+          "sharePercent": 13.291840997343147
+        },
+        {
+          "name": "assertProjectReferenceTransition",
+          "sharePercent": 6.511782134834399
+        },
+        {
+          "name": "validate",
+          "sharePercent": 6.375398999326678
+        },
+        {
+          "name": "sameDocument",
+          "sharePercent": 5.680368199115055
+        },
+        {
+          "name": "foreign.changedVertexSeeding",
+          "sharePercent": 4.6908834519851
+        },
+        {
+          "name": "foreign.changedNodeDetection",
+          "sharePercent": 2.0403913962674114
+        },
+        {
+          "name": "transition.effectiveProjectionAndEvaluation",
+          "sharePercent": 1.6848513793238322
+        },
+        {
+          "name": "assertArtworkReferenceTransition",
+          "sharePercent": 1.904520846416763
+        },
+        {
+          "name": "session.dispatch",
+          "sharePercent": 0.6601926509004147
+        },
+        {
+          "name": "session.commandCandidate",
+          "sharePercent": 0.408672171600909
+        },
+        {
+          "name": "owner.dispatch",
+          "sharePercent": 0.14746559092033215
+        },
+        {
+          "name": "projectAsReferenceDocument",
+          "sharePercent": 0.07443097247576531
+        },
+        {
+          "name": "foreignAffectedVertices",
+          "sharePercent": 0.053344259067086376
+        },
+        {
+          "name": "foreign.effectiveInputActivation",
+          "sharePercent": 0.022394690602418586
+        },
+        {
+          "name": "documentDependencyGraph",
+          "sharePercent": 0.021793728108007983
+        },
+        {
+          "name": "transition.effectiveDomainValidation",
+          "sharePercent": 0.013291876348117532
+        },
+        {
+          "name": "foreign.reverseAffectedClosure",
+          "sharePercent": 0.010994078575172537
+        },
+        {
+          "name": "foreign.reverseReachableClosure",
+          "sharePercent": 0.008519527127370162
+        },
+        {
+          "name": "foreign.reverseForeignClosure",
+          "sharePercent": 0.006575236704119833
+        }
+      ],
+      "accountedPercent": 99.97528983625715
+    },
+    {
+      "count": 10000,
+      "instrumentedMedianMs": 1348.1512000000002,
+      "control": {
+        "count": 10000,
+        "sampleCount": 5,
+        "samples": [
+          1438.2502, 1275.6809000000003, 1279.5348000000004, 1347.2859000000008, 1316.1494000000002
+        ],
+        "medianMs": 1316.1494000000002,
+        "minMs": 1275.6809000000003,
+        "maxMs": 1438.2502,
+        "value": 10004
+      },
+      "exclusiveShares": [
+        {
+          "name": "cloneDocument",
+          "sharePercent": 34.26451702485676
+        },
+        {
+          "name": "foreign.graphEnumerationAndReverseBuild",
+          "sharePercent": 23.43130900100641
+        },
+        {
+          "name": "owner.projectCandidate",
+          "sharePercent": 11.9503041938317
+        },
+        {
+          "name": "assertProjectReferenceTransition",
+          "sharePercent": 7.671304062417814
+        },
+        {
+          "name": "validate",
+          "sharePercent": 6.8060687045123744
+        },
+        {
+          "name": "sameDocument",
+          "sharePercent": 5.064974804169965
+        },
+        {
+          "name": "foreign.changedVertexSeeding",
+          "sharePercent": 4.6989106338962126
+        },
+        {
+          "name": "foreign.changedNodeDetection",
+          "sharePercent": 2.083748969365107
+        },
+        {
+          "name": "assertArtworkReferenceTransition",
+          "sharePercent": 1.8337584256941586
+        },
+        {
+          "name": "transition.effectiveProjectionAndEvaluation",
+          "sharePercent": 1.4368235781363181
+        },
+        {
+          "name": "session.commandCandidate",
+          "sharePercent": 0.3726993486396611
+        },
+        {
+          "name": "session.dispatch",
+          "sharePercent": 0.33739821997848285
+        },
+        {
+          "name": "projectAsReferenceDocument",
+          "sharePercent": 0.01361381420143825
+        },
+        {
+          "name": "owner.dispatch",
+          "sharePercent": 0.012673430649066082
+        },
+        {
+          "name": "foreignAffectedVertices",
+          "sharePercent": 0.009258353538127418
+        },
+        {
+          "name": "documentDependencyGraph",
+          "sharePercent": 0.0026126764722781783
+        },
+        {
+          "name": "foreign.effectiveInputActivation",
+          "sharePercent": 0.0022842171453597198
+        },
+        {
+          "name": "transition.effectiveDomainValidation",
+          "sharePercent": 0.0018417719334034126
+        },
+        {
+          "name": "foreign.reverseReachableClosure",
+          "sharePercent": 0.001636297377290837
+        },
+        {
+          "name": "foreign.reverseAffectedClosure",
+          "sharePercent": 0.0009493824379765142
+        },
+        {
+          "name": "foreign.reverseForeignClosure",
+          "sharePercent": 0.0008413958099536665
+        }
+      ],
+      "accountedPercent": 99.99752830606985
+    }
+  ],
+  "legacy": {
+    "path": "D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/test-results/cross-comp-profile.json",
+    "sha256": "e86231ea55ec3a103626cd1fac05f452a3461cf36b7123d3e01cbeb29922581d",
+    "durationMs": 4562.571,
+    "caveat": "Historical V8 sampled CPU profile; different run, 3 edits; do not compare sampled inclusive sums with current wall-clock medians.",
+    "rows": [
+      {
+        "name": "cloneDocument",
+        "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js",
+        "line": 490,
+        "inclusiveMs": 1413.6119999999996,
+        "exclusiveMs": 0
+      },
+      {
+        "name": "foreignAffectedVertices",
+        "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js",
+        "line": 5109,
+        "inclusiveMs": 985.7439999999992,
+        "exclusiveMs": 646.6169999999994
+      },
+      {
+        "name": "validateCompositionProject",
+        "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/composition-project-model.js",
+        "line": 540,
+        "inclusiveMs": 435.59000000000003,
+        "exclusiveMs": 0
+      },
+      {
+        "name": "projectWithDocument",
+        "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/composition-session-owner.js",
+        "line": 80,
+        "inclusiveMs": 435.59000000000003,
+        "exclusiveMs": 0
+      },
+      {
+        "name": "#projectWithDocument",
+        "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/composition-session-owner.js",
+        "line": 260,
+        "inclusiveMs": 435.59000000000003,
+        "exclusiveMs": 0
+      },
+      {
+        "name": "#commandCandidate",
+        "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js",
+        "line": 8670,
+        "inclusiveMs": 269.5759999999999,
+        "exclusiveMs": 1.847
+      },
+      {
+        "name": "validate",
+        "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js",
+        "line": 5993,
+        "inclusiveMs": 219.3340000000001,
+        "exclusiveMs": 62.373000000000005
+      },
+      {
+        "name": "allRefs",
+        "url": "file:///D:/Documents/Codex/worktrees/Nect-dot-reference-scan-performance-20261107/desktop/src/core.js",
+        "line": 5334,
+        "inclusiveMs": 20.712,
+        "exclusiveMs": 9.389
+      }
+    ]
+  }
+}

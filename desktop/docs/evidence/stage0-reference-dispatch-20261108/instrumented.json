@@ -1,0 +1,2132 @@
+{
+  "timestamp": "2026-11-08T22:31:37.087Z",
+  "node": "v24.14.1",
+  "platform": "win32",
+  "arch": "x64",
+  "cpu": "AMD Ryzen 9 3900X 12-Core Processor            ",
+  "base": "8281ae7ea992b8824e03eeb2b5abe2c66f30008e",
+  "measurement": "Instrumented Node synchronous dispatch, 5 per size; no GUI/native/frame timing.",
+  "instrumentation": "In-memory module load transforms; no product source changes. Inclusive includes nested stages; exclusive subtracts nested spans. Logging, setup, value/Undo/Redo/serialization/reopen checks are outside dispatch timing. Timer overhead remains in results.",
+  "sources": {
+    "scripts/bench-cross-composition-edit.mjs": "ec67a1d509f53b4f65f0cbea67dcdc3dd7e055a106b47a5d4ddf6cc1e015c388",
+    "src/core.js": "c8c12c3c57bb8ebce3b368050c0f3d00c6ff116222795aebca3e71fdbfbf581b",
+    "src/composition-session-owner.js": "e1498c25acc5b631bc7a4e280b1eb419fe7856889fbf34a18027128dd096e733"
+  },
+  "fixtures": [
+    {
+      "count": 100,
+      "sampleCount": 5,
+      "samples": [
+        18.386500000000012, 20.080300000000022, 17.299800000000005, 14.605599999999981,
+        14.408999999999992
+      ],
+      "medianMs": 17.299800000000005,
+      "minMs": 14.408999999999992,
+      "maxMs": 20.080300000000022,
+      "value": 104
+    },
+    {
+      "count": 1000,
+      "sampleCount": 5,
+      "samples": [
+        110.31359999999995, 112.1893, 109.94190000000003, 125.54130000000009, 107.77300000000014
+      ],
+      "medianMs": 110.31359999999995,
+      "minMs": 107.77300000000014,
+      "maxMs": 125.54130000000009,
+      "value": 1004
+    },
+    {
+      "count": 10000,
+      "sampleCount": 5,
+      "samples": [
+        1281.6421000000005, 1392.3685999999998, 1348.1512000000002, 1381.8491999999997,
+        1263.4811000000009
+      ],
+      "medianMs": 1348.1512000000002,
+      "minMs": 1263.4811000000009,
+      "maxMs": 1392.3685999999998,
+      "value": 10004
+    }
+  ],
+  "summaries": [
+    {
+      "count": 100,
+      "totalMedianMs": 17.299800000000005,
+      "stages": [
+        {
+          "name": "cloneDocument",
+          "calls": [9, 9, 9, 9, 9],
+          "inclusiveMedianMs": 4.575300000000084,
+          "exclusiveMedianMs": 4.575300000000084
+        },
+        {
+          "name": "foreign.graphEnumerationAndReverseBuild",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 3.0259000000000356,
+          "exclusiveMedianMs": 2.990000000000066
+        },
+        {
+          "name": "owner.projectCandidate",
+          "calls": [2, 2, 2, 2, 2],
+          "inclusiveMedianMs": 2.8904999999999745,
+          "exclusiveMedianMs": 2.8904999999999745
+        },
+        {
+          "name": "validate",
+          "calls": [7, 7, 7, 7, 7],
+          "inclusiveMedianMs": 1.849800000000016,
+          "exclusiveMedianMs": 1.849800000000016
+        },
+        {
+          "name": "assertProjectReferenceTransition",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 10.085700000000031,
+          "exclusiveMedianMs": 1.0487000000000535
+        },
+        {
+          "name": "transition.effectiveProjectionAndEvaluation",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 1.5663000000000125,
+          "exclusiveMedianMs": 0.7860999999999763
+        },
+        {
+          "name": "sameDocument",
+          "calls": [3, 3, 3, 3, 3],
+          "inclusiveMedianMs": 0.6604999999999563,
+          "exclusiveMedianMs": 0.6604999999999563
+        },
+        {
+          "name": "foreign.changedVertexSeeding",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 0.4276999999999589,
+          "exclusiveMedianMs": 0.4276999999999589
+        },
+        {
+          "name": "foreign.changedNodeDetection",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 0.22900000000004184,
+          "exclusiveMedianMs": 0.22900000000004184
+        },
+        {
+          "name": "session.dispatch",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 14.844400000000007,
+          "exclusiveMedianMs": 0.2055000000000291
+        },
+        {
+          "name": "assertArtworkReferenceTransition",
+          "calls": [2, 2, 2, 2, 2],
+          "inclusiveMedianMs": 6.396800000000042,
+          "exclusiveMedianMs": 0.1807999999999197
+        },
+        {
+          "name": "session.commandCandidate",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 1.2743999999999573,
+          "exclusiveMedianMs": 0.1330000000000382
+        },
+        {
+          "name": "owner.dispatch",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 17.285599999999988,
+          "exclusiveMedianMs": 0.09890000000001464
+        },
+        {
+          "name": "projectAsReferenceDocument",
+          "calls": [2, 2, 2, 2, 2],
+          "inclusiveMedianMs": 2.3430000000000177,
+          "exclusiveMedianMs": 0.07060000000018363
+        },
+        {
+          "name": "transition.effectiveDomainValidation",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 0.4892000000000394,
+          "exclusiveMedianMs": 0.02450000000004593
+        },
+        {
+          "name": "foreignAffectedVertices",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 3.774400000000014,
+          "exclusiveMedianMs": 0.02340000000009468
+        },
+        {
+          "name": "documentDependencyGraph",
+          "calls": [3, 3, 3, 3, 3],
+          "inclusiveMedianMs": 0.01730000000009113,
+          "exclusiveMedianMs": 0.01730000000009113
+        },
+        {
+          "name": "foreign.effectiveInputActivation",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 0.016999999999995907,
+          "exclusiveMedianMs": 0.016999999999995907
+        },
+        {
+          "name": "foreign.reverseAffectedClosure",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 0.008700000000033015,
+          "exclusiveMedianMs": 0.008700000000033015
+        },
+        {
+          "name": "foreign.reverseReachableClosure",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 0.004799999999988813,
+          "exclusiveMedianMs": 0.004799999999988813
+        },
+        {
+          "name": "foreign.reverseForeignClosure",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 0.002599999999972624,
+          "exclusiveMedianMs": 0.002599999999972624
+        }
+      ]
+    },
+    {
+      "count": 1000,
+      "totalMedianMs": 110.31359999999995,
+      "stages": [
+        {
+          "name": "cloneDocument",
+          "calls": [9, 9, 9, 9, 9],
+          "inclusiveMedianMs": 40.16570000000013,
+          "exclusiveMedianMs": 40.16570000000013
+        },
+        {
+          "name": "foreign.graphEnumerationAndReverseBuild",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 22.64760000000001,
+          "exclusiveMedianMs": 22.62850000000003
+        },
+        {
+          "name": "owner.projectCandidate",
+          "calls": [2, 2, 2, 2, 2],
+          "inclusiveMedianMs": 15.398400000000038,
+          "exclusiveMedianMs": 15.398400000000038
+        },
+        {
+          "name": "assertProjectReferenceTransition",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 61.013000000000034,
+          "exclusiveMedianMs": 6.799699999999916
+        },
+        {
+          "name": "validate",
+          "calls": [7, 7, 7, 7, 7],
+          "inclusiveMedianMs": 6.689100000000053,
+          "exclusiveMedianMs": 6.689100000000053
+        },
+        {
+          "name": "sameDocument",
+          "calls": [3, 3, 3, 3, 3],
+          "inclusiveMedianMs": 6.238899999999944,
+          "exclusiveMedianMs": 6.238899999999944
+        },
+        {
+          "name": "foreign.changedVertexSeeding",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 5.171600000000012,
+          "exclusiveMedianMs": 5.171600000000012
+        },
+        {
+          "name": "foreign.changedNodeDetection",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 2.4085999999999785,
+          "exclusiveMedianMs": 2.4085999999999785
+        },
+        {
+          "name": "transition.effectiveProjectionAndEvaluation",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 7.479100000000017,
+          "exclusiveMedianMs": 1.7898000000000138
+        },
+        {
+          "name": "assertArtworkReferenceTransition",
+          "calls": [2, 2, 2, 2, 2],
+          "inclusiveMedianMs": 43.07099999999991,
+          "exclusiveMedianMs": 1.674600000000055
+        },
+        {
+          "name": "session.dispatch",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 88.89330000000007,
+          "exclusiveMedianMs": 0.7020999999999731
+        },
+        {
+          "name": "session.commandCandidate",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 8.013300000000072,
+          "exclusiveMedianMs": 0.4654000000000451
+        },
+        {
+          "name": "owner.dispatch",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 110.27960000000007,
+          "exclusiveMedianMs": 0.17650000000014643
+        },
+        {
+          "name": "projectAsReferenceDocument",
+          "calls": [2, 2, 2, 2, 2],
+          "inclusiveMedianMs": 14.14020000000005,
+          "exclusiveMedianMs": 0.08700000000044383
+        },
+        {
+          "name": "foreignAffectedVertices",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 29.64949999999999,
+          "exclusiveMedianMs": 0.056400000000053296
+        },
+        {
+          "name": "foreign.effectiveInputActivation",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 0.024200000000064392,
+          "exclusiveMedianMs": 0.024200000000064392
+        },
+        {
+          "name": "documentDependencyGraph",
+          "calls": [3, 3, 3, 3, 3],
+          "inclusiveMedianMs": 0.024099999999975807,
+          "exclusiveMedianMs": 0.024099999999975807
+        },
+        {
+          "name": "transition.effectiveDomainValidation",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 2.085900000000038,
+          "exclusiveMedianMs": 0.016599999999925785
+        },
+        {
+          "name": "foreign.reverseAffectedClosure",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 0.011799999999993815,
+          "exclusiveMedianMs": 0.011799999999993815
+        },
+        {
+          "name": "foreign.reverseReachableClosure",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 0.009599999999977626,
+          "exclusiveMedianMs": 0.009599999999977626
+        },
+        {
+          "name": "foreign.reverseForeignClosure",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 0.005499999999983629,
+          "exclusiveMedianMs": 0.005499999999983629
+        }
+      ]
+    },
+    {
+      "count": 10000,
+      "totalMedianMs": 1348.1512000000002,
+      "stages": [
+        {
+          "name": "cloneDocument",
+          "calls": [9, 9, 9, 9, 9],
+          "inclusiveMedianMs": 463.3115000000016,
+          "exclusiveMedianMs": 463.3115000000016
+        },
+        {
+          "name": "foreign.graphEnumerationAndReverseBuild",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 314.48019999999997,
+          "exclusiveMedianMs": 314.4480999999996
+        },
+        {
+          "name": "owner.projectCandidate",
+          "calls": [2, 2, 2, 2, 2],
+          "inclusiveMedianMs": 162.78229999999985,
+          "exclusiveMedianMs": 162.78229999999985
+        },
+        {
+          "name": "assertProjectReferenceTransition",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 807.0006999999996,
+          "exclusiveMedianMs": 101.78549999999996
+        },
+        {
+          "name": "validate",
+          "calls": [7, 7, 7, 7, 7],
+          "inclusiveMedianMs": 89.8122000000003,
+          "exclusiveMedianMs": 89.8122000000003
+        },
+        {
+          "name": "sameDocument",
+          "calls": [3, 3, 3, 3, 3],
+          "inclusiveMedianMs": 68.49449999999888,
+          "exclusiveMedianMs": 68.49449999999888
+        },
+        {
+          "name": "foreign.changedVertexSeeding",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 59.5630000000001,
+          "exclusiveMedianMs": 59.5630000000001
+        },
+        {
+          "name": "foreign.changedNodeDetection",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 29.88670000000002,
+          "exclusiveMedianMs": 29.88670000000002
+        },
+        {
+          "name": "assertArtworkReferenceTransition",
+          "calls": [2, 2, 2, 2, 2],
+          "inclusiveMedianMs": 551.9692000000005,
+          "exclusiveMedianMs": 24.314000000000306
+        },
+        {
+          "name": "transition.effectiveProjectionAndEvaluation",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 89.89240000000018,
+          "exclusiveMedianMs": 19.887699999999313
+        },
+        {
+          "name": "session.commandCandidate",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 93.37089999999989,
+          "exclusiveMedianMs": 4.972099999999955
+        },
+        {
+          "name": "session.dispatch",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 1106.4297000000006,
+          "exclusiveMedianMs": 4.220900000002075
+        },
+        {
+          "name": "projectAsReferenceDocument",
+          "calls": [2, 2, 2, 2, 2],
+          "inclusiveMedianMs": 169.89240000000063,
+          "exclusiveMedianMs": 0.1728000000002794
+        },
+        {
+          "name": "owner.dispatch",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 1348.1144000000004,
+          "exclusiveMedianMs": 0.1670999999992091
+        },
+        {
+          "name": "foreignAffectedVertices",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 400.2513999999992,
+          "exclusiveMedianMs": 0.12949999999909778
+        },
+        {
+          "name": "documentDependencyGraph",
+          "calls": [3, 3, 3, 3, 3],
+          "inclusiveMedianMs": 0.033699999999953434,
+          "exclusiveMedianMs": 0.033699999999953434
+        },
+        {
+          "name": "foreign.effectiveInputActivation",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 0.031899999999950523,
+          "exclusiveMedianMs": 0.031899999999950523
+        },
+        {
+          "name": "transition.effectiveDomainValidation",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 27.63239999999996,
+          "exclusiveMedianMs": 0.021800000000439468
+        },
+        {
+          "name": "foreign.reverseReachableClosure",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 0.014000000000123691,
+          "exclusiveMedianMs": 0.014000000000123691
+        },
+        {
+          "name": "foreign.reverseAffectedClosure",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 0.012300000000323053,
+          "exclusiveMedianMs": 0.012300000000323053
+        },
+        {
+          "name": "foreign.reverseForeignClosure",
+          "calls": [1, 1, 1, 1, 1],
+          "inclusiveMedianMs": 0.011399999999412103,
+          "exclusiveMedianMs": 0.011399999999412103
+        }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "count": 100,
+      "index": 0,
+      "stages": {
+        "cloneDocument": {
+          "calls": 9,
+          "inclusiveMs": 4.575300000000084,
+          "exclusiveMs": 4.575300000000084
+        },
+        "validate": {
+          "calls": 7,
+          "inclusiveMs": 2.2612000000000307,
+          "exclusiveMs": 2.2612000000000307
+        },
+        "session.commandCandidate": {
+          "calls": 1,
+          "inclusiveMs": 1.2743999999999573,
+          "exclusiveMs": 0.23589999999995825
+        },
+        "assertArtworkReferenceTransition": {
+          "calls": 2,
+          "inclusiveMs": 6.801500000000033,
+          "exclusiveMs": 0.5279000000000451
+        },
+        "sameDocument": {
+          "calls": 3,
+          "inclusiveMs": 0.6564999999999941,
+          "exclusiveMs": 0.6564999999999941
+        },
+        "owner.projectCandidate": {
+          "calls": 2,
+          "inclusiveMs": 2.8904999999999745,
+          "exclusiveMs": 2.8904999999999745
+        },
+        "projectAsReferenceDocument": {
+          "calls": 2,
+          "inclusiveMs": 2.531099999999981,
+          "exclusiveMs": 0.13699999999988677
+        },
+        "documentDependencyGraph": {
+          "calls": 3,
+          "inclusiveMs": 0.052300000000002456,
+          "exclusiveMs": 0.052300000000002456
+        },
+        "foreign.changedNodeDetection": {
+          "calls": 1,
+          "inclusiveMs": 0.3006000000000313,
+          "exclusiveMs": 0.3006000000000313
+        },
+        "foreign.graphEnumerationAndReverseBuild": {
+          "calls": 1,
+          "inclusiveMs": 3.0259000000000356,
+          "exclusiveMs": 2.990000000000066
+        },
+        "foreign.reverseForeignClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.005100000000027194,
+          "exclusiveMs": 0.005100000000027194
+        },
+        "foreign.changedVertexSeeding": {
+          "calls": 1,
+          "inclusiveMs": 0.5787000000000262,
+          "exclusiveMs": 0.5787000000000262
+        },
+        "foreign.reverseReachableClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.004899999999963711,
+          "exclusiveMs": 0.004899999999963711
+        },
+        "foreign.effectiveInputActivation": {
+          "calls": 1,
+          "inclusiveMs": 0.046699999999987085,
+          "exclusiveMs": 0.046699999999987085
+        },
+        "foreign.reverseAffectedClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.009599999999977626,
+          "exclusiveMs": 0.009599999999977626
+        },
+        "foreignAffectedVertices": {
+          "calls": 1,
+          "inclusiveMs": 4.033399999999972,
+          "exclusiveMs": 0.06189999999992324
+        },
+        "transition.effectiveProjectionAndEvaluation": {
+          "calls": 1,
+          "inclusiveMs": 1.5663000000000125,
+          "exclusiveMs": 0.8658000000000357
+        },
+        "transition.effectiveDomainValidation": {
+          "calls": 1,
+          "inclusiveMs": 0.6739000000000033,
+          "exclusiveMs": 0.02039999999999509
+        },
+        "assertProjectReferenceTransition": {
+          "calls": 1,
+          "inclusiveMs": 10.645600000000002,
+          "exclusiveMs": 1.4910999999999603
+        },
+        "session.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 15.316500000000019,
+          "exclusiveMs": 0.4033000000000584
+        },
+        "owner.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 18.35020000000003,
+          "exclusiveMs": 0.23550000000000182
+        }
+      },
+      "totalMs": 18.386500000000012
+    },
+    {
+      "count": 100,
+      "index": 1,
+      "stages": {
+        "cloneDocument": {
+          "calls": 9,
+          "inclusiveMs": 4.937299999999993,
+          "exclusiveMs": 4.937299999999993
+        },
+        "validate": {
+          "calls": 7,
+          "inclusiveMs": 1.9250999999998726,
+          "exclusiveMs": 1.9250999999998726
+        },
+        "session.commandCandidate": {
+          "calls": 1,
+          "inclusiveMs": 1.2274000000000456,
+          "exclusiveMs": 0.212600000000009
+        },
+        "assertArtworkReferenceTransition": {
+          "calls": 2,
+          "inclusiveMs": 9.614599999999996,
+          "exclusiveMs": 0.3852000000000544
+        },
+        "sameDocument": {
+          "calls": 3,
+          "inclusiveMs": 0.6255999999999631,
+          "exclusiveMs": 0.6255999999999631
+        },
+        "owner.projectCandidate": {
+          "calls": 2,
+          "inclusiveMs": 2.559799999999939,
+          "exclusiveMs": 2.559799999999939
+        },
+        "projectAsReferenceDocument": {
+          "calls": 2,
+          "inclusiveMs": 2.3430000000000177,
+          "exclusiveMs": 0.07060000000018363
+        },
+        "documentDependencyGraph": {
+          "calls": 3,
+          "inclusiveMs": 0.036000000000001364,
+          "exclusiveMs": 0.036000000000001364
+        },
+        "foreign.changedNodeDetection": {
+          "calls": 1,
+          "inclusiveMs": 0.2270000000000323,
+          "exclusiveMs": 0.2270000000000323
+        },
+        "foreign.graphEnumerationAndReverseBuild": {
+          "calls": 1,
+          "inclusiveMs": 5.7777999999999565,
+          "exclusiveMs": 5.752799999999922
+        },
+        "foreign.reverseForeignClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.008299999999962893,
+          "exclusiveMs": 0.008299999999962893
+        },
+        "foreign.changedVertexSeeding": {
+          "calls": 1,
+          "inclusiveMs": 0.7697999999999752,
+          "exclusiveMs": 0.7697999999999752
+        },
+        "foreign.reverseReachableClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.0070999999999799,
+          "exclusiveMs": 0.0070999999999799
+        },
+        "foreign.effectiveInputActivation": {
+          "calls": 1,
+          "inclusiveMs": 0.03520000000003165,
+          "exclusiveMs": 0.03520000000003165
+        },
+        "foreign.reverseAffectedClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.011700000000018917,
+          "exclusiveMs": 0.011700000000018917
+        },
+        "foreignAffectedVertices": {
+          "calls": 1,
+          "inclusiveMs": 6.883699999999976,
+          "exclusiveMs": 0.04680000000001883
+        },
+        "transition.effectiveProjectionAndEvaluation": {
+          "calls": 1,
+          "inclusiveMs": 1.8338999999999714,
+          "exclusiveMs": 1.098099999999988
+        },
+        "transition.effectiveDomainValidation": {
+          "calls": 1,
+          "inclusiveMs": 0.5117999999999938,
+          "exclusiveMs": 0.02450000000004593
+        },
+        "assertProjectReferenceTransition": {
+          "calls": 1,
+          "inclusiveMs": 12.9024,
+          "exclusiveMs": 1.0487000000000535
+        },
+        "session.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 16.772899999999993,
+          "exclusiveMs": 0.1824999999999477
+        },
+        "owner.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 20.063600000000008,
+          "exclusiveMs": 0.09890000000001464
+        }
+      },
+      "totalMs": 20.080300000000022
+    },
+    {
+      "count": 100,
+      "index": 2,
+      "stages": {
+        "cloneDocument": {
+          "calls": 9,
+          "inclusiveMs": 5.647799999999904,
+          "exclusiveMs": 5.647799999999904
+        },
+        "validate": {
+          "calls": 7,
+          "inclusiveMs": 1.849800000000016,
+          "exclusiveMs": 1.849800000000016
+        },
+        "session.commandCandidate": {
+          "calls": 1,
+          "inclusiveMs": 1.541499999999985,
+          "exclusiveMs": 0.12380000000001701
+        },
+        "assertArtworkReferenceTransition": {
+          "calls": 2,
+          "inclusiveMs": 6.396800000000042,
+          "exclusiveMs": 0.13960000000002992
+        },
+        "sameDocument": {
+          "calls": 3,
+          "inclusiveMs": 0.9698000000000206,
+          "exclusiveMs": 0.9698000000000206
+        },
+        "owner.projectCandidate": {
+          "calls": 2,
+          "inclusiveMs": 2.558999999999969,
+          "exclusiveMs": 2.558999999999969
+        },
+        "projectAsReferenceDocument": {
+          "calls": 2,
+          "inclusiveMs": 2.683300000000031,
+          "exclusiveMs": 0.05640000000011014
+        },
+        "documentDependencyGraph": {
+          "calls": 3,
+          "inclusiveMs": 0.010499999999979082,
+          "exclusiveMs": 0.010499999999979082
+        },
+        "foreign.changedNodeDetection": {
+          "calls": 1,
+          "inclusiveMs": 0.22900000000004184,
+          "exclusiveMs": 0.22900000000004184
+        },
+        "foreign.graphEnumerationAndReverseBuild": {
+          "calls": 1,
+          "inclusiveMs": 3.066699999999969,
+          "exclusiveMs": 3.0603999999999587
+        },
+        "foreign.reverseForeignClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.0024999999999977263,
+          "exclusiveMs": 0.0024999999999977263
+        },
+        "foreign.changedVertexSeeding": {
+          "calls": 1,
+          "inclusiveMs": 0.4276999999999589,
+          "exclusiveMs": 0.4276999999999589
+        },
+        "foreign.reverseReachableClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.0033999999999991815,
+          "exclusiveMs": 0.0033999999999991815
+        },
+        "foreign.effectiveInputActivation": {
+          "calls": 1,
+          "inclusiveMs": 0.016999999999995907,
+          "exclusiveMs": 0.016999999999995907
+        },
+        "foreign.reverseAffectedClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.008700000000033015,
+          "exclusiveMs": 0.008700000000033015
+        },
+        "foreignAffectedVertices": {
+          "calls": 1,
+          "inclusiveMs": 3.774400000000014,
+          "exclusiveMs": 0.019400000000018736
+        },
+        "transition.effectiveProjectionAndEvaluation": {
+          "calls": 1,
+          "inclusiveMs": 2.0623999999999683,
+          "exclusiveMs": 0.7860999999999763
+        },
+        "transition.effectiveDomainValidation": {
+          "calls": 1,
+          "inclusiveMs": 0.4204000000000292,
+          "exclusiveMs": 0.02450000000004593
+        },
+        "assertProjectReferenceTransition": {
+          "calls": 1,
+          "inclusiveMs": 10.085700000000031,
+          "exclusiveMs": 1.053100000000029
+        },
+        "session.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 14.844400000000007,
+          "exclusiveMs": 0.2327999999999406
+        },
+        "owner.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 17.285599999999988,
+          "exclusiveMs": 0.06429999999994607
+        }
+      },
+      "totalMs": 17.299800000000005
+    },
+    {
+      "count": 100,
+      "index": 3,
+      "stages": {
+        "cloneDocument": {
+          "calls": 9,
+          "inclusiveMs": 4.3992000000000075,
+          "exclusiveMs": 4.3992000000000075
+        },
+        "validate": {
+          "calls": 7,
+          "inclusiveMs": 1.4884999999999877,
+          "exclusiveMs": 1.4884999999999877
+        },
+        "session.commandCandidate": {
+          "calls": 1,
+          "inclusiveMs": 1.3602000000000203,
+          "exclusiveMs": 0.1330000000000382
+        },
+        "assertArtworkReferenceTransition": {
+          "calls": 2,
+          "inclusiveMs": 4.711899999999957,
+          "exclusiveMs": 0.1293999999999187
+        },
+        "sameDocument": {
+          "calls": 3,
+          "inclusiveMs": 0.7760000000000105,
+          "exclusiveMs": 0.7760000000000105
+        },
+        "owner.projectCandidate": {
+          "calls": 2,
+          "inclusiveMs": 3.0024999999999977,
+          "exclusiveMs": 3.0024999999999977
+        },
+        "projectAsReferenceDocument": {
+          "calls": 2,
+          "inclusiveMs": 1.9908000000000357,
+          "exclusiveMs": 0.06590000000005602
+        },
+        "documentDependencyGraph": {
+          "calls": 3,
+          "inclusiveMs": 0.01730000000009113,
+          "exclusiveMs": 0.01730000000009113
+        },
+        "foreign.changedNodeDetection": {
+          "calls": 1,
+          "inclusiveMs": 0.20699999999999363,
+          "exclusiveMs": 0.20699999999999363
+        },
+        "foreign.graphEnumerationAndReverseBuild": {
+          "calls": 1,
+          "inclusiveMs": 2.4423999999999637,
+          "exclusiveMs": 2.4297999999998865
+        },
+        "foreign.reverseForeignClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.002599999999972624,
+          "exclusiveMs": 0.002599999999972624
+        },
+        "foreign.changedVertexSeeding": {
+          "calls": 1,
+          "inclusiveMs": 0.36889999999999645,
+          "exclusiveMs": 0.36889999999999645
+        },
+        "foreign.reverseReachableClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.004799999999988813,
+          "exclusiveMs": 0.004799999999988813
+        },
+        "foreign.effectiveInputActivation": {
+          "calls": 1,
+          "inclusiveMs": 0.00929999999999609,
+          "exclusiveMs": 0.00929999999999609
+        },
+        "foreign.reverseAffectedClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.007699999999999818,
+          "exclusiveMs": 0.007699999999999818
+        },
+        "foreignAffectedVertices": {
+          "calls": 1,
+          "inclusiveMs": 3.066100000000006,
+          "exclusiveMs": 0.02340000000009468
+        },
+        "transition.effectiveProjectionAndEvaluation": {
+          "calls": 1,
+          "inclusiveMs": 1.0271999999999935,
+          "exclusiveMs": 0.430499999999995
+        },
+        "transition.effectiveDomainValidation": {
+          "calls": 1,
+          "inclusiveMs": 0.4892000000000394,
+          "exclusiveMs": 0.021800000000041564
+        },
+        "assertProjectReferenceTransition": {
+          "calls": 1,
+          "inclusiveMs": 7.461500000000001,
+          "exclusiveMs": 0.8023999999999774
+        },
+        "session.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 12.416200000000003,
+          "exclusiveMs": 0.2055000000000291
+        },
+        "owner.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 14.59269999999998,
+          "exclusiveMs": 0.06719999999990023
+        }
+      },
+      "totalMs": 14.605599999999981
+    },
+    {
+      "count": 100,
+      "index": 4,
+      "stages": {
+        "cloneDocument": {
+          "calls": 9,
+          "inclusiveMs": 4.534500000000094,
+          "exclusiveMs": 4.534500000000094
+        },
+        "validate": {
+          "calls": 7,
+          "inclusiveMs": 1.4528999999999996,
+          "exclusiveMs": 1.4528999999999996
+        },
+        "session.commandCandidate": {
+          "calls": 1,
+          "inclusiveMs": 0.9558999999999855,
+          "exclusiveMs": 0.09859999999997626
+        },
+        "assertArtworkReferenceTransition": {
+          "calls": 2,
+          "inclusiveMs": 4.475899999999967,
+          "exclusiveMs": 0.1807999999999197
+        },
+        "sameDocument": {
+          "calls": 3,
+          "inclusiveMs": 0.6604999999999563,
+          "exclusiveMs": 0.6604999999999563
+        },
+        "owner.projectCandidate": {
+          "calls": 2,
+          "inclusiveMs": 3.0733000000000175,
+          "exclusiveMs": 3.0733000000000175
+        },
+        "projectAsReferenceDocument": {
+          "calls": 2,
+          "inclusiveMs": 2.1347999999999843,
+          "exclusiveMs": 0.07709999999991624
+        },
+        "documentDependencyGraph": {
+          "calls": 3,
+          "inclusiveMs": 0.009300000000052933,
+          "exclusiveMs": 0.009300000000052933
+        },
+        "foreign.changedNodeDetection": {
+          "calls": 1,
+          "inclusiveMs": 0.24639999999999418,
+          "exclusiveMs": 0.24639999999999418
+        },
+        "foreign.graphEnumerationAndReverseBuild": {
+          "calls": 1,
+          "inclusiveMs": 2.1392999999999915,
+          "exclusiveMs": 2.134999999999934
+        },
+        "foreign.reverseForeignClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.0019000000000346517,
+          "exclusiveMs": 0.0019000000000346517
+        },
+        "foreign.changedVertexSeeding": {
+          "calls": 1,
+          "inclusiveMs": 0.38980000000003656,
+          "exclusiveMs": 0.38980000000003656
+        },
+        "foreign.reverseReachableClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.004200000000025739,
+          "exclusiveMs": 0.004200000000025739
+        },
+        "foreign.effectiveInputActivation": {
+          "calls": 1,
+          "inclusiveMs": 0.008300000000019736,
+          "exclusiveMs": 0.008300000000019736
+        },
+        "foreign.reverseAffectedClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.007100000000036744,
+          "exclusiveMs": 0.007100000000036744
+        },
+        "foreignAffectedVertices": {
+          "calls": 1,
+          "inclusiveMs": 2.811200000000042,
+          "exclusiveMs": 0.014199999999902957
+        },
+        "transition.effectiveProjectionAndEvaluation": {
+          "calls": 1,
+          "inclusiveMs": 1.0575999999999794,
+          "exclusiveMs": 0.3646999999999707
+        },
+        "transition.effectiveDomainValidation": {
+          "calls": 1,
+          "inclusiveMs": 0.4263000000000261,
+          "exclusiveMs": 0.048800000000028376
+        },
+        "assertProjectReferenceTransition": {
+          "calls": 1,
+          "inclusiveMs": 7.372599999999977,
+          "exclusiveMs": 0.8047000000000253
+        },
+        "session.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 10.344599999999957,
+          "exclusiveMs": 0.17420000000004165
+        },
+        "owner.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 14.395999999999958,
+          "exclusiveMs": 0.10969999999997526
+        }
+      },
+      "totalMs": 14.408999999999992
+    },
+    {
+      "count": 1000,
+      "index": 0,
+      "stages": {
+        "cloneDocument": {
+          "calls": 9,
+          "inclusiveMs": 39.844899999999825,
+          "exclusiveMs": 39.844899999999825
+        },
+        "validate": {
+          "calls": 7,
+          "inclusiveMs": 6.689100000000053,
+          "exclusiveMs": 6.689100000000053
+        },
+        "session.commandCandidate": {
+          "calls": 1,
+          "inclusiveMs": 8.066500000000019,
+          "exclusiveMs": 0.5184000000000424
+        },
+        "assertArtworkReferenceTransition": {
+          "calls": 2,
+          "inclusiveMs": 40.968000000000075,
+          "exclusiveMs": 1.457300000000032
+        },
+        "sameDocument": {
+          "calls": 3,
+          "inclusiveMs": 6.238899999999944,
+          "exclusiveMs": 6.238899999999944
+        },
+        "owner.projectCandidate": {
+          "calls": 2,
+          "inclusiveMs": 16.468799999999987,
+          "exclusiveMs": 16.468799999999987
+        },
+        "projectAsReferenceDocument": {
+          "calls": 2,
+          "inclusiveMs": 13.499399999999923,
+          "exclusiveMs": 0.07569999999998345
+        },
+        "documentDependencyGraph": {
+          "calls": 3,
+          "inclusiveMs": 0.023500000000012733,
+          "exclusiveMs": 0.023500000000012733
+        },
+        "foreign.changedNodeDetection": {
+          "calls": 1,
+          "inclusiveMs": 1.9294999999999618,
+          "exclusiveMs": 1.9294999999999618
+        },
+        "foreign.graphEnumerationAndReverseBuild": {
+          "calls": 1,
+          "inclusiveMs": 23.740100000000098,
+          "exclusiveMs": 23.721700000000055
+        },
+        "foreign.reverseForeignClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.005300000000033833,
+          "exclusiveMs": 0.005300000000033833
+        },
+        "foreign.changedVertexSeeding": {
+          "calls": 1,
+          "inclusiveMs": 3.848700000000008,
+          "exclusiveMs": 3.848700000000008
+        },
+        "foreign.reverseReachableClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.0141999999999598,
+          "exclusiveMs": 0.0141999999999598
+        },
+        "foreign.effectiveInputActivation": {
+          "calls": 1,
+          "inclusiveMs": 0.025300000000015643,
+          "exclusiveMs": 0.025300000000015643
+        },
+        "foreign.reverseAffectedClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.009100000000103137,
+          "exclusiveMs": 0.009100000000103137
+        },
+        "foreignAffectedVertices": {
+          "calls": 1,
+          "inclusiveMs": 29.64949999999999,
+          "exclusiveMs": 0.07729999999980919
+        },
+        "transition.effectiveProjectionAndEvaluation": {
+          "calls": 1,
+          "inclusiveMs": 7.775300000000016,
+          "exclusiveMs": 1.847400000000107
+        },
+        "transition.effectiveDomainValidation": {
+          "calls": 1,
+          "inclusiveMs": 2.085900000000038,
+          "exclusiveMs": 0.019199999999955253
+        },
+        "assertProjectReferenceTransition": {
+          "calls": 1,
+          "inclusiveMs": 60.09979999999996,
+          "exclusiveMs": 6.296500000000037
+        },
+        "session.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 90.76019999999994,
+          "exclusiveMs": 0.9923000000000002
+        },
+        "owner.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 110.27960000000007,
+          "exclusiveMs": 0.17650000000014643
+        }
+      },
+      "totalMs": 110.31359999999995
+    },
+    {
+      "count": 1000,
+      "index": 1,
+      "stages": {
+        "cloneDocument": {
+          "calls": 9,
+          "inclusiveMs": 40.16570000000013,
+          "exclusiveMs": 40.16570000000013
+        },
+        "validate": {
+          "calls": 7,
+          "inclusiveMs": 5.5340000000001055,
+          "exclusiveMs": 5.5340000000001055
+        },
+        "session.commandCandidate": {
+          "calls": 1,
+          "inclusiveMs": 7.451000000000022,
+          "exclusiveMs": 0.426900000000046
+        },
+        "assertArtworkReferenceTransition": {
+          "calls": 2,
+          "inclusiveMs": 43.16330000000005,
+          "exclusiveMs": 4.643499999999904
+        },
+        "sameDocument": {
+          "calls": 3,
+          "inclusiveMs": 6.493900000000053,
+          "exclusiveMs": 6.493900000000053
+        },
+        "owner.projectCandidate": {
+          "calls": 2,
+          "inclusiveMs": 15.398400000000038,
+          "exclusiveMs": 15.398400000000038
+        },
+        "projectAsReferenceDocument": {
+          "calls": 2,
+          "inclusiveMs": 14.14020000000005,
+          "exclusiveMs": 0.0929999999998472
+        },
+        "documentDependencyGraph": {
+          "calls": 3,
+          "inclusiveMs": 0.024099999999975807,
+          "exclusiveMs": 0.024099999999975807
+        },
+        "foreign.changedNodeDetection": {
+          "calls": 1,
+          "inclusiveMs": 2.193499999999972,
+          "exclusiveMs": 2.193499999999972
+        },
+        "foreign.graphEnumerationAndReverseBuild": {
+          "calls": 1,
+          "inclusiveMs": 22.64760000000001,
+          "exclusiveMs": 22.62850000000003
+        },
+        "foreign.reverseForeignClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.008000000000038199,
+          "exclusiveMs": 0.008000000000038199
+        },
+        "foreign.changedVertexSeeding": {
+          "calls": 1,
+          "inclusiveMs": 5.171600000000012,
+          "exclusiveMs": 5.171600000000012
+        },
+        "foreign.reverseReachableClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.009599999999977626,
+          "exclusiveMs": 0.009599999999977626
+        },
+        "foreign.effectiveInputActivation": {
+          "calls": 1,
+          "inclusiveMs": 0.02179999999998472,
+          "exclusiveMs": 0.02179999999998472
+        },
+        "foreign.reverseAffectedClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.011799999999993815,
+          "exclusiveMs": 0.011799999999993815
+        },
+        "foreignAffectedVertices": {
+          "calls": 1,
+          "inclusiveMs": 30.120200000000068,
+          "exclusiveMs": 0.0563000000000784
+        },
+        "transition.effectiveProjectionAndEvaluation": {
+          "calls": 1,
+          "inclusiveMs": 6.921400000000062,
+          "exclusiveMs": 1.547200000000089
+        },
+        "transition.effectiveDomainValidation": {
+          "calls": 1,
+          "inclusiveMs": 1.4782000000000153,
+          "exclusiveMs": 0.011799999999993815
+        },
+        "assertProjectReferenceTransition": {
+          "calls": 1,
+          "inclusiveMs": 61.013000000000034,
+          "exclusiveMs": 6.799699999999916
+        },
+        "session.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 88.89330000000007,
+          "exclusiveMs": 0.7020999999999731
+        },
+        "owner.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 112.16650000000004,
+          "exclusiveMs": 0.22509999999988395
+        }
+      },
+      "totalMs": 112.1893
+    },
+    {
+      "count": 1000,
+      "index": 2,
+      "stages": {
+        "cloneDocument": {
+          "calls": 9,
+          "inclusiveMs": 40.840500000000134,
+          "exclusiveMs": 40.840500000000134
+        },
+        "validate": {
+          "calls": 7,
+          "inclusiveMs": 5.432299999999941,
+          "exclusiveMs": 5.432299999999941
+        },
+        "session.commandCandidate": {
+          "calls": 1,
+          "inclusiveMs": 8.013300000000072,
+          "exclusiveMs": 0.4654000000000451
+        },
+        "assertArtworkReferenceTransition": {
+          "calls": 2,
+          "inclusiveMs": 34.95649999999989,
+          "exclusiveMs": 0.9730999999999312
+        },
+        "sameDocument": {
+          "calls": 3,
+          "inclusiveMs": 7.455699999999865,
+          "exclusiveMs": 7.455699999999865
+        },
+        "owner.projectCandidate": {
+          "calls": 2,
+          "inclusiveMs": 18.081500000000005,
+          "exclusiveMs": 18.081500000000005
+        },
+        "projectAsReferenceDocument": {
+          "calls": 2,
+          "inclusiveMs": 13.89179999999999,
+          "exclusiveMs": 0.07189999999991414
+        },
+        "documentDependencyGraph": {
+          "calls": 3,
+          "inclusiveMs": 0.022299999999972897,
+          "exclusiveMs": 0.022299999999972897
+        },
+        "foreign.changedNodeDetection": {
+          "calls": 1,
+          "inclusiveMs": 2.4085999999999785,
+          "exclusiveMs": 2.4085999999999785
+        },
+        "foreign.graphEnumerationAndReverseBuild": {
+          "calls": 1,
+          "inclusiveMs": 17.383399999999938,
+          "exclusiveMs": 17.366300000000024
+        },
+        "foreign.reverseForeignClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.013399999999933243,
+          "exclusiveMs": 0.013399999999933243
+        },
+        "foreign.changedVertexSeeding": {
+          "calls": 1,
+          "inclusiveMs": 5.315200000000004,
+          "exclusiveMs": 5.315200000000004
+        },
+        "foreign.reverseReachableClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.006399999999985084,
+          "exclusiveMs": 0.006399999999985084
+        },
+        "foreign.effectiveInputActivation": {
+          "calls": 1,
+          "inclusiveMs": 0.024200000000064392,
+          "exclusiveMs": 0.024200000000064392
+        },
+        "foreign.reverseAffectedClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.013500000000021828,
+          "exclusiveMs": 0.013500000000021828
+        },
+        "foreignAffectedVertices": {
+          "calls": 1,
+          "inclusiveMs": 25.22109999999998,
+          "exclusiveMs": 0.056400000000053296
+        },
+        "transition.effectiveProjectionAndEvaluation": {
+          "calls": 1,
+          "inclusiveMs": 7.401200000000017,
+          "exclusiveMs": 1.5769999999999982
+        },
+        "transition.effectiveDomainValidation": {
+          "calls": 1,
+          "inclusiveMs": 1.361099999999965,
+          "exclusiveMs": 0.008800000000064756
+        },
+        "assertProjectReferenceTransition": {
+          "calls": 1,
+          "inclusiveMs": 57.11200000000008,
+          "exclusiveMs": 8.691200000000094
+        },
+        "session.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 84.38379999999995,
+          "exclusiveMs": 0.8766999999999143
+        },
+        "owner.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 109.91570000000002,
+          "exclusiveMs": 0.2153000000000702
+        }
+      },
+      "totalMs": 109.94190000000003
+    },
+    {
+      "count": 1000,
+      "index": 3,
+      "stages": {
+        "cloneDocument": {
+          "calls": 9,
+          "inclusiveMs": 49.30779999999993,
+          "exclusiveMs": 49.30779999999993
+        },
+        "validate": {
+          "calls": 7,
+          "inclusiveMs": 7.592199999999821,
+          "exclusiveMs": 7.592199999999821
+        },
+        "session.commandCandidate": {
+          "calls": 1,
+          "inclusiveMs": 8.199999999999932,
+          "exclusiveMs": 0.5198999999998932
+        },
+        "assertArtworkReferenceTransition": {
+          "calls": 2,
+          "inclusiveMs": 51.79279999999994,
+          "exclusiveMs": 1.674600000000055
+        },
+        "sameDocument": {
+          "calls": 3,
+          "inclusiveMs": 6.140899999999874,
+          "exclusiveMs": 6.140899999999874
+        },
+        "owner.projectCandidate": {
+          "calls": 2,
+          "inclusiveMs": 12.613399999999842,
+          "exclusiveMs": 12.613399999999842
+        },
+        "projectAsReferenceDocument": {
+          "calls": 2,
+          "inclusiveMs": 15.263500000000022,
+          "exclusiveMs": 0.09349999999994907
+        },
+        "documentDependencyGraph": {
+          "calls": 3,
+          "inclusiveMs": 0.027000000000157343,
+          "exclusiveMs": 0.027000000000157343
+        },
+        "foreign.changedNodeDetection": {
+          "calls": 1,
+          "inclusiveMs": 2.5148000000000366,
+          "exclusiveMs": 2.5148000000000366
+        },
+        "foreign.graphEnumerationAndReverseBuild": {
+          "calls": 1,
+          "inclusiveMs": 25.76559999999995,
+          "exclusiveMs": 25.74379999999985
+        },
+        "foreign.reverseForeignClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.005499999999983629,
+          "exclusiveMs": 0.005499999999983629
+        },
+        "foreign.changedVertexSeeding": {
+          "calls": 1,
+          "inclusiveMs": 7.232999999999947,
+          "exclusiveMs": 7.232999999999947
+        },
+        "foreign.reverseReachableClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.010699999999928878,
+          "exclusiveMs": 0.010699999999928878
+        },
+        "foreign.effectiveInputActivation": {
+          "calls": 1,
+          "inclusiveMs": 0.03170000000000073,
+          "exclusiveMs": 0.03170000000000073
+        },
+        "foreign.reverseAffectedClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.01700000000005275,
+          "exclusiveMs": 0.01700000000005275
+        },
+        "foreignAffectedVertices": {
+          "calls": 1,
+          "inclusiveMs": 35.64059999999995,
+          "exclusiveMs": 0.062300000000050204
+        },
+        "transition.effectiveProjectionAndEvaluation": {
+          "calls": 1,
+          "inclusiveMs": 11.666799999999967,
+          "exclusiveMs": 2.7707999999998947
+        },
+        "transition.effectiveDomainValidation": {
+          "calls": 1,
+          "inclusiveMs": 2.810799999999972,
+          "exclusiveMs": 0.018800000000283035
+        },
+        "assertProjectReferenceTransition": {
+          "calls": 1,
+          "inclusiveMs": 75.01809999999989,
+          "exclusiveMs": 8.323599999999828
+        },
+        "session.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 106.25439999999992,
+          "exclusiveMs": 0.6777000000004136
+        },
+        "owner.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 125.51139999999998,
+          "exclusiveMs": 0.1324000000001888
+        }
+      },
+      "totalMs": 125.54130000000009
+    },
+    {
+      "count": 1000,
+      "index": 4,
+      "stages": {
+        "cloneDocument": {
+          "calls": 9,
+          "inclusiveMs": 39.06110000000035,
+          "exclusiveMs": 39.06110000000035
+        },
+        "validate": {
+          "calls": 7,
+          "inclusiveMs": 10.821799999999712,
+          "exclusiveMs": 10.821799999999712
+        },
+        "session.commandCandidate": {
+          "calls": 1,
+          "inclusiveMs": 7.2452999999998156,
+          "exclusiveMs": 0.3814999999997326
+        },
+        "assertArtworkReferenceTransition": {
+          "calls": 2,
+          "inclusiveMs": 43.07099999999991,
+          "exclusiveMs": 2.026499999999942
+        },
+        "sameDocument": {
+          "calls": 3,
+          "inclusiveMs": 5.8077999999998156,
+          "exclusiveMs": 5.8077999999998156
+        },
+        "owner.projectCandidate": {
+          "calls": 2,
+          "inclusiveMs": 12.637699999999768,
+          "exclusiveMs": 12.637699999999768
+        },
+        "projectAsReferenceDocument": {
+          "calls": 2,
+          "inclusiveMs": 14.854400000000169,
+          "exclusiveMs": 0.08700000000044383
+        },
+        "documentDependencyGraph": {
+          "calls": 3,
+          "inclusiveMs": 0.026400000000194268,
+          "exclusiveMs": 0.026400000000194268
+        },
+        "foreign.changedNodeDetection": {
+          "calls": 1,
+          "inclusiveMs": 2.4972999999999956,
+          "exclusiveMs": 2.4972999999999956
+        },
+        "foreign.graphEnumerationAndReverseBuild": {
+          "calls": 1,
+          "inclusiveMs": 20.245600000000195,
+          "exclusiveMs": 20.22440000000006
+        },
+        "foreign.reverseForeignClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.005000000000109139,
+          "exclusiveMs": 0.005000000000109139
+        },
+        "foreign.changedVertexSeeding": {
+          "calls": 1,
+          "inclusiveMs": 4.970599999999877,
+          "exclusiveMs": 4.970599999999877
+        },
+        "foreign.reverseReachableClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.007300000000213913,
+          "exclusiveMs": 0.007300000000213913
+        },
+        "foreign.effectiveInputActivation": {
+          "calls": 1,
+          "inclusiveMs": 0.02369999999996253,
+          "exclusiveMs": 0.02369999999996253
+        },
+        "foreign.reverseAffectedClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.010800000000017462,
+          "exclusiveMs": 0.010800000000017462
+        },
+        "foreignAffectedVertices": {
+          "calls": 1,
+          "inclusiveMs": 27.809799999999996,
+          "exclusiveMs": 0.04949999999962529
+        },
+        "transition.effectiveProjectionAndEvaluation": {
+          "calls": 1,
+          "inclusiveMs": 7.479100000000017,
+          "exclusiveMs": 1.7898000000000138
+        },
+        "transition.effectiveDomainValidation": {
+          "calls": 1,
+          "inclusiveMs": 5.7555999999999585,
+          "exclusiveMs": 0.016599999999925785
+        },
+        "assertProjectReferenceTransition": {
+          "calls": 1,
+          "inclusiveMs": 64.44050000000016,
+          "exclusiveMs": 6.730000000000018
+        },
+        "session.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 88.51109999999994,
+          "exclusiveMs": 0.4863000000000284
+        },
+        "owner.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 107.74610000000007,
+          "exclusiveMs": 0.08500000000026375
+        }
+      },
+      "totalMs": 107.77300000000014
+    },
+    {
+      "count": 10000,
+      "index": 0,
+      "stages": {
+        "cloneDocument": {
+          "calls": 9,
+          "inclusiveMs": 431.4761999999996,
+          "exclusiveMs": 431.4761999999996
+        },
+        "validate": {
+          "calls": 7,
+          "inclusiveMs": 89.8122000000003,
+          "exclusiveMs": 89.8122000000003
+        },
+        "session.commandCandidate": {
+          "calls": 1,
+          "inclusiveMs": 93.37089999999989,
+          "exclusiveMs": 5.278999999999996
+        },
+        "assertArtworkReferenceTransition": {
+          "calls": 2,
+          "inclusiveMs": 512.9712,
+          "exclusiveMs": 31.792199999999866
+        },
+        "sameDocument": {
+          "calls": 3,
+          "inclusiveMs": 67.31790000000046,
+          "exclusiveMs": 67.31790000000046
+        },
+        "owner.projectCandidate": {
+          "calls": 2,
+          "inclusiveMs": 165.61550000000034,
+          "exclusiveMs": 165.61550000000034
+        },
+        "projectAsReferenceDocument": {
+          "calls": 2,
+          "inclusiveMs": 156.9760000000001,
+          "exclusiveMs": 0.23009999999976571
+        },
+        "documentDependencyGraph": {
+          "calls": 3,
+          "inclusiveMs": 0.0330999999996493,
+          "exclusiveMs": 0.0330999999996493
+        },
+        "foreign.changedNodeDetection": {
+          "calls": 1,
+          "inclusiveMs": 29.88670000000002,
+          "exclusiveMs": 29.88670000000002
+        },
+        "foreign.graphEnumerationAndReverseBuild": {
+          "calls": 1,
+          "inclusiveMs": 281.8564000000001,
+          "exclusiveMs": 281.8322000000003
+        },
+        "foreign.reverseForeignClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.009500000000116415,
+          "exclusiveMs": 0.009500000000116415
+        },
+        "foreign.changedVertexSeeding": {
+          "calls": 1,
+          "inclusiveMs": 51.666499999999814,
+          "exclusiveMs": 51.666499999999814
+        },
+        "foreign.reverseReachableClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.014100000000325963,
+          "exclusiveMs": 0.014100000000325963
+        },
+        "foreign.effectiveInputActivation": {
+          "calls": 1,
+          "inclusiveMs": 0.03809999999975844,
+          "exclusiveMs": 0.03809999999975844
+        },
+        "foreign.reverseAffectedClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.013800000000173895,
+          "exclusiveMs": 0.013800000000173895
+        },
+        "foreignAffectedVertices": {
+          "calls": 1,
+          "inclusiveMs": 363.65419999999995,
+          "exclusiveMs": 0.16909999999961656
+        },
+        "transition.effectiveProjectionAndEvaluation": {
+          "calls": 1,
+          "inclusiveMs": 89.89240000000018,
+          "exclusiveMs": 17.97550000000001
+        },
+        "transition.effectiveDomainValidation": {
+          "calls": 1,
+          "inclusiveMs": 27.63239999999996,
+          "exclusiveMs": 0.03040000000009968
+        },
+        "assertProjectReferenceTransition": {
+          "calls": 1,
+          "inclusiveMs": 757.5679999999998,
+          "exclusiveMs": 103.0302999999999
+        },
+        "session.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 1043.7933000000003,
+          "exclusiveMs": 5.220300000000407
+        },
+        "owner.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 1281.6097999999997,
+          "exclusiveMs": 0.1670999999992091
+        }
+      },
+      "totalMs": 1281.6421000000005
+    },
+    {
+      "count": 10000,
+      "index": 1,
+      "stages": {
+        "cloneDocument": {
+          "calls": 9,
+          "inclusiveMs": 463.3115000000016,
+          "exclusiveMs": 463.3115000000016
+        },
+        "validate": {
+          "calls": 7,
+          "inclusiveMs": 103.89600000000064,
+          "exclusiveMs": 103.89600000000064
+        },
+        "session.commandCandidate": {
+          "calls": 1,
+          "inclusiveMs": 93.28800000000047,
+          "exclusiveMs": 4.972099999999955
+        },
+        "assertArtworkReferenceTransition": {
+          "calls": 2,
+          "inclusiveMs": 564.8396999999995,
+          "exclusiveMs": 18.100799999998344
+        },
+        "sameDocument": {
+          "calls": 3,
+          "inclusiveMs": 71.98359999999957,
+          "exclusiveMs": 71.98359999999957
+        },
+        "owner.projectCandidate": {
+          "calls": 2,
+          "inclusiveMs": 167.48880000000008,
+          "exclusiveMs": 167.48880000000008
+        },
+        "projectAsReferenceDocument": {
+          "calls": 2,
+          "inclusiveMs": 172.71250000000055,
+          "exclusiveMs": 0.20619999999871652
+        },
+        "documentDependencyGraph": {
+          "calls": 3,
+          "inclusiveMs": 0.0330999999996493,
+          "exclusiveMs": 0.0330999999996493
+        },
+        "foreign.changedNodeDetection": {
+          "calls": 1,
+          "inclusiveMs": 30.1882999999998,
+          "exclusiveMs": 30.1882999999998
+        },
+        "foreign.graphEnumerationAndReverseBuild": {
+          "calls": 1,
+          "inclusiveMs": 324.9270999999999,
+          "exclusiveMs": 324.90319999999974
+        },
+        "foreign.reverseForeignClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.013500000000021828,
+          "exclusiveMs": 0.013500000000021828
+        },
+        "foreign.changedVertexSeeding": {
+          "calls": 1,
+          "inclusiveMs": 80.01609999999982,
+          "exclusiveMs": 80.01609999999982
+        },
+        "foreign.reverseReachableClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.014000000000123691,
+          "exclusiveMs": 0.014000000000123691
+        },
+        "foreign.effectiveInputActivation": {
+          "calls": 1,
+          "inclusiveMs": 0.023499999999330612,
+          "exclusiveMs": 0.023499999999330612
+        },
+        "foreign.reverseAffectedClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.011599999999816646,
+          "exclusiveMs": 0.011599999999816646
+        },
+        "foreignAffectedVertices": {
+          "calls": 1,
+          "inclusiveMs": 435.33160000000044,
+          "exclusiveMs": 0.1375000000016371
+        },
+        "transition.effectiveProjectionAndEvaluation": {
+          "calls": 1,
+          "inclusiveMs": 89.33660000000054,
+          "exclusiveMs": 20.28060000000096
+        },
+        "transition.effectiveDomainValidation": {
+          "calls": 1,
+          "inclusiveMs": 22.070700000000215,
+          "exclusiveMs": 0.03080000000045402
+        },
+        "assertProjectReferenceTransition": {
+          "calls": 1,
+          "inclusiveMs": 831.7505000000001,
+          "exclusiveMs": 101.78549999999996
+        },
+        "session.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 1154.2509,
+          "exclusiveMs": 4.743999999999687
+        },
+        "owner.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 1392.3376000000007,
+          "exclusiveMs": 0.19690000000082364
+        }
+      },
+      "totalMs": 1392.3685999999998
+    },
+    {
+      "count": 10000,
+      "index": 2,
+      "stages": {
+        "cloneDocument": {
+          "calls": 9,
+          "inclusiveMs": 474.3953999999994,
+          "exclusiveMs": 474.3953999999994
+        },
+        "validate": {
+          "calls": 7,
+          "inclusiveMs": 93.7476000000006,
+          "exclusiveMs": 93.7476000000006
+        },
+        "session.commandCandidate": {
+          "calls": 1,
+          "inclusiveMs": 84.3735999999999,
+          "exclusiveMs": 5.023499999999331
+        },
+        "assertArtworkReferenceTransition": {
+          "calls": 2,
+          "inclusiveMs": 569.7128000000002,
+          "exclusiveMs": 33.07600000000184
+        },
+        "sameDocument": {
+          "calls": 3,
+          "inclusiveMs": 69.22950000000037,
+          "exclusiveMs": 69.22950000000037
+        },
+        "owner.projectCandidate": {
+          "calls": 2,
+          "inclusiveMs": 162.78229999999985,
+          "exclusiveMs": 162.78229999999985
+        },
+        "projectAsReferenceDocument": {
+          "calls": 2,
+          "inclusiveMs": 169.89240000000063,
+          "exclusiveMs": 0.1728000000002794
+        },
+        "documentDependencyGraph": {
+          "calls": 3,
+          "inclusiveMs": 0.038600000000769796,
+          "exclusiveMs": 0.038600000000769796
+        },
+        "foreign.changedNodeDetection": {
+          "calls": 1,
+          "inclusiveMs": 22.265199999999822,
+          "exclusiveMs": 22.265199999999822
+        },
+        "foreign.graphEnumerationAndReverseBuild": {
+          "calls": 1,
+          "inclusiveMs": 314.48019999999997,
+          "exclusiveMs": 314.4480999999996
+        },
+        "foreign.reverseForeignClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.011400000000321597,
+          "exclusiveMs": 0.011400000000321597
+        },
+        "foreign.changedVertexSeeding": {
+          "calls": 1,
+          "inclusiveMs": 63.26540000000023,
+          "exclusiveMs": 63.26540000000023
+        },
+        "foreign.reverseReachableClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.05549999999948341,
+          "exclusiveMs": 0.05549999999948341
+        },
+        "foreign.effectiveInputActivation": {
+          "calls": 1,
+          "inclusiveMs": 0.031899999999950523,
+          "exclusiveMs": 0.031899999999950523
+        },
+        "foreign.reverseAffectedClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.012300000000323053,
+          "exclusiveMs": 0.012300000000323053
+        },
+        "foreignAffectedVertices": {
+          "calls": 1,
+          "inclusiveMs": 400.2513999999992,
+          "exclusiveMs": 0.12949999999909778
+        },
+        "transition.effectiveProjectionAndEvaluation": {
+          "calls": 1,
+          "inclusiveMs": 105.01679999999942,
+          "exclusiveMs": 20.286699999999655
+        },
+        "transition.effectiveDomainValidation": {
+          "calls": 1,
+          "inclusiveMs": 31.368599999999788,
+          "exclusiveMs": 0.018799999999828287
+        },
+        "assertProjectReferenceTransition": {
+          "calls": 1,
+          "inclusiveMs": 807.0006999999996,
+          "exclusiveMs": 84.75139999999828
+        },
+        "session.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 1106.4297000000006,
+          "exclusiveMs": 4.220900000002075
+        },
+        "owner.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 1348.1144000000004,
+          "exclusiveMs": 0.15159999999923457
+        }
+      },
+      "totalMs": 1348.1512000000002
+    },
+    {
+      "count": 10000,
+      "index": 3,
+      "stages": {
+        "cloneDocument": {
+          "calls": 9,
+          "inclusiveMs": 484.98469999999816,
+          "exclusiveMs": 484.98469999999816
+        },
+        "validate": {
+          "calls": 7,
+          "inclusiveMs": 78.66470000000209,
+          "exclusiveMs": 78.66470000000209
+        },
+        "session.commandCandidate": {
+          "calls": 1,
+          "inclusiveMs": 95.20840000000044,
+          "exclusiveMs": 4.613800000000083
+        },
+        "assertArtworkReferenceTransition": {
+          "calls": 2,
+          "inclusiveMs": 551.9692000000005,
+          "exclusiveMs": 14.982700000000477
+        },
+        "sameDocument": {
+          "calls": 3,
+          "inclusiveMs": 68.49449999999888,
+          "exclusiveMs": 68.49449999999888
+        },
+        "owner.projectCandidate": {
+          "calls": 2,
+          "inclusiveMs": 148.29830000000038,
+          "exclusiveMs": 148.29830000000038
+        },
+        "projectAsReferenceDocument": {
+          "calls": 2,
+          "inclusiveMs": 180.09140000000025,
+          "exclusiveMs": 0.1562999999996464
+        },
+        "documentDependencyGraph": {
+          "calls": 3,
+          "inclusiveMs": 0.03570000000036089,
+          "exclusiveMs": 0.03570000000036089
+        },
+        "foreign.changedNodeDetection": {
+          "calls": 1,
+          "inclusiveMs": 26.466199999999844,
+          "exclusiveMs": 26.466199999999844
+        },
+        "foreign.graphEnumerationAndReverseBuild": {
+          "calls": 1,
+          "inclusiveMs": 335.0598,
+          "exclusiveMs": 335.03150000000005
+        },
+        "foreign.reverseForeignClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.010299999999915599,
+          "exclusiveMs": 0.010299999999915599
+        },
+        "foreign.changedVertexSeeding": {
+          "calls": 1,
+          "inclusiveMs": 58.78850000000057,
+          "exclusiveMs": 58.78850000000057
+        },
+        "foreign.reverseReachableClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.012300000000323053,
+          "exclusiveMs": 0.012300000000323053
+        },
+        "foreign.effectiveInputActivation": {
+          "calls": 1,
+          "inclusiveMs": 0.025299999999333522,
+          "exclusiveMs": 0.025299999999333522
+        },
+        "foreign.reverseAffectedClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.01099999999951251,
+          "exclusiveMs": 0.01099999999951251
+        },
+        "foreignAffectedVertices": {
+          "calls": 1,
+          "inclusiveMs": 420.4955,
+          "exclusiveMs": 0.12210000000050059
+        },
+        "transition.effectiveProjectionAndEvaluation": {
+          "calls": 1,
+          "inclusiveMs": 98.60709999999926,
+          "exclusiveMs": 19.887699999999313
+        },
+        "transition.effectiveDomainValidation": {
+          "calls": 1,
+          "inclusiveMs": 17.88390000000072,
+          "exclusiveMs": 0.021000000000640284
+        },
+        "assertProjectReferenceTransition": {
+          "calls": 1,
+          "inclusiveMs": 863.6161999999995,
+          "exclusiveMs": 136.93229999999858
+        },
+        "session.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 1161.0842000000011,
+          "exclusiveMs": 4.09610000000157
+        },
+        "owner.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 1381.8195999999998,
+          "exclusiveMs": 0.1845999999995911
+        }
+      },
+      "totalMs": 1381.8491999999997
+    },
+    {
+      "count": 10000,
+      "index": 4,
+      "stages": {
+        "cloneDocument": {
+          "calls": 9,
+          "inclusiveMs": 430.41619999999784,
+          "exclusiveMs": 430.41619999999784
+        },
+        "validate": {
+          "calls": 7,
+          "inclusiveMs": 87.67360000000008,
+          "exclusiveMs": 87.67360000000008
+        },
+        "session.commandCandidate": {
+          "calls": 1,
+          "inclusiveMs": 93.92150000000038,
+          "exclusiveMs": 4.961300000000847
+        },
+        "assertArtworkReferenceTransition": {
+          "calls": 2,
+          "inclusiveMs": 532.1580000000013,
+          "exclusiveMs": 24.314000000000306
+        },
+        "sameDocument": {
+          "calls": 3,
+          "inclusiveMs": 60.68129999999837,
+          "exclusiveMs": 60.68129999999837
+        },
+        "owner.projectCandidate": {
+          "calls": 2,
+          "inclusiveMs": 152.60070000000087,
+          "exclusiveMs": 152.60070000000087
+        },
+        "projectAsReferenceDocument": {
+          "calls": 2,
+          "inclusiveMs": 152.90580000000227,
+          "exclusiveMs": 0.14230000000497967
+        },
+        "documentDependencyGraph": {
+          "calls": 3,
+          "inclusiveMs": 0.033699999999953434,
+          "exclusiveMs": 0.033699999999953434
+        },
+        "foreign.changedNodeDetection": {
+          "calls": 1,
+          "inclusiveMs": 30.127399999999398,
+          "exclusiveMs": 30.127399999999398
+        },
+        "foreign.graphEnumerationAndReverseBuild": {
+          "calls": 1,
+          "inclusiveMs": 306.09239999999954,
+          "exclusiveMs": 306.065700000001
+        },
+        "foreign.reverseForeignClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.011399999999412103,
+          "exclusiveMs": 0.011399999999412103
+        },
+        "foreign.changedVertexSeeding": {
+          "calls": 1,
+          "inclusiveMs": 59.5630000000001,
+          "exclusiveMs": 59.5630000000001
+        },
+        "foreign.reverseReachableClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.013199999999415013,
+          "exclusiveMs": 0.013199999999415013
+        },
+        "foreign.effectiveInputActivation": {
+          "calls": 1,
+          "inclusiveMs": 0.03349999999954889,
+          "exclusiveMs": 0.03349999999954889
+        },
+        "foreign.reverseAffectedClosure": {
+          "calls": 1,
+          "inclusiveMs": 0.014600000000427826,
+          "exclusiveMs": 0.014600000000427826
+        },
+        "foreignAffectedVertices": {
+          "calls": 1,
+          "inclusiveMs": 395.91460000000006,
+          "exclusiveMs": 0.05910000000221771
+        },
+        "transition.effectiveProjectionAndEvaluation": {
+          "calls": 1,
+          "inclusiveMs": 79.55290000000059,
+          "exclusiveMs": 17.36959999999999
+        },
+        "transition.effectiveDomainValidation": {
+          "calls": 1,
+          "inclusiveMs": 32.376500000000306,
+          "exclusiveMs": 0.021800000000439468
+        },
+        "assertProjectReferenceTransition": {
+          "calls": 1,
+          "inclusiveMs": 753.6340999999993,
+          "exclusiveMs": 84.98409999999421
+        },
+        "session.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 1043.9766999999993,
+          "exclusiveMs": 4.214700000000448
+        },
+        "owner.dispatch": {
+          "calls": 1,
+          "inclusiveMs": 1263.446,
+          "exclusiveMs": 0.14480000000003201
+        }
+      },
+      "totalMs": 1263.4811000000009
+    }
+  ]
+}

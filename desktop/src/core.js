@@ -8656,9 +8656,18 @@ export class CommandSession {
       this.#beforeCandidateCommit?.(this.#history.doc, candidate);
       assertPasteReady();
       assertArtworkMoveCurrent();
-      this.#history.apply(() => {
+      if (this.#history.retainHistory) {
+        this.#history.apply(() => {
+          this.#history.doc = candidate;
+        });
+      } else {
+        // The project owner retains History. This already-validated candidate
+        // replaces the whole inner snapshot; no callback mutates the old one,
+        // so a detached rollback copy would be immediately discarded.
+        const before = this.#history.doc;
         this.#history.doc = candidate;
-      });
+        if (!sameDocument(before, candidate)) this.#history.record(before);
+      }
     }
     if (type === 'paste-nodes' && revision !== this.#history.revision)
       this.#nodeClipboard.pasteCount++;
