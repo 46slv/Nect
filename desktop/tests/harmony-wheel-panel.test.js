@@ -1405,3 +1405,48 @@ test('unmounted or unrelated details cannot replace the remembered Advanced view
   assert.equal(s.session.historyView.past.length, past);
   assert.deepEqual(s.notices, []);
 });
+
+test('live gray hue intent preserves Session and redo until saturation commits once', (t) => {
+  const s = setup(t, { realSession: true, live: true });
+  const setColor = (hex) =>
+    s.session.dispatch({
+      ...s.session.state,
+      type: 'set-color-slot',
+      payload: { slotId: 'unmanaged', value: { hex, alpha: 0 } },
+    });
+  setColor('#808080');
+  setColor('#ff0000');
+  s.session.dispatch({ ...s.session.state, type: 'undo', payload: {} });
+  s.render();
+  const field = (channel) =>
+    `[data-shared-color-row="unmanaged"] [data-shared-color-edit="hsl-${channel}"]`;
+  const before = serialize(s.model),
+    state = s.session.state,
+    past = s.session.historyView.past.length,
+    future = s.session.historyView.future.length;
+  s.change(field('h'), '240');
+  assert.equal(s.query(field('h')).value, '240');
+  assert.equal(serialize(s.model), before);
+  assert.deepEqual(s.session.state, state);
+  assert.equal(s.panel.editing, false);
+  assert.equal(s.session.historyView.future.length, future);
+  s.query(field('h')).value = '120';
+  s.fire(s.query(field('h')), 'input');
+  s.fire(s.query(field('h')), 'keydown', { key: 'Escape' });
+  assert.equal(s.query(field('h')).value, '240');
+  assert.equal(serialize(s.model), before);
+  s.change(field('s'), '100');
+  assert.equal(s.model.colorSlots.find((slot) => slot.id === 'unmanaged').value.hex, '#0101ff');
+  assert.equal(s.model.colorSlots.find((slot) => slot.id === 'unmanaged').value.alpha, 0);
+  assert.equal(s.session.historyView.past.length, past + 1);
+  assert.equal(s.session.historyView.future.length, 0);
+  const after = serialize(s.model);
+  s.session.dispatch({ ...s.session.state, type: 'undo', payload: {} });
+  s.render();
+  assert.equal(serialize(s.model), before);
+  s.session.dispatch({ ...s.session.state, type: 'redo', payload: {} });
+  s.render();
+  assert.equal(serialize(s.model), after);
+  assert.equal(serialize(deserialize(after)), after);
+  assert.deepEqual(s.notices, []);
+});

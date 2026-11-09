@@ -105,3 +105,15 @@ test('default visible controls are H, S and L with distinct scoped attributes', 
   assert.match(shared, /Color &lt;A&gt; HSL/);
   assert.doesNotMatch(shared, /data-color-base/);
 });
+
+test('neutral hue hints affect only achromatic edits and stay in the strict HSL domain', () => {
+  assert.equal(updateHexHsl('#808080', 's', '100', 240), '#0101ff');
+  assert.equal(updateHexHsl('#ff0000', 's', '100', 240), '#ff0000');
+  assert.equal(updateHexHsl('#808080', 'h', '120', 240), '#808080');
+  assert.match(renderHslFields('#808080', { neutralHue: 240 }), /value="240"/);
+  assert.doesNotMatch(renderHslFields('#ff0000', { neutralHue: 240 }), /value="240"/);
+  for (const bad of [-1, 361, NaN, Infinity]) {
+    assert.throws(() => updateHexHsl('#808080', 's', '100', bad), /HSL/);
+    assert.throws(() => renderHslFields('#808080', { neutralHue: bad }), /HSL/);
+  }
+});

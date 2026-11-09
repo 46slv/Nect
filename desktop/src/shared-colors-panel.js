@@ -1,6 +1,6 @@
 import { createAutoChromaPanel } from './auto-chroma-panel.js';
 import { createColorDraftScrub } from './color-draft-scrub.js';
-import { renderHslFields, updateHexHsl } from './hsl-color-picker.js';
+import { hexToHsl, renderHslFields, updateHexHsl } from './hsl-color-picker.js';
 import { displayColorLabels } from './color-display-labels.js';
 import { liveKeyColorSlotIds } from './key-color-recipe-document.js';
 // View state only; all authored edits go through the current typed Session.
@@ -35,6 +35,13 @@ export function createSharedColorsPanel({
     filterOpen = false,
     filterText = '',
     filterQuery = '';
+  // An achromatic RGB literal cannot store hue. Retain committed editing intent
+  // per stable slot in this project only; never add it to the authored model.
+  const neutralHues = new Map();
+  const neutralHue = (id, hex) => {
+    const remembered = neutralHues.get(id);
+    return remembered?.hex === hex.toLowerCase() ? remembered.hue : undefined;
+  };
   const nameOrder = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
   const normalizeSearch = (value) => value.trim().normalize('NFC').toLocaleLowerCase();
   const setFilterText = (value) => {
@@ -47,6 +54,7 @@ export function createSharedColorsPanel({
     if (!orderInitialized || project !== orderProject) {
       orderInitialized = true;
       orderProject = project;
+      neutralHues.clear();
       sortNames = false;
       filterOpen = false;
       setFilterText('');
@@ -322,17 +330,26 @@ export function createSharedColorsPanel({
         id,
         value: { ...getDocument().colorSlots.find((slot) => slot.id === id).value },
         initial: Number(el.value),
+        neutralHue: neutralHues.get(id),
       };
       return literalScrubBaseline;
     },
-    restore: (before) => chroma.stageLiteral(before.id, before.value),
+    restore: (before) => {
+      if (before.neutralHue) neutralHues.set(before.id, before.neutralHue);
+      else neutralHues.delete(before.id);
+      chroma.stageLiteral(before.id, before.value);
+    },
     update: (el, number) => {
       const { id, value, initial } = literalScrubBaseline,
         kind = el.dataset.sharedColorEdit;
       if (kind === 'alpha') chroma.stageLiteral(id, { ...value, alpha: number });
       else {
         const hex =
-          number === initial ? value.hex : updateHexHsl(value.hex, kind.slice(4), String(number));
+          number === initial
+            ? value.hex
+            : updateHexHsl(value.hex, kind.slice(4), String(number), neutralHue(id, value.hex));
+        if (kind === 'hsl-h' && hexToHsl(value.hex).s === 0)
+          neutralHues.set(id, { hex: value.hex.toLowerCase(), hue: number });
         chroma.stageLiteral(id, {
           ...value,
           hex: hex.toLowerCase() === value.hex.toLowerCase() ? value.hex : hex,
@@ -663,7 +680,14 @@ export function createSharedColorsPanel({
       else if (el.dataset.sharedColorEdit.startsWith('hsl-')) {
         if (!el.value.trim()) return;
         try {
-          value.hex = updateHexHsl(value.hex, el.dataset.sharedColorEdit.slice(4), el.value);
+          value.hex = updateHexHsl(
+            value.hex,
+            el.dataset.sharedColorEdit.slice(4),
+            el.value,
+            neutralHue(id, value.hex),
+          );
+          // Hue alone on gray is a local field edit, not an authored preview.
+          if (el.dataset.sharedColorEdit === 'hsl-h' && hexToHsl(slot.value.hex).s === 0) return;
         } catch {
           return;
         }
@@ -736,11 +760,21 @@ export function createSharedColorsPanel({
         const value = { ...slot.value };
         if (kind === 'hex') value.hex = el.value;
         else if (kind.startsWith('hsl-'))
-          value.hex = updateHexHsl(value.hex, kind.slice(4), el.value);
+          value.hex = updateHexHsl(
+            value.hex,
+            kind.slice(4),
+            el.value,
+            neutralHue(slotId, value.hex),
+          );
         else if (kind === 'alpha') {
           if (!el.value.trim()) throw Error('Enter an alpha between zero and one');
           value.alpha = Number(el.value);
         } else throw Error('Unknown Color control');
+        if (kind === 'hsl-h' && hexToHsl(slot.value.hex).s === 0) {
+          neutralHues.set(slotId, { hex: slot.value.hex.toLowerCase(), hue: Number(el.value) });
+          el.defaultValue = el.value;
+          return;
+        }
         if (live) {
           if (!chroma.editing && value.hex === slot.value.hex && value.alpha === slot.value.alpha)
             return;
@@ -913,6 +947,10 @@ export function createSharedColorsPanel({
     html() {
       if (!open) return '';
       syncOrderProject();
+      for (const [id, hint] of neutralHues) {
+        const saved = getDocument().colorSlots?.find((slot) => slot.id === id);
+        if (saved?.value.hex.toLowerCase() !== hint.hex) neutralHues.delete(id);
+      }
       const slots = (chroma.previewDocument || getDocument()).colorSlots || [];
       const linked = liveKeyColorSlotIds(getDocument());
       const rowLabels = displayColorLabels(slots.map(({ id, name }) => ({ id, label: name })));
@@ -928,7 +966,7 @@ export function createSharedColorsPanel({
             label === slot.name
               ? ''
               : `<span class="shared-color-identity">${esc(label.slice(slot.name.length))}</span>`;
-          return `<div class="shared-color-row" data-shared-color-row="${esc(slot.id)}" ${matchesSearch(slot.name) ? '' : 'hidden'}><input type="text" data-shared-color-edit="name" data-shared-color-id="${esc(slot.id)}" maxlength="128" value="${esc(slot.name)}" aria-label="Shared color name"><div class="shared-color-copy" data-shared-color-copy-menu="${esc(slot.id)}"><button type="button" data-shared-color-copy-toggle aria-label="Color actions for ${esc(label)}" aria-expanded="false">Actions…</button></div><div class="shared-color-copy-actions" data-shared-color-copy-actions role="group" aria-label="Color actions for ${esc(label)}" hidden><button type="button" data-shared-color-copy="value">Copy value in Nect</button><button type="button" data-shared-color-copy="reference">Copy reference in Nect</button><button type="button" data-shared-color-uses>Find direct uses</button><button type="button" data-shared-color-delete>Delete color</button></div>${identity}${owned ? '<span data-live-color-note title="Edit in Key color" aria-label="Linked color. Edit in Key color">Linked</span>' : ''}${renderHslFields(slot.value.hex, { mode: 'shared', name: slot.name, id: slot.id, scrub: live, disabled: owned })}<input type="color" data-shared-color-edit="hex" data-shared-color-id="${esc(slot.id)}" value="${esc(slot.value.hex)}" aria-label="${esc(slot.name)} color" ${owned ? 'disabled' : ''}><output data-color-coverage-id="${esc(slot.id)}" aria-label="${esc(slot.name)} visible area">—</output><input type="number" data-color-scrub-step="0.01" title="Drag horizontally to adjust; click to type" data-shared-color-edit="alpha" data-shared-color-id="${esc(slot.id)}" min="0" max="1" step="0.01" value="${slot.value.alpha}" aria-label="${esc(slot.name)} alpha" ${owned ? 'disabled' : ''}></div>`;
+          return `<div class="shared-color-row" data-shared-color-row="${esc(slot.id)}" ${matchesSearch(slot.name) ? '' : 'hidden'}><input type="text" data-shared-color-edit="name" data-shared-color-id="${esc(slot.id)}" maxlength="128" value="${esc(slot.name)}" aria-label="Shared color name"><div class="shared-color-copy" data-shared-color-copy-menu="${esc(slot.id)}"><button type="button" data-shared-color-copy-toggle aria-label="Color actions for ${esc(label)}" aria-expanded="false">Actions…</button></div><div class="shared-color-copy-actions" data-shared-color-copy-actions role="group" aria-label="Color actions for ${esc(label)}" hidden><button type="button" data-shared-color-copy="value">Copy value in Nect</button><button type="button" data-shared-color-copy="reference">Copy reference in Nect</button><button type="button" data-shared-color-uses>Find direct uses</button><button type="button" data-shared-color-delete>Delete color</button></div>${identity}${owned ? '<span data-live-color-note title="Edit in Key color" aria-label="Linked color. Edit in Key color">Linked</span>' : ''}${renderHslFields(slot.value.hex, { mode: 'shared', name: slot.name, id: slot.id, scrub: live, disabled: owned, neutralHue: neutralHue(slot.id, slot.value.hex) })}<input type="color" data-shared-color-edit="hex" data-shared-color-id="${esc(slot.id)}" value="${esc(slot.value.hex)}" aria-label="${esc(slot.name)} color" ${owned ? 'disabled' : ''}><output data-color-coverage-id="${esc(slot.id)}" aria-label="${esc(slot.name)} visible area">—</output><input type="number" data-color-scrub-step="0.01" title="Drag horizontally to adjust; click to type" data-shared-color-edit="alpha" data-shared-color-id="${esc(slot.id)}" min="0" max="1" step="0.01" value="${slot.value.alpha}" aria-label="${esc(slot.name)} alpha" ${owned ? 'disabled' : ''}></div>`;
         })
         .join('');
       const find = slots.length > 1 || filterOpen;

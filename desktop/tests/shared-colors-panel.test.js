@@ -636,3 +636,34 @@ test('shared color clicks and changes are isolated from later application handle
   assert.equal(appChanges, 1, 'unrelated changes are not swallowed');
   assert.equal(bodyEvents, 2);
 });
+
+test('neutral shared colors retain an independent view-only hue before saturation', (t) => {
+  const s = setup(t);
+  s.model.colorSlots.forEach((slot) => {
+    slot.value = { hex: '#808080', alpha: 0.4 };
+  });
+  s.panel.toggle();
+  const field = (id, channel) =>
+    s.app.querySelector(
+      `[data-shared-color-row="${id}"] [data-shared-color-edit="hsl-${channel}"]`,
+    );
+  field('slot-a', 'h').value = '240';
+  s.fire(field('slot-a', 'h'));
+  assert.equal(s.calls.length, 0, 'a hue-only neutral edit does not change the authored RGB color');
+  s.render();
+  assert.equal(field('slot-a', 'h').value, '240');
+  assert.equal(field('slot-b', 'h').value, '0', 'duplicate names do not share hue intent');
+  field('slot-a', 's').value = '100';
+  s.fire(field('slot-a', 's'));
+  assert.deepEqual(s.calls.at(-1).payload, {
+    slotId: 'slot-a',
+    value: { hex: '#0101ff', alpha: 0.4 },
+  });
+  s.projectIdentity = 2;
+  s.render();
+  assert.equal(
+    field('slot-a', 'h').value,
+    '0',
+    'a replacement project clears view-only hue intent',
+  );
+});
