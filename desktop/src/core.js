@@ -280,7 +280,6 @@ import {
   transformExtensions,
   transformParameter,
   transformValues,
-  transformVector,
   repositionTransformAnchor,
   anchorFromOutputDelta,
 } from './transform-affine.js';
@@ -552,13 +551,6 @@ const legacyDefinitions = {
   'Path Remap': { path: p('Path', null), offset: p('Vector2', [0, 0]) },
   Transform: {
     path: p('Path', null),
-    anchor: p('Vector2', [0, 0]),
-    offset: p('Vector2', [0, 0]),
-    scale: p('Scalar', 1),
-    rotation: p('Scalar', 0),
-  },
-  'Vector Transform': {
-    vector: p('Vector2', [0, 0]),
     anchor: p('Vector2', [0, 0]),
     offset: p('Vector2', [0, 0]),
     scale: p('Scalar', 1),
@@ -1012,7 +1004,7 @@ export function outputType(n, port) {
   )
     return 'Image';
   if (n.type === 'Mask') return 'PaintedPath';
-  return ['Reference', 'Vector Transform'].includes(n.type) ? 'Vector2' : 'Path';
+  return n.type === 'Reference' ? 'Vector2' : 'Path';
 }
 // Deliberate identity contracts. Never guess the first socket of a new node type.
 const bypassInputs = Object.freeze({
@@ -1032,7 +1024,6 @@ const bypassInputs = Object.freeze({
   'Set Path Start': 'path',
   'Subdivide Path': 'path',
   'Dash Path': 'path',
-  'Vector Transform': 'vector',
   'Path Remap': 'path',
   'Closed Path Offset': 'path',
   'Geometry Repeater': 'path',
@@ -3689,12 +3680,11 @@ export function evaluate(
         result = clone(run(n.reference.nodeId, referencePort(n.reference)));
         assertValue('Vector2', result);
       } else if (positionOutput) result = read('position');
-      else if (n.type === 'Vector Transform')
-        result = transformVector(transformValues(n, read), read('vector'));
       else if (builtinNodeRegistry.get(n.type)) {
         const registered = builtinNodeRegistry.get(n.type);
         const nodeId = n.id;
         const warn = (message) => warnings.push(`${n.name}: ${message}`);
+        const hasParameter = (key) => !!n.params[key];
         const identity = Object.freeze({
           provenance: (currentEra) => provenance(nodeId, undefined, currentEra),
           fingerprint: evaluatedFingerprint,
@@ -3708,13 +3698,14 @@ export function evaluate(
               warn,
               cloneEvaluated,
               identity,
+              hasParameter,
               paintedGroup: (inputs) => {
                 const painted = evaluatedPaintedGroup(inputs, { prefix: nodeId });
                 setEvaluationFingerprint(painted, () => [nodeId, inputs]);
                 return painted;
               },
             })
-          : Object.freeze({ nodeId, warn, cloneEvaluated, identity });
+          : Object.freeze({ nodeId, warn, cloneEvaluated, identity, hasParameter });
         result = registered.evaluate(n.operation, read, context);
         assertValue(registered.interface(n.operation, shape).resultType, result);
       } else if (n.type === 'Polygon' || n.type === 'Star') {
