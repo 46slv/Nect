@@ -326,14 +326,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Vector Transform',
-    categoryId: 'value',
-    labelJa: 'ベクトル変換',
-    aliases: ['ベクトル変換'],
-    description: '数値ベクトルの移動・回転・拡大縮小',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Composition Reference',
     categoryId: 'combine',
     labelJa: 'Composition参照',
