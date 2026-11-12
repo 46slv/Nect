@@ -6,6 +6,8 @@ import { trimPathDeclaration } from '../src/trim-path-declaration.js';
 import { evaluateTrimPath } from '../src/trim-path-binding.js';
 import { createNodeRegistry, parseNodeDeclaration } from '../src/node-foundation.js';
 import { nectNodeHost } from '../src/nect-node-host.js';
+import { builtinManifest } from '../src/builtin-node-manifest.js';
+import { builtinNodeRegistry } from '../src/builtin-node-registry.js';
 
 test('Trim Path declaration retains the existing factory and interface', () => {
   const parsed = parseNodeDeclaration(JSON.stringify(trimPathDeclaration)),
@@ -17,6 +19,11 @@ test('Trim Path declaration retains the existing factory and interface', () => {
     n = node('Trim Path'),
     defs = Object.keys(definitions),
     catalog = nodeCatalog.map(({ typeId }) => typeId);
+  assert.deepEqual(builtinNodeRegistry.get(n.type).declaration, trimPathDeclaration);
+  assert.equal(
+    builtinManifest.find((row) => row.declaration.typeId === n.type).binding.evaluate,
+    evaluateTrimPath,
+  );
   assert.equal(resolved.declaration.bypassInput, 'path');
   assert.ok(Object.isFrozen(resolved.declaration));
   assert.deepEqual(Object.keys(n.params), ['path', 'start', 'end']);

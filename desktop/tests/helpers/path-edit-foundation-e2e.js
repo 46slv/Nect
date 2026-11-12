@@ -1,30 +1,26 @@
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright-core';
-import { blankDocument, connect, node, serialize } from '../src/core.js';
-import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { blankDocument, connect, node, serialize } from '../../src/core.js';
+import { ensureWorkspacePanel } from './workspace-panels.js';
 
-const browser = await chromium.launch({
-  executablePath:
-    process.env.CHROMIUM_PATH ||
-    (process.platform === 'win32'
-      ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
-      : '/usr/bin/chromium'),
-  headless: true,
-  chromiumSandbox: true,
-});
-const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } }),
-  errors = [];
-page.on('pageerror', (error) => errors.push(error.message));
-try {
-  await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForFunction(() => typeof window.nect?.load === 'function');
-  await ensureWorkspacePanel(page, 'inspector');
-  for (const { type, key, value } of [
-    { type: 'Trim Path', key: 'start', value: 0.25 },
-    { type: 'Set Path Start', key: 'start', value: 0.25 },
-    { type: 'Dash Path', key: 'dashLength', value: 30 },
-  ]) {
+export async function verifyPathEditFoundation({ type, key, value }) {
+  const browser = await chromium.launch({
+    executablePath:
+      process.env.CHROMIUM_PATH ||
+      (process.platform === 'win32'
+        ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+        : '/usr/bin/chromium'),
+    headless: true,
+    chromiumSandbox: true,
+  });
+  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } }),
+    errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  try {
+    await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+    await page.waitForFunction(() => typeof window.nect?.load === 'function');
+    await ensureWorkspacePanel(page, 'inspector');
     const doc = blankDocument(),
       layer = doc.layers[0],
       path = node('Imported Path', 40, 80),
@@ -62,9 +58,9 @@ try {
     await page.evaluate((value) => window.nect.load(value), after);
     assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), after);
     assert.deepEqual(await result(), afterResult);
+    assert.deepEqual(errors, []);
+    console.log(`PASS ${type} rendering, edit, Undo/Redo and reload`);
+  } finally {
+    await browser.close();
   }
-  assert.deepEqual(errors, []);
-  console.log('PASS Trim, Set Path Start and Dash rendering, edits, Undo/Redo and reload');
-} finally {
-  await browser.close();
 }

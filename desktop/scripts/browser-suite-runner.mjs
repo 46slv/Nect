@@ -141,6 +141,9 @@ export const browserTestFiles = Object.freeze([
   'tests/node-foundation-radial.e2e.js',
   'tests/node-foundation-primitives.e2e.js',
   'tests/node-foundation-subdivide.e2e.js',
+  'tests/node-foundation-trim.e2e.js',
+  'tests/node-foundation-path-start.e2e.js',
+  'tests/node-foundation-dash.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
