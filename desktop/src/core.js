@@ -254,9 +254,10 @@ import {
 import { layoutText, validateLeading } from './text-layout.js';
 import { validateTextWrap, withWrapExtent } from './text-wrap.js';
 import { validateTextPathAttachment, validateTextPathMode, projectTextPath } from './text-path.js';
-import { offsetClosedPath, OFFSET_EDITOR_LIMITS, OffsetError } from './closed-offset.js';
-import { offsetGroupedClosedPathDetailed } from './grouped-closed-offset.js';
+import { OffsetError } from './closed-offset.js';
+import { closedOffsetSettings } from './closed-offset-node-settings.js';
 export { OFFSET_EDITOR_LIMITS } from './closed-offset.js';
+export { closedOffsetSettings } from './closed-offset-node-settings.js';
 import { fingerprint } from './fingerprint.js';
 import {
   createCharacterPositions,
@@ -527,11 +528,6 @@ const legacyDefinitions = {
   'Multi Path': {},
   Boolean: { a: p('Path', null), b: p('Path', null) },
   'Convert to Path': { path: p('Path', null) },
-  'Closed Path Offset': {
-    path: p('Path', null),
-    amount: p('Scalar', 10),
-    miterLimit: p('Scalar', 4),
-  },
   'Path Remap': { path: p('Path', null), offset: p('Vector2', [0, 0]) },
   Transform: {
     path: p('Path', null),
@@ -710,18 +706,6 @@ for (const type of imageDitherTypes) {
   const shapeType = type.replace(/ Image$/, '');
   definitions[type] = { ...structuredClone(definitions[shapeType]), path: p('Image', null) };
 }
-export function closedOffsetSettings(read) {
-  const amount = read('amount'),
-    miterLimit = read('miterLimit');
-  if (!Number.isFinite(amount) || (amount !== 0 && Math.abs(amount) < 0.0001))
-    throw new OffsetError(
-      'OFFSET_AMOUNT',
-      'Offset amount must be zero or at least 0.0001 px in magnitude',
-    );
-  if (!Number.isFinite(miterLimit) || miterLimit < 1 || miterLimit > 100)
-    throw new OffsetError('OFFSET_OPTIONS', 'Offset miter limit must be between 1 and 100');
-  return { amount, miterLimit };
-}
 export function linearGradientSettings(read) {
   return createLinearGradientFill(
     Object.fromEntries(['start', 'end', 'startColor', 'endColor'].map((key) => [key, read(key)])),
@@ -808,13 +792,11 @@ export function node(type, x = 40, y = 40) {
         ? 'count'
         : type === 'Line Screen'
           ? 'horizontal'
-          : type === 'Closed Path Offset'
-            ? 'miter'
-            : type === 'Geometry Repeater'
-              ? 'linear'
-              : builtinNodeRegistry.get(type)?.declaration.defaultOperation
-                ? builtinNodeRegistry.get(type).declaration.defaultOperation
-                : 'subtract',
+          : type === 'Geometry Repeater'
+            ? 'linear'
+            : builtinNodeRegistry.get(type)?.declaration.defaultOperation
+              ? builtinNodeRegistry.get(type).declaration.defaultOperation
+              : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -972,7 +954,6 @@ const bypassInputs = Object.freeze({
   'Subdivide Path': 'path',
   'Dash Path': 'path',
   'Path Remap': 'path',
-  'Closed Path Offset': 'path',
   'Geometry Repeater': 'path',
   'Instance on Points': 'path',
   'Luminance Instances': 'motif',
@@ -1662,7 +1643,6 @@ export const operationOptions = {
   'Error Diffusion Dither': ['square', 'circle', 'polygon', 'star'],
   'Ordered Dither Image': ['square', 'circle', 'polygon', 'star'],
   'Error Diffusion Dither Image': ['square', 'circle', 'polygon', 'star'],
-  'Closed Path Offset': ['miter', 'bevel', 'round'],
   'Geometry Repeater': ['linear', 'radial-fit', 'radial-step', 'ae-2d'],
   'Resample Path': ['count', 'spacing'],
   'Line Screen': ['horizontal', 'vertical'],
@@ -4376,35 +4356,6 @@ export function evaluate(
             signature(result),
             result.contours.map((contour) => [contour.id, contour.points.map((point) => point.id)]),
           ]);
-        }
-      } else if (n.type === 'Closed Path Offset') {
-        const source = read('path');
-        if (!source) throw Error('Connect a Path input');
-        const { amount, miterLimit } = closedOffsetSettings(read);
-        if (!operationOptions[n.type].includes(n.operation))
-          throw new OffsetError('OFFSET_OPTIONS', 'Invalid Offset join');
-        if (amount === 0) result = source;
-        else {
-          const options = { join: n.operation, miterLimit, prefix: n.id };
-          result = source.contours.some((contour) => contour.group !== undefined)
-            ? offsetGroupedClosedPathDetailed(source, amount, options, OFFSET_EDITOR_LIMITS).path
-            : offsetClosedPath(source, amount, options, OFFSET_EDITOR_LIMITS);
-          result.unstable = true;
-          setEvaluationFingerprint(result, (currentEra) => [
-            provenance(n.id, undefined, currentEra),
-            amount,
-            n.operation,
-            miterLimit,
-            evaluatedFingerprint(source, currentEra),
-            source.contours,
-            signature(result),
-          ]);
-          result.characterOccurrences = routeCharacters(
-            source,
-            n.id,
-            null,
-            'Canvas character editing is unavailable through Closed Path Offset',
-          );
         }
       } else if (n.type === 'Imported Path') {
         result = parsePath(n.rawPath, n.id);

@@ -65,6 +65,8 @@ import { ellipseDeclaration } from './ellipse-node-declaration.js';
 import { evaluateEllipse } from './ellipse-node-binding.js';
 import { rectangleDeclaration } from './rectangle-node-declaration.js';
 import { evaluateRectangle } from './rectangle-node-binding.js';
+import { closedOffsetDeclaration } from './closed-offset-node-declaration.js';
+import { evaluateClosedOffset } from './closed-offset-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -159,4 +161,10 @@ export const builtinManifest = Object.freeze([
   entry(rectangleDeclaration, { evaluate: evaluateRectangle }, 'Ellipse', 'Ellipse'),
   entry(polygonDeclaration, { evaluate: evaluatePolygon }, 'Rectangle', 'Rectangle'),
   entry(starDeclaration, { evaluate: evaluateStar }, 'Polygon', 'Polygon'),
+  entry(
+    closedOffsetDeclaration,
+    { evaluate: evaluateClosedOffset },
+    'Convert to Path',
+    'Expand Stroke',
+  ),
 ]);
