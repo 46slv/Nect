@@ -3,6 +3,7 @@
 import { renderElement } from './core.js';
 import { renderLinearGradientFill } from './linear-gradient.js';
 import { renderRadialGradientFill } from './radial-gradient.js';
+import { renderAngularGradientFill } from './angular-gradient.js';
 import { contourGroups } from './path-groups.js';
 
 const angularStops = ['startColor', 'color1', 'color2', 'endColor'];
@@ -48,8 +49,7 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
           (c.repeaterOpacity !== undefined && c.repeaterOpacity !== 1) ||
           c.repeaterFill !== undefined ||
           c.repeaterStroke !== undefined,
-      ) ||
-      (value.fill?.kind === 'angular-gradient' && value.contours.some((c) => c.group !== undefined))
+      )
     )
       throw Error(
         'Coverage attribution requires plain solid, two-stop linear/radial-gradient or four-stop angular-gradient paths',
@@ -84,16 +84,45 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
           slotId = stopIds[0];
           stopIds = null;
         }
-        paints.push({ layer, value: groupValue, paint, slotId, stopIds, angular });
+        paints.push({
+          layer,
+          value: groupValue,
+          paint,
+          slotId,
+          stopIds,
+          angular,
+          angularGeometry: angular && grouped ? value : null,
+        });
         if (paints.length > 256) throw Error('Coverage paint pass budget exceeded');
       }
     }
   }
   let svgBytes = 0;
-  return paints.map(({ layer, value, paint, slotId, stopIds, angular }) => {
+  const angularPatterns = new WeakMap();
+  const fullAngularPattern = (geometry, fill, id) => {
+    let patterns = angularPatterns.get(geometry);
+    if (!patterns) angularPatterns.set(geometry, (patterns = new Map()));
+    const key = JSON.stringify(fill);
+    if (!patterns.has(key))
+      patterns.set(key, renderAngularGradientFill(fill, id, geometry).definition);
+    return patterns.get(key);
+  };
+  return paints.map(({ layer, value, paint, slotId, stopIds, angular, angularGeometry }) => {
     const isolated = { ...value, [paint === 'fill' ? 'stroke' : 'fill']: undefined };
     const svg = (path, attributes = '', definitions = '') => {
-      const result = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" overflow="hidden">${definitions}${renderElement(path, layer, {}, attributes)}</svg>`;
+      const patternId = 'nect-gradient-0';
+      let element = renderElement(path, layer, {}, attributes, patternId);
+      if (angularGeometry && element) {
+        // The production renderer builds one angular pattern from all contours,
+        // then paints each group with it. Keep the isolated group's path while
+        // replacing its local pattern with the same full-geometry definition.
+        const end = element.indexOf('</defs>');
+        if (!element.startsWith(`<defs><pattern id="${patternId}" `) || end < 0)
+          throw Error('Angular coverage requires the production pattern definition');
+        const pattern = fullAngularPattern(angularGeometry, path.fill, patternId);
+        element = `<defs>${pattern}</defs>${element.slice(end + '</defs>'.length)}`;
+      }
+      const result = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" overflow="hidden">${definitions}${element}</svg>`;
       svgBytes += result.length;
       if (result.length > 4 * 1024 * 1024 || svgBytes > 16 * 1024 * 1024)
         throw Error('Coverage SVG budget exceeded');

@@ -858,6 +858,12 @@ try {
     );
     return checkGroupedGradientCoverage();
   });
+  const groupedAngular = await page.evaluate(async () => {
+    const { checkGroupedAngularCoverage } = await import(
+      '/tests/helpers/grouped-color-coverage-acceptance.js'
+    );
+    return checkGroupedAngularCoverage();
+  });
   await fs.writeFile(
     `${output}/results.json`,
     JSON.stringify(
@@ -868,6 +874,7 @@ try {
         results,
         grouped,
         groupedGradients,
+        groupedAngular,
         errors,
       },
       null,
@@ -982,6 +989,87 @@ try {
     }));
     assert.deepEqual(after, before, `${label}: panel measurement changed authored state`);
     result.panelPassed = true;
+  }
+  for (const result of groupedAngular) {
+    const label = `grouped angular ${result.kind} ${JSON.stringify(result)}`,
+      expectedStops = result.sameId
+        ? undefined
+        : ['stop_red', result.unbound ? null : 'stop_green', 'stop_blue', 'stop_black'],
+      expectedFill = result.sameId ? 'stop_red' : null,
+      tolerance = (64 * 48 * 3) / 255;
+    assert.deepEqual(
+      result.order,
+      [
+        { paint: 'fill', slotId: expectedFill, stops: expectedStops },
+        { paint: 'stroke', slotId: 'stroke_black', stops: undefined },
+        { paint: 'fill', slotId: expectedFill, stops: expectedStops },
+        { paint: 'stroke', slotId: 'stroke_black', stops: undefined },
+      ],
+      `${label}: group order and explicit stop IDs`,
+    );
+    const actual = [
+      result.measured[0],
+      result.unbound ? result.other : result.measured[1],
+      result.measured[2],
+      result.measured[3] + result.measured[4],
+    ];
+    for (let index = 0; index < result.reference.length; index++)
+      assert.ok(
+        Math.abs(actual[index] - result.reference[index]) <= tolerance,
+        `${label}: stop ${index} disagrees with independently recolored production pixels`,
+      );
+    assert.ok(
+      result.wrongOrder.some((mass, index) => Math.abs(mass - result.measured[index]) > 5),
+      `${label}: overlapping paints must distinguish group order`,
+    );
+    if (result.unbound) assert.equal(result.measured[1], 0, `${label}: unused ID gained mass`);
+    else assert.equal(result.other, 0, `${label}: bound IDs leaked to Other`);
+    if (result.zeroStop) assert.equal(result.measured[0], 0, `${label}: transparent stop`);
+    assert.ok(Math.abs(result.painted - result.alpha) <= tolerance, `${label}: alpha mass`);
+    assert.ok(result.maxCompositeError <= 2 / 255, `${label}: per-pixel source-over`);
+    assert.ok(result.maxAAError <= 2 / 255, `${label}: antialiased edge source-over`);
+    assert.ok(result.maxStopPixelError <= 2 / 255, `${label}: per-pixel stop attribution`);
+    assert.ok(result.maxStopAAError <= 2 / 255, `${label}: antialiased stop attribution`);
+    assert.ok(result.antialiasedPixels > 0, `${label}: fixture must exercise AA`);
+    assert.equal(result.holeAlpha, 0, `${label}: hole must remain empty`);
+    assert.equal(result.oneGroupMatchesFlat, true, `${label}: grouped single path parity`);
+    assert.ok(result.singleGroupMaxError <= 1 / 255, `${label}: single group rendered pixels`);
+    assert.equal(result.unchanged, true, `${label}: authored state changed`);
+    if (!result.equalHex && !result.sameId && !result.zeroStop) {
+      const before = await page.evaluate(async (kind) => {
+        const { groupedAngularDocument } = await import(
+          '/tests/helpers/grouped-color-coverage-acceptance.js'
+        );
+        const { serialize } = await import('/src/core.js');
+        await window.nect.load(serialize(groupedAngularDocument(kind)));
+        return {
+          project: JSON.stringify(window.nect.projectSnapshot()),
+          command: window.nect.commandState,
+          dirty: window.nect.fileState.dirty,
+        };
+      }, result.kind);
+      await ensureWorkspacePanel(page, 'colors');
+      await page.waitForFunction((percentages) => {
+        const ids = ['stop_red', 'stop_green', 'stop_blue', 'stop_black', 'stroke_black'];
+        return (
+          ids.every(
+            (id, index) =>
+              document.querySelector(`[data-color-coverage-id="${id}"]`)?.textContent ===
+              `${percentages[index]}%`,
+          ) &&
+          document
+            .querySelector('[data-color-coverage-status]')
+            ?.textContent.includes('Visible area')
+        );
+      }, result.percentages);
+      const after = await page.evaluate(() => ({
+        project: JSON.stringify(window.nect.projectSnapshot()),
+        command: window.nect.commandState,
+        dirty: window.nect.fileState.dirty,
+      }));
+      assert.deepEqual(after, before, `${label}: panel measurement changed authored state`);
+      result.panelPassed = true;
+    }
   }
   for (const result of results) {
     const context = result.name;
@@ -1187,6 +1275,7 @@ try {
         results,
         grouped,
         groupedGradients,
+        groupedAngular,
         errors,
       },
       null,
@@ -1194,7 +1283,7 @@ try {
     ),
   );
   console.log(
-    `Color coverage raster acceptance passed (${results.length} fixtures + ${grouped.length} grouped + ${groupedGradients.length} grouped gradients); ${output}/results.json`,
+    `Color coverage raster acceptance passed (${results.length} fixtures + ${grouped.length} grouped + ${groupedGradients.length} grouped gradients + ${groupedAngular.length} grouped angular); ${output}/results.json`,
   );
 } finally {
   await browser.close();
