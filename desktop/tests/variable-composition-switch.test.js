@@ -116,10 +116,11 @@ async function openSaved(fixture, options = {}) {
   };
 }
 
-for (const mode of ['new-ticket', 'gesture']) {
+for (const mode of ['new-ticket', 'gesture', 'busy']) {
   test(`final signal freshness rejects ${mode} reentry before any prepared text publication`, async () => {
     const fixture = await makeSavedProject();
-    const { owner, bridge } = await openSaved(fixture);
+    let busy = false;
+    const { owner, bridge } = await openSaved(fixture, { busy: () => busy });
     const controller = new AbortController(),
       signal = controller.signal,
       remove = signal.removeEventListener.bind(signal),
@@ -137,6 +138,7 @@ for (const mode of ['new-ticket', 'gesture']) {
         const aborted = nativeAborted.call(this);
         if (armed && detached && ++reads === 2) {
           if (mode === 'new-ticket') newer = bridge.prepareDocument(owner.snapshot());
+          else if (mode === 'busy') busy = true;
           else
             owner.dispatch({
               ...owner.state,
