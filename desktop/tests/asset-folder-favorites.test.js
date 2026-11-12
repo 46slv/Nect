@@ -32,7 +32,7 @@ const a = { id: 'root-a', name: 'assets', path: 'C:\\A\\assets' };
 const b = { id: 'root-b', name: 'assets', path: 'C:\\B\\assets' };
 const replacement = { id: 'root-new', name: 'assets', path: 'C:\\A\\assets' };
 const listing = (root) => ({ root, generation: 'test', items: [], warnings: [] });
-function fixture(t, initial = []) {
+function fixture(t, initial = [], overrides = {}) {
   const data = new Map([[ASSET_FOLDER_FAVORITES_KEY, JSON.stringify(initial)]]);
   let failRead = false;
   let failWrite = false;
@@ -64,6 +64,7 @@ function fixture(t, initial = []) {
   const options = {
     capture: () => assert.fail('folder preferences must not capture document state'),
     insert: () => assert.fail('folder preferences must not insert artwork'),
+    ...overrides,
   };
   const mount = () => {
     const panel = mountAssetLibrary(options);
@@ -195,6 +196,50 @@ test('a pointer transition during asset refresh does not restore a stale focused
     if (originalActive) Object.defineProperty(win.document, 'activeElement', originalActive);
     else delete win.document.activeElement;
   }
+});
+
+test('slot reassignment during destination capture cannot start an old placement', async (t) => {
+  let view;
+  const f = fixture(t, [], {
+    capture() {
+      view.panel.querySelector('[aria-label="Clear slot 1"]').click();
+      return {};
+    },
+  });
+  f.data.set(
+    ASSET_ITEM_FAVORITES_KEY,
+    JSON.stringify([{ rootId: 'root-a', relativePath: 'same.svg', slot: validSlot }]),
+  );
+  view = f.mount();
+  await ready(view);
+  const refreshes = () => f.calls.filter((call) => call.command === 'refresh_asset_folder').length;
+  const before = refreshes();
+  view.panel.querySelector('[data-quick-slot="1"]').click();
+  await tick();
+  assert.equal(refreshes(), before);
+  assert.equal(JSON.parse(f.data.get(ASSET_ITEM_FAVORITES_KEY))[0].slot, undefined);
+});
+
+test('a panel hidden and shown during destination capture cancels the slot action', async (t) => {
+  let view;
+  const f = fixture(t, [], {
+    capture() {
+      view.panel.hidden = true;
+      view.panel.hidden = false;
+      return {};
+    },
+  });
+  f.data.set(
+    ASSET_ITEM_FAVORITES_KEY,
+    JSON.stringify([{ rootId: 'root-a', relativePath: 'same.svg', slot: validSlot }]),
+  );
+  view = f.mount();
+  await ready(view);
+  const refreshes = () => f.calls.filter((call) => call.command === 'refresh_asset_folder').length;
+  const before = refreshes();
+  view.panel.querySelector('[data-quick-slot="1"]').click();
+  await tick();
+  assert.equal(refreshes(), before);
 });
 
 test('native favorites survive remount, use exact IDs, and remove stale IDs without retargeting', async (t) => {

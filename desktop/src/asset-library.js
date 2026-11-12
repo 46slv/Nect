@@ -1374,20 +1374,35 @@ export function mountAssetLibrary({
       message('Folder unavailable', true);
       return;
     }
-    let request;
-    try {
-      request = capture();
-    } catch (error) {
-      message(String(error.message || error), true);
-      return;
-    }
     const key = assetFavoriteKey(entry.rootId, entry.relativePath);
     const expectedVersion = assetFavoritesVersion;
     const pointerAtStart = pointerSequence;
     const keyboardAtStart = keyboardSequence;
+    const epochAtStart = epoch;
+    const refreshAtStart = refreshSequence;
     const visibility = watchQuickSlotVisibility();
     const visibilityAtStart = visibility.version();
-    const refreshRequest = refreshSequence + 1;
+    let request;
+    try {
+      request = capture();
+    } catch (error) {
+      visibility.close();
+      if (alive) message(String(error.message || error), true);
+      return;
+    }
+    if (
+      !canUseQuickSlot() ||
+      expectedVersion !== assetFavoritesVersion ||
+      pointerAtStart !== pointerSequence ||
+      keyboardAtStart !== keyboardSequence ||
+      epochAtStart !== epoch ||
+      refreshAtStart !== refreshSequence ||
+      visibilityAtStart !== visibility.version()
+    ) {
+      visibility.close();
+      return;
+    }
+    const refreshRequest = refreshAtStart + 1;
     const stillCurrent = () => {
       const current = assetFavorites.find(
         (item) => assetFavoriteKey(item.rootId, item.relativePath) === key,
