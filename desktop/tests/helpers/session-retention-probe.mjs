@@ -36,14 +36,8 @@ async function probe(prepared) {
     CommandSession: TrackedSession,
     validateDocument: core.validate,
   });
-  // This bridge retains neither requests nor Sessions.
-  const bridge = {
-    prepareDocument: async () => ({}),
-    assertFresh() {},
-    preparedFonts: () => ({}),
-    activate() {},
-    cancel() {},
-  };
+  // Exercise the production ticket lifecycle without variable font requests.
+  const bridge = core.createVariableDocumentPreparer();
   for (let index = 0; index < switchCount; index++) {
     const target = index % 2 ? 'a' : 'b';
     if (prepared) {
@@ -60,6 +54,7 @@ async function probe(prepared) {
     global.gc();
   }
   const alive = references.filter((reference) => reference.deref() !== undefined).length;
+  bridge.dispose();
   // Access owner after collection so the current Session is intentionally live.
   return {
     prepared,

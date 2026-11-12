@@ -1174,6 +1174,10 @@ test('project identity preflight preserves Text-local character IDs in normal an
     preparedFonts: () => ({}),
     assertFresh() {},
     activate() {},
+    stageActivation() {},
+    assertFreshForPublication() {},
+    publishActivation() {},
+    discardActivation() {},
     cancel() {},
   };
   const token = await owner.prepareCommand(
