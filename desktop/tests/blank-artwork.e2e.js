@@ -22,6 +22,7 @@ const click = async (action, choice = 'discard') => {
     action === 'new' ? await page.evaluate(() => window.nect.commandState.sessionId) : null;
   await activateCommand(page, action);
   if (action === 'new') {
+    await page.locator('.new-project-dialog button[type="submit"]').click();
     // Ordinary New is dirty in these scenarios. Draft-blocked New is exercised
     // separately below and must never open this Save/Discard/Cancel dialog.
     await page.locator(`dialog[open] button[value="${choice}"]`).click();
@@ -332,6 +333,62 @@ try {
       fullPage: true,
     });
   }
+  // New accepts an explicitly confirmed frame and the ordinary browser
+  // Save/Open path retains it; invalid or cancelled input never changes a file.
+  const beforeSize = await projectSnapshot();
+  await activateCommand(page, 'new');
+  const sizeDialog = page.locator('.new-project-dialog[open]'),
+    width = sizeDialog.locator('[name="width"]'),
+    height = sizeDialog.locator('[name="height"]'),
+    create = sizeDialog.locator('button[type="submit"]');
+  for (const value of ['', '0', '-1', '100001']) {
+    await width.fill(value);
+    assert.equal(await create.isDisabled(), true, value);
+    assert.equal(await projectSnapshot(), beforeSize);
+  }
+  await width.fill('100');
+  const widthBox = await width.boundingBox();
+  await page.mouse.move(widthBox.x + 15, widthBox.y + widthBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(widthBox.x + 35, widthBox.y + widthBox.height / 2, { steps: 4 });
+  await page.mouse.up();
+  const scrubbedWidth = Number(await width.inputValue());
+  assert.ok(scrubbedWidth > 100, 'dragging the displayed value adjusts the staged width');
+  await page.mouse.move(widthBox.x + 15, widthBox.y + widthBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(widthBox.x + 45, widthBox.y + widthBox.height / 2, { steps: 4 });
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  assert.equal(Number(await width.inputValue()), scrubbedWidth, 'Escape cancels the active scrub');
+  assert.equal(await sizeDialog.isVisible(), true);
+  await page.mouse.move(widthBox.x + 15, widthBox.y + widthBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(widthBox.x + 45, widthBox.y + widthBox.height / 2, { steps: 4 });
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await page.mouse.up();
+  assert.equal(Number(await width.inputValue()), scrubbedWidth, 'window blur cancels the scrub');
+  await sizeDialog.locator('[data-cancel]').click();
+  assert.equal(await projectSnapshot(), beforeSize);
+  await activateCommand(page, 'new');
+  await width.fill('1250');
+  await height.fill('875');
+  await create.click();
+  await page.locator('dialog[open] button[value="discard"]').click();
+  await page.waitForFunction(() => window.nect.document.width === 1250);
+  assert.equal((await page.evaluate(() => window.nect.document)).height, 875);
+  const sizedFile = await download('save', 'json');
+  assert.deepEqual(
+    [JSON.parse(sizedFile).compositions[0].width, JSON.parse(sizedFile).compositions[0].height],
+    [1250, 875],
+  );
+  await page.reload();
+  await page.waitForFunction(() => !!window.nect);
+  const sizeOpening = page.waitForEvent('filechooser');
+  await activateCommand(page, 'open');
+  await page.locator('dialog[open] button[value="discard"]').click();
+  await (await sizeOpening).setFiles('test-results/workflow-blank-start.json');
+  await page.waitForFunction(() => window.nect.document.width === 1250);
+  assert.equal((await page.evaluate(() => window.nect.document)).height, 875);
   assert.deepEqual(errors, []);
   console.log(
     'PASS blank start: confirmed/cancelled New, exact Undo/Redo, empty selection and no phantom hits, Save/reload/transparent SVG+PNG, every independent tool/Pen, draft preservation, +Blank atomicity/capacity, fixture-only demo compatibility and 1280/1600 layout',
