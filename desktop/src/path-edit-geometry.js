@@ -6,6 +6,8 @@ const clone = (value) => structuredClone(value);
 function assertValue(type, value) {
   if (type === 'Vector2' && !isVector2(value)) throw Error('Expected Vector2');
 }
+// Normalize tiny curves before finding their arc-length parameter, then use it
+// to take the exact subcurve from the original geometry.
 function curveTimeAtDistance(curve, distance, length) {
   const scope = getPaperScope();
   if (distance <= 0) return 0;
