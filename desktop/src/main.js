@@ -47,7 +47,7 @@ import { formatParameterResult } from './parameter-result-format.js';
 import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
 import { initialLayerId } from './initial-layer.js';
-import { planLayerFolderMove } from './layer-folders.js';
+import { planLayerFolderMove, planLayerFolderRemoval } from './layer-folders.js';
 import { hasDotControls } from './dither-controls.js';
 import { repeaterControls } from './repeater.js';
 import { angleDialPointer, advanceAngleDial } from './repeater-angle-dial.js';
@@ -10063,7 +10063,7 @@ function compositionActionBusy(
   );
 }
 
-function moveSelectionToFolder(folderId) {
+function moveSelectionForFolder(folderId, out = false) {
   if (compositionActionBusy())
     throw Error('Finish or cancel the current edit before moving Layers');
   const owner = session,
@@ -10074,7 +10074,8 @@ function moveSelectionToFolder(folderId) {
     selectedIds = [...artworkSelection],
     activeTarget = artworkTarget,
     payload = { folderId, layerIds: selectedIds },
-    initial = planLayerFolderMove(history.doc, payload);
+    plan = out ? planLayerFolderRemoval : planLayerFolderMove,
+    initial = plan(history.doc, payload);
   const assertCurrent = () => {
     if (
       session !== owner ||
@@ -10093,7 +10094,7 @@ function moveSelectionToFolder(folderId) {
     assertCurrent();
     if (compositionActionBusy(dialog)) throw Error('Finish or cancel the current edit first.');
     assertCurrent();
-    const currentPlan = planLayerFolderMove(history.doc, payload);
+    const currentPlan = plan(history.doc, payload);
     if (
       currentPlan.orderChanged !== initial.orderChanged ||
       currentPlan.paintOrder.some((id, index) => id !== initial.paintOrder[index])
@@ -10103,7 +10104,7 @@ function moveSelectionToFolder(folderId) {
     const before = history.entryToken;
     const result = owner.dispatch({
       ...envelope,
-      type: 'move-layers-to-folder',
+      type: out ? 'remove-layers-from-folder' : 'move-layers-to-folder',
       payload: { ...payload, expectedPaintOrder: initial.paintOrder },
     });
     if (result.changed) rememberViewNeutralHistory(before, history.entryToken);
@@ -10114,7 +10115,7 @@ function moveSelectionToFolder(folderId) {
     if (result.changed) {
       render();
       updateDocumentStatus();
-      notify('Layers moved to Folder');
+      notify(out ? 'Layers moved out of Folder' : 'Layers moved to Folder');
     }
     return;
   }
@@ -10140,7 +10141,9 @@ function moveSelectionToFolder(folderId) {
   dialog.setAttribute('aria-labelledby', 'layer-folder-move-heading');
   dialog.innerHTML =
     '<form><h3 id="layer-folder-move-heading"></h3><p>Overlapping artwork may look different.</p><div class="layer-folder-orders"><section><h4>Current order</h4><ol aria-label="Current Layer order, front to back" data-current-order></ol></section><section><h4>New order</h4><ol aria-label="New Layer order, front to back" data-new-order></ol></section></div><small>Front to back</small><output role="alert"></output><footer><button type="button" data-cancel>Cancel</button><button type="submit">Move Layers</button></footer></form>';
-  dialog.querySelector('h3').textContent = `Move to ${target.name}?`;
+  dialog.querySelector('h3').textContent = out
+    ? `Move Layers out of ${target.name}?`
+    : `Move to ${target.name}?`;
   const appendOrder = (list, ids) => {
     for (const id of [...ids].reverse()) {
       const layer = byId.get(id),
@@ -10180,7 +10183,7 @@ function moveSelectionToFolder(folderId) {
     if (committed) {
       render();
       updateDocumentStatus();
-      notify('Layers moved to Folder');
+      notify(out ? 'Layers moved out of Folder' : 'Layers moved to Folder');
     }
     if (session !== owner || documents.generation !== generation) return;
     if (!committed) {
@@ -10195,7 +10198,7 @@ function moveSelectionToFolder(folderId) {
     );
     (committed
       ? folder?.querySelector('[data-folder-name]')
-      : folder?.querySelector('[data-folder-add]')
+      : folder?.querySelector(out ? '[data-folder-out]' : '[data-folder-add]')
     )?.focus({ preventScroll: true });
   }
   function closeDialog() {
@@ -10238,7 +10241,7 @@ document.addEventListener(
   'pointerdown',
   (event) => {
     if (!app.contains(event.target)) return;
-    if (event.target.closest?.('[data-folder-add]') && compositionActionBusy()) {
+    if (event.target.closest?.('[data-folder-add], [data-folder-out]') && compositionActionBusy()) {
       event.preventDefault();
       event.stopPropagation();
       notify('Finish or cancel the current edit before moving Layers', true);
@@ -10817,16 +10820,16 @@ app.addEventListener('click', async (e) => {
   }
   if (d.folderAdd !== undefined || d.folderOut !== undefined || d.folderDissolve !== undefined) {
     if (b.disabled || deletionBusy() || variableAction) return;
-    if (d.folderAdd !== undefined) {
+    if (d.folderAdd !== undefined || d.folderOut !== undefined) {
       try {
-        moveSelectionToFolder(d.folderAdd);
+        moveSelectionForFolder(d.folderAdd ?? d.folderOut, d.folderOut !== undefined);
       } catch (error) {
         notify(error.message, true);
       }
       return;
     }
-    const folderId = d.folderAdd ?? d.folderOut ?? d.folderDissolve;
-    const type = d.folderOut !== undefined ? 'remove-layers-from-folder' : 'dissolve-layer-folder';
+    const folderId = d.folderDissolve;
+    const type = 'dissolve-layer-folder';
     commandChange(
       type,
       { folderId, layerIds: [...artworkSelection] },

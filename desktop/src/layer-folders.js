@@ -180,8 +180,7 @@ export function planLayerFolderMove(doc, { folderId, layerIds }) {
   };
 }
 
-export function moveLayersToFolder(doc, payload) {
-  const plan = planLayerFolderMove(doc, payload);
+function applyLayerFolderPlan(doc, payload, plan) {
   if (
     (plan.orderChanged || payload.expectedPaintOrder !== undefined) &&
     (!Array.isArray(payload.expectedPaintOrder) ||
@@ -200,19 +199,35 @@ export function moveLayersToFolder(doc, payload) {
   return { folderId: payload.folderId, orderChanged: plan.orderChanged };
 }
 
-export function removeLayersFromFolder(doc, { folderId, layerIds }) {
-  const folder = findFolder(doc, folderId);
-  if (!Array.isArray(layerIds) || !layerIds.length || new Set(layerIds).size !== layerIds.length)
-    throw Error('Select distinct Folder Layers');
-  const wanted = new Set(layerIds),
+export function moveLayersToFolder(doc, payload) {
+  return applyLayerFolderPlan(doc, payload, planLayerFolderMove(doc, payload));
+}
+
+export function planLayerFolderRemoval(doc, { folderId, layerIds }) {
+  const folder = findFolder(doc, folderId),
+    selected = selectedLayers(doc, layerIds);
+  if (!selected.length) throw Error('Select Folder Layers to move out');
+  const wanted = new Set(selected.map((layer) => layer.id)),
     members = new Set(folder.members.map((member) => member.layerId));
   if (layerIds.some((id) => !members.has(id))) throw Error('Choose Layers in this Folder');
-  if (doc.layers.some((layer) => wanted.has(layer.id) && layer.locked))
-    throw Error('Unlock selected Layers first');
-  const remaining = doc.layers.filter((layer) => members.has(layer.id) && !wanted.has(layer.id));
-  if (!contiguous(doc, remaining)) throw Error('Move Layers from the edge of the Folder');
-  folder.members = remaining.map(({ id }) => ({ layerId: id }));
-  return { folderId };
+  const survivors = doc.layers.filter((layer) => members.has(layer.id) && !wanted.has(layer.id));
+  let layers = doc.layers;
+  if (!contiguous(doc, survivors)) {
+    const remaining = doc.layers.filter((layer) => !wanted.has(layer.id));
+    const survivorIds = new Set(survivors.map((layer) => layer.id));
+    const insertAt = remaining.findLastIndex((layer) => survivorIds.has(layer.id)) + 1;
+    layers = [...remaining.slice(0, insertAt), ...selected, ...remaining.slice(insertAt)];
+  }
+  const paintOrder = layers.map(({ id }) => id);
+  return {
+    paintOrder,
+    orderChanged: paintOrder.some((id, index) => id !== doc.layers[index].id),
+    members: [{ folderId, layerIds: survivors.map(({ id }) => id) }],
+  };
+}
+
+export function removeLayersFromFolder(doc, payload) {
+  return applyLayerFolderPlan(doc, payload, planLayerFolderRemoval(doc, payload));
 }
 
 export function dissolveLayerFolder(doc, { folderId }) {
