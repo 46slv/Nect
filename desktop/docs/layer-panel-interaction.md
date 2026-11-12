@@ -6,6 +6,7 @@
 - Drag the Layer name or row padding to the line above/below another row. A move commits one `reorder-layer` history command. The list remains front-to-back; authored records and SVG painting remain back-to-front. IDs, graph references, locks, and assets remain unchanged.
 - `Ctrl/Cmd+C` stores selected layer IDs in an in-document clipboard. It never writes to the OS clipboard.
 - `Ctrl/Cmd+V` duplicates the stored layer through the existing whole-artwork duplication path, including fresh IDs and one Undo.
+- Copy belongs to its original Project, Composition, and Layer. Replacing the Project clears it. Removing its source suspends Paste; an Undo to the exact earlier state restores it. A different Layer that reuses an ID never becomes the copied source.
 - `Ctrl/Cmd+D` duplicates the focused layer through the same path.
 - Text inputs, textareas, selects, dialogs, IME composition, node shortcuts, and graph focus retain their existing behavior.
 
