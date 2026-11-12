@@ -462,14 +462,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Toggle',
-    categoryId: 'value',
-    labelJa: '切り替え',
-    aliases: ['切り替え', '真偽'],
-    description: '切り替え 真偽',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Null',
     categoryId: 'value',
     labelJa: '基準点',

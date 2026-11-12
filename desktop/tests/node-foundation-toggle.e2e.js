@@ -87,6 +87,10 @@ try {
     await page.evaluate((nodeId) => window.nect.evaluate().run(nodeId), targetId),
     false,
   );
+  assert.equal(await page.locator('.graph .wire').count(), 1);
+  await page.screenshot({
+    path: `test-results/node-foundation-toggle-wire-${process.env.EVIDENCE_LABEL || 'current'}.png`,
+  });
   await page.locator('[data-action="undo"]').click();
   assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), beforeConnect);
   await page.locator('[data-action="redo"]').click();

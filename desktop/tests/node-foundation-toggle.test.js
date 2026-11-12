@@ -16,6 +16,8 @@ import {
 } from '../src/core.js';
 import { createNodeRegistry, parseNodeDeclaration } from '../src/node-foundation.js';
 import { nectNodeHost } from '../src/nect-node-host.js';
+import { builtinManifest } from '../src/builtin-node-manifest.js';
+import { builtinNodeRegistry } from '../src/builtin-node-registry.js';
 import { toggleDeclaration } from '../src/toggle-node-declaration.js';
 import { evaluateValueSource } from '../src/value-source-binding.js';
 import { nodeCatalog } from '../src/node-catalog.js';
@@ -28,6 +30,21 @@ import {
 import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
 
 const bindings = () => new Map([['builtin.read-value.v1', { evaluate: evaluateValueSource }]]);
+
+test('production Toggle resolves through the shared registered value binding', () => {
+  const registered = builtinNodeRegistry.get('Toggle'),
+    manifest = builtinManifest.find((row) => row.declaration.typeId === 'Toggle');
+  assert.ok(registered);
+  assert.ok(manifest);
+  assert.equal(manifest.binding.evaluate, evaluateValueSource);
+  assert.equal(registered.declaration.implementationId, 'builtin.read-value.v1');
+  assert.deepEqual(registered.declaration, toggleDeclaration);
+  assert.ok(Object.isFrozen(registered.declaration));
+  assert.equal(
+    registered.evaluate('subtract', () => false),
+    false,
+  );
+});
 
 test('Boolean type and Toggle declaration resolve as immutable trusted data', () => {
   const parsed = parseNodeDeclaration(JSON.stringify(toggleDeclaration));

@@ -691,7 +691,6 @@ const legacyDefinitions = {
     points: p('Path', null),
     alignTangent: p('Boolean', false),
   },
-  Toggle: { value: p('Boolean', true) },
   Color: { value: p('Color', { hex: '#36434e', alpha: 1 }) },
   Null: { position: p('Vector2', [300, 250]) },
   Reference: {},
@@ -1080,11 +1079,7 @@ export function outputType(n, port) {
   )
     return 'Image';
   if (n.type === 'Mask') return 'PaintedPath';
-  return ['Null', 'Reference', 'Vector Transform'].includes(n.type)
-    ? 'Vector2'
-    : n.type === 'Toggle'
-      ? 'Boolean'
-      : 'Path';
+  return ['Null', 'Reference', 'Vector Transform'].includes(n.type) ? 'Vector2' : 'Path';
 }
 // Deliberate identity contracts. Never guess the first socket of a new node type.
 const bypassInputs = Object.freeze({
@@ -3792,7 +3787,7 @@ export function evaluate(
         result = clone(run(n.reference.nodeId, referencePort(n.reference)));
         assertValue('Vector2', result);
       } else if (positionOutput || n.type === 'Null') result = read('position');
-      else if (['Toggle', 'Color'].includes(n.type)) result = read('value');
+      else if (n.type === 'Color') result = read('value');
       else if (n.type === 'Vector Transform')
         result = transformVector(transformValues(n, read), read('vector'));
       else if (builtinNodeRegistry.get(n.type)) {
