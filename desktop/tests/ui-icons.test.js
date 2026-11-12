@@ -13,6 +13,7 @@ test('workspace symbols are unique, font-independent, decorative SVGs', () => {
     'Star',
     'Text',
     'assets',
+    'effects',
     'undo',
     'redo',
     'expression',
