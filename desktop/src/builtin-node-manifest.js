@@ -41,6 +41,8 @@ import { polarTransformDeclaration } from './polar-transform-declaration.js';
 import { evaluatePolarTransform } from './polar-transform-binding.js';
 import { smoothPathDeclaration } from './smooth-path-declaration.js';
 import { evaluateSmoothPath } from './smooth-path-binding.js';
+import { roughenDeclaration } from './roughen-node-declaration.js';
+import { evaluateRoughen } from './roughen-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -108,4 +110,5 @@ export const builtinManifest = Object.freeze([
     'Vector Transform',
     'Corner Round',
   ),
+  entry(roughenDeclaration, { evaluate: evaluateRoughen }, 'Subdivide Path', 'Pucker & Bloat'),
 ]);
