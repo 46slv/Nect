@@ -24,6 +24,8 @@ function exactKeys(value, expected, what) {
 function assertTransformParameters(params) {
   // Use the same affine checks as the existing Transform evaluator, including
   // combinations of finite inputs whose resulting matrix would overflow.
+  // A finite matrix alone does not validate a particular Path; Session apply
+  // and edits must separately evaluate that Path before an atomic commit.
   transformValues({ params }, (key) => params[key]);
 }
 
