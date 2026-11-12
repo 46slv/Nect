@@ -1,8 +1,10 @@
 import { validateColorSlots, validateColorSlotBinding } from './color-slots.js';
 import { validateLayerFolders } from './layer-folders.js';
 import {
+  assertMacroCandidateEnvelope,
   assertMacroProjectDefinitionTransition,
   assertMacroProjectReferences,
+  assertNoMacroCandidateJsonCallbacks,
 } from './macro-project.js';
 import {
   ARTWORK_REFERENCE_SCHEMA_VERSION,
@@ -562,7 +564,10 @@ export function validateCompositionProject(project) {
 // Prototype admission for a prospective Macro-enabled Project. The existing
 // codec deliberately does not infer this contract from an unknown root field.
 export function validateMacroProjectCandidate(project) {
-  validateCompositionProject(project);
+  assertMacroCandidateEnvelope(project);
+  assertJsonTree(project);
+  assertNoMacroCandidateJsonCallbacks(project);
+  assertCompositionProjectFields(project);
   assertMacroProjectReferences(project);
   return project;
 }
