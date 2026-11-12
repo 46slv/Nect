@@ -171,7 +171,6 @@ import {
   hasRepeaterStrokeAuthorship,
   assertRepeaterRoute,
 } from './repeater.js';
-import { setClosureGeometry } from './set-closure-geometry.js';
 import { instancePointsGeometry } from './instance-points-geometry.js';
 import { sampleLuminanceGrid } from './luminance-field.js';
 import { sampleImageLuminanceGrid } from './image-luminance-field.js';
@@ -580,7 +579,6 @@ const legacyDefinitions = {
     path: p('Path', null),
     start: p('Scalar', 0),
   },
-  'Set Closure': { path: p('Path', null), closed: p('Boolean', true) },
   'Subdivide Path': { path: p('Path', null), segments: p('Scalar', 2) },
   'Resample Path': {
     path: p('Path', null),
@@ -720,7 +718,6 @@ const legacyDefinitions = {
     letterSpacing: p('Scalar', 0),
     lineSpacing: p('Scalar', 1.2),
   },
-  'Text to Path': { path: p('Path', null) },
   'Imported Path': {},
 };
 export const definitions = Object.fromEntries(
@@ -1033,7 +1030,6 @@ const bypassInputs = Object.freeze({
   'Resample Path': 'path',
   'Trim Path': 'path',
   'Set Path Start': 'path',
-  'Set Closure': 'path',
   'Subdivide Path': 'path',
   'Dash Path': 'path',
   'Vector Transform': 'vector',
@@ -1043,7 +1039,6 @@ const bypassInputs = Object.freeze({
   'Instance on Points': 'path',
   'Luminance Instances': 'motif',
   'Convert to Path': 'path',
-  'Text to Path': 'path',
   Fill: 'path',
   'Linear Gradient Fill': 'path',
   'Radial Gradient Fill': 'path',
@@ -3700,19 +3695,26 @@ export function evaluate(
         const registered = builtinNodeRegistry.get(n.type);
         const nodeId = n.id;
         const warn = (message) => warnings.push(`${n.name}: ${message}`);
+        const identity = Object.freeze({
+          provenance: (currentEra) => provenance(nodeId, undefined, currentEra),
+          fingerprint: evaluatedFingerprint,
+          setFingerprint: setEvaluationFingerprint,
+        });
         const shape = registered.hasShape ? registered.snapshot(n) : undefined;
         const context = shape
           ? Object.freeze({
               nodeId,
               shape,
               warn,
+              cloneEvaluated,
+              identity,
               paintedGroup: (inputs) => {
                 const painted = evaluatedPaintedGroup(inputs, { prefix: nodeId });
                 setEvaluationFingerprint(painted, () => [nodeId, inputs]);
                 return painted;
               },
             })
-          : Object.freeze({ nodeId, warn });
+          : Object.freeze({ nodeId, warn, cloneEvaluated, identity });
         result = registered.evaluate(n.operation, read, context);
         assertValue(registered.interface(n.operation, shape).resultType, result);
       } else if (n.type === 'Polygon' || n.type === 'Star') {
@@ -3991,23 +3993,6 @@ export function evaluate(
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Set Closure') {
-        const source = read('path'),
-          closed = read('closed');
-        result = setClosureGeometry(source, { closed, prefix: fingerprint(n.id) });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Set Closure; edit the upstream Text',
-        );
-        result.unstable = true;
-        setEvaluationFingerprint(result, (currentEra) => [
-          provenance(n.id, undefined, currentEra),
-          closed,
-          evaluatedFingerprint(source, currentEra) || signature(source),
-          signature(result),
-        ]);
       } else if (n.type === 'Subdivide Path') {
         const source = read('path');
         result = subdividePathGeometry(source, {
