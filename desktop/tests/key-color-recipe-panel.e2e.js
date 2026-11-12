@@ -1516,7 +1516,7 @@ try {
   );
   copyFixture.colorSlots.push({
     id: 'third',
-    name: '…mant · Same name',
+    name: '…mant  · Same name',
     value: { hex: '#00Ff00', alpha: 0.5 },
   });
   await load(copyFixture);
@@ -1535,9 +1535,7 @@ try {
   const savedSelect = page.locator('[data-key-color-copy-saved]');
   const savedOptions = await savedSelect
     .locator('option')
-    .evaluateAll((options) =>
-      options.map(({ value, textContent }) => ({ value, text: textContent })),
-    );
+    .evaluateAll((options) => options.map(({ value, label }) => ({ value, text: label })));
   assert.deepEqual(
     savedOptions.map(({ value }) => value),
     ['', 'dormant', 'other', 'third'],
@@ -1705,9 +1703,7 @@ try {
   assert.equal(narrowCopy, true, 'long source names do not overflow the C1 fieldset');
   const narrowLabels = await savedSelect
     .locator('option')
-    .evaluateAll((options) =>
-      options.map(({ value, textContent }) => ({ value, text: textContent })),
-    );
+    .evaluateAll((options) => options.map(({ value, label }) => ({ value, text: label })));
   assert.notEqual(
     narrowLabels.find(({ value }) => value === 'dormant').text.split(' · ')[0],
     narrowLabels.find(({ value }) => value === 'third').text.split(' · ')[0],

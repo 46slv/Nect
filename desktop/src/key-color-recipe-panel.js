@@ -903,7 +903,13 @@ export function createKeyColorRecipePanel({
     // A user name can itself look like the ID prefix moved above. If that
     // creates a collision, put unique IDs first for every candidate so the
     // distinction remains visible even when a long option is clipped.
-    const visibleLabels = choices.map(({ visible }) => visible.normalize('NFC'));
+    // Native <option> labels collapse ASCII whitespace before display.
+    const visibleLabels = choices.map(({ visible }) =>
+      visible
+        .replace(/[\t\n\f\r ]+/g, ' ')
+        .trim()
+        .normalize('NFC'),
+    );
     const identityLabels =
       new Set(visibleLabels).size === choices.length
         ? null
