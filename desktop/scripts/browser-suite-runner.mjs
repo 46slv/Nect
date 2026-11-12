@@ -118,6 +118,8 @@ export const browserTestFiles = Object.freeze([
   'tests/variable-composition-switch.e2e.js',
   'tests/close-recovery-race.e2e.js',
   'tests/node-clipboard.e2e.js',
+  'tests/layer-clipboard-owner.e2e.js',
+  'tests/composition-viewer-state.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
