@@ -157,7 +157,6 @@ import { validateInstancePath } from './instance-points-geometry.js';
 import { autoHandlesGeometry } from './auto-handles-geometry.js';
 import { taperGeometry } from './taper-geometry.js';
 import { bendGeometry } from './bend-geometry.js';
-import { twistGeometry } from './twist-geometry.js';
 import { polarSettings, polarTransformGeometry } from './polar-transform.js';
 import { dashIntervals } from './dash-intervals.js';
 import { smoothGeometry } from './smooth-geometry.js';
@@ -597,7 +596,6 @@ const legacyDefinitions = {
   'Set Closure': { path: p('Path', null), closed: p('Boolean', true) },
   Taper: { path: p('Path', null), amount: p('Scalar', 0) },
   'Bend Points': { path: p('Path', null), angle: p('Scalar', 0) },
-  'Twist Points': { path: p('Path', null), angle: p('Scalar', 0) },
   'Polar Transform': {
     path: p('Path', null),
     origin: p('Vector2', [0, 0]),
@@ -1086,7 +1084,6 @@ const bypassInputs = Object.freeze({
   'Subdivide Path': 'path',
   Taper: 'path',
   'Bend Points': 'path',
-  'Twist Points': 'path',
   'Polar Transform': 'path',
   'Auto Handles': 'path',
   'Dash Path': 'path',
@@ -4125,20 +4122,6 @@ export function evaluate(
           n.id,
           null,
           'Canvas character editing is unavailable through Polar Transform; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Twist Points') {
-        const source = read('path');
-        result = twistGeometry(source, {
-          angle: read('angle'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Twist Points; edit the source Text',
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));

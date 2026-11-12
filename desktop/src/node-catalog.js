@@ -286,14 +286,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Twist Points',
-    categoryId: 'transform',
-    labelJa: 'ねじる',
-    aliases: ['ねじる'],
-    description: 'ねじる',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Roughen',
     categoryId: 'transform',
     labelJa: 'ラフ',
