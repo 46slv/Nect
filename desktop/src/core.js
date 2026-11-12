@@ -520,7 +520,6 @@ const legacyDefinitions = {
     softness: p('Scalar', 0.05),
   },
   Mask: { path: p('PaintedPath', null), mask: p('Path', null), invert: p('Boolean', false) },
-  Ellipse: { center: p('Vector2', [350, 250]), size: p('Vector2', [240, 160]) },
   Rectangle: { center: p('Vector2', [460, 250]), size: p('Vector2', [180, 220]) },
   Polygon: {
     center: p('Vector2', [350, 250]),
