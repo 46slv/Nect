@@ -1512,7 +1512,7 @@ let history = session.historyView,
   selected = null,
   artworkTarget = null,
   artworkSelection = new Set(),
-  layerClipboard = createLayerClipboardOwner(),
+  layerClipboard = createLayerClipboardOwner({ currentGeneration: () => documents.generation }),
   selectedNodePreset = null,
   tool = 'select',
   textTools = null,
@@ -8977,21 +8977,21 @@ function duplicateArtwork(layerId, selectionKey) {
     notify(error.message, true);
   }
 }
-function duplicateFocusedLayer(layerId) {
+function duplicateFocusedLayer(layerId, clipboardToken = null) {
   if (deletionBusy()) return;
   try {
     const priorUI = selectionSnapshot(true);
     const created = session.dispatch({
       ...session.state,
-      type: 'duplicate-layer',
-      payload: { layerId },
+      type: clipboardToken ? 'paste-layer-snapshot' : 'duplicate-layer',
+      payload: clipboardToken ? { token: clipboardToken } : { layerId },
     });
     activeLayer = created.layerId;
     artworkTarget = created.layerId;
     artworkSelection = new Set([created.layerId]);
     selectionHistory.set(history.past.at(-1), priorUI);
     selectionHistory.set(history.doc, selectionSnapshot(true));
-    notify('Layer duplicated');
+    notify(clipboardToken ? 'Layer pasted' : 'Layer duplicated');
     render();
   } catch (error) {
     notify(error.message, true);
@@ -18324,26 +18324,33 @@ document.addEventListener('keydown', (event) => {
   const layerId = row.dataset.layer;
   if (event.key.toLowerCase() === 'c') {
     if (!session.hasLayer(session.activeCompositionId, layerId)) return;
-    layerClipboard.copy({
-      owner: session,
-      generation: documents.generation,
-      compositionId: session.activeCompositionId,
-      layerId,
-    });
     event.preventDefault();
-    notify('Layer copied');
+    try {
+      if (compositionActionBusy()) throw Error('Finish or cancel the current edit before copying');
+      layerClipboard.copy({
+        owner: session,
+        generation: documents.generation,
+        compositionId: session.activeCompositionId,
+        layerId,
+      });
+      notify('Layer copied');
+    } catch (error) {
+      notify(error.message, true);
+    }
   } else if (event.key.toLowerCase() === 'v' && layerClipboard.hasCopy) {
     event.preventDefault();
-    const sourceId = layerClipboard.source({
+    const context = {
       owner: session,
       generation: documents.generation,
       compositionId: session.activeCompositionId,
-    });
-    if (!sourceId) {
+    };
+    const sourceId = layerClipboard.source(context),
+      token = layerClipboard.token(context);
+    if (!sourceId || !token) {
       notify('Copied Layer is unavailable in this Composition', true);
       return;
     }
-    duplicateFocusedLayer(sourceId);
+    duplicateFocusedLayer(sourceId, token);
   } else if (event.key.toLowerCase() === 'd') {
     event.preventDefault();
     duplicateFocusedLayer(layerId);

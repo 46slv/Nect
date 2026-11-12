@@ -2417,7 +2417,7 @@ function colorArtworkClipboardReferences(nodes, schemaVersion) {
 // Clipboard references preserve their original foreign targets only while each
 // target remains present. Once absent, a later reuse of the same ID is not proof
 // that it is the object copied by the user.
-function artworkClipboardTargetsIntact(doc, clipboard) {
+export function artworkClipboardTargetsIntact(doc, clipboard) {
   if (!doc.layers.some((layer) => layer.id === clipboard.sourceLayerId)) return false;
   const layers = new Map(doc.layers.map((layer) => [layer.id, layer])),
     indexes = new Map();
@@ -7115,6 +7115,7 @@ export class CommandSession {
   #nodeClipboardOwner;
   #beforeCandidateCommit;
   #captureArtworkMoveAuthority;
+  #resolveLayerClipboardSnapshot;
   #retainColorClipboardForProjectContext;
   #projectContextOwner = { epoch: 0, members: new WeakSet() };
   constructor(
@@ -7126,6 +7127,9 @@ export class CommandSession {
       retainHistory = true,
       beforeCandidateCommit = null,
       captureArtworkMoveAuthority = () => () => {},
+      resolveLayerClipboardSnapshot = () => {
+        throw Error('Layer clipboard is unavailable');
+      },
       retainColorClipboardForProjectContext = null,
       nodeClipboardOwner = null,
       nodeClipboardFrom = null,
@@ -7143,6 +7147,8 @@ export class CommandSession {
     if (beforeCandidateCommit !== null && typeof beforeCandidateCommit !== 'function')
       throw Error('Invalid candidate preflight');
     if (typeof captureArtworkMoveAuthority !== 'function') throw Error('Invalid artwork authority');
+    if (typeof resolveLayerClipboardSnapshot !== 'function')
+      throw Error('Invalid Layer clipboard authority');
     if (
       retainColorClipboardForProjectContext !== null &&
       typeof retainColorClipboardForProjectContext !== 'function'
@@ -7158,6 +7164,7 @@ export class CommandSession {
     this.#onCommitted = onCommitted;
     this.#beforeCandidateCommit = beforeCandidateCommit;
     this.#captureArtworkMoveAuthority = captureArtworkMoveAuthority;
+    this.#resolveLayerClipboardSnapshot = resolveLayerClipboardSnapshot;
     this.#retainColorClipboardForProjectContext = retainColorClipboardForProjectContext;
     this.id = uid('session');
     if (nodeClipboardFrom) this.#inheritNodeClipboard(nodeClipboardFrom);
@@ -8213,6 +8220,7 @@ export class CommandSession {
         this.#gesture?.target.kind === 'artwork-translate');
     const guardedEdit = [
       'paste-nodes',
+      'paste-layer-snapshot',
       'move-layers-to-folder',
       'remove-layers-from-folder',
     ].includes(commandType);
@@ -8238,9 +8246,12 @@ export class CommandSession {
       throw Error('Invalid command payload');
     const guardedEdit = [
       'paste-nodes',
+      'paste-layer-snapshot',
       'move-layers-to-folder',
       'remove-layers-from-folder',
     ].includes(type);
+    const layerClipboardSnapshot =
+      type === 'paste-layer-snapshot' ? this.#resolveLayerClipboardSnapshot(payload.token) : null;
     const assertGuardedLocal = () => {
       if (
         guardedEdit &&
@@ -8251,6 +8262,11 @@ export class CommandSession {
           this.#nodeClipboard !== entry.clipboard)
       )
         throw Error('STALE_REVISION: document changed');
+      if (
+        layerClipboardSnapshot &&
+        this.#resolveLayerClipboardSnapshot(payload.token) !== layerClipboardSnapshot
+      )
+        throw Error('STALE_SESSION: copied Layer changed');
     };
     assertGuardedLocal();
     // These edits invoke external font and precommit hooks before History.
@@ -9428,6 +9444,7 @@ export class CommandSession {
         'reorder-layer',
         'duplicate-artworks',
         'duplicate-layer',
+        'paste-layer-snapshot',
         'adopt-image',
         'translate-artworks',
         'align-artworks',
@@ -9477,6 +9494,14 @@ export class CommandSession {
       } else if (type === 'duplicate-layer') {
         const fonts = resolveFonts(candidate, this.#fonts());
         result = duplicateLayerGeneric(candidate, payload.layerId, { fonts });
+      } else if (type === 'paste-layer-snapshot') {
+        const captured = this.#resolveLayerClipboardSnapshot(payload.token),
+          fonts = resolveFonts(candidate, this.#fonts());
+        result = duplicateLayerGeneric(candidate, captured.layerId, {
+          fonts,
+          snapshot: captured.snapshot,
+          snapshotSchemaVersion: captured.schemaVersion,
+        });
       } else if (
         [
           'translate-artworks',

@@ -13,6 +13,7 @@ import {
 import { keyColorRecipeInitializationSlotIds } from './key-color-recipe-document.js';
 import { assertColorSlotUnused } from './color-slots.js';
 import { prepareProjectCompositionsImport } from './composition-project-import.js';
+import { resolveLayerClipboardToken } from './layer-clipboard-owner.js';
 import {
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
@@ -216,6 +217,7 @@ export class CompositionSessionOwner {
   #validateDocument;
   #bindProjectDocumentContext;
   #assertProjectReferenceTransition;
+  #hasClipboardArtworkTargets;
   #normalizedProjectSourceForDocument;
   #fonts;
   #busy;
@@ -237,6 +239,7 @@ export class CompositionSessionOwner {
       validateDocument,
       bindProjectDocumentContext = (doc) => doc,
       assertProjectReferenceTransition = () => {},
+      hasClipboardArtworkTargets = () => false,
       normalizedProjectSourceForDocument = null,
       activeCompositionId,
       fonts = () => ({}),
@@ -250,6 +253,7 @@ export class CompositionSessionOwner {
       typeof blankDocument !== 'function' ||
       typeof cloneDocument !== 'function' ||
       typeof sameDocument !== 'function' ||
+      typeof hasClipboardArtworkTargets !== 'function' ||
       typeof uid !== 'function' ||
       typeof validateDocument !== 'function'
     )
@@ -264,6 +268,7 @@ export class CompositionSessionOwner {
     this.#validateDocument = validateDocument;
     this.#bindProjectDocumentContext = bindProjectDocumentContext;
     this.#assertProjectReferenceTransition = assertProjectReferenceTransition;
+    this.#hasClipboardArtworkTargets = hasClipboardArtworkTargets;
     this.#normalizedProjectSourceForDocument = normalizedProjectSourceForDocument;
     this.#assertProjectReferenceTransition(project, project, fonts());
     this.#history = new this.#History(project);
@@ -362,6 +367,8 @@ export class CompositionSessionOwner {
       fonts,
       busy: this.#busy,
       retainHistory: false,
+      resolveLayerClipboardSnapshot: (token) =>
+        resolveLayerClipboardToken(token, this, compositionId),
       nodeClipboardOwner: this.#nodeClipboardOwner,
       nodeClipboardFrom,
       retainColorClipboardForProjectContext: (nextProject, nextCompositionId) =>
@@ -617,6 +624,29 @@ export class CompositionSessionOwner {
         composition.id === compositionId &&
         composition.layers.some((layer) => layer.id === layerId),
     );
+  }
+
+  hasLayerClipboardResources(compositionId, resources) {
+    const project = this.#history.doc,
+      composition = project.compositions.find((item) => item.id === compositionId);
+    if (!composition) return false;
+    if (resources.layerIds.some((id) => !composition.layers.some((layer) => layer.id === id)))
+      return false;
+    if (resources.slotIds.some((id) => !project.colorSlots?.some((slot) => slot.id === id)))
+      return false;
+    if (
+      resources.artworkReferences.length &&
+      !this.#hasClipboardArtworkTargets(composition, resources)
+    )
+      return false;
+    if (resources.fonts.some(([id, data]) => !data || project.fontAssets?.[id]?.data !== data))
+      return false;
+    return !resources.images.some(([id, data, width, height]) => {
+      const asset = project.imageAssets?.[id];
+      return (
+        !data || !asset || asset.data !== data || asset.width !== width || asset.height !== height
+      );
+    });
   }
 
   projectSnapshot() {
@@ -1001,12 +1031,27 @@ export class CompositionSessionOwner {
         session.gestureState?.kind === 'artwork-translate');
     const guardedTransfer =
       artworkMove ||
-      ['paste-nodes', 'move-layers-to-folder', 'remove-layers-from-folder'].includes(command?.type);
+      [
+        'paste-nodes',
+        'paste-layer-snapshot',
+        'move-layers-to-folder',
+        'remove-layers-from-folder',
+      ].includes(command?.type);
+    const layerClipboardSnapshot =
+      command?.type === 'paste-layer-snapshot'
+        ? resolveLayerClipboardToken(command.payload?.token, this, compositionId)
+        : null;
     const assertOwnerCurrent = () => {
       if (this.#session !== session || this.#activeCompositionId !== compositionId)
         throw Error('STALE_SESSION: document changed');
       if (this.#history.revision !== projectRevision)
         throw Error('STALE_REVISION: document changed');
+      if (
+        layerClipboardSnapshot &&
+        resolveLayerClipboardToken(command.payload?.token, this, compositionId) !==
+          layerClipboardSnapshot
+      )
+        throw Error('STALE_SESSION: copied Layer changed');
     };
     try {
       const result = session.dispatch(command);
