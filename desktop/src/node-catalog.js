@@ -174,14 +174,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Set Closure',
-    categoryId: 'path',
-    labelJa: '開閉',
-    aliases: ['開閉', '閉じる'],
-    description: '開閉 閉じる',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Subdivide Path',
     categoryId: 'path',
     labelJa: '分割',
