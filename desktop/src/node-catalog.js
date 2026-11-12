@@ -278,14 +278,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Bend Points',
-    categoryId: 'transform',
-    labelJa: '曲げる',
-    aliases: ['曲げる'],
-    description: '曲げる',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Roughen',
     categoryId: 'transform',
     labelJa: 'ラフ',
