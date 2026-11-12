@@ -18,6 +18,8 @@ import {
 } from './value-source-declarations.js';
 import { evaluateValueSource } from './value-source-binding.js';
 import { toggleDeclaration } from './toggle-node-declaration.js';
+import { nullPositionDeclaration } from './null-position-declaration.js';
+import { evaluateNullPosition } from './null-position-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -53,4 +55,5 @@ export const builtinManifest = Object.freeze([
     'Reference',
   ),
   entry(toggleDeclaration, { evaluate: evaluateValueSource }, 'Combine Vector', 'Combine Vector'),
+  entry(nullPositionDeclaration, { evaluate: evaluateNullPosition }, 'Vector', 'Toggle'),
 ]);

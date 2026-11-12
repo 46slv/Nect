@@ -701,7 +701,6 @@ const legacyDefinitions = {
     alignTangent: p('Boolean', false),
   },
   Color: { value: p('Color', { hex: '#36434e', alpha: 1 }) },
-  Null: { position: p('Vector2', [300, 250]) },
   Reference: {},
   SVG: { position: p('Vector2', [0, 0]) },
   'Composition Reference': { position: p('Vector2', [0, 0]) },
@@ -1052,7 +1051,7 @@ export function outputPorts(n) {
         { id: undefined, label: 'Path', type: 'Path' },
         { id: 'position', label: 'Position', type: 'Vector2' },
       ]
-    : [{ id: undefined, label: n.type === 'Null' ? 'Position' : '', type: outputType(n) }];
+    : [{ id: undefined, label: '', type: outputType(n) }];
 }
 export function outputType(n, port) {
   if (['Composition Reference', 'SVG'].includes(n.type) || n.paintMode)
@@ -1088,7 +1087,7 @@ export function outputType(n, port) {
   )
     return 'Image';
   if (n.type === 'Mask') return 'PaintedPath';
-  return ['Null', 'Reference', 'Vector Transform'].includes(n.type) ? 'Vector2' : 'Path';
+  return ['Reference', 'Vector Transform'].includes(n.type) ? 'Vector2' : 'Path';
 }
 // Deliberate identity contracts. Never guess the first socket of a new node type.
 const bypassInputs = Object.freeze({
@@ -3795,7 +3794,7 @@ export function evaluate(
       } else if (n.type === 'Reference') {
         result = clone(run(n.reference.nodeId, referencePort(n.reference)));
         assertValue('Vector2', result);
-      } else if (positionOutput || n.type === 'Null') result = read('position');
+      } else if (positionOutput) result = read('position');
       else if (n.type === 'Color') result = read('value');
       else if (n.type === 'Vector Transform')
         result = transformVector(transformValues(n, read), read('vector'));
