@@ -51,12 +51,21 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
   ];
   let readInstalled = async () => staticBytes;
   globalThis.readMixedFont = (id) => readInstalled(id);
+  const writes = [],
+    released = [];
+  let finishOpen;
+  globalThis.variableLifecycleWrite = async ({ contents, operation }) => {
+    writes.push(contents);
+    return { token: 'variable-lifecycle-fixture', path: 'fixture.nect', operation };
+  };
+  globalThis.variableLifecycleOpen = () => new Promise((resolve) => (finishOpen = resolve));
+  globalThis.variableLifecycleRelease = async ({ token }) => released.push(token);
   let source = await fs.readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   source = source
     .replace("import './style.css';", '')
     .replace(
       /import \{[^}]*\} from '.\/storage.js';/,
-      `import { DocumentLifecycle } from '${new URL('../src/document-lifecycle.js', import.meta.url)}'; const releaseProject = async () => {}, writeProject = async () => null, chooseUnsaved = async () => 'cancel', registerClose = async () => {}; const desktop=true, saveFile=async()=>true, openFile=async()=>null, listSystemFonts=async()=>globalThis.mixedFontCatalog, readSystemFont=(id)=>globalThis.readMixedFont(id); const beginRecovery=async()=> 'test-recovery', writeRecovery=async()=>Date.now(), listRecovery=async()=>[], readRecovery=async()=>'', acknowledgeRecovery=async()=>{};`,
+      `import { DocumentLifecycle } from '${new URL('../src/document-lifecycle.js', import.meta.url)}'; const releaseProject = (...args) => globalThis.variableLifecycleRelease(...args), writeProject = (...args) => globalThis.variableLifecycleWrite(...args), chooseUnsaved = async () => 'cancel', registerClose = async () => {}; const desktop=true, saveFile=async()=>true, openFile=()=>globalThis.variableLifecycleOpen(), listSystemFonts=async()=>globalThis.mixedFontCatalog, readSystemFont=(id)=>globalThis.readMixedFont(id); const beginRecovery=async()=> 'test-recovery', writeRecovery=async()=>Date.now(), listRecovery=async()=>[], readRecovery=async()=>'', acknowledgeRecovery=async()=>{};`,
     )
     .replace(
       /from '(.\/[^']+)'/g,
@@ -126,6 +135,59 @@ window.installedPreparationTest = {
   assert.equal(axis.min, '100');
   assert.equal(axis.max, '900');
   assert.equal(axis.value, '400');
+  const save = async () => {
+    const before = writes.length;
+    document.querySelector('[data-action="save"]').click();
+    await wait(() => writes.length === before + 1 && !win.nect.fileState.dirty, 'save');
+  };
+  await save();
+  const preparation = win.installedPreparationTest;
+  const blockedFileActions = async () => {
+    const before = snapshot(),
+      writeCount = writes.length,
+      revision = win.nect.projectRevision;
+    for (const action of ['save', 'new']) {
+      document.querySelector(`[data-action="${action}"]`).click();
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(writes.length, writeCount, `${action} must not write a pre-edit snapshot`);
+      assert.equal(snapshot(), before, `${action} must not replace the pending edit's document`);
+      assert.equal(win.nect.projectRevision, revision);
+      assert.equal(preparation.busy(), true);
+    }
+  };
+  // Hold the real Worker-backed preparation before it publishes either a
+  // preview or a commit. File actions must not discard it or save an old value.
+  document.querySelector('[data-action="open"]').click();
+  await wait(() => typeof finishOpen === 'function', 'held open');
+  preparation.delayNext();
+  axis.value = '700';
+  axis.dispatchEvent(new win.Event('input', { bubbles: true }));
+  await wait(() => !!win.finishInstalledPreparation, 'held axis preview');
+  await blockedFileActions();
+  finishOpen({ binding: { token: 'late-open' }, contents: serialize(doc) });
+  await wait(() => released.includes('late-open'), 'reject and release stale open');
+  assert.equal(snapshot(), imported, 'a late Open cannot replace the pending edit');
+  assert.equal(preparation.busy(), true);
+  win.finishInstalledPreparation();
+  await wait(() => status().includes('axis preview'), 'held preview completes');
+  document.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(snapshot(), imported);
+  delete win.finishInstalledPreparation;
+  preparation.delayNext();
+  axis = document.querySelector('.inspector-body [data-variable-axis="wght"]');
+  axis.value = '700';
+  axis.dispatchEvent(new win.Event('change', { bubbles: true }));
+  await wait(() => !!win.finishInstalledPreparation, 'held axis commit');
+  await blockedFileActions();
+  win.finishInstalledPreparation();
+  await wait(() => current().variation.axes.wght === 700, 'held commit completes');
+  delete win.finishInstalledPreparation;
+  assert.equal(win.nect.fileState.dirty, true);
+  await save();
+  document.querySelector('[data-action="undo"]').click();
+  await wait(() => snapshot() === imported, 'restore saved test fixture');
+  await save();
+  axis = document.querySelector('.inspector-body [data-variable-axis="wght"]');
   axis.value = '700';
   axis.dispatchEvent(new win.Event('input', { bubbles: true }));
   await wait(() => status().includes('axis preview'), 'preview');
@@ -442,7 +504,6 @@ window.installedPreparationTest = {
   // Hold real CommandSession preparation after the installed bytes have loaded.
   // Cancel must release busy immediately; the old token cannot cancel a newer Apply.
   await win.nect.load(imported);
-  const preparation = win.installedPreparationTest;
   const pendingBefore = snapshot(),
     historyBefore = preparation.history();
   preparation.delayNext();
