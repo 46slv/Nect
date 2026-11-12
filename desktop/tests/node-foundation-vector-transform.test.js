@@ -200,3 +200,37 @@ test('optional transform controls remain Session-owned across save and history',
   assert.equal(serialize(reopened), edited);
   assert.deepEqual(evaluate(reopened.layers[0]).run(transform.id), expected);
 });
+
+test('overflow stays out of the evaluation cache and valid controls or bypass recover', () => {
+  const { doc, layer, transform } = fixture(),
+    session = new CommandSession(doc),
+    send = (type, payload = {}) =>
+      session.dispatch({
+        ...session.state,
+        type,
+        payload: { layerId: layer.id, nodeId: transform.id, ...payload },
+      });
+  send('set-parameter', { key: 'scale', value: 2 });
+  send('set-parameter', { key: 'vector', value: [1e308, 1e308] });
+  const authored = serialize(session.snapshot()),
+    overflowLayer = session.snapshot().layers[0],
+    first = evaluate(overflowLayer);
+  assert.throws(() => first.run(transform.id), /Expected Vector2/);
+  assert.equal(first.values.has(transform.id), false);
+  assert.throws(() => first.run(transform.id), /Expected Vector2/);
+  const next = evaluate(overflowLayer);
+  assert.throws(() => next.run(transform.id), /Expected Vector2/);
+  assert.equal(next.values.has(transform.id), false);
+  const reopened = deserialize(authored);
+  assert.equal(serialize(reopened), authored);
+  assert.deepEqual(
+    reopened.layers[0].nodes.find((item) => item.id === transform.id).params.vector.value,
+    [1e308, 1e308],
+  );
+  send('set-parameter', { key: 'scale', value: 1 });
+  assert.deepEqual(evaluate(session.snapshot().layers[0]).run(transform.id), [1e308, 1e308]);
+  send('undo');
+  assert.equal(serialize(session.snapshot()), authored);
+  send('set-node-bypassed', { bypassed: true });
+  assert.deepEqual(evaluate(session.snapshot().layers[0]).run(transform.id), [1e308, 1e308]);
+});
