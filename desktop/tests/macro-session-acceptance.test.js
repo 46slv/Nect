@@ -162,6 +162,31 @@ test('a published override changes the connected output and is one reversible, p
   assertSameArtwork(pathSnapshot(reopened, f.layer.id), edited);
 });
 
+test('artwork Move and Align keep the Macro instance and use the existing terminal Transform', () => {
+  const f = fixture(),
+    { instance } = insert(f),
+    before = pathSnapshot(f.owner, f.layer.id),
+    pastCount = f.owner.historyView.past.length;
+  f.send('translate-artworks', { layerIds: [f.layer.id], delta: [18, -3] });
+  const moved = f.owner.snapshot().layers[0],
+    terminal = moved.nodes.find((item) => item.id === f.transform.id);
+  assert.deepEqual(terminal.params.offset.value, [18, -3]);
+  assert.deepEqual(moved.nodes.find((item) => item.id === instance.id).macro, instance.macro);
+  assert.equal(f.owner.historyView.past.length, pastCount + 1);
+  f.send('undo');
+  assertSameArtwork(pathSnapshot(f.owner, f.layer.id), before);
+  f.send('redo');
+  assert.deepEqual(
+    f.owner.snapshot().layers[0].nodes.find((item) => item.id === f.transform.id).params.offset
+      .value,
+    [18, -3],
+  );
+  f.send('align-artworks', { layerIds: [f.layer.id], action: 'left', reference: 'artboard' });
+  const saved = serializeCompositionProject(f.owner.projectSnapshot()),
+    reopened = createCompositionSessionOwner(deserializeCompositionProject(saved, deserialize));
+  assertSameArtwork(pathSnapshot(reopened, f.layer.id), pathSnapshot(f.owner, f.layer.id));
+});
+
 test('actual connected Path overflow and a stale insertion request preserve Project and Redo', () => {
   const f = fixture(),
     stale = f.request;
