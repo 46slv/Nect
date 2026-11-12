@@ -1,3 +1,5 @@
+import { outputPorts } from './core.js';
+
 function ids(value) {
   if (!Array.isArray(value) && !(value instanceof Set)) return [];
   return [...value].filter((id) => typeof id === 'string');
@@ -26,7 +28,7 @@ function viewerState(value, document, fallback) {
         binding = slot?.binding,
         layer = layers.get(binding?.layerId),
         node = layer?.nodes.find((entry) => entry.id === binding?.nodeId),
-        validBinding = layer && node && typeof binding.port === 'string' && binding.port.length > 0,
+        validBinding = node && outputPorts(node).some((port) => port.id === binding.port),
         view = slot?.view;
       return {
         binding: validBinding ? structuredClone(binding) : null,
