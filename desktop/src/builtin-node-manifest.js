@@ -55,6 +55,22 @@ import { vectorTransformDeclaration } from './vector-transform-declaration.js';
 import { evaluateVectorTransform } from './vector-transform-binding.js';
 import { outputDeclaration } from './output-node-declaration.js';
 import { evaluateOutput } from './output-node-binding.js';
+import { polygonDeclaration } from './polygon-node-declaration.js';
+import { evaluatePolygon } from './polygon-node-binding.js';
+import { starDeclaration } from './star-node-declaration.js';
+import { evaluateStar } from './star-node-binding.js';
+import { circleDeclaration } from './circle-node-declaration.js';
+import { evaluateCircle } from './circle-node-binding.js';
+import { ellipseDeclaration } from './ellipse-node-declaration.js';
+import { evaluateEllipse } from './ellipse-node-binding.js';
+import { rectangleDeclaration } from './rectangle-node-declaration.js';
+import { evaluateRectangle } from './rectangle-node-binding.js';
+import { closedOffsetDeclaration } from './closed-offset-node-declaration.js';
+import { evaluateClosedOffset } from './closed-offset-node-binding.js';
+import { subdividePathDeclaration } from './subdivide-path-declaration.js';
+import { evaluateSubdividePath } from './subdivide-path-binding.js';
+import { resamplePathDeclaration } from './resample-path-declaration.js';
+import { evaluateResamplePath } from './resample-path-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -144,4 +160,22 @@ export const builtinManifest = Object.freeze([
     'Vector Math',
   ),
   entry(outputDeclaration, { evaluate: evaluateOutput }, 'Stroke', null, 'private'),
+  entry(circleDeclaration, { evaluate: evaluateCircle }, 'Mask', 'Mask'),
+  entry(ellipseDeclaration, { evaluate: evaluateEllipse }, 'Circle', 'Circle'),
+  entry(rectangleDeclaration, { evaluate: evaluateRectangle }, 'Ellipse', 'Ellipse'),
+  entry(polygonDeclaration, { evaluate: evaluatePolygon }, 'Rectangle', 'Rectangle'),
+  entry(starDeclaration, { evaluate: evaluateStar }, 'Polygon', 'Polygon'),
+  entry(
+    closedOffsetDeclaration,
+    { evaluate: evaluateClosedOffset },
+    'Convert to Path',
+    'Expand Stroke',
+  ),
+  entry(
+    subdividePathDeclaration,
+    { evaluate: evaluateSubdividePath },
+    'Pucker & Bloat',
+    'Reverse Path',
+  ),
+  entry(resamplePathDeclaration, { evaluate: evaluateResamplePath }, 'Roughen', 'Subdivide Path'),
 ]);
