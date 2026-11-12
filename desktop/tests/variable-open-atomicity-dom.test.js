@@ -278,6 +278,96 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
   );
 
   await t.test(
+    'prepared snapshot History respects a newer selection and rejects stale ownership',
+    async () => {
+      const document = blankDocument(),
+        text = node('Text'),
+        other = blankDocument().layers[0],
+        next = blankDocument();
+      Object.assign(text, {
+        font: asset.id,
+        text: 'AV',
+        variation: { version: 1, fontId: asset.id, axes: {} },
+      });
+      document.fontAssets = { [asset.id]: asset.asset };
+      document.layers[0].nodes.push(text);
+      document.layers[0].nodes[0].params.path.source = text.id;
+      document.layers.push(other);
+      const project = migrateLegacyDocumentToCompositionProject(document),
+        second = migrateLegacyDocumentToCompositionProject(next).compositions[0];
+      second.id = 'snapshot-history-second';
+      project.compositions.push(second);
+      await win.openForTest(project);
+      const root = win.document,
+        waitFor = async (predicate) => {
+          const deadline = Date.now() + 15000;
+          while (!predicate()) {
+            if (Date.now() >= deadline) throw Error('Variable-font test timed out');
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+        },
+        click = (selector) => {
+          const element = root.querySelector(selector);
+          assert.ok(element, selector);
+          element.click();
+        },
+        shortcut = (id, key) => {
+          const button = root.querySelector(`[data-select-layer="${id}"]`);
+          assert.ok(button);
+          button.focus();
+          button.dispatchEvent(
+            new win.KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true }),
+          );
+        };
+      openDOMPanel(root, 'layers');
+      shortcut(document.layers[0].id, 'c');
+      assert.ok(await win.editForTest('set-text-content', { nodeId: text.id, text: 'AWZ' }));
+      const beforePaste = JSON.stringify(win.nect.projectSnapshot());
+      shortcut(document.layers[0].id, 'v');
+      await waitFor(() => !win.variableBusyForTest() && win.nect.document.layers.length === 3);
+      const afterPaste = JSON.stringify(win.nect.projectSnapshot());
+      let gate = gateNextPreparation();
+      click('[data-action="undo"]');
+      await gate.ready;
+      click(`[data-select-layer="${other.id}"]`);
+      assert.equal(win.openStateForTest().activeLayer, other.id);
+      gate.release();
+      await waitFor(
+        () =>
+          !win.variableBusyForTest() && JSON.stringify(win.nect.projectSnapshot()) === beforePaste,
+      );
+      assert.equal(win.openStateForTest().activeLayer, other.id, 'newer selection survives Undo');
+
+      gate = gateNextPreparation();
+      click('[data-action="redo"]');
+      await gate.ready;
+      click('[role="tab"][data-active-composition="snapshot-history-second"]');
+      assert.equal(win.nect.activeCompositionId, project.compositions[0].id);
+      gate.release();
+      await waitFor(
+        () =>
+          !win.variableBusyForTest() && JSON.stringify(win.nect.projectSnapshot()) === afterPaste,
+      );
+      assert.equal(win.nect.activeCompositionId, project.compositions[0].id);
+
+      gate = gateNextPreparation();
+      click('[data-action="undo"]');
+      await gate.ready;
+      const replacement = migrateLegacyDocumentToCompositionProject(blankDocument());
+      await win.openForTest(replacement);
+      const replaced = JSON.stringify(win.nect.projectSnapshot());
+      gate.release();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      assert.equal(
+        JSON.stringify(win.nect.projectSnapshot()),
+        replaced,
+        'old preparation cannot change the replacement',
+      );
+      assert.equal(win.variableBusyForTest(), false);
+    },
+  );
+
+  await t.test(
     'clean Text controls allow first-click Composition switching; changed controls stay put',
     async () => {
       const first = blankDocument(),

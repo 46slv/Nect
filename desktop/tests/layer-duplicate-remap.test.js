@@ -240,6 +240,87 @@ test('Text path snapshot checks the old contour against its independent copied c
   assert.equal(serializeCompositionProject(owner.projectSnapshot()), saved);
 });
 
+for (const mode of ['Text path', 'Path Remap']) {
+  test(`${mode} snapshot resolves a foreign reference back to the current source Layer`, () => {
+    const fonts = { default: parseFont(fontBytes('../public/fonts/DejaVuSans.ttf')) },
+      doc = blankDocument(),
+      source = doc.layers[0],
+      foreign = blankLayer('External'),
+      localValue = node('Value'),
+      foreignValue = node('Value'),
+      path = node(mode === 'Text path' ? 'Circle' : 'Curve'),
+      fill = node('Fill'),
+      output = source.nodes[0];
+    doc.schemaVersion = 62;
+    source.id = 'artwork-a';
+    foreign.id = 'artwork-b';
+    localValue.id = 'value-a';
+    foreignValue.id = 'value-b';
+    localValue.params.value.value = 60;
+    foreignValue.params.value.expression = 'ref(artwork, "artwork-a", "value-a", "value")';
+    foreign.nodes.push(foreignValue);
+    doc.layers.push(foreign);
+    source.nodes = [localValue, path, fill, output];
+    let text, remap;
+    if (mode === 'Text path') {
+      path.params.radius.expression = 'ref(artwork, "artwork-b", "value-b", "value")';
+      text = node('Text');
+      text.text = 'Snapshot';
+      text.params.size.value = 10;
+      source.nodes.splice(2, 0, text);
+      text.pathAttachment = {
+        nodeId: path.id,
+        contourId: evaluate(source, fonts, undefined, doc).run(path.id).contours[0].id,
+        startMode: 'distance',
+        start: 0,
+        reversed: false,
+      };
+      connect(source, text.id, fill.id, 'path');
+    } else {
+      path.points[0].position.expression = 'ref(artwork, "artwork-b", "value-b", "value"); 150';
+      remap = node('Path Remap');
+      source.nodes.splice(2, 0, remap);
+      connect(source, path.id, remap.id, 'path');
+      connect(source, remap.id, fill.id, 'path');
+      const input = evaluate(source, fonts, undefined, doc).run(path.id);
+      enableRemapPoint(remap, input, path.points[0].id).params.position.value = [8, 3];
+    }
+    connect(source, fill.id, output.id, 'path');
+    const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc), {
+        fonts: () => fonts,
+      }),
+      send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload }),
+      clipboard = createLayerClipboardOwner(),
+      context = { owner, generation: 1, compositionId: owner.activeCompositionId };
+    clipboard.copy({ ...context, layerId: source.id });
+    send('set-parameter', { layerId: source.id, nodeId: localValue.id, key: 'value', value: 120 });
+    const before = serializeCompositionProject(owner.projectSnapshot());
+    const result = send('paste-layer-snapshot', { token: clipboard.token(context) });
+    const current = owner.activeDocument(),
+      copy = current.layers.find((layer) => layer.id === result.layerId),
+      copiedValue = copy.nodes.find((item) => item.type === 'Value'),
+      copiedPath = copy.nodes.find((item) => item.type === path.type),
+      evaluation = evaluate(copy, fonts, current.imageAssets, current);
+    assert.equal(copiedValue.params.value.value, 60, 'local authored value stays at copy time');
+    if (mode === 'Text path') {
+      assert.equal(evaluation.parameterValue(copiedPath.id, 'radius'), 120);
+      assert.equal(
+        copy.nodes.find((item) => item.type === 'Text').pathAttachment.nodeId,
+        copiedPath.id,
+      );
+      assert.equal(evaluation.error, null);
+    } else {
+      assert.notEqual(evaluation.path.remapSuspended, true);
+      assert.deepEqual(evaluation.path.contours[0].points[0].position, [128, 153]);
+    }
+    const after = serializeCompositionProject(owner.projectSnapshot());
+    send('undo');
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+    send('redo');
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), after);
+  });
+}
+
 test('rich Text snapshot retains local character offsets, styles, transforms and kerning', () => {
   const f = duplicationDocument('Text');
   richDuplicationText(f.generator);

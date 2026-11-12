@@ -479,6 +479,105 @@ try {
     (expected) => JSON.stringify(window.nect.projectSnapshot()) === JSON.stringify(expected),
     beforeDelete,
   );
+
+  // A captured variable Text run is prepared together with its edited live run.
+  await page.locator('#open-file').setInputFiles({
+    name: 'two-compositions.nect',
+    mimeType: 'application/json',
+    buffer: Buffer.from(json),
+  });
+  await page.waitForFunction(() => window.nect.activeCompositionId === 'variable-first');
+  await page.locator('[role="tab"][data-active-composition="variable-second"]').click();
+  await page.waitForFunction(() => window.nect.activeCompositionId === 'variable-second');
+  await ensureWorkspacePanel(page, 'layers');
+  await page.locator(`[data-select-layer="${second.layers[0].id}"]`).focus();
+  await page.keyboard.press('Control+c');
+  await page.locator(`.node[data-id="${text.id}"] .node-head strong`).click();
+  await ensureWorkspacePanel(page, 'inspector');
+  const variableText = page.locator(`.inspector-body [data-text="${text.id}"]`);
+  await variableText.fill('AWZ');
+  await variableText.dispatchEvent('change');
+  await page.waitForFunction(
+    (id) => window.nect.document.layers[0].nodes.find((entry) => entry.id === id)?.text === 'AWZ',
+    text.id,
+  );
+  const beforeSnapshotPaste = await page.evaluate(() =>
+    JSON.stringify(window.nect.projectSnapshot()),
+  );
+  await ensureWorkspacePanel(page, 'layers');
+  await page.locator(`[data-select-layer="${second.layers[0].id}"]`).focus();
+  await page.keyboard.press('Control+v');
+  await page.waitForFunction(() => window.nect.document.layers.length === 3);
+  const pastedVariable = await page.evaluate(() => window.nect.document.layers[1]);
+  assert.equal(pastedVariable.nodes.find((entry) => entry.type === 'Text').text, 'AV');
+  assert.notEqual(pastedVariable.id, second.layers[0].id);
+  await page.waitForFunction(
+    (id) => document.querySelector('.layer.selected')?.dataset.layer === id,
+    pastedVariable.id,
+  );
+  const afterSnapshotPaste = await page.evaluate(() =>
+    JSON.stringify(window.nect.projectSnapshot()),
+  );
+  await page.locator('[data-action="undo"]').click();
+  await page.waitForFunction(
+    (expected) => JSON.stringify(window.nect.projectSnapshot()) === expected,
+    beforeSnapshotPaste,
+  );
+  await page.locator('[data-action="redo"]').click();
+  await page.waitForFunction(
+    (expected) => JSON.stringify(window.nect.projectSnapshot()) === expected,
+    afterSnapshotPaste,
+  );
+  await page.waitForFunction(
+    (id) => document.querySelector('.layer.selected')?.dataset.layer === id,
+    pastedVariable.id,
+  );
+
+  // A pending real Worker-backed text edit must survive both Layer shortcuts.
+  await page.locator('#open-file').setInputFiles({
+    name: 'two-compositions.nect',
+    mimeType: 'application/json',
+    buffer: Buffer.from(json),
+  });
+  await page.waitForFunction(() => window.nect.activeCompositionId === 'variable-first');
+  await page.locator('[role="tab"][data-active-composition="variable-second"]').click();
+  await page.waitForFunction(() => window.nect.activeCompositionId === 'variable-second');
+  await ensureWorkspacePanel(page, 'layers');
+  await page.locator(`[data-select-layer="${other.id}"]`).focus();
+  await page.keyboard.press('Control+c');
+  await page.locator(`.node[data-id="${text.id}"] .node-head strong`).click();
+  await ensureWorkspacePanel(page, 'inspector');
+  await page.evaluate(() => {
+    window.holdAxisMessages = true;
+    window.heldAxisMessages = [];
+  });
+  const pendingText = page.locator(`.inspector-body [data-text="${text.id}"]`);
+  await pendingText.fill('AWZ');
+  await pendingText.dispatchEvent('change');
+  await page.waitForFunction(() => window.heldAxisMessages.length > 0);
+  const beforeShortcuts = await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot()));
+  await ensureWorkspacePanel(page, 'layers');
+  await page.locator(`[data-select-layer="${other.id}"]`).focus();
+  for (const shortcut of ['Control+v', 'Control+d']) {
+    await page.keyboard.press(shortcut);
+    assert.match(
+      await page.locator('.status .message').innerText(),
+      /Finish or cancel variable font preparation/,
+    );
+    assert.equal(
+      await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot())),
+      beforeShortcuts,
+    );
+    assert.equal(await pendingText.inputValue(), 'AWZ');
+  }
+  await page.evaluate(() => {
+    window.holdAxisMessages = false;
+    for (const send of window.heldAxisMessages) send();
+  });
+  await page.waitForFunction(
+    (id) => window.nect.document.layers[0].nodes.find((entry) => entry.id === id)?.text === 'AWZ',
+    text.id,
+  );
   assert.deepEqual(errors, []);
   assert.equal(mainNavigations, 1, 'Vite must not reload the active test page');
   console.log(

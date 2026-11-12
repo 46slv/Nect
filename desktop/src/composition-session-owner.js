@@ -358,6 +358,19 @@ export class CompositionSessionOwner {
       prepared.compositionId !== this.#activeCompositionId
     )
       throw Error('STALE_REVISION: document changed');
+    if (
+      prepared.layerClipboardSnapshot &&
+      resolveLayerClipboardToken(prepared.command.payload?.token, this, prepared.compositionId) !==
+        prepared.layerClipboardSnapshot
+    )
+      throw Error('STALE_SESSION: copied Layer changed');
+    if (
+      prepared !== this.#prepared ||
+      prepared.projectRevision !== this.#history.revision ||
+      prepared.session !== this.#session ||
+      prepared.compositionId !== this.#activeCompositionId
+    )
+      throw Error('STALE_REVISION: document changed');
     return prepared;
   }
 
@@ -385,13 +398,16 @@ export class CompositionSessionOwner {
         assertCurrent();
         return assertCurrent;
       },
-      beforeCandidateCommit: (before, candidate) => {
+      beforeCandidateCommit: (before, candidate, preparedFonts = {}) => {
         assertNoRemovedLayerConsumers(before, candidate);
         assertProjectIdentityChangeSafe(this.#history.doc, compositionId, before, candidate);
         // Validate the whole projection before the inner Session commits;
         // a new identity or reference can affect an inactive Composition.
         const next = this.#projectWithDocument(this.#history.doc, compositionId, candidate);
-        this.#assertProjectReferenceTransition(this.#history.doc, next, this.#fonts());
+        this.#assertProjectReferenceTransition(this.#history.doc, next, {
+          ...this.#fonts(),
+          ...preparedFonts,
+        });
       },
     });
     return session;
@@ -673,6 +689,10 @@ export class CompositionSessionOwner {
     const session = this.#session,
       compositionId = this.#activeCompositionId,
       projectRevision = this.#history.revision;
+    const layerClipboardSnapshot =
+      command.type === 'paste-layer-snapshot'
+        ? resolveLayerClipboardToken(command.payload?.token, this, compositionId)
+        : null;
     if (command.type === 'undo' || command.type === 'redo') {
       const project =
         (command.type === 'undo' ? this.#history.past : this.#history.future).at(-1) ||
@@ -709,8 +729,25 @@ export class CompositionSessionOwner {
       this.#activeCompositionId !== compositionId ||
       this.#history.revision !== projectRevision
     ) {
-      session.cancelPrepared(bridge);
+      session.cancelPrepared(bridge, innerToken);
       throw Error('STALE_REVISION: document changed');
+    }
+    try {
+      if (
+        layerClipboardSnapshot &&
+        resolveLayerClipboardToken(command.payload?.token, this, compositionId) !==
+          layerClipboardSnapshot
+      )
+        throw Error('STALE_SESSION: copied Layer changed');
+      if (
+        this.#session !== session ||
+        this.#activeCompositionId !== compositionId ||
+        this.#history.revision !== projectRevision
+      )
+        throw Error('STALE_REVISION: document changed');
+    } catch (error) {
+      session.cancelPrepared(bridge, innerToken);
+      throw error;
     }
     const token = Object.freeze({});
     this.#prepared = {
@@ -722,6 +759,7 @@ export class CompositionSessionOwner {
       command,
       bridge,
       innerToken,
+      layerClipboardSnapshot,
     };
     return token;
   }
@@ -740,6 +778,7 @@ export class CompositionSessionOwner {
   commitPrepared(token) {
     const prepared = this.#assertPrepared(token);
     this.#assertQuiescent();
+    this.#assertPrepared(token);
     if (prepared.ticket) {
       prepared.bridge.assertFresh(prepared.ticket);
       prepared.bridge.activate(prepared.ticket);
@@ -750,12 +789,14 @@ export class CompositionSessionOwner {
     const revision = prepared.session.state.expectedRevision;
     try {
       const result = prepared.session.commitPrepared(prepared.innerToken);
+      if (prepared.layerClipboardSnapshot) this.#assertPrepared(token);
       if (prepared.session.state.expectedRevision !== revision) {
         const candidate = this.#projectWithDocument(
           this.#history.doc,
           prepared.compositionId,
           prepared.session.snapshot(),
         );
+        if (prepared.layerClipboardSnapshot) this.#assertPrepared(token);
         this.#applyProjectEdit((history) => {
           replaceRecord(history, candidate);
         });
@@ -765,7 +806,13 @@ export class CompositionSessionOwner {
       this.#prepared = null;
       return { ...result, projectRevision: this.#history.revision };
     } catch (error) {
-      if (prepared.session.state.expectedRevision !== revision) {
+      if (
+        prepared.session.state.expectedRevision !== revision &&
+        (!prepared.layerClipboardSnapshot ||
+          (prepared.session === this.#session &&
+            prepared.compositionId === this.#activeCompositionId &&
+            prepared.projectRevision === this.#history.revision))
+      ) {
         this.#session = this.#makeSession(this.#history.doc, prepared.compositionId);
       }
       this.#prepared = null;

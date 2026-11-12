@@ -1,7 +1,14 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { blankDocument, blankLayer, evaluate, node } from '../src/core.js';
+import {
+  blankDocument,
+  blankLayer,
+  createVariableDocumentPreparer,
+  evaluate,
+  node,
+} from '../src/core.js';
+import { Worker } from 'node:worker_threads';
 import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
 import { migrateLegacyDocumentToCompositionProject } from '../src/composition-project-model.js';
 import { DocumentLifecycle } from '../src/document-lifecycle.js';
@@ -9,7 +16,7 @@ import {
   createLayerClipboardOwner,
   resolveLayerClipboardToken,
 } from '../src/layer-clipboard-owner.js';
-import { parseFont } from '../src/fonts.js';
+import { makeVariableFontAsset, parseFont } from '../src/fonts.js';
 
 function fixture(configure = () => {}, options = {}) {
   const origin = migrateLegacyDocumentToCompositionProject(blankDocument());
@@ -95,6 +102,108 @@ function fixture(configure = () => {}, options = {}) {
     },
   };
 }
+
+test('variable Text snapshot prepares both captured and current runs, with one Undo and Redo', async () => {
+  const bytes = fs.readFileSync(
+    new URL('./fixtures/variable-font/Roboto-variable.ttf', import.meta.url),
+  );
+  const asset = makeVariableFontAsset(
+    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    'Roboto.ttf',
+  );
+  const bridge = createVariableDocumentPreparer({
+    workerFactory: () => {
+      const worker = new Worker(new URL('./variable-font-worker-node.mjs', import.meta.url));
+      const transport = {
+        postMessage: (data) => worker.postMessage(data),
+        terminate: () => worker.terminate(),
+      };
+      worker.on('message', (data) => transport.onmessage?.({ data }));
+      worker.on('error', (error) => transport.onerror?.(error));
+      return transport;
+    },
+  });
+  const f = fixture(
+    (project) => {
+      const text = node('Text');
+      text.id = 'variable-text';
+      text.text = 'AV';
+      const layer = project.compositions[0].layers[0];
+      layer.nodes.push(text);
+      layer.nodes[0].params.path.source = text.id;
+    },
+    { fonts: () => bridge.fonts() },
+  );
+  const prepare = async (type, payload = {}) =>
+    f.owner.commitPrepared(
+      await f.owner.prepareCommand({ ...f.owner.state, type, payload }, bridge),
+    );
+  try {
+    await prepare('set-variable-font', {
+      layerId: 'source-layer',
+      nodeId: 'variable-text',
+      fontId: asset.id,
+      axes: {},
+      asset,
+    });
+    f.copy();
+    await prepare('set-text-content', {
+      layerId: 'source-layer',
+      nodeId: 'variable-text',
+      text: 'AWZ',
+    });
+    const before = JSON.stringify(f.owner.projectSnapshot());
+    const pasted = await prepare('paste-layer-snapshot', { token: f.token() });
+    const doc = f.owner.activeDocument();
+    assert.equal(
+      doc.layers.find((layer) => layer.id === 'source-layer').nodes.find((n) => n.type === 'Text')
+        .text,
+      'AWZ',
+    );
+    assert.equal(
+      doc.layers.find((layer) => layer.id === pasted.layerId).nodes.find((n) => n.type === 'Text')
+        .text,
+      'AV',
+    );
+    const after = JSON.stringify(f.owner.projectSnapshot());
+    await prepare('undo');
+    assert.equal(JSON.stringify(f.owner.projectSnapshot()), before);
+    await prepare('redo');
+    assert.equal(JSON.stringify(f.owner.projectSnapshot()), after);
+    f.copy();
+    let release, ready;
+    const reached = new Promise((resolve) => (ready = resolve));
+    const resumed = new Promise((resolve) => (release = resolve));
+    const delayedBridge = Object.create(bridge);
+    delayedBridge.prepareDocument = async (...args) => {
+      const ticket = await bridge.prepareDocument(...args);
+      ready();
+      await resumed;
+      return ticket;
+    };
+    const stale = f.owner.prepareCommand(
+      { ...f.owner.state, type: 'paste-layer-snapshot', payload: { token: f.token() } },
+      delayedBridge,
+    );
+    await reached;
+    f.copy();
+    release();
+    await assert.rejects(stale, /copied Layer changed|unavailable|STALE/i);
+    assert.equal(JSON.stringify(f.owner.projectSnapshot()), after);
+    const prepared = await f.owner.prepareCommand(
+      { ...f.owner.state, type: 'paste-layer-snapshot', payload: { token: f.token() } },
+      bridge,
+    );
+    f.copy();
+    assert.throws(
+      () => f.owner.commitPrepared(prepared),
+      /copied Layer changed|unavailable|STALE/i,
+    );
+    assert.equal(JSON.stringify(f.owner.projectSnapshot()), after);
+  } finally {
+    bridge.dispose();
+  }
+});
 
 test('Layer Copy retains its snapshot through edits and a round trip between Composition tabs', () => {
   const f = fixture(),

@@ -423,7 +423,15 @@ function isolatedDuplicateCandidate(doc) {
   return candidateDocument(isolated);
 }
 
-function assertCopiedRemapBindings(doc, source, copy, index, fonts, sourceDocument = doc) {
+function assertCopiedRemapBindings(
+  doc,
+  source,
+  copy,
+  index,
+  fonts,
+  sourceDocument = doc,
+  sourceEvaluationId = source.id,
+) {
   const remaps = source.nodes
     .map((node, index) => ({ node, index }))
     .filter(({ node }) => node.type === 'Path Remap' && node.edits.length);
@@ -431,7 +439,7 @@ function assertCopiedRemapBindings(doc, source, copy, index, fonts, sourceDocume
 
   const originalDocument = isolatedDuplicateCandidate(sourceDocument),
     copiedDocument = isolatedDuplicateCandidate(doc),
-    original = originalDocument.layers.find((layer) => layer.id === source.id);
+    original = originalDocument.layers.find((layer) => layer.id === sourceEvaluationId);
   insertDuplicatedLayer(copiedDocument, source.id, index, copy);
   const originalEvaluation = evaluate(
     original,
@@ -572,11 +580,8 @@ export function duplicateLayerGeneric(
   if (snapshot && (snapshot.id !== anchor.id || doc.schemaVersion < snapshotSchemaVersion))
     throw Error('Copied Layer requires its original schema; restore it or copy again');
   const source = snapshot || anchor,
-    sourceDocument = snapshot
-      ? inheritProjectDocumentContext(doc, {
-          ...doc,
-          layers: doc.layers.map((layer) => (layer.id === layerId ? source : layer)),
-        })
+    reservationDocument = snapshot
+      ? inheritProjectDocumentContext(doc, { ...doc, layers: [...doc.layers, source] })
       : doc;
   if (
     doc.schemaVersion >= COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION &&
@@ -608,10 +613,10 @@ export function duplicateLayerGeneric(
   };
   const layer = copyOccurrences(source);
   const occupied = occupiedArtworkIds(doc);
-  if (snapshot) for (const id of occupiedArtworkIds(sourceDocument)) occupied.add(id);
+  if (snapshot) for (const id of occupiedArtworkIds(reservationDocument)) occupied.add(id);
   for (const slot of doc.colorSlots || []) occupied.add(slot.id);
   // Reserve dangling structural references too, so fresh IDs cannot revive one.
-  for (const document of snapshot ? [doc, sourceDocument] : [doc])
+  for (const document of snapshot ? [doc, reservationDocument] : [doc])
     for (const current of document.layers)
       for (const n of current.nodes) {
         for (const [, q] of parameters(n)) if (q?.source) occupied.add(q.source);
@@ -633,6 +638,16 @@ export function duplicateLayerGeneric(
     return next;
   };
   layer.id = fresh();
+  // The captured Layer is evaluated as a distinct provisional copy. Foreign
+  // Artwork references still resolve through the live document, including a
+  // reference chain that returns to the current source Layer.
+  const sourceDocument = snapshot
+      ? inheritProjectDocumentContext(doc, {
+          ...doc,
+          layers: [...doc.layers, { ...source, id: layer.id }],
+        })
+      : doc,
+    sourceEvaluationId = snapshot ? layer.id : source.id;
   const nodeIds = new Map(),
     contours = new Map();
   source.nodes.forEach((n, index) => {
@@ -679,7 +694,7 @@ export function duplicateLayerGeneric(
   let attachmentEvaluation;
   if (attachments.length) {
     const originalDocument = isolatedDuplicateCandidate(sourceDocument),
-      originalLayer = originalDocument.layers.find((item) => item.id === source.id);
+      originalLayer = originalDocument.layers.find((item) => item.id === sourceEvaluationId);
     attachmentEvaluation = evaluate(
       originalLayer,
       fonts,
@@ -710,7 +725,7 @@ export function duplicateLayerGeneric(
   }
   layer.name = `${source.name} copy`;
   const index = doc.layers.indexOf(anchor) + 1;
-  assertCopiedRemapBindings(doc, source, layer, index, fonts, sourceDocument);
+  assertCopiedRemapBindings(doc, source, layer, index, fonts, sourceDocument, sourceEvaluationId);
   if (attachments.length) {
     const copyDocument = isolatedDuplicateCandidate(doc);
     insertDuplicatedLayer(copyDocument, source.id, index, layer);
