@@ -3824,6 +3824,15 @@ input[data-color-scrub-step] {
   border-color: var(--selection);
   background: #dae3e9;
 }
+.effects-list button[data-favorite='true']::after {
+  content: '★';
+  float: right;
+}
+.effects-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
 .effects-panel output:empty {
   display: none;
 }
@@ -3831,7 +3840,6 @@ input[data-color-scrub-step] {
   color: var(--muted);
 }
 .effects-panel [data-effects-apply] {
-  align-self: flex-end;
   min-width: 72px;
 }
 .workspace-asset-slot {
