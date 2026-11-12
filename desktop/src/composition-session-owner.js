@@ -1000,7 +1000,8 @@ export class CompositionSessionOwner {
       (['update-gesture', 'commit-gesture'].includes(command?.type) &&
         session.gestureState?.kind === 'artwork-translate');
     const guardedTransfer =
-      artworkMove || ['paste-nodes', 'move-layers-to-folder'].includes(command?.type);
+      artworkMove ||
+      ['paste-nodes', 'move-layers-to-folder', 'remove-layers-from-folder'].includes(command?.type);
     const assertOwnerCurrent = () => {
       if (this.#session !== session || this.#activeCompositionId !== compositionId)
         throw Error('STALE_SESSION: document changed');

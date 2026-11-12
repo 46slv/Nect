@@ -483,6 +483,143 @@ try {
     }
   }
   assert.deepEqual(historyMismatches, []);
+
+  const outIds = await page.evaluate(async () => {
+    const { blankDocument, blankLayer, node } = await import('/src/core.js');
+    const { migrateLegacyDocumentToCompositionProject } = await import(
+      '/src/composition-project-model.js'
+    );
+    const doc = blankDocument();
+    doc.layers = ['Back', 'One', 'Two', 'Three', 'Four', 'Neighbor'].map((name, index) => {
+      const layer = blankLayer(name),
+        rectangle = node('Rectangle'),
+        fill = node('Fill');
+      rectangle.params.center.value = [100, 100];
+      rectangle.params.size.value = [100, 100];
+      fill.params.path.source = rectangle.id;
+      fill.params.color.value = {
+        hex: ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#00ffff', '#ff00ff'][index],
+        alpha: 0.5,
+      };
+      layer.nodes.unshift(rectangle, fill);
+      layer.nodes.find((item) => item.type === 'Output').params.path.source = fill.id;
+      return layer;
+    });
+    window.nect.load(JSON.stringify(migrateLegacyDocumentToCompositionProject(doc)));
+    const send = (type, payload) =>
+      window.nect.dispatch({ ...window.nect.commandState, type, payload });
+    send('create-layer-folder', {
+      folderId: 'out-source',
+      name: 'Source',
+      layerIds: doc.layers.slice(0, 5).map((layer) => layer.id),
+    });
+    send('create-layer-folder', {
+      folderId: 'out-neighbor',
+      name: 'Neighbor',
+      layerIds: [doc.layers[5].id],
+    });
+    send('rename-layer-folder', { folderId: 'out-source', name: 'Redo available' });
+    send('undo', {});
+    return doc.layers.map((layer) => layer.id);
+  });
+  await ensureWorkspacePanel(page, 'layers');
+  const selectOutLayers = async () => {
+    await select(outIds[3]);
+    await select(outIds[1], true);
+  };
+  await selectOutLayers();
+  const beforeOut = await project(),
+    beforeOutPixel = await pixel(),
+    outRevision = await page.evaluate(() => window.nect.projectRevision);
+  await page.locator('[data-folder-out="out-source"]').click();
+  let outDialog = page.locator('.layer-folder-move-dialog');
+  assert.equal(await outDialog.locator('h3').textContent(), 'Move Layers out of Source?');
+  assert.deepEqual(await outDialog.locator('[data-current-order] li').allTextContents(), [
+    'Neighbor',
+    'Four',
+    'Three',
+    'Two',
+    'One',
+    'Back',
+  ]);
+  assert.deepEqual(await outDialog.locator('[data-new-order] li').allTextContents(), [
+    'Neighbor',
+    'Three',
+    'One',
+    'Four',
+    'Two',
+    'Back',
+  ]);
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await page.screenshot({ path: 'test-results/layer-folder-move-out-preview.png' });
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.keyboard.press('Escape');
+  assert.deepEqual(await project(), beforeOut);
+  assert.equal(await page.evaluate(() => window.nect.projectRevision), outRevision);
+  assert.deepEqual(await pixel(), beforeOutPixel);
+  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'redo' }));
+  assert.equal((await project()).compositions[0].editor.layerFolders[0].name, 'Redo available');
+  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'undo' }));
+  await selectOutLayers();
+  await page.locator('[data-folder-out="out-source"]').click();
+  outDialog = page.locator('.layer-folder-move-dialog');
+  await page.evaluate(() =>
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'rename-layer-folder',
+      payload: { folderId: 'out-neighbor', name: 'Intervening edit' },
+    }),
+  );
+  const afterOutIntervening = await project();
+  await outDialog.locator('button[type="submit"]').click();
+  assert.match(await outDialog.locator('[role="alert"]').textContent(), /changed/i);
+  assert.deepEqual(await project(), afterOutIntervening);
+  await outDialog.locator('[data-cancel]').click();
+  await page.locator('[data-action="undo"]').click();
+  assert.deepEqual(await project(), beforeOut);
+  await selectOutLayers();
+  await page.locator('[data-folder-out="out-source"]').click();
+  await page.locator('.layer-folder-move-dialog button[type="submit"]').click();
+  const afterOut = await project();
+  assert.deepEqual(
+    afterOut.compositions[0].layers.map((layer) => layer.id),
+    [outIds[0], outIds[2], outIds[4], outIds[1], outIds[3], outIds[5]],
+  );
+  assert.deepEqual(afterOut.compositions[0].editor.layerFolders[1].members, [
+    { layerId: outIds[5] },
+  ]);
+  assert.notDeepEqual(await pixel(), beforeOutPixel);
+  const outSelection = () =>
+    page
+      .locator('.layer.selected')
+      .evaluateAll((rows) => rows.map((row) => row.dataset.layer).sort());
+  assert.deepEqual(await outSelection(), [outIds[1], outIds[3]].sort());
+  await page.locator('[data-action="undo"]').click();
+  assert.deepEqual(await project(), beforeOut);
+  assert.deepEqual(await outSelection(), [outIds[1], outIds[3]].sort());
+  assert.deepEqual(await pixel(), beforeOutPixel);
+  await page.locator('[data-action="redo"]').click();
+  assert.deepEqual(await project(), afterOut);
+  assert.deepEqual(await outSelection(), [outIds[1], outIds[3]].sort());
+  const outDownload = page.waitForEvent('download');
+  await activateCommand(page, 'save-as');
+  const outFile = resolve('test-results/layer-folder-move-out-project.json');
+  await (await outDownload).saveAs(outFile);
+  assert.deepEqual(JSON.parse(await readFile(outFile, 'utf8')), afterOut);
+  await page.waitForFunction(() => !window.nect.fileState.saving && !window.nect.fileState.dirty);
+  await page.reload();
+  await page.waitForFunction(() => window.nect);
+  const outChooser = page.waitForEvent('filechooser');
+  await activateCommand(page, 'open');
+  const outDiscard = page.locator('dialog[open] button[value="discard"]');
+  if (await outDiscard.isVisible()) await outDiscard.click();
+  await (await outChooser).setFiles(outFile);
+  await page.waitForFunction(
+    (expected) => JSON.stringify(window.nect.projectSnapshot()) === expected,
+    JSON.stringify(afterOut),
+  );
+  assert.deepEqual(await project(), afterOut);
+  assert.notDeepEqual(await pixel(), beforeOutPixel);
   assert.deepEqual(errors, []);
   console.log('PASS Layer Folder organization, confirmed order change, Undo and project reopen');
 } finally {

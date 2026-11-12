@@ -8211,9 +8211,13 @@ export class CommandSession {
       (commandType === 'begin-gesture' && command.payload?.target?.kind === 'artwork-translate') ||
       (['update-gesture', 'commit-gesture'].includes(commandType) &&
         this.#gesture?.target.kind === 'artwork-translate');
-    const paste = commandType === 'paste-nodes' || commandType === 'move-layers-to-folder';
+    const guardedEdit = [
+      'paste-nodes',
+      'move-layers-to-folder',
+      'remove-layers-from-folder',
+    ].includes(commandType);
     return this.#observeCommit(() => this.#dispatch(command, entry, copyAttempt), {
-      skipFailed: artworkMove || paste,
+      skipFailed: artworkMove || guardedEdit,
       suppressNotification: () => copyAttempt.isCopy,
     });
   }
@@ -8232,10 +8236,14 @@ export class CommandSession {
       throw Error('STALE_REVISION: document changed');
     if (!payload || typeof payload !== 'object' || Array.isArray(payload))
       throw Error('Invalid command payload');
-    const paste = type === 'paste-nodes' || type === 'move-layers-to-folder';
-    const assertPasteLocal = () => {
+    const guardedEdit = [
+      'paste-nodes',
+      'move-layers-to-folder',
+      'remove-layers-from-folder',
+    ].includes(type);
+    const assertGuardedLocal = () => {
       if (
-        paste &&
+        guardedEdit &&
         (this.#history.doc !== entry.document ||
           this.#history.revision !== entry.revision ||
           projectDocumentContexts.get(this.#history.doc) !== entry.binding ||
@@ -8244,39 +8252,38 @@ export class CommandSession {
       )
         throw Error('STALE_REVISION: document changed');
     };
-    assertPasteLocal();
-    // Paste and artwork movement both invoke external font and precommit hooks
-    // before writing History; both require the same owner/session authority.
-    const pasteAuthority = paste ? this.#captureArtworkMoveAuthority() : null;
-    const assertPasteCurrent = () => {
-      assertPasteLocal();
-      pasteAuthority?.();
-      assertPasteLocal();
+    assertGuardedLocal();
+    // These edits invoke external font and precommit hooks before History.
+    const guardedAuthority = guardedEdit ? this.#captureArtworkMoveAuthority() : null;
+    const assertGuardedCurrent = () => {
+      assertGuardedLocal();
+      guardedAuthority?.();
+      assertGuardedLocal();
     };
-    const assertPasteDraftsClear = () => {
+    const assertGuardedDraftsClear = () => {
       if (
         this.#gesture ||
         this.hasTextComposition ||
-        (type === 'move-layers-to-folder' && this.#textDrafts.size > 0) ||
+        (type !== 'paste-nodes' && this.#textDrafts.size > 0) ||
         [...this.#textDrafts.values()].some(
           (draft) => draft.revision === this.#history.revision && draft.state.changed,
         )
       )
         throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
     };
-    const assertPasteReady = () => {
-      if (!paste) return;
-      assertPasteCurrent();
+    const assertGuardedReady = () => {
+      if (!guardedEdit) return;
+      assertGuardedCurrent();
       const busy = this.#busy();
-      assertPasteCurrent();
+      assertGuardedCurrent();
       if (busy) throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
-      assertPasteDraftsClear();
-      assertPasteCurrent();
+      assertGuardedDraftsClear();
+      assertGuardedCurrent();
       // Authority is a callback too: it can start a draft without a revision.
       // This final check reads only Session-private state before History writes.
-      assertPasteDraftsClear();
+      assertGuardedDraftsClear();
     };
-    assertPasteCurrent();
+    assertGuardedCurrent();
     const artworkMove =
       type === 'translate-artworks' ||
       (type === 'begin-gesture' && payload.target?.kind === 'artwork-translate') ||
@@ -8734,17 +8741,17 @@ export class CommandSession {
       payload,
       commandBase,
     );
-    assertPasteReady();
+    assertGuardedReady();
     assertVariableDocumentReady(candidate, resolveFonts(candidate, this.#fonts()));
-    assertPasteReady();
+    assertGuardedReady();
     assertNoAccidentalCurvePointRebind(this.#history.doc, candidate, this.#nodeClipboard);
     assertArtworkReferenceTransition(this.#history.doc, candidate, this.#fonts());
-    assertPasteReady();
+    assertGuardedReady();
     assertArtworkMoveCurrent();
     const revision = this.#history.revision;
     if (!sameDocument(this.#history.doc, candidate)) {
       this.#beforeCandidateCommit?.(this.#history.doc, candidate);
-      assertPasteReady();
+      assertGuardedReady();
       assertArtworkMoveCurrent();
       if (this.#history.retainHistory) {
         this.#history.apply(() => {
