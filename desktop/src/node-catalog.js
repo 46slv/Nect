@@ -150,14 +150,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Fill',
-    categoryId: 'paint',
-    labelJa: '塗り',
-    aliases: ['塗り'],
-    description: '塗り',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Stroke',
     categoryId: 'paint',
     labelJa: '線',
