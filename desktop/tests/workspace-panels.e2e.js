@@ -185,7 +185,7 @@ try {
       decorative: button.querySelector('svg')?.getAttribute('aria-hidden'),
     })),
   );
-  assert.equal(railIcons.length, 13);
+  assert.equal(railIcons.length, 14);
   assert.ok(railIcons.every((icon) => icon.label && icon.title && icon.decorative === 'true'));
   assert.ok(railIcons.every((icon) => ['true', 'false'].includes(icon.pressed)));
   const faces = await page.locator('.workspace-panel-bar button').evaluateAll((buttons) =>
