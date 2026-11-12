@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { createEffectsPanel } from '../src/effects-panel.js';
+import { createEffectsPanel, EFFECT_FAVORITES_KEY } from '../src/effects-panel.js';
 
-function fixture(t) {
+function fixture(t, storage) {
   const win = new Window();
   t.after(() => win.happyDOM.abort());
   const document = win.document;
@@ -18,6 +18,7 @@ function fixture(t) {
     document,
     getTarget: () => current,
     getEntries: () => entries,
+    storage,
     onApply: (id, snapshot) => {
       if (snapshot !== current?.snapshot) throw Error('Artwork changed');
       actions.push({ id, snapshot });
@@ -45,6 +46,114 @@ function fixture(t) {
     setTarget: (target) => (current = target),
   };
 }
+
+test('favorite effects persist by ID, sort first, and do not author the selected artwork', (t) => {
+  const data = new Map([[EFFECT_FAVORITES_KEY, JSON.stringify(['temporarily-unavailable'])]]);
+  const storage = {
+    getItem: (key) => data.get(key) ?? null,
+    setItem: (key, value) => data.set(key, value),
+  };
+  const f = fixture(t, storage);
+  let view = f.mount();
+  view.querySelector('[data-effect-id="provider:other"]').click();
+  const favorite = view.querySelector('[data-effects-favorite]');
+  favorite.click();
+  assert.equal(favorite.getAttribute('aria-pressed'), 'true');
+  assert.deepEqual(JSON.parse(data.get(EFFECT_FAVORITES_KEY)), [
+    'temporarily-unavailable',
+    'provider:other',
+  ]);
+  assert.deepEqual(
+    [...view.querySelectorAll('[data-effect-id]')].map((row) => row.dataset.effectId),
+    ['provider:other', 'builtin:transform'],
+  );
+  assert.deepEqual(f.actions, []);
+  view = f.mount();
+  assert.equal(view.querySelector('[data-effects-favorite]').getAttribute('aria-pressed'), 'true');
+  view.querySelector('[data-effects-apply]').click();
+  assert.equal(f.actions[0].id, 'provider:other');
+  view.querySelector('[data-effects-favorite]').click();
+  assert.deepEqual(JSON.parse(data.get(EFFECT_FAVORITES_KEY)), ['temporarily-unavailable']);
+});
+
+test('favorite writes preserve unreadable data and refuse hidden or composing actions', (t) => {
+  let raw = '{bad json',
+    writes = 0;
+  const storage = {
+    getItem: () => raw,
+    setItem: (_key, value) => {
+      writes++;
+      raw = value;
+    },
+  };
+  const f = fixture(t, storage);
+  let view = f.mount();
+  assert.equal(view.querySelector('[data-effects-favorite]').disabled, false);
+  assert.match(
+    view.querySelector('[data-effects-favorite-status]').textContent,
+    /could not be read/,
+  );
+  view.querySelector('[data-effects-favorite]').click();
+  assert.equal(writes, 0);
+  assert.equal(raw, '{bad json');
+  raw = '[]';
+  view = f.mount();
+  const button = view.querySelector('[data-effects-favorite]');
+  view.hidden = true;
+  button.click();
+  view.hidden = false;
+  view.setAttribute('inert', '');
+  button.click();
+  view.removeAttribute('inert');
+  const search = view.querySelector('[data-effects-search]');
+  f.fire(search, 'compositionstart');
+  button.click();
+  f.fire(search, 'compositionend');
+  assert.equal(writes, 0);
+  button.click();
+  assert.equal(writes, 1);
+});
+
+test('failed favorite writes leave preferences unchanged and can be retried in place', (t) => {
+  let failing = true,
+    raw = '[]';
+  const f = fixture(t, {
+    getItem: () => raw,
+    setItem: (_key, value) => {
+      if (failing) throw Error('storage unavailable');
+      raw = value;
+    },
+  });
+  const view = f.mount();
+  view.querySelector('[data-effects-favorite]').click();
+  assert.equal(view.querySelector('[data-effects-favorite]').getAttribute('aria-pressed'), 'false');
+  assert.match(
+    view.querySelector('[data-effects-favorite-status]').textContent,
+    /could not be saved/,
+  );
+  failing = false;
+  view.querySelector('[data-effects-favorite]').click();
+  assert.equal(view.querySelector('[data-effects-favorite]').getAttribute('aria-pressed'), 'true');
+  assert.equal(view.querySelector('[data-effects-favorite-status]').textContent, '');
+  view.querySelector('[data-effects-apply]').click();
+  assert.equal(f.actions[0].id, 'builtin:transform');
+});
+
+test('a stale favorite button never reverses a change made in another window', (t) => {
+  let raw = '[]';
+  const f = fixture(t, {
+    getItem: () => raw,
+    setItem: (_key, value) => (raw = value),
+  });
+  const view = f.mount(),
+    button = view.querySelector('[data-effects-favorite]');
+  raw = '["builtin:transform","elsewhere"]';
+  button.click();
+  assert.deepEqual(JSON.parse(raw), ['builtin:transform', 'elsewhere']);
+  assert.equal(button.getAttribute('aria-pressed'), 'true');
+  button.click();
+  assert.deepEqual(JSON.parse(raw), ['elsewhere']);
+});
 
 test('effect search uses labels and aliases, and applies a stable entry ID to the captured artwork', (t) => {
   const f = fixture(t);
