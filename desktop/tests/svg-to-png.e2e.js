@@ -5,7 +5,15 @@ import { createHash } from 'node:crypto';
 import { resolve, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
-import { document as createDocument, blankLayer, node, exportSVG, serialize } from '../src/core.js';
+import {
+  document as createDocument,
+  blankLayer,
+  node,
+  connect,
+  deserialize,
+  exportSVG,
+  serialize,
+} from '../src/core.js';
 import { crc32 } from '../src/images.js';
 
 const chrome = process.env.CHROMIUM_PATH;
@@ -184,6 +192,92 @@ try {
     '<defs><linearGradient id="nect-gradient-0"><stop offset="0" stop-color="#ff0000"/></linearGradient></defs><path fill="url(#nect-gradient-0)" d="M0 0H32V16H0Z"/>',
   );
   assert.deepEqual((await prepare(internal)).size, { width: 32, height: 16 });
+  const angularInput = resolve('examples/angular-gradient-wheel.svg'),
+    angularSource = await fs.readFile(angularInput, 'utf8'),
+    angularHash = hash(angularSource);
+  assert.match(angularSource, /<pattern /);
+  assert.deepEqual((await prepare(angularSource)).size, { width: 960, height: 540 });
+  const angularDoc = deserialize(await fs.readFile('examples/angular-gradient-wheel.json', 'utf8'));
+  const embeddedSource = angularDoc.layers[0];
+  const angularNode = embeddedSource.nodes.find((item) => item.type === 'Angular Gradient Fill');
+  for (const key of ['startColor', 'color1', 'color2', 'endColor'])
+    angularNode.params[key].value.alpha = 0.5;
+  embeddedSource.visible = false;
+  const consumer = blankLayer('Nested angular gradient'),
+    reference = node('Composition Reference');
+  reference.compositionReference = { compositionId: embeddedSource.id };
+  consumer.nodes.unshift(reference);
+  connect(consumer, reference.id, consumer.output, 'path');
+  angularDoc.layers.push(consumer);
+  angularDoc.schemaVersion = Math.max(angularDoc.schemaVersion, 31);
+  const nestedAngular = exportSVG(angularDoc, {}, { unit: 'mm', precision: 2 });
+  assert.match(nestedAngular, /<g[^>]*>\s*<defs><pattern /);
+  assert.deepEqual((await prepare(nestedAngular)).size, { width: 960, height: 540 });
+  const recursivePattern = angularSource.replace(
+    /fill="#[0-9a-f]{6}"/,
+    'fill="url(#nect-gradient-0)"',
+  );
+  const oversizedSector = angularSource.replace(
+    /(<path d="M[^"]*?L)([-+0-9.eE]+)/,
+    (_, prefix) => `${prefix}1e100`,
+  );
+  for (const [name, svg] of [
+    [
+      'pattern-external-href',
+      angularSource.replace('<pattern ', '<pattern href="https://example.invalid/a" '),
+    ],
+    [
+      'pattern-units',
+      angularSource.replace('patternUnits="userSpaceOnUse"', 'patternUnits="objectBoundingBox"'),
+    ],
+    [
+      'pattern-zero-width',
+      angularSource.replace('width="400" height="400" viewBox=', 'width="0" height="400" viewBox='),
+    ],
+    [
+      'pattern-viewBox',
+      angularSource.replace('viewBox="280 70 400 400"', 'viewBox="280 70 399 400"'),
+    ],
+    [
+      'pattern-non-svg-space',
+      angularSource.replace('viewBox="280 70 400 400"', 'viewBox="280\u00a070 400 400"'),
+    ],
+    ['pattern-missing-id', angularSource.replace('id="nect-gradient-0"', '')],
+    [
+      'pattern-duplicate-id',
+      angularSource.replace('</defs><path', '</defs><path id="nect-gradient-0"'),
+    ],
+    ['pattern-recursion', recursivePattern],
+    ['pattern-oversized-sector', oversizedSector],
+    [
+      'pattern-stroke',
+      angularSource.replace(
+        'fill="url(#nect-gradient-0)"',
+        'fill="#fff" stroke="url(#nect-gradient-0)"',
+      ),
+    ],
+    ['pattern-not-path-fill', angularSource.replace('</defs><path', '</defs><rect')],
+    [
+      'pattern-foreign-child',
+      angularSource.replace(
+        '<g shape-rendering="crispEdges">',
+        '<g shape-rendering="crispEdges"><image href="https://example.invalid/a.png"/>',
+      ),
+    ],
+    ['pattern-bad-sector-alpha', angularSource.replace('fill-opacity="1"', 'fill-opacity="2"')],
+    ['pattern-bad-alpha-syntax', angularSource.replace('fill-opacity="1"', 'fill-opacity="0."')],
+    [
+      'pattern-outside-defs',
+      angularSource
+        .replace('<defs><pattern', '<pattern')
+        .replace('</pattern></defs>', '</pattern>'),
+    ],
+    ['foreign-shape-rendering', root('<g shape-rendering="crispEdges"/>')],
+  ]) {
+    assert.notEqual(svg, angularSource, name);
+    await assert.rejects(prepare(svg), undefined, name);
+    receipt.rejected.push(name);
+  }
   const embedded = await page.evaluate(() => {
     const canvas = document.createElement('canvas');
     canvas.width = 2;
@@ -258,10 +352,88 @@ try {
     assert.equal(hash(await fs.readFile(output)), hash(bytes));
     await fs.writeFile(artifact, bytes);
   }
+  const angularOutput = join(directory, 'angular.png'),
+    angularResult = await run([angularInput, angularOutput, '--chromium-path', chrome]);
+  assert.equal(angularResult.code, 0, JSON.stringify(angularResult));
+  const angularBytes = await fs.readFile(angularOutput),
+    angularInfo = pngInfo(angularBytes);
+  assert.equal(angularInfo.width, 960);
+  assert.equal(angularInfo.height, 540);
+  const angularPixels = await page.evaluate(async (data) => {
+    const image = new Image();
+    image.src = 'data:image/png;base64,' + data;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext('2d');
+    context.drawImage(image, 0, 0);
+    return [
+      [480, 90],
+      [660, 270],
+      [480, 450],
+      [300, 270],
+      [10, 10],
+    ].map(([x, y]) => [...context.getImageData(x, y, 1, 1).data]);
+  }, angularBytes.toString('base64'));
+  const expectedAngular = [
+    [255, 0, 0, 255],
+    [64, 191, 0, 255],
+    [0, 128, 128, 255],
+    [64, 0, 191, 255],
+    [0, 0, 0, 0],
+  ];
+  angularPixels.forEach((rgba, index) =>
+    rgba.forEach((value, channel) =>
+      assert.ok(
+        Math.abs(value - expectedAngular[index][channel]) <= 5,
+        `angular sample ${index}: ${rgba}`,
+      ),
+    ),
+  );
+  const angularRefused = await run([angularInput, angularOutput, '--chromium-path', chrome]);
+  assert.equal(angularRefused.code, 1);
+  assert.match(angularRefused.stderr, /already exists/);
+  assert.equal(hash(await fs.readFile(angularOutput)), hash(angularBytes));
+  assert.equal(hash(await fs.readFile(angularInput)), angularHash);
+  receipt.angular = { ...angularInfo, pngSha256: hash(angularBytes), samples: angularPixels };
+  const nestedInput = join(directory, 'nested-angular.svg'),
+    nestedOutput = join(directory, 'nested-angular.png');
+  await fs.writeFile(nestedInput, nestedAngular);
+  const nestedResult = await run([nestedInput, nestedOutput, '--chromium-path', chrome]);
+  assert.equal(nestedResult.code, 0, JSON.stringify(nestedResult));
+  const nestedBytes = await fs.readFile(nestedOutput);
+  assert.deepEqual(pngInfo(nestedBytes), { width: 960, height: 540, density: null });
+  const nestedPixels = await page.evaluate(async (data) => {
+    const image = new Image();
+    image.src = 'data:image/png;base64,' + data;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext('2d');
+    context.drawImage(image, 0, 0);
+    return [
+      [480, 90],
+      [660, 270],
+      [480, 450],
+      [300, 270],
+      [10, 10],
+    ].map(([x, y]) => [...context.getImageData(x, y, 1, 1).data]);
+  }, nestedBytes.toString('base64'));
+  nestedPixels.forEach((rgba, index) =>
+    rgba.forEach((value, channel) => {
+      const expected = channel === 3 && index < 4 ? 128 : expectedAngular[index][channel];
+      assert.ok(Math.abs(value - expected) <= 5, `nested angular sample ${index}: ${rgba}`);
+    }),
+  );
+  assert.equal(hash(await fs.readFile(nestedInput)), hash(nestedAngular));
+  receipt.nestedAngular = { pngSha256: hash(nestedBytes), samples: nestedPixels };
   for (const [name, svg, message] of [
     ['external', root('<image href="https://example.invalid/x.png"/>'), /external URLs/],
     ['responsive', root('', 'width="100%" height="100%" viewBox="0 0 32 16"'), /fixed dimensions/],
     ['oversized', root('', 'width="8193" height="1" viewBox="0 0 8193 1"'), /8192 px/],
+    ['recursive-pattern', recursivePattern, /pattern|solid|fragment/i],
   ]) {
     const invalid = join(directory, `invalid-${name}.svg`),
       output = join(directory, `invalid-${name}.png`);

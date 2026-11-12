@@ -26,6 +26,8 @@ This is a developer adapter, not a packaged CLI distribution.
   PPI uses the existing PPI/96 sizing rule (not the scale-preset range) and writes
   rounded pixels/metre to PNG pHYs; e.g. 300 PPI is 11811 pixels/metre.
 - Nect paths, gradients/masks and their internal fragment references are supported.
+  Angular gradients use Nect's self-contained solid-sector pattern; general SVG
+  patterns, pattern links and external resources remain unsupported.
   Canonical embedded PNGs follow existing asset size/checksum/aggregate rules and
   are decoded before rendering. Nect text must already be exported as outlines.
   Active content, foreignObject, text/font dependencies, arbitrary CSS, external
