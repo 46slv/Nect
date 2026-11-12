@@ -217,3 +217,35 @@ for (const operation of ['count', 'spacing']) {
     assert.match(changed.warnings.join(' '), /suspended/i);
   });
 }
+
+test('Subdivide into Resample keeps Remap history and reload on the shared PaperScope', () => {
+  const doc = blankDocument(),
+    layer = doc.layers[0],
+    source = node('Imported Path'),
+    subdivide = node('Subdivide Path'),
+    resample = node('Resample Path'),
+    remap = node('Path Remap');
+  source.rawPath = 'M0 0 C20 0 20 50 60 50';
+  subdivide.params.segments.value = 3;
+  resample.params.count.value = 7;
+  layer.nodes.push(source, subdivide, resample, remap);
+  connect(layer, source.id, subdivide.id, 'path');
+  connect(layer, subdivide.id, resample.id, 'path');
+  connect(layer, resample.id, remap.id, 'path');
+  const input = evaluate(layer).run(resample.id);
+  enableRemapPoint(remap, input, input.contours[0].points[0].id).params.position.value = [3, 1];
+  const session = new CommandSession(doc),
+    before = serialize(session.snapshot()),
+    baseline = evaluate(session.snapshot().layers[0]).run(remap.id);
+  session.dispatch({
+    ...session.state,
+    type: 'set-parameter',
+    payload: { layerId: layer.id, nodeId: subdivide.id, key: 'segments', value: 4 },
+  });
+  const changed = evaluate(session.snapshot().layers[0]);
+  changed.run(remap.id);
+  assert.match(changed.warnings.join(' '), /suspended/i);
+  session.dispatch({ ...session.state, type: 'undo' });
+  assert.equal(serialize(session.snapshot()), before);
+  assert.deepEqual(evaluate(deserialize(before).layers[0]).run(remap.id), baseline);
+});

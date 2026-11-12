@@ -150,14 +150,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Resample Path',
-    categoryId: 'path',
-    labelJa: '再サンプル',
-    aliases: ['再サンプル'],
-    description: '再サンプル',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Dash Path',
     categoryId: 'path',
     labelJa: '破線',
