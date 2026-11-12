@@ -19,7 +19,11 @@ test('Composition activation saves and restores window state without a document 
     flow,
     /owner\.commitPreparedCompositionSwitch\(token,\s*\{\s*beforeCommit:\s*beforeCompositionSwitch\s*\}\)/,
   );
-  assert.match(flow, /compositionViewStates\.prune\(project\.compositions\)/);
+  assert.match(flow, /pruneCompositionViews\(project\.compositions\)/);
+  assert.match(
+    source,
+    /function pruneCompositionViews\(compositions\)\s*\{\s*compositionViewStates\.prune\(compositions\)/,
+  );
   assert.match(flow, /restoreCompositionViewState\(\)/);
   assert.match(flow, /render\(false, null, graphScroll\)/);
   assert.doesNotMatch(flow, /session\.dispatch\(/);
@@ -50,10 +54,7 @@ test('Add and project Import save the outgoing view and initialize the newly act
   assert.match(importFlow, /saveCompositionViewState\(\)/);
   assert.match(importFlow, /restoreCompositionViewState\(\)/);
   assert.match(importFlow, /compositionViewStates\.forget\(compositionId\)/);
-  assert.match(
-    importFlow,
-    /compositionViewStates\.prune\(session\.projectSnapshot\(\)\.compositions\)/,
-  );
+  assert.match(importFlow, /pruneCompositionViews\(session\.projectSnapshot\(\)\.compositions\)/);
 });
 
 test('Composition tablist exposes accessible selection, keyboard activation, and horizontal scrolling', () => {
