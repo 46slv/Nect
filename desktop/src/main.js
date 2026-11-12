@@ -1563,9 +1563,7 @@ const documents = new DocumentLifecycle({
   write: writeProject,
   release: releaseProject,
   choose: chooseUnsaved,
-  hasLifecycleDraft: () =>
-    !!variableAction ||
-    !!(nameEdit && (nameEdit.composing || nameEdit.value !== nameEdit.original)),
+  hasLifecycleDraft: () => !!variableAction,
   hasDraft: () =>
     !!(
       closeInputBlocked() ||
@@ -1573,6 +1571,7 @@ const documents = new DocumentLifecycle({
       drag ||
       wiring ||
       composing ||
+      (nameEdit && (nameEdit.composing || nameEdit.value !== nameEdit.original)) ||
       session.hasTextComposition ||
       session.hasChangedTextDrafts ||
       session.hasGesture ||
@@ -9249,7 +9248,7 @@ async function confirmReplace(action = 'opening another document') {
 }
 async function openCompositionImportDialog() {
   if (variableAction) throw Error('Finish or cancel variable font preparation first');
-  if (documents.hasDraft()) throw Error('Finish or cancel the active edit first');
+  if (documents.hasPendingEdits()) throw Error('Finish or cancel the active edit first');
   const owner = session,
     envelope = session.state,
     projectRevision = session.projectRevision,
@@ -9302,6 +9301,18 @@ async function openCompositionImportDialog() {
   } finally {
     await documents.releaseUnused(opened.binding);
   }
+  const assertImportCurrent = () => {
+    if (
+      session !== owner ||
+      session.state.sessionId !== envelope.sessionId ||
+      session.state.expectedRevision !== envelope.expectedRevision ||
+      session.projectRevision !== projectRevision ||
+      documents.generation !== generation ||
+      documents.hasPendingEdits()
+    )
+      throw Error('Project changed while reading; import the file again');
+  };
+  assertImportCurrent();
   const dialog = document.createElement('dialog');
   dialog.className = 'composition-import-dialog';
   dialog.innerHTML =
@@ -9373,16 +9384,7 @@ async function openCompositionImportDialog() {
     dialog.remove();
     if (!['import', 'capture'].includes(value) || !selected.length) return;
     try {
-      if (
-        session !== owner ||
-        session.state.sessionId !== envelope.sessionId ||
-        session.state.expectedRevision !== envelope.expectedRevision ||
-        session.projectRevision !== projectRevision ||
-        documents.generation !== generation ||
-        documents.hasDraft() ||
-        variableAction
-      )
-        throw Error('Project changed while reading; import the file again');
+      assertImportCurrent();
       if (
         value === 'capture' &&
         !importsLiveKeyColors(

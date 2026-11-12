@@ -389,5 +389,45 @@ test('Layer name drags follow visual order and retain transaction boundaries', a
       }
     },
   );
+  await t.test('deferred Project Composition import does not interrupt Folder IME', async () => {
+    seed();
+    win.nect.dispatch({
+      ...win.nect.commandState,
+      type: 'create-layer-folder',
+      payload: { name: 'Folder', layerIds: [] },
+    });
+    flush();
+    const before = win.nect.projectSnapshot();
+    let finishRead;
+    const pendingRead = new Promise((resolve) => {
+      finishRead = resolve;
+    });
+    click('[data-action="import-composition"]');
+    const input = [...document.body.querySelectorAll('input[type="file"]')].find(
+      (element) => !document.querySelector('#app').contains(element),
+    );
+    assert.ok(input, 'composition chooser was opened');
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [{ size: 500, name: 'source.json', text: () => pendingRead }],
+    });
+    input.dispatchEvent(new win.Event('change', { bubbles: true }));
+    const title = $('[data-folder-name]');
+    title.focus();
+    key(title, 'F2');
+    const name = $('[data-rename-name]');
+    name.dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
+    finishRead(serialize(blankDocument()));
+    for (let i = 0; i < 30; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      flush();
+      if (/changed while reading/i.test($('.status .message').textContent)) break;
+    }
+    assert.match($('.status .message').textContent, /changed while reading/i);
+    assert.equal(document.querySelector('.composition-import-dialog'), null);
+    assert.equal($('[data-rename-name]').value, 'Folder');
+    assert.equal(ui().nameEdit.composing, true);
+    assert.deepEqual(win.nect.projectSnapshot(), before);
+  });
   await win.happyDOM.close();
 });
