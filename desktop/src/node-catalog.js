@@ -54,14 +54,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Keyer',
-    categoryId: 'image',
-    labelJa: 'カラーキー',
-    aliases: ['Keyer', 'Chroma key', '透過', 'クロマキー'],
-    description: '指定色を透明にする。範囲と境界の柔らかさを調整。',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Mask',
     categoryId: 'image',
     labelJa: 'マスク',

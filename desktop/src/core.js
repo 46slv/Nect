@@ -91,13 +91,7 @@ import { appendSVGPart } from './svg-part.js';
 import { svgRootAttributes } from './artboard-units.js';
 import { formatSvgExtent, formatSvgNumber, validateSvgPrecision } from './svg-number-format.js';
 import { OPENTYPE_SCHEMA_VERSION, validateTextFeatures } from './opentype-features.js';
-import {
-  imageAssetFor,
-  keyedImage,
-  ditheredImage,
-  keyerSettings,
-  MAX_ACTIVE_KEYERS,
-} from './image-keyer.js';
+import { imageAssetFor, ditheredImage, keyerSettings, MAX_ACTIVE_KEYERS } from './image-keyer.js';
 import { MAX_ACTIVE_IMAGE_DITHERS } from './image-dither.js';
 import {
   maskAppearance,
@@ -523,12 +517,6 @@ const p = (type, value) => ({ type, value, expression: '', locked: false });
 const legacyDefinitions = {
   Image: { position: p('Vector2', [100, 100]), size: p('Vector2', [320, 240]) },
   'Image Output': { path: p('Image', null) },
-  Keyer: {
-    path: p('Image', null),
-    keyColor: p('Color', { hex: '#00ff00', alpha: 1 }),
-    tolerance: p('Scalar', 0.1),
-    softness: p('Scalar', 0.05),
-  },
   Mask: { path: p('PaintedPath', null), mask: p('Path', null), invert: p('Boolean', false) },
   Curve: { closed: p('Boolean', true) },
   'Multi Path': {},
@@ -905,13 +893,7 @@ export function outputType(n, port) {
     ].includes(n.type)
   )
     return 'PaintedPath';
-  if (
-    n.type === 'Image' ||
-    n.type === 'Image Output' ||
-    n.type === 'Keyer' ||
-    isImageDither(n.type)
-  )
-    return 'Image';
+  if (n.type === 'Image' || n.type === 'Image Output' || isImageDither(n.type)) return 'Image';
   if (n.type === 'Mask') return 'PaintedPath';
   return n.type === 'Reference' ? 'Vector2' : 'Path';
 }
@@ -922,7 +904,6 @@ const bypassInputs = Object.freeze({
       .filter((row) => row.resolved.declaration.bypassInput !== undefined)
       .map((row) => [row.resolved.declaration.typeId, row.resolved.declaration.bypassInput]),
   ),
-  Keyer: 'path',
   'Ordered Dither Image': 'path',
   'Error Diffusion Dither Image': 'path',
   Mask: 'path',
@@ -3024,6 +3005,7 @@ export function evaluate(
               hasParameter,
               sourceOutputType,
               recordPaintSlot,
+              imageAssets,
               hasEmptyOutput: nodeHasEmptyOutput,
               paintedGroup: (inputs) => {
                 const painted = evaluatedPaintedGroup(inputs, { prefix: nodeId });
@@ -3039,6 +3021,7 @@ export function evaluate(
               hasParameter,
               sourceOutputType,
               recordPaintSlot,
+              imageAssets,
               hasEmptyOutput: nodeHasEmptyOutput,
             });
         result = registered.evaluate(n.operation, read, context);
@@ -3049,14 +3032,6 @@ export function evaluate(
         if (size.some((v) => v <= 0 || v > 100000))
           throw Error('Image size must be positive and at most 100000');
         result = { kind: 'image', asset: n.asset, position: read('position'), size };
-      } else if (n.type === 'Keyer') {
-        result = keyedImage(
-          read('path'),
-          read('keyColor'),
-          read('tolerance'),
-          read('softness'),
-          imageAssets,
-        );
       } else if (isImageDither(n.type)) {
         const { pitch, invert, gridOrigin, tonePower } = luminanceModifierSettings(read);
         result = ditheredImage(

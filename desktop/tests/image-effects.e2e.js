@@ -196,7 +196,7 @@ try {
   await page.evaluate((s) => window.nect.load(s), saved);
   assert.equal(await page.evaluate(() => window.nect.export()), artwork);
   const pending = page.waitForEvent('download');
-  await page.locator('[data-action="export-png"]').click();
+  await activateBoundaryCommand(page, 'export-png');
   const download = await pending;
   const path = await download.path(),
     png = await readFile(path);
