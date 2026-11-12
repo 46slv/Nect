@@ -36,6 +36,7 @@ import {
   mergeAssetRegistry,
   remapAssetReferences,
   remapIds,
+  reserveProjectImportReferences,
 } from './project-import-remap.js';
 
 export function prepareProjectCompositionsImport(
@@ -169,6 +170,7 @@ export function prepareProjectCompositionsImport(
     );
 
   const occupied = collectIds(current);
+  reserveProjectImportReferences(current, occupied);
   if (current.schemaVersion >= ARTWORK_REFERENCE_SCHEMA_VERSION)
     reserveDanglingArtworkReferenceIds(destinationLayers, occupied);
   // Qualified identities are Composition-scoped and must be reserved across

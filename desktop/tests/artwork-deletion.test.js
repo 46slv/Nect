@@ -12,7 +12,7 @@ import {
   validate,
 } from '../src/core.js';
 import { appendArtwork } from '../src/artwork-creation.js';
-import { removeArtworkLayer } from '../src/artwork-deletion.js';
+import { removeArtworkLayer, removeArtworkLayers } from '../src/artwork-deletion.js';
 import { resolveArtworkMoveTarget } from '../src/artwork-move-target.js';
 import { deletionDocument, unsupportedLayer } from './fixtures/artwork-deletion.js';
 
@@ -99,6 +99,10 @@ test('locked, missing, repeated and ambiguous IDs reject without changing docume
   assert.equal(serialize(doc), ambiguous);
   for (const invalid of [null, {}, { layers: [] }, { layers: Array(101).fill(blankLayer()) }])
     assert.throws(() => removeArtworkLayer(invalid, 'layer'));
+  const oversized = { layers: Array.from({ length: 101 }, () => blankLayer()) };
+  const unchanged = JSON.stringify(oversized);
+  assert.throws(() => removeArtworkLayers(oversized, [oversized.layers[0].id]), /Invalid artwork/);
+  assert.equal(JSON.stringify(oversized), unchanged);
 });
 
 test('deletion is independent of movement/evaluation support, including complex, gradient, image and large Curve graphs', () => {
