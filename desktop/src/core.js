@@ -11,6 +11,7 @@ import {
   assertNoLegacyArtworkDocumentPromotion,
   assertNoLegacyHandleReferencePromotion,
   assertNoLegacyHandleDocumentPromotion,
+  validateMacroDocumentCandidate,
 } from './composition-project-model.js';
 export { expression } from './expression-parser.js';
 import { JOIN_SLOT_LIMIT, validJoinSlotOrder } from './join-slots-protocol.js';
@@ -21,6 +22,7 @@ import {
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
   QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
   COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION,
+  MACRO_SCHEMA_VERSION,
   hasComponentCompositionReferenceSyntax,
   nodesHaveComponentCompositionReferenceSyntax,
   componentCompositionReferences,
@@ -124,9 +126,12 @@ import { PRIVATE_FONT_SCHEMA_VERSION } from './private-font-source.js';
 import {
   createVariableDocumentPreparer as createVariableBridge,
   assertVariableDocumentReady,
+  captureVariablePreparationOptions,
+  createVariablePreparationChild,
   validateVariableText,
   VARIABLE_KIND,
 } from './variable-font/document-bridge.js';
+export { createVariablePreparationController } from './variable-font/document-bridge.js';
 import { canonicalAxes, requireThat as variableCheck } from './variable-font/contract.js';
 import { validateCharacterArrangement } from './character-arrangement.js';
 import {
@@ -4777,6 +4782,11 @@ export function migratePaint(doc) {
   return doc;
 }
 export function validate(doc) {
+  const versionDescriptor =
+    doc && typeof doc === 'object' ? Object.getOwnPropertyDescriptor(doc, 'schemaVersion') : null;
+  if (versionDescriptor && !Object.hasOwn(versionDescriptor, 'value'))
+    throw Error('Invalid schema version descriptor');
+  if (versionDescriptor?.value >= MACRO_SCHEMA_VERSION) validateMacroDocumentCandidate(doc);
   let activeKeyers = 0;
   let activeImageDithers = 0;
   const idPattern = nodeIdPattern;
@@ -4853,7 +4863,8 @@ export function validate(doc) {
       doc.schemaVersion !== ARTWORK_REFERENCE_SCHEMA_VERSION &&
       doc.schemaVersion !== COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
       doc.schemaVersion !== QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION &&
-      doc.schemaVersion !== COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION)
+      doc.schemaVersion !== COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION &&
+      doc.schemaVersion !== MACRO_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   const colorSlots = validateColorSlots(doc);
@@ -5603,6 +5614,11 @@ export function validate(doc) {
   return doc;
 }
 export function serialize(doc) {
+  const versionDescriptor =
+    doc && typeof doc === 'object' ? Object.getOwnPropertyDescriptor(doc, 'schemaVersion') : null;
+  if (versionDescriptor && !Object.hasOwn(versionDescriptor, 'value'))
+    throw Error('Invalid schema version descriptor');
+  if (versionDescriptor?.value >= MACRO_SCHEMA_VERSION) validateMacroDocumentCandidate(doc);
   // This optional historical receipt must never lose non-JSON data in a direct
   // codec call, even when the caller did not construct a Session first.
   if (doc && Object.hasOwn(doc, 'keyColorRecipe')) validateColorSlots(doc);
@@ -5929,6 +5945,7 @@ export class CommandSession {
   #textDrafts = new Map();
   #gesture = null;
   #prepared = null;
+  #preparing = null;
   #prepareSequence = 0;
   #nodeClipboard = null;
   #nodeClipboardOwner;
@@ -6905,11 +6922,30 @@ export class CommandSession {
     return cloneDocument(this.#history.doc);
   }
   async prepareCommand(envelope, bridge, options = {}) {
+    const beforeOptions = {
+      document: this.#history.doc,
+      revision: this.#history.revision,
+      sequence: this.#prepareSequence,
+      prepared: this.#prepared,
+      clipboard: this.#nodeClipboard,
+      bridgeEpoch: bridge.preparationEpoch?.(),
+    };
+    options = captureVariablePreparationOptions(options);
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+    if (
+      this.#history.doc !== beforeOptions.document ||
+      this.#history.revision !== beforeOptions.revision ||
+      this.#prepareSequence !== beforeOptions.sequence ||
+      this.#prepared !== beforeOptions.prepared ||
+      this.#nodeClipboard !== beforeOptions.clipboard
+    )
+      throw Error('STALE_REVISION: document changed');
     const { sessionId, expectedRevision, type, payload = {} } = envelope;
     if (sessionId !== this.id || expectedRevision !== this.#history.revision)
       throw Error('STALE_REVISION: document changed');
     if (this.#busy() || this.#gesture || this.hasTextComposition || this.#textDrafts.size)
       throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
     if (
       ![
         'set-text-content',
@@ -6925,38 +6961,49 @@ export class CommandSession {
       .find((l) => l.id === payload.layerId)
       ?.nodes.find((n) => n.id === payload.nodeId);
     if (target?.locked) throw Error('Text node is locked');
-    const sequence = ++this.#prepareSequence;
-    this.#prepared = null;
+    // Busy checks and payload access can call user code. Reject an aborted
+    // replacement before invalidating any preparation already in flight.
+    captureVariablePreparationOptions(options);
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+    if (
+      this.#history.doc !== beforeOptions.document ||
+      this.#history.revision !== beforeOptions.revision ||
+      this.#prepareSequence !== beforeOptions.sequence ||
+      this.#prepared !== beforeOptions.prepared ||
+      this.#nodeClipboard !== beforeOptions.clipboard
+    )
+      throw Error('STALE_REVISION: document changed');
+    const previous = this.#prepared,
+      previousRequest = this.#preparing;
+    let sequence = this.#prepareSequence;
     const snapshotPaste = type === 'paste-layer-snapshot';
-    const entry = snapshotPaste
-      ? {
-          document: this.#history.doc,
-          revision: this.#history.revision,
-          binding: projectDocumentContexts.get(this.#history.doc),
-          contextEpoch: this.#projectContextOwner.epoch,
-          clipboard: this.#nodeClipboard,
-        }
-      : null;
+    const entry = {
+      document: this.#history.doc,
+      revision: this.#history.revision,
+      binding: projectDocumentContexts.get(this.#history.doc),
+      contextEpoch: this.#projectContextOwner.epoch,
+      clipboard: this.#nodeClipboard,
+    };
     const captured = snapshotPaste ? this.#resolveLayerClipboardSnapshot(payload.token) : null;
     const assertLocal = () => {
       if (
         sequence !== this.#prepareSequence ||
         sessionId !== this.id ||
         expectedRevision !== this.#history.revision ||
-        (entry &&
-          (this.#history.doc !== entry.document ||
-            this.#history.revision !== entry.revision ||
-            projectDocumentContexts.get(this.#history.doc) !== entry.binding ||
-            this.#projectContextOwner.epoch !== entry.contextEpoch ||
-            this.#nodeClipboard !== entry.clipboard))
+        this.#history.doc !== entry.document ||
+        this.#history.revision !== entry.revision ||
+        projectDocumentContexts.get(this.#history.doc) !== entry.binding ||
+        this.#projectContextOwner.epoch !== entry.contextEpoch ||
+        (snapshotPaste && this.#nodeClipboard !== entry.clipboard)
       )
         throw Error('STALE_REVISION: document changed');
-      if (captured && this.#resolveLayerClipboardSnapshot(payload.token) !== captured)
-        throw Error('STALE_SESSION: copied Layer changed');
     };
     assertLocal();
-    const authority = snapshotPaste ? this.#captureArtworkMoveAuthority() : null;
+    const authority = this.#captureArtworkMoveAuthority();
     const assertCurrent = () => {
+      assertLocal();
+      if (captured && this.#resolveLayerClipboardSnapshot(payload.token) !== captured)
+        throw Error('STALE_SESSION: copied Layer changed');
       assertLocal();
       authority?.();
       assertLocal();
@@ -6980,9 +7027,32 @@ export class CommandSession {
       ? layerSnapshotPreparationDocument(entry.document, captured)
       : candidate;
     if (snapshotPaste) assertCurrent();
-    const ticket = await bridge.prepareDocument(input, options);
-    try {
+    captureVariablePreparationOptions(options);
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+    assertLocal();
+    if (this.#prepared !== previous || this.#preparing !== previousRequest)
+      throw Error('STALE_REVISION: document changed');
+    const child = createVariablePreparationChild(options.signal),
+      request = { bridge, child, ticket: null };
+    sequence = ++this.#prepareSequence;
+    this.#prepared = null;
+    this.#preparing = request;
+    const assertPreparing = () => {
       assertLocal();
+      if (this.#preparing !== request) throw Error('STALE_REVISION: document changed');
+    };
+    try {
+      previous?.child?.unlink();
+      if (previous && previous.bridge !== bridge)
+        previous.bridge.discardActivation(previous.ticket);
+      previousRequest?.child.unlink();
+      if (previousRequest && previousRequest.bridge !== bridge)
+        previousRequest.child.controller.abort();
+      assertLocal();
+      bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+      const ticket = await bridge.prepareDocument(input, { signal: child.controller.signal });
+      request.ticket = ticket;
+      assertPreparing();
       if (snapshotPaste) assertCurrent();
       const fonts = { ...this.#fonts(), ...bridge.preparedFonts(ticket) };
       if (snapshotPaste) {
@@ -7009,27 +7079,55 @@ export class CommandSession {
           this.#history.doc,
         );
       if (snapshotPaste) assertCurrent();
+      bridge.assertFresh(ticket);
+      assertPreparing();
       const token = Object.freeze({});
+      this.#preparing = null;
       this.#prepared = {
         token,
         ticket,
         bridge,
+        child,
         candidate,
         expectedRevision,
         type,
         sequence,
         result,
-        assertCurrent: snapshotPaste ? assertCurrent : null,
+        assertCurrent,
+        assertLocal,
       };
       return token;
     } catch (error) {
-      // Do not cancel a newer request that replaced this ticket.
-      try {
-        bridge.assertFresh(ticket);
-        bridge.cancel();
-      } catch {}
+      if (this.#preparing === request) this.#preparing = null;
+      child.unlink();
+      child.controller.abort();
+      if (request.ticket) bridge.discardActivation(request.ticket);
+      previous?.child?.unlink();
+      if (previous) {
+        previous.bridge.discardActivation(previous.ticket);
+        previous.child.controller.abort();
+      }
+      previousRequest?.child.unlink();
+      previousRequest?.child.controller.abort();
       throw error;
     }
+  }
+  assertPrepared(token) {
+    const p = this.#prepared;
+    if (
+      !p ||
+      p.token !== token ||
+      p.expectedRevision !== this.#history.revision ||
+      p.sequence !== this.#prepareSequence
+    )
+      throw Error('STALE_REVISION: document changed');
+    p.bridge.assertFresh(p.ticket);
+    if (
+      this.#prepared !== p ||
+      p.expectedRevision !== this.#history.revision ||
+      p.sequence !== this.#prepareSequence
+    )
+      throw Error('STALE_REVISION: document changed');
   }
   preparedSnapshot(token) {
     const p = this.#prepared;
@@ -7081,10 +7179,16 @@ export class CommandSession {
   }
   commitPrepared(token) {
     return this.#observeCommit(() => this.#commitPrepared(token), {
-      skipFailed: this.#prepared?.type === 'paste-layer-snapshot',
+      skipFailed: true,
     });
   }
-  #commitPrepared(token) {
+  commitPreparedCoordinated(token, publishProject) {
+    if (typeof publishProject !== 'function') throw Error('Invalid prepared Project publisher');
+    return this.#observeCommit(() => this.#commitPrepared(token, publishProject), {
+      skipFailed: true,
+    });
+  }
+  #commitPrepared(token, publishProject = null) {
     const p = this.#prepared;
     if (
       !p ||
@@ -7095,43 +7199,102 @@ export class CommandSession {
       throw Error('STALE_REVISION: document changed');
     if (this.#busy() || this.#gesture || this.hasTextComposition || this.#textDrafts.size)
       throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
-    p.assertCurrent?.();
-    p.bridge.assertFresh(p.ticket);
-    assertVariableDocumentReady(
-      p.candidate,
-      resolveFonts(p.candidate, p.bridge.preparedFonts(p.ticket)),
-    );
-    p.assertCurrent?.();
-    const revision = this.#history.revision;
-    if (p.type === 'undo' || p.type === 'redo') this.#history[p.type]();
-    else if (!sameDocument(this.#history.doc, p.candidate)) {
-      assertNoAccidentalCurvePointRebind(this.#history.doc, p.candidate, this.#nodeClipboard);
-      assertArtworkReferenceTransition(this.#history.doc, p.candidate, {
-        ...this.#fonts(),
-        ...p.bridge.preparedFonts(p.ticket),
-      });
-      p.assertCurrent?.();
-      this.#beforeCandidateCommit?.(
-        this.#history.doc,
+    let staging = false;
+    try {
+      const assertClipboard = this.captureNodeClipboardFreshness();
+      p.assertCurrent();
+      p.bridge.assertFresh(p.ticket);
+      assertVariableDocumentReady(
         p.candidate,
-        p.bridge.preparedFonts(p.ticket),
+        resolveFonts(p.candidate, p.bridge.preparedFonts(p.ticket)),
       );
-      p.assertCurrent?.();
-      this.#history.apply(() => {
+      p.assertCurrent();
+      const revision = this.#history.revision,
+        historyStep = p.type === 'undo' || p.type === 'redo',
+        changed = historyStep
+          ? (p.type === 'undo' ? this.#history.past : this.#history.future).length > 0
+          : !sameDocument(this.#history.doc, p.candidate);
+      let projectCandidate = null,
+        before = null;
+      if (changed && !historyStep) {
+        assertNoAccidentalCurvePointRebind(this.#history.doc, p.candidate, this.#nodeClipboard);
+        assertArtworkReferenceTransition(this.#history.doc, p.candidate, {
+          ...this.#fonts(),
+          ...p.bridge.preparedFonts(p.ticket),
+        });
+        p.assertCurrent();
+        projectCandidate = this.#beforeCandidateCommit?.(
+          this.#history.doc,
+          p.candidate,
+          p.bridge.preparedFonts(p.ticket),
+        );
+        p.assertCurrent();
+        before = cloneDocument(this.#history.doc);
+      }
+      // Teardown may call caller code. Nothing is published until it returns
+      // and every Session, Project and ticket boundary is checked again.
+      staging = true;
+      p.bridge.stageActivation(p.ticket);
+      p.assertCurrent();
+      p.bridge.assertFresh(p.ticket);
+      // The signal getter above may itself start a gesture or set busy. The
+      // final native signal read after this callback cannot call user code.
+      p.assertCurrent();
+      p.bridge.assertFreshForPublication(p.ticket);
+      p.assertLocal();
+      assertClipboard();
+      if (this.#gesture || this.hasTextComposition || this.#textDrafts.size)
+        throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+      if (this.#prepared !== p) throw Error('STALE_REVISION: document changed');
+      // The coordinated publisher checks owner identity without callbacks and
+      // publishes its already validated Project candidate. From here to both
+      // Session and font-bank publication there are no external callbacks.
+      publishProject?.(projectCandidate, changed);
+      p.bridge.publishActivation(p.ticket);
+      if (historyStep) this.#history[p.type]();
+      else if (changed) {
         this.#history.doc = p.candidate;
-      });
+        this.#history.record(before);
+      }
+      this.#trackProjectContextRoots();
+      if (p.type === 'import-svg') this.#nodeClipboard = null;
+      this.#prepared = null;
+      p.child.unlink();
+      return { ...this.state, ...p.result, changed: revision !== this.#history.revision };
+    } catch (error) {
+      if (staging) {
+        p.bridge.discardActivation(p.ticket);
+        if (this.#prepared === p) this.#prepared = null;
+        p.child.unlink();
+      }
+      throw error;
     }
-    this.#trackProjectContextRoots();
-    p.bridge.activate(p.ticket);
-    if (p.type === 'import-svg') this.#nodeClipboard = null;
-    this.#prepared = null;
-    return { ...this.state, ...p.result, changed: revision !== this.#history.revision };
   }
   cancelPrepared(bridge, token = null) {
-    if (token && this.#prepared?.token !== token) return;
+    if (token) {
+      if (this.#prepared?.bridge === bridge) this.discardPrepared(token);
+      return;
+    }
+    const prepared = this.#prepared,
+      request = this.#preparing;
+    if (prepared?.bridge === bridge) this.discardPrepared(prepared.token);
+    if (request?.bridge === bridge) {
+      this.#preparing = null;
+      this.#prepareSequence++;
+      request.child.unlink();
+      request.child.controller.abort();
+      if (request.ticket) bridge.discardActivation(request.ticket);
+    }
+  }
+  discardPrepared(token) {
+    const pending = this.#prepared;
+    if (!pending || pending.token !== token) return false;
     this.#prepared = null;
     this.#prepareSequence++;
-    bridge.cancel();
+    pending.child.unlink();
+    pending.bridge.discardActivation(pending.ticket);
+    pending.child.controller.abort();
+    return true;
   }
   dispatch(command) {
     const entry = {

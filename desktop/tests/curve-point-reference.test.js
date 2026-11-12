@@ -620,9 +620,9 @@ test('low schema rejects point keys when their Curve owner exists; pure codec re
   assert.throws(() => migrateLegacyDocumentToCompositionProject(f.doc), /schemaVersion 60/);
   const plain = fixture(),
     project = migrateLegacyDocumentToCompositionProject(plain.doc),
-    futureSchemaVersion = 66;
-  assert.equal(MAX_DOCUMENT_SCHEMA_VERSION, 65);
-  for (const schemaVersion of [63, 64, 65]) {
+    futureSchemaVersion = 67;
+  assert.equal(MAX_DOCUMENT_SCHEMA_VERSION, 66);
+  for (const schemaVersion of [63, 64, 65, 66]) {
     const supported = { ...project, compositionSchemaVersion: 2, schemaVersion };
     assert.doesNotThrow(() => validateCompositionProject(supported));
     assert.equal(
@@ -815,6 +815,10 @@ test('prepared Composition edits retain the promoted wrapper and Undo/Redo', asy
     preparedFonts: () => ({}),
     assertFresh() {},
     activate() {},
+    stageActivation() {},
+    assertFreshForPublication() {},
+    publishActivation() {},
+    discardActivation() {},
     cancel() {},
   };
   const token = await owner.prepareCommand(
