@@ -720,7 +720,6 @@ const legacyDefinitions = {
     letterSpacing: p('Scalar', 0),
     lineSpacing: p('Scalar', 1.2),
   },
-  'Text to Path': { path: p('Path', null) },
   'Imported Path': {},
 };
 export const definitions = Object.fromEntries(
@@ -1043,7 +1042,6 @@ const bypassInputs = Object.freeze({
   'Instance on Points': 'path',
   'Luminance Instances': 'motif',
   'Convert to Path': 'path',
-  'Text to Path': 'path',
   Fill: 'path',
   'Linear Gradient Fill': 'path',
   'Radial Gradient Fill': 'path',
@@ -3706,13 +3704,14 @@ export function evaluate(
               nodeId,
               shape,
               warn,
+              cloneEvaluated,
               paintedGroup: (inputs) => {
                 const painted = evaluatedPaintedGroup(inputs, { prefix: nodeId });
                 setEvaluationFingerprint(painted, () => [nodeId, inputs]);
                 return painted;
               },
             })
-          : Object.freeze({ nodeId, warn });
+          : Object.freeze({ nodeId, warn, cloneEvaluated });
         result = registered.evaluate(n.operation, read, context);
         assertValue(registered.interface(n.operation, shape).resultType, result);
       } else if (n.type === 'Polygon' || n.type === 'Star') {

@@ -150,14 +150,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Text to Path',
-    categoryId: 'path',
-    labelJa: '文字をパス',
-    aliases: ['文字をパス', 'アウトライン'],
-    description: '文字をパス アウトライン',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Closed Path Offset',
     categoryId: 'path',
     labelJa: '閉じた輪郭',

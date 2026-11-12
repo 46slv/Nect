@@ -47,6 +47,8 @@ import { mirrorDeclaration } from './mirror-node-declaration.js';
 import { evaluateMirror } from './mirror-node-binding.js';
 import { cornerRoundDeclaration } from './corner-round-declaration.js';
 import { evaluateCornerRound } from './corner-round-binding.js';
+import { textToPathDeclaration } from './text-to-path-declaration.js';
+import { evaluateTextToPath } from './text-to-path-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -122,4 +124,5 @@ export const builtinManifest = Object.freeze([
     'Resample Path',
     'Closed Path Offset',
   ),
+  entry(textToPathDeclaration, { evaluate: evaluateTextToPath }, 'Text', 'Convert to Path'),
 ]);
