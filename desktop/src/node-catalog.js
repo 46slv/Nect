@@ -462,14 +462,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Null',
-    categoryId: 'value',
-    labelJa: '基準点',
-    aliases: ['基準点'],
-    description: '基準点',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Composition Reference',
     categoryId: 'combine',
     labelJa: 'Composition参照',
