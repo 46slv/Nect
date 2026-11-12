@@ -307,6 +307,39 @@ test('Layer name drags follow visual order and retain transaction boundaries', a
       assert.equal(ui().past, past + 1);
     },
   );
+  await t.test('Folder move does not blur or interrupt an active name composition', () => {
+    const [a, , c] = seed();
+    win.nect.dispatch({
+      ...win.nect.commandState,
+      type: 'create-layer-folder',
+      payload: { folderId: 'destination', name: 'Destination', layerIds: [a] },
+    });
+    flush();
+    select(c);
+    const title = $('[data-folder-name="destination"]');
+    title.focus();
+    key(title, 'F2');
+    const input = $('[data-rename-name]');
+    input.dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
+    input.value = 'Pending destination';
+    input.dispatchEvent(new win.Event('input', { bubbles: true }));
+    const before = win.nect.projectSnapshot(),
+      attempt = new win.PointerEvent('pointerdown', {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 3,
+        button: 0,
+      });
+    $('[data-folder-add="destination"]').dispatchEvent(attempt);
+    assert.equal(attempt.defaultPrevented, true);
+    assert.equal(document.activeElement, input);
+    assert.equal(input.value, 'Pending destination');
+    assert.equal(ui().nameEdit.composing, true);
+    assert.equal($('.layer-folder-move-dialog'), null);
+    assert.deepEqual(win.nect.projectSnapshot(), before);
+    input.dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true }));
+    key(input, 'Escape');
+  });
   await t.test(
     'pending Open and SVG reads preserve changed Folder, Layer and Node name drafts',
     async () => {

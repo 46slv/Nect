@@ -9,8 +9,9 @@ import {
 import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
 import { Window } from 'happy-dom';
 import { readSVGSource } from '../src/svg-tree.js';
+import { planLayerFolderMove } from '../src/layer-folders.js';
 
-function fixture() {
+function fixture(options = {}, customize = () => {}) {
   const doc = blankDocument();
   doc.layers = ['Back', 'Middle', 'Front', 'Top'].map((name, index) => {
     const layer = blankLayer(name),
@@ -27,7 +28,11 @@ function fixture() {
     layer.nodes.find((item) => item.type === 'Output').params.path.source = fill.id;
     return layer;
   });
-  const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc));
+  customize(doc);
+  const owner = createCompositionSessionOwner(
+    migrateLegacyDocumentToCompositionProject(doc),
+    options,
+  );
   const send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload });
   return { owner, send, ids: doc.layers.map(({ id }) => id) };
 }
@@ -86,6 +91,252 @@ test('Folder constraints reject non-contiguous operations without changing Histo
   assert.equal(owner.historyView.future.length, history);
   send('redo');
   assert.equal(owner.snapshot().editor.layerFolders[0].name, 'Changed');
+});
+
+test('Folder moves keep paint order when membership alone stays contiguous', () => {
+  const { owner, send, ids } = fixture();
+  const { folderId: target } = send('create-layer-folder', { name: 'Target', layerIds: [ids[1]] });
+  const { folderId: source } = send('create-layer-folder', {
+    name: 'Source',
+    layerIds: [ids[2], ids[3]],
+  });
+  const before = owner.snapshot(),
+    svg = exportSVG(before),
+    plan = planLayerFolderMove(before, { folderId: target, layerIds: [ids[2], ids[0]] });
+  assert.equal(plan.orderChanged, false);
+  const result = send('move-layers-to-folder', { folderId: target, layerIds: [ids[2], ids[0]] });
+  assert.equal(result.changed, true);
+  const moved = owner.snapshot();
+  assert.deepEqual(moved.layers, before.layers);
+  assert.equal(exportSVG(moved), svg);
+  assert.deepEqual(moved.editor.layerFolders.find((folder) => folder.id === target).members, [
+    { layerId: ids[0] },
+    { layerId: ids[1] },
+    { layerId: ids[2] },
+  ]);
+  assert.deepEqual(moved.editor.layerFolders.find((folder) => folder.id === source).members, [
+    { layerId: ids[3] },
+  ]);
+  const noOp = send('move-layers-to-folder', { folderId: target, layerIds: [ids[2], ids[0]] });
+  assert.equal(noOp.changed, false);
+});
+
+test('Folder moves require the exact proposed order and preserve IDs across Undo, Redo and reopen', () => {
+  const { owner, send, ids } = fixture();
+  const { folderId: target } = send('create-layer-folder', { name: 'Target', layerIds: [ids[0]] });
+  const { folderId: source } = send('create-layer-folder', {
+    name: 'Source',
+    layerIds: [ids[1], ids[2]],
+  });
+  send('rename-layer-folder', { folderId: source, name: 'Changed' });
+  send('undo');
+  const before = owner.projectSnapshot(),
+    state = owner.state,
+    future = owner.historyView.future.length,
+    payload = { folderId: target, layerIds: [ids[3], ids[2], ids[0]] },
+    plan = planLayerFolderMove(owner.snapshot(), payload);
+  assert.equal(plan.orderChanged, true);
+  assert.deepEqual(plan.paintOrder, [ids[0], ids[2], ids[3], ids[1]]);
+  assert.throws(() => send('move-layers-to-folder', payload), /Confirm/);
+  assert.throws(
+    () => send('move-layers-to-folder', { ...payload, expectedPaintOrder: ids }),
+    /Confirm/,
+  );
+  assert.throws(
+    () => send('move-layers-to-folder', { ...payload, expectedPaintOrder: Array(ids.length) }),
+    /Confirm/,
+  );
+  assert.deepEqual(owner.projectSnapshot(), before);
+  assert.deepEqual(owner.state, state);
+  assert.equal(owner.historyView.future.length, future);
+  const result = send('move-layers-to-folder', {
+    ...payload,
+    expectedPaintOrder: plan.paintOrder,
+  });
+  assert.equal(result.changed, true);
+  const moved = owner.projectSnapshot(),
+    doc = owner.snapshot();
+  assert.deepEqual(
+    doc.layers.map(({ id }) => id),
+    plan.paintOrder,
+  );
+  assert.deepEqual(
+    doc.layers.map((layer) => layer.nodes),
+    plan.paintOrder.map(
+      (id) => before.compositions[0].layers.find((layer) => layer.id === id).nodes,
+    ),
+  );
+  assert.deepEqual(doc.editor.layerFolders.find((folder) => folder.id === source).members, [
+    { layerId: ids[1] },
+  ]);
+  assert.deepEqual(deserializeCompositionProject(serializeCompositionProject(moved)), moved);
+  send('undo');
+  assert.deepEqual(owner.projectSnapshot(), before);
+  send('redo');
+  assert.deepEqual(owner.projectSnapshot(), moved);
+  assert.throws(
+    () => owner.dispatch({ ...state, type: 'move-layers-to-folder', payload }),
+    /STALE/,
+  );
+});
+
+test('Folder moves reject locked or foreign Layers without changing the project or Redo', () => {
+  const { owner, send, ids } = fixture({}, (doc) => {
+    doc.layers[2].locked = true;
+    doc.layers[1].visible = false;
+  });
+  const { folderId } = send('create-layer-folder', { name: 'Target', layerIds: [ids[0]] });
+  send('rename-layer-folder', { folderId, name: 'Temporary' });
+  send('undo');
+  const before = owner.projectSnapshot(),
+    state = owner.state,
+    future = owner.historyView.future;
+  for (const layerIds of [[ids[2]], [ids[1], 'other-composition-layer'], [ids[1], ids[1]]]) {
+    assert.throws(() => send('move-layers-to-folder', { folderId, layerIds }), /Layer|Unlock/);
+    assert.deepEqual(owner.projectSnapshot(), before);
+    assert.deepEqual(owner.state, state);
+    assert.deepEqual(owner.historyView.future, future);
+  }
+  send('redo');
+  assert.equal(owner.snapshot().editor.layerFolders[0].name, 'Temporary');
+});
+
+test('Moving into an empty Folder places the selected block at the Composition front', () => {
+  const { owner, send, ids } = fixture();
+  const { folderId } = send('create-layer-folder', { name: 'Empty', layerIds: [] });
+  const payload = { folderId, layerIds: [ids[2], ids[0]] },
+    plan = planLayerFolderMove(owner.snapshot(), payload);
+  assert.deepEqual(plan.paintOrder, [ids[1], ids[3], ids[0], ids[2]]);
+  assert.throws(() => send('move-layers-to-folder', payload), /Confirm/);
+  send('move-layers-to-folder', { ...payload, expectedPaintOrder: plan.paintOrder });
+  assert.deepEqual(owner.snapshot().editor.layerFolders[0].members, [
+    { layerId: ids[0] },
+    { layerId: ids[2] },
+  ]);
+});
+
+test('A Text draft started by a move validation callback remains editable', () => {
+  let owner,
+    textId,
+    layerId,
+    draft,
+    armed = false;
+  const options = {
+    fonts: () => {
+      if (armed) {
+        armed = false;
+        draft = owner.dispatch({
+          ...owner.state,
+          type: 'begin-text-draft',
+          payload: { layerId, nodeId: textId },
+        });
+        draft = owner.dispatch({
+          ...owner.state,
+          type: 'stage-text-draft',
+          payload: {
+            draftId: draft.draftId,
+            expectedDraftRevision: draft.draftRevision,
+            action: 'edit',
+            previousRaw: 'A',
+            nextRaw: 'AB',
+          },
+        });
+      }
+      return {};
+    },
+  };
+  const f = fixture(options, (doc) => {
+    const text = node('Text');
+    text.text = 'A';
+    doc.layers[0].nodes.push(text);
+    textId = text.id;
+    layerId = doc.layers[0].id;
+  });
+  owner = f.owner;
+  const { folderId } = f.send('create-layer-folder', { name: 'Target', layerIds: [f.ids[0]] });
+  f.send('rename-layer-folder', { folderId, name: 'Temporary' });
+  f.send('undo');
+  const before = owner.projectSnapshot(),
+    state = owner.state,
+    future = owner.historyView.future,
+    payload = { folderId, layerIds: [f.ids[3]] },
+    plan = planLayerFolderMove(owner.snapshot(), payload);
+  armed = true;
+  assert.throws(
+    () => f.send('move-layers-to-folder', { ...payload, expectedPaintOrder: plan.paintOrder }),
+    /draft|gesture|active/i,
+  );
+  assert.deepEqual(owner.projectSnapshot(), before);
+  assert.deepEqual(owner.state, state);
+  assert.deepEqual(owner.historyView.future, future);
+  f.send('commit-text-draft', {
+    draftId: draft.draftId,
+    expectedDraftRevision: draft.draftRevision,
+  });
+  assert.equal(owner.snapshot().layers[0].nodes.find((item) => item.id === textId).text, 'AB');
+});
+
+test('Move validation cannot publish after the active Composition changes reentrantly', () => {
+  const f = fixture(),
+    project = f.owner.projectSnapshot(),
+    other = migrateLegacyDocumentToCompositionProject(blankDocument()).compositions[0];
+  other.id = 'other-composition';
+  project.compositions.push(other);
+  let owner,
+    armed = false;
+  owner = createCompositionSessionOwner(project, {
+    fonts: () => {
+      if (armed) {
+        armed = false;
+        owner.switchComposition(other.id);
+      }
+      return {};
+    },
+  });
+  const send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload });
+  const { folderId } = send('create-layer-folder', { name: 'Target', layerIds: [f.ids[0]] });
+  const before = owner.projectSnapshot(),
+    payload = { folderId, layerIds: [f.ids[3]] },
+    plan = planLayerFolderMove(owner.snapshot(), payload);
+  armed = true;
+  assert.throws(
+    () => send('move-layers-to-folder', { ...payload, expectedPaintOrder: plan.paintOrder }),
+    /STALE/,
+  );
+  assert.equal(owner.activeCompositionId, other.id);
+  assert.deepEqual(owner.projectSnapshot(), before);
+});
+
+test('Moving a hidden referenced SVG source preserves its stable reference and output', () => {
+  const { owner, send, ids } = fixture();
+  const tree = readSVGSource(
+    '<svg width="20" height="20"><rect width="20" height="20" fill="#ff0000"/></svg>',
+    new Window().DOMParser,
+  );
+  const { sourceLayerId, nodeId } = send('add-svg-part', {
+    layerId: ids[1],
+    source: tree,
+    name: 'mark.svg',
+  });
+  const { folderId } = send('create-layer-folder', { name: 'Target', layerIds: [ids[0]] });
+  const before = owner.snapshot(),
+    beforeSvg = exportSVG(before),
+    payload = { folderId, layerIds: [sourceLayerId] },
+    plan = planLayerFolderMove(before, payload);
+  assert.equal(plan.orderChanged, true);
+  send('move-layers-to-folder', { ...payload, expectedPaintOrder: plan.paintOrder });
+  const moved = owner.snapshot();
+  assert.equal(moved.layers.find((layer) => layer.id === sourceLayerId).visible, false);
+  assert.deepEqual(
+    moved.layers.find((layer) => layer.id === ids[1]).nodes.find((item) => item.id === nodeId)
+      .compositionReference,
+    { compositionId: sourceLayerId },
+  );
+  assert.equal(exportSVG(moved), beforeSvg);
+  send('undo');
+  assert.deepEqual(owner.snapshot(), before);
+  send('redo');
+  assert.deepEqual(owner.snapshot(), moved);
 });
 
 test('Duplicate inherits its Folder; deletion preserves empty Folder and creates last blank at root', () => {

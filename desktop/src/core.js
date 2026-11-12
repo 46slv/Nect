@@ -223,6 +223,7 @@ import {
   createLayerFolder,
   renameLayerFolder,
   addLayersToFolder,
+  moveLayersToFolder,
   removeLayersFromFolder,
   dissolveLayerFolder,
 } from './layer-folders.js';
@@ -8210,7 +8211,7 @@ export class CommandSession {
       (commandType === 'begin-gesture' && command.payload?.target?.kind === 'artwork-translate') ||
       (['update-gesture', 'commit-gesture'].includes(commandType) &&
         this.#gesture?.target.kind === 'artwork-translate');
-    const paste = commandType === 'paste-nodes';
+    const paste = commandType === 'paste-nodes' || commandType === 'move-layers-to-folder';
     return this.#observeCommit(() => this.#dispatch(command, entry, copyAttempt), {
       skipFailed: artworkMove || paste,
       suppressNotification: () => copyAttempt.isCopy,
@@ -8231,7 +8232,7 @@ export class CommandSession {
       throw Error('STALE_REVISION: document changed');
     if (!payload || typeof payload !== 'object' || Array.isArray(payload))
       throw Error('Invalid command payload');
-    const paste = type === 'paste-nodes';
+    const paste = type === 'paste-nodes' || type === 'move-layers-to-folder';
     const assertPasteLocal = () => {
       if (
         paste &&
@@ -8256,6 +8257,7 @@ export class CommandSession {
       if (
         this.#gesture ||
         this.hasTextComposition ||
+        (type === 'move-layers-to-folder' && this.#textDrafts.size > 0) ||
         [...this.#textDrafts.values()].some(
           (draft) => draft.revision === this.#history.revision && draft.state.changed,
         )
@@ -8770,6 +8772,7 @@ export class CommandSession {
         'create-layer-folder',
         'rename-layer-folder',
         'add-layers-to-folder',
+        'move-layers-to-folder',
         'remove-layers-from-folder',
         'dissolve-layer-folder',
       ].includes(type)
@@ -8785,9 +8788,11 @@ export class CommandSession {
             ? renameLayerFolder(candidate, payload)
             : type === 'add-layers-to-folder'
               ? addLayersToFolder(candidate, payload)
-              : type === 'remove-layers-from-folder'
-                ? removeLayersFromFolder(candidate, payload)
-                : dissolveLayerFolder(candidate, payload);
+              : type === 'move-layers-to-folder'
+                ? moveLayersToFolder(candidate, payload)
+                : type === 'remove-layers-from-folder'
+                  ? removeLayersFromFolder(candidate, payload)
+                  : dissolveLayerFolder(candidate, payload);
       validate(candidate);
       return { candidate, result };
     }
