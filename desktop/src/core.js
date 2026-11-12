@@ -156,7 +156,6 @@ import {
 import { validateInstancePath } from './instance-points-geometry.js';
 import { autoHandlesGeometry } from './auto-handles-geometry.js';
 import { taperGeometry } from './taper-geometry.js';
-import { bendGeometry } from './bend-geometry.js';
 import { polarSettings, polarTransformGeometry } from './polar-transform.js';
 import { dashIntervals } from './dash-intervals.js';
 import { smoothGeometry } from './smooth-geometry.js';
@@ -595,7 +594,6 @@ const legacyDefinitions = {
   },
   'Set Closure': { path: p('Path', null), closed: p('Boolean', true) },
   Taper: { path: p('Path', null), amount: p('Scalar', 0) },
-  'Bend Points': { path: p('Path', null), angle: p('Scalar', 0) },
   'Polar Transform': {
     path: p('Path', null),
     origin: p('Vector2', [0, 0]),
@@ -908,7 +906,7 @@ export function node(type, x = 40, y = 40) {
       ? 'square'
       : type === 'Resample Path'
         ? 'count'
-        : type === 'Taper' || type === 'Bend Points'
+        : type === 'Taper'
           ? 'horizontal'
           : type === 'Line Screen'
             ? 'horizontal'
@@ -1083,7 +1081,6 @@ const bypassInputs = Object.freeze({
   'Set Closure': 'path',
   'Subdivide Path': 'path',
   Taper: 'path',
-  'Bend Points': 'path',
   'Polar Transform': 'path',
   'Auto Handles': 'path',
   'Dash Path': 'path',
@@ -1781,7 +1778,6 @@ export const operationOptions = {
   'Ordered Dither Image': ['square', 'circle', 'polygon', 'star'],
   'Error Diffusion Dither Image': ['square', 'circle', 'polygon', 'star'],
   Taper: ['horizontal', 'vertical'],
-  'Bend Points': ['horizontal', 'vertical'],
   Mirror: ['left-right', 'up-down', 'angle'],
   'Closed Path Offset': ['miter', 'bevel', 'round'],
   'Geometry Repeater': ['linear', 'radial-fit', 'radial-step', 'ae-2d'],
@@ -4074,21 +4070,6 @@ export function evaluate(
           n.id,
           null,
           'Canvas character editing is unavailable through Taper; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Bend Points') {
-        const source = read('path');
-        result = bendGeometry(source, {
-          angle: read('angle'),
-          axis: n.operation,
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Bend Points; edit the source Text',
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
