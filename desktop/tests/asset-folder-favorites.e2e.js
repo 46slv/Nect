@@ -311,6 +311,28 @@ try {
   await ready(nPanel);
   assert.equal(await nPanel.getByLabel('Asset folder', { exact: true }).inputValue(), 'root-a');
   await native.evaluate(() => {
+    window.finishDelayed = null;
+    window.delayNext = true;
+  });
+  await nPanel.locator('[data-quick-open="root-a"]').click();
+  await native.waitForFunction(() => typeof window.finishDelayed === 'function');
+  await nPanel.getByLabel('Asset folder', { exact: true }).evaluate((select) => {
+    select.value = 'root-b';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  assert.equal(await nPanel.getByLabel('Asset folder', { exact: true }).inputValue(), 'root-a');
+  await native.evaluate(() =>
+    window.finishDelayed({
+      root: { id: 'root-a', name: 'assets' },
+      generation: 'test',
+      items: [],
+      warnings: [],
+    }),
+  );
+  await ready(nPanel);
+  assert.equal(await nPanel.getByLabel('Asset folder', { exact: true }).inputValue(), 'root-a');
+  await native.evaluate(() => {
+    window.finishDelayed = null;
     window.delayNext = true;
   });
   await nPanel.locator('[data-quick-open="root-b"]').click();

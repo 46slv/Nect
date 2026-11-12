@@ -98,6 +98,7 @@ export function mountAssetLibrary({
     pendingBootstrap = null,
     folderRegistrationError = null,
     roots = [],
+    currentRootId = '',
     listing = null,
     selected = null,
     busy = false,
@@ -441,6 +442,7 @@ export function mountAssetLibrary({
     }
     const selectedId = roots.some((r) => r.id === id) ? id : roots[0]?.id;
     if (selectedId !== undefined) rootSelect.value = selectedId;
+    currentRootId = selectedId ?? '';
     drawFavorites();
   }
   async function open(item) {
@@ -601,6 +603,7 @@ export function mountAssetLibrary({
   async function refreshRoot() {
     if (!alive || folderPickIntent) return;
     const id = rootSelect.value;
+    currentRootId = id;
     const refreshRequest = ++refreshSequence;
     epoch++;
     selected = null;
@@ -812,9 +815,13 @@ export function mountAssetLibrary({
     }
   };
   rootSelect.onchange = () => {
-    if (!alive || busy) return;
+    if (!alive) return;
     if (folderPickIntent) {
       rootSelect.value = folderPickIntent.previousRootId;
+      return;
+    }
+    if (busy) {
+      rootSelect.value = currentRootId;
       return;
     }
     folderRegistrationError = null;
