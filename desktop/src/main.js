@@ -47,6 +47,7 @@ import { formatParameterResult } from './parameter-result-format.js';
 import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
 import { initialLayerId } from './initial-layer.js';
+import { planLayerFolderMove, planLayerFolderRemoval } from './layer-folders.js';
 import { hasDotControls } from './dither-controls.js';
 import { repeaterControls } from './repeater.js';
 import { angleDialPointer, advanceAngleDial } from './repeater-angle-dial.js';
@@ -1320,6 +1321,15 @@ async function preparedChange(
     if (variableAction !== action || session !== action.owner) return null;
     if (!isCurrent()) {
       cancelVariableAction();
+      notify('Edit or selection changed; operation cancelled', true);
+      if (
+        documents.hasDraft() ||
+        editingControl(document.activeElement) ||
+        sharedColors.editing ||
+        numericInputDrafts.has(document.activeElement)
+      )
+        needsRender = true;
+      else render();
       return null;
     }
     if (preview) {
@@ -1501,6 +1511,7 @@ let sourceEpoch = 0,
   sourcePicker = null,
   sourceReturn = null;
 let viewerState = createViewerState();
+const collapsedLayerFolders = new Map();
 let session = createCompositionSessionOwner(
   migrateLegacyDocumentToCompositionProject(blankDocument()),
   sessionOptions,
@@ -1510,7 +1521,7 @@ let history = session.historyView,
   selected = null,
   artworkTarget = null,
   artworkSelection = new Set(),
-  layerClipboard = createLayerClipboardOwner(),
+  layerClipboard = createLayerClipboardOwner({ currentGeneration: () => documents.generation }),
   selectedNodePreset = null,
   tool = 'select',
   textTools = null,
@@ -1570,6 +1581,7 @@ const documents = new DocumentLifecycle({
       drag ||
       wiring ||
       composing ||
+      (nameEdit && (nameEdit.composing || nameEdit.value !== nameEdit.original)) ||
       session.hasTextComposition ||
       session.hasChangedTextDrafts ||
       session.hasGesture ||
@@ -1625,6 +1637,11 @@ let nodeContextMenu = null;
 let contextMenuScroll = new Map();
 const detailsState = new Map();
 const compositionViewStates = createCompositionViewStateStore({ resolvePointIds: pointPanelIds });
+function pruneCompositionViews(compositions) {
+  compositionViewStates.prune(compositions);
+  const ids = new Set(compositions.map((composition) => composition.id));
+  for (const id of collapsedLayerFolders.keys()) if (!ids.has(id)) collapsedLayerFolders.delete(id);
+}
 const selectionHistory = new WeakMap();
 const viewNeutralHistory = new WeakMap();
 const deletedCompositionHistory = new WeakMap();
@@ -1650,7 +1667,7 @@ function rememberDeletedComposition(before, after, compositionId, view) {
   }
 }
 function restoreDeletedCompositionView(record) {
-  compositionViewStates.prune(session.projectSnapshot().compositions);
+  pruneCompositionViews(session.projectSnapshot().compositions);
   if (record && history.entryToken === record.before && record.view)
     compositionViewStates.save(record.compositionId, record.view);
 }
@@ -1681,6 +1698,11 @@ function selectionSnapshot(withEditSelection = false) {
       : {}),
   };
 }
+function selectionSignature(state) {
+  return JSON.stringify(state, (_key, value) =>
+    value instanceof Set || value instanceof Map ? [...value] : value,
+  );
+}
 function restoreHistorySelection(state) {
   ({ activeLayer, selected, artworkTarget } = state);
   artworkSelection = new Set(state.artworkSelection);
@@ -1698,6 +1720,37 @@ function restoreHistorySelection(state) {
       state.pointFocus && ids.has(state.pointFocus.pointId) ? { ...state.pointFocus } : null;
     for (const [id, batch] of structuredClone(state.remapBatches)) remapBatches.set(id, batch);
   }
+}
+function restoreSurvivingHistorySelection(state) {
+  const layerIds = new Set(history.doc.layers.map((layer) => layer.id)),
+    artworkIds = [...state.artworkSelection].filter((id) => layerIds.has(id)),
+    artworkTarget = artworkIds.includes(state.artworkTarget)
+      ? state.artworkTarget
+      : artworkIds.at(-1) || null,
+    active =
+      artworkTarget ||
+      (layerIds.has(state.activeLayer) ? state.activeLayer : history.doc.layers[0].id),
+    layer = history.doc.layers.find((item) => item.id === active),
+    nodeIds = new Set(layer.nodes.map((item) => item.id)),
+    selectedIds = [...state.selection].filter((id) => nodeIds.has(id)),
+    selected = selectedIds.includes(state.selected) ? state.selected : selectedIds.at(-1) || null,
+    sameEditTarget = active === state.activeLayer && selected === state.selected;
+  restoreHistorySelection({
+    ...state,
+    activeLayer: active,
+    artworkTarget,
+    artworkSelection: new Set(artworkIds),
+    selected: artworkTarget ? null : selected,
+    selection: new Set(artworkTarget ? [] : selectedIds),
+    ...(sameEditTarget
+      ? {}
+      : {
+          characterEdit: null,
+          pointSelection: { nodeId: null, ids: new Set() },
+          pointFocus: null,
+          remapBatches: new Map(),
+        }),
+  });
 }
 function stepHistory(redo = false) {
   if (osTextDrafts.size) {
@@ -1727,7 +1780,16 @@ function stepHistory(redo = false) {
     // Preserve the current view before async preparation so a later user
     // selection is not overwritten when the History step completes.
     if (viewNeutral) restoreHistorySelection(priorUI);
+    const pendingSelection = selectionSignature(selectionSnapshot(true));
+    let restoreRecordedSelection = false,
+      latestSelection = null;
     const capturePendingDeletion = () => {
+      // A draft can start after asynchronous History preparation begins.
+      // Do not let the prepared document replace that newer input.
+      if (documents.hasDraft() || nameEdit) return false;
+      latestSelection = selectionSnapshot(true);
+      restoreRecordedSelection =
+        !viewNeutral && selectionSignature(latestSelection) === pendingSelection;
       if (deleted && entryToken === deleted.before && history.entryToken === entryToken) {
         saveCompositionViewState();
         deleted.view = compositionViewStates.snapshot(deleted.compositionId) || deleted.view;
@@ -1748,8 +1810,17 @@ function stepHistory(redo = false) {
           const graphScroll = restoreCompositionViewState();
           render(false, null, graphScroll);
         } else {
-          activeLayer =
-            history.doc.layers.find((l) => l.id === activeLayer)?.id || history.doc.layers[0].id;
+          const state = restoreRecordedSelection && selectionHistory.get(history.doc);
+          if (state) restoreHistorySelection(state);
+          else if (!viewNeutral && latestSelection)
+            restoreSurvivingHistorySelection(latestSelection);
+          if (!history.doc.layers.some((layer) => layer.id === activeLayer)) {
+            activeLayer = history.doc.layers[0].id;
+            selected = null;
+            artworkTarget = null;
+            artworkSelection = new Set();
+            selection = new Set();
+          }
           render();
         }
       }
@@ -2081,6 +2152,7 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
     return null;
   }
   const beforeDocument = history.doc,
+    beforeEntry = history.entryToken,
     oldPast = history.past.at(-1),
     pointUI = [
       'translate-points',
@@ -2111,6 +2183,17 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
           ? payload
           : { layerId: current().id, ...payload },
     });
+    if (
+      result.changed &&
+      [
+        'create-layer-folder',
+        'rename-layer-folder',
+        'add-layers-to-folder',
+        'remove-layers-from-folder',
+        'dissolve-layer-folder',
+      ].includes(type)
+    )
+      rememberViewNeutralHistory(beforeEntry, history.entryToken);
     if (pointUI && history.doc !== beforeDocument && history.past.at(-1) !== oldPast) {
       selectionHistory.set(history.past.at(-1), pointUI);
       selectionHistory.set(history.doc, selectionSnapshot(true));
@@ -5414,7 +5497,16 @@ function remapFields(n, result, panelOnly = false) {
 }
 // A name edit belongs to stable document IDs, never the currently selected row.
 function nameInput(kind, id) {
-  return `<input class="inline-name" data-rename-name="${id}" aria-label="${kind === 'node' ? 'Node' : 'Layer'} name" value="${esc(nameEdit.value)}" maxlength="100000" spellcheck="false">`;
+  return `<input class="inline-name" data-rename-name="${id}" aria-label="${kind === 'node' ? 'Node' : kind === 'folder' ? 'Folder' : 'Layer'} name" value="${esc(nameEdit.value)}" maxlength="100000" spellcheck="false">`;
+}
+function beginFolderNameEdit(folderId) {
+  const folder = history.doc.editor?.layerFolders?.find((item) => item.id === folderId);
+  if (!folder || deletionBusy() || variableAction) return;
+  nameEdit = { folderId, original: folder.name, value: folder.name, composing: false };
+  render();
+  const input = document.querySelector('[data-rename-name]');
+  input.focus({ preventScroll: true });
+  input.select();
 }
 function beginNameEdit(layerId, nodeId = null) {
   if (penDraft && !finishPenDraft()) return;
@@ -5442,6 +5534,26 @@ function finishNameEdit(commit, deferred = false) {
   nameEdit = null;
   lastNameClick = null;
   if (commit) {
+    if (edit.folderId) {
+      const folder = history.doc.editor?.layerFolders?.find((item) => item.id === edit.folderId);
+      if (!folder || folder.name !== edit.original)
+        notify('Name edit cancelled: Folder changed', true);
+      else if (!edit.value.trim()) notify('Name cannot be empty', true);
+      else
+        commandChange(
+          'rename-layer-folder',
+          {
+            folderId: edit.folderId,
+            name: edit.value,
+            expectedName: edit.original,
+          },
+          'Name updated',
+          true,
+        );
+      if (deferred) scheduleRender();
+      else render();
+      return;
+    }
     const l = history.doc.layers.find((l) => l.id === edit.layerId),
       target = edit.nodeId ? l?.nodes.find((n) => n.id === edit.nodeId) : l,
       value = edit.value.trim();
@@ -6205,6 +6317,40 @@ function refreshNodeControlInspector(afterFocus = false) {
   workspacePanels.refresh();
 }
 
+function layerPanelRows(doc) {
+  const folders = doc.editor?.layerFolders || [];
+  const collapsed = collapsedLayerFolders.get(session.activeCompositionId) || new Set();
+  const valid = new Set(folders.map((folder) => folder.id));
+  for (const id of collapsed) if (!valid.has(id)) collapsed.delete(id);
+  collapsedLayerFolders.set(session.activeCompositionId, collapsed);
+  const selectedIds = [...artworkSelection];
+  const owner = new Map(
+    folders.flatMap((folder) => folder.members.map((member) => [member.layerId, folder])),
+  );
+  const header = (folder) => {
+    const expanded = !collapsed.has(folder.id),
+      busy = deletionBusy() || !!variableAction;
+    const canAdd = selectedIds.length && selectedIds.some((id) => owner.get(id)?.id !== folder.id);
+    const canRemove =
+      selectedIds.length && selectedIds.every((id) => owner.get(id)?.id === folder.id);
+    return `<div class="layer-folder" data-layer-folder="${esc(folder.id)}"><button class="layer-folder-toggle" data-folder-toggle="${esc(folder.id)}" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} Folder: ${esc(folder.name)}">${expanded ? '▾' : '▸'}</button>${nameEdit?.folderId === folder.id ? nameInput('folder', folder.id) : `<button class="layer-folder-name" data-folder-name="${esc(folder.id)}" title="Double-click or F2 to rename">${esc(folder.name)}</button>`}<button class="mini" data-folder-add="${esc(folder.id)}" aria-label="Move selected Layers to ${esc(folder.name)}" title="Move selected Layers here" ${busy || !canAdd ? 'disabled' : ''}>Move here</button><button class="mini" data-folder-out="${esc(folder.id)}" aria-label="Move selected Layers out of ${esc(folder.name)}" title="Move selected Layers out" ${busy || !canRemove ? 'disabled' : ''}>Move out</button><button class="mini" data-folder-dissolve="${esc(folder.id)}" aria-label="Ungroup ${esc(folder.name)}" title="Ungroup Folder" ${busy ? 'disabled' : ''}>Ungroup</button></div>`;
+  };
+  const rows = folders
+    .filter((folder) => !folder.members.length)
+    .reverse()
+    .map(header);
+  const seen = new Set();
+  for (const layer of [...doc.layers].reverse()) {
+    const folder = owner.get(layer.id);
+    if (folder && !seen.has(folder.id)) {
+      rows.push(header(folder));
+      seen.add(folder.id);
+    }
+    if (!folder || !collapsed.has(folder.id)) rows.push({ ...layer, folderMember: !!folder });
+  }
+  return rows;
+}
+
 function render(resetView = false, artworkResolution = null, graphScrollOverride = null) {
   if (closeFinalizing) {
     needsRender = true;
@@ -6367,13 +6513,13 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     .map((x) => `<option value="${x}">${nodeTypeLabel(x)}</option>`)
     .join(
       '',
-    )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button><button data-action="graph-overview" aria-label="Toggle node graph overview" aria-controls="graph-overview" aria-expanded="${graphOverviewOpen}" title="Show or hide graph overview">Overview</button></div>${nodePresetControls()}${nodeGroupControls()}<div class="graph-body"><div id="graph-overview" class="graph-overview" ${graphOverviewOpen ? '' : 'hidden'}><svg class="graph-overview-map" tabindex="0" role="img" aria-label="Node graph overview. Click or drag to navigate; arrow keys pan; Escape closes." preserveAspectRatio="none"></svg></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph-space"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div></div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Shift locks horizontal, vertical or 45°; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div><div class="layer-solo-status" role="status">${hasLayerSolo(doc) ? `Solo ${doc.layers.filter((l) => l.solo === true).length} · SVG/PNG <button class="mini" data-action="clear-layer-solo" aria-label="Clear all layer Solo">Clear</button>` : 'All visible layers · SVG/PNG'}<small>Hidden layers stay hidden</small></div>${[
-    ...doc.layers,
-  ]
-    .reverse()
-    .map(
-      (x) =>
-        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${(artworkTarget ? artworkSelection.has(x.id) : x.id === l.id) ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${workspaceIcon(x.visible ? 'eye' : 'eye-off')}</button><button class="layer-solo" data-layer-solo="${x.id}" aria-label="Solo layer: ${esc(x.name)}" aria-pressed="${x.solo === true}" title="Solo in preview and SVG/PNG; multiple allowed; Hide remains in effect">S</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" aria-pressed="${artworkTarget ? artworkSelection.has(x.id) : false}" title="${esc(x.name)} · Click to select; Shift-click to add/remove. Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
+    )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button><button data-action="graph-overview" aria-label="Toggle node graph overview" aria-controls="graph-overview" aria-expanded="${graphOverviewOpen}" title="Show or hide graph overview">Overview</button></div>${nodePresetControls()}${nodeGroupControls()}<div class="graph-body"><div id="graph-overview" class="graph-overview" ${graphOverviewOpen ? '' : 'hidden'}><svg class="graph-overview-map" tabindex="0" role="img" aria-label="Node graph overview. Click or drag to navigate; arrow keys pan; Escape closes." preserveAspectRatio="none"></svg></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph-space"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div></div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Shift locks horizontal, vertical or 45°; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer-folder" aria-label="Create Folder">+ Folder</button><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div><div class="layer-solo-status" role="status">${hasLayerSolo(doc) ? `Solo ${doc.layers.filter((l) => l.solo === true).length} · SVG/PNG <button class="mini" data-action="clear-layer-solo" aria-label="Clear all layer Solo">Clear</button>` : 'All visible layers · SVG/PNG'}<small>Hidden layers stay hidden</small></div>${layerPanelRows(
+    doc,
+  )
+    .map((x) =>
+      typeof x === 'string'
+        ? x
+        : `<div class="layer ${x.folderMember ? 'folder-member' : ''} ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${(artworkTarget ? artworkSelection.has(x.id) : x.id === l.id) ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${workspaceIcon(x.visible ? 'eye' : 'eye-off')}</button><button class="layer-solo" data-layer-solo="${x.id}" aria-label="Solo layer: ${esc(x.name)}" aria-pressed="${x.solo === true}" title="Solo in preview and SVG/PNG; multiple allowed; Hide remains in effect">S</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" aria-pressed="${artworkTarget ? artworkSelection.has(x.id) : false}" title="${esc(x.name)} · Click to select; Shift-click to add/remove. Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
     )
     .join(
       '',
@@ -8894,21 +9040,60 @@ function duplicateArtwork(layerId, selectionKey) {
     notify(error.message, true);
   }
 }
-function duplicateFocusedLayer(layerId) {
+function duplicateFocusedLayer(layerId, clipboardToken = null) {
+  if (variableAction) {
+    notify('Finish or cancel variable font preparation first', true);
+    return;
+  }
   if (deletionBusy()) return;
   try {
     const priorUI = selectionSnapshot(true);
+    if (clipboardToken && hasVariableFonts(history.doc)) {
+      const owner = session,
+        generation = documents.generation,
+        compositionId = owner.activeCompositionId,
+        envelope = owner.state,
+        sameSelection = () =>
+          activeLayer === priorUI.activeLayer &&
+          artworkTarget === priorUI.artworkTarget &&
+          selected === priorUI.selected &&
+          JSON.stringify([...artworkSelection]) === JSON.stringify([...priorUI.artworkSelection]) &&
+          JSON.stringify([...selection]) === JSON.stringify([...priorUI.selection]),
+        isCurrent = () =>
+          session === owner &&
+          documents.generation === generation &&
+          owner.activeCompositionId === compositionId &&
+          sameSelection() &&
+          layerClipboard.token({ owner, generation, compositionId }) === clipboardToken;
+      void preparedChange(
+        'paste-layer-snapshot',
+        { token: clipboardToken },
+        'Layer pasted',
+        envelope,
+        false,
+        isCurrent,
+      ).then((created) => {
+        if (!created?.changed || session !== owner || documents.generation !== generation) return;
+        activeLayer = created.layerId;
+        artworkTarget = created.layerId;
+        artworkSelection = new Set([created.layerId]);
+        selectionHistory.set(history.past.at(-1), priorUI);
+        selectionHistory.set(history.doc, selectionSnapshot(true));
+        render();
+      });
+      return;
+    }
     const created = session.dispatch({
       ...session.state,
-      type: 'duplicate-layer',
-      payload: { layerId },
+      type: clipboardToken ? 'paste-layer-snapshot' : 'duplicate-layer',
+      payload: clipboardToken ? { token: clipboardToken } : { layerId },
     });
     activeLayer = created.layerId;
     artworkTarget = created.layerId;
     artworkSelection = new Set([created.layerId]);
     selectionHistory.set(history.past.at(-1), priorUI);
     selectionHistory.set(history.doc, selectionSnapshot(true));
-    notify('Layer duplicated');
+    notify(clipboardToken ? 'Layer pasted' : 'Layer duplicated');
     render();
   } catch (error) {
     notify(error.message, true);
@@ -9178,7 +9363,7 @@ async function confirmReplace(action = 'opening another document') {
 }
 async function openCompositionImportDialog() {
   if (variableAction) throw Error('Finish or cancel variable font preparation first');
-  if (documents.hasDraft()) throw Error('Finish or cancel the active edit first');
+  if (documents.hasPendingEdits()) throw Error('Finish or cancel the active edit first');
   const owner = session,
     envelope = session.state,
     projectRevision = session.projectRevision,
@@ -9231,6 +9416,18 @@ async function openCompositionImportDialog() {
   } finally {
     await documents.releaseUnused(opened.binding);
   }
+  const assertImportCurrent = () => {
+    if (
+      session !== owner ||
+      session.state.sessionId !== envelope.sessionId ||
+      session.state.expectedRevision !== envelope.expectedRevision ||
+      session.projectRevision !== projectRevision ||
+      documents.generation !== generation ||
+      documents.hasPendingEdits()
+    )
+      throw Error('Project changed while reading; import the file again');
+  };
+  assertImportCurrent();
   const dialog = document.createElement('dialog');
   dialog.className = 'composition-import-dialog';
   dialog.innerHTML =
@@ -9302,16 +9499,7 @@ async function openCompositionImportDialog() {
     dialog.remove();
     if (!['import', 'capture'].includes(value) || !selected.length) return;
     try {
-      if (
-        session !== owner ||
-        session.state.sessionId !== envelope.sessionId ||
-        session.state.expectedRevision !== envelope.expectedRevision ||
-        session.projectRevision !== projectRevision ||
-        documents.generation !== generation ||
-        documents.hasDraft() ||
-        variableAction
-      )
-        throw Error('Project changed while reading; import the file again');
+      assertImportCurrent();
       if (
         value === 'capture' &&
         !importsLiveKeyColors(
@@ -9333,7 +9521,7 @@ async function openCompositionImportDialog() {
       resetTransient();
       for (const compositionId of imported.importedCompositionIds)
         compositionViewStates.forget(compositionId);
-      compositionViewStates.prune(session.projectSnapshot().compositions);
+      pruneCompositionViews(session.projectSnapshot().compositions);
       const graphScroll = restoreCompositionViewState();
       render(false, null, graphScroll);
       updateDocumentStatus();
@@ -9643,6 +9831,7 @@ function replaceDocument(
   cancelVariableAction();
   resetTransient();
   compositionViewStates.clear();
+  collapsedLayerFolders.clear();
   detailsState.clear();
   contextMenuScroll.clear();
   viewerState = createViewerState();
@@ -9739,7 +9928,7 @@ function restoreCompositionViewState() {
   return state.graphScroll;
 }
 function finishCompositionSwitch(project) {
-  compositionViewStates.prune(project.compositions);
+  pruneCompositionViews(project.compositions);
   const graphScroll = restoreCompositionViewState();
   render(false, null, graphScroll);
   updateDocumentStatus();
@@ -9952,7 +10141,7 @@ function addComposition() {
   resetTransient();
   const compositionId = session.createComposition();
   compositionViewStates.forget(compositionId);
-  compositionViewStates.prune(session.projectSnapshot().compositions);
+  pruneCompositionViews(session.projectSnapshot().compositions);
   const graphScroll = restoreCompositionViewState();
   render(false, null, graphScroll);
   updateDocumentStatus();
@@ -9976,12 +10165,190 @@ function compositionActionBusy(
   );
 }
 
+function moveSelectionForFolder(folderId, out = false) {
+  if (compositionActionBusy())
+    throw Error('Finish or cancel the current edit before moving Layers');
+  const owner = session,
+    envelope = owner.state,
+    projectRevision = owner.projectRevision,
+    generation = documents.generation,
+    compositionId = owner.activeCompositionId,
+    selectedIds = [...artworkSelection],
+    activeTarget = artworkTarget,
+    payload = { folderId, layerIds: selectedIds },
+    plan = out ? planLayerFolderRemoval : planLayerFolderMove,
+    initial = plan(history.doc, payload);
+  const assertCurrent = () => {
+    if (
+      session !== owner ||
+      documents.generation !== generation ||
+      owner.activeCompositionId !== compositionId ||
+      owner.state.sessionId !== envelope.sessionId ||
+      owner.state.expectedRevision !== envelope.expectedRevision ||
+      owner.projectRevision !== projectRevision ||
+      artworkTarget !== activeTarget ||
+      artworkSelection.size !== selectedIds.length ||
+      selectedIds.some((id) => !artworkSelection.has(id))
+    )
+      throw Error('Project or selection changed. Start the move again.');
+  };
+  const commit = (dialog = null) => {
+    assertCurrent();
+    if (compositionActionBusy(dialog)) throw Error('Finish or cancel the current edit first.');
+    assertCurrent();
+    const currentPlan = plan(history.doc, payload);
+    if (
+      currentPlan.orderChanged !== initial.orderChanged ||
+      currentPlan.paintOrder.some((id, index) => id !== initial.paintOrder[index])
+    )
+      throw Error('Layer order changed. Start the move again.');
+    assertCurrent();
+    const before = history.entryToken;
+    const result = owner.dispatch({
+      ...envelope,
+      type: out ? 'remove-layers-from-folder' : 'move-layers-to-folder',
+      payload: { ...payload, expectedPaintOrder: initial.paintOrder },
+    });
+    if (result.changed) rememberViewNeutralHistory(before, history.entryToken);
+    return result;
+  };
+  if (!initial.orderChanged) {
+    const result = commit();
+    if (result.changed) {
+      render();
+      updateDocumentStatus();
+      notify(out ? 'Layers moved out of Folder' : 'Layers moved to Folder');
+    }
+    return;
+  }
+
+  const target = history.doc.editor.layerFolders.find((folder) => folder.id === folderId),
+    byId = new Map(history.doc.layers.map((layer) => [layer.id, layer])),
+    selected = new Set(selectedIds),
+    names = new Map(),
+    positions = new Map(),
+    namePositions = new Map();
+  for (const layer of history.doc.layers) {
+    const name = layer.name || '(unnamed)';
+    names.set(name, (names.get(name) || 0) + 1);
+  }
+  for (const layer of [...history.doc.layers].reverse()) {
+    const name = layer.name || '(unnamed)',
+      position = (namePositions.get(name) || 0) + 1;
+    namePositions.set(name, position);
+    positions.set(layer.id, position);
+  }
+  const dialog = document.createElement('dialog');
+  dialog.className = 'layer-folder-move-dialog';
+  dialog.setAttribute('aria-labelledby', 'layer-folder-move-heading');
+  dialog.innerHTML =
+    '<form><h3 id="layer-folder-move-heading"></h3><p>Overlapping artwork may look different.</p><div class="layer-folder-orders"><section><h4>Current order</h4><ol aria-label="Current Layer order, front to back" data-current-order></ol></section><section><h4>New order</h4><ol aria-label="New Layer order, front to back" data-new-order></ol></section></div><small>Front to back</small><output role="alert"></output><footer><button type="button" data-cancel>Cancel</button><button type="submit">Move Layers</button></footer></form>';
+  dialog.querySelector('h3').textContent = out
+    ? `Move Layers out of ${target.name}?`
+    : `Move to ${target.name}?`;
+  const appendOrder = (list, ids) => {
+    for (const id of [...ids].reverse()) {
+      const layer = byId.get(id),
+        name = layer.name || '(unnamed)',
+        item = document.createElement('li'),
+        row = document.createElement('div'),
+        label = document.createElement('span'),
+        displayName = names.get(name) > 1 ? `${name} · ${positions.get(id)}` : name;
+      label.className = 'layer-folder-order-name';
+      label.textContent = name;
+      label.title = displayName;
+      item.dataset.layerId = id;
+      item.setAttribute('aria-label', `${displayName}${selected.has(id) ? ', selected' : ''}`);
+      item.classList.toggle('selected', selected.has(id));
+      row.append(label);
+      if (names.get(name) > 1) {
+        const number = document.createElement('span');
+        number.className = 'layer-folder-order-number';
+        number.textContent = ` · ${positions.get(id)}`;
+        row.append(number);
+      }
+      item.append(row);
+      list.append(item);
+    }
+  };
+  appendOrder(
+    dialog.querySelector('[data-current-order]'),
+    history.doc.layers.map(({ id }) => id),
+  );
+  appendOrder(dialog.querySelector('[data-new-order]'), initial.paintOrder);
+  let committed = false,
+    settled = false;
+  function finishDialog() {
+    if (settled) return;
+    settled = true;
+    dialog.remove();
+    if (committed) {
+      render();
+      updateDocumentStatus();
+      notify(out ? 'Layers moved out of Folder' : 'Layers moved to Folder');
+    }
+    if (session !== owner || documents.generation !== generation) return;
+    if (!committed) {
+      try {
+        assertCurrent();
+      } catch {
+        return;
+      }
+    }
+    const folder = [...app.querySelectorAll('[data-layer-folder]')].find(
+      (item) => item.dataset.layerFolder === folderId,
+    );
+    (committed
+      ? folder?.querySelector('[data-folder-name]')
+      : folder?.querySelector(out ? '[data-folder-out]' : '[data-folder-add]')
+    )?.focus({ preventScroll: true });
+  }
+  function closeDialog() {
+    dialog.close();
+    finishDialog();
+  }
+  dialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    if (!composing) closeDialog();
+  });
+  dialog.addEventListener('keydown', (event) => {
+    if (
+      (composing || event.isComposing || event.keyCode === 229) &&
+      ['Enter', 'Escape'].includes(event.key)
+    )
+      event.preventDefault();
+  });
+  dialog.addEventListener('close', finishDialog);
+  dialog.querySelector('[data-cancel]').addEventListener('click', () => {
+    if (!composing) closeDialog();
+  });
+  dialog.querySelector('form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (event.isComposing || composing) return;
+    try {
+      committed = commit(dialog).changed;
+      closeDialog();
+    } catch (error) {
+      dialog.querySelector('[role="alert"]').textContent = error.message;
+    }
+  });
+  document.body.append(dialog);
+  dialog.showModal();
+  dialog.querySelector('[data-cancel]').focus();
+}
+
 // Preserve a focused draft while the Project menu is opened, then refuse this
 // specific action before pointer focus or the generic Pen auto-finish handler.
 document.addEventListener(
   'pointerdown',
   (event) => {
     if (!app.contains(event.target)) return;
+    if (event.target.closest?.('[data-folder-add], [data-folder-out]') && compositionActionBusy()) {
+      event.preventDefault();
+      event.stopPropagation();
+      notify('Finish or cancel the current edit before moving Layers', true);
+      return;
+    }
     const action = event.target.closest?.(
       '[data-action="rename-composition"], [data-action="delete-composition"]',
     );
@@ -10232,9 +10599,9 @@ function dispatchCompositionDeletion(
     rememberDeletedComposition(before, history.entryToken, id, view);
     if (owner.activeCompositionId !== previousActive) {
       resetTransient();
-      compositionViewStates.prune(owner.projectSnapshot().compositions);
+      pruneCompositionViews(owner.projectSnapshot().compositions);
       graphScroll = restoreCompositionViewState();
-    } else compositionViewStates.prune(owner.projectSnapshot().compositions);
+    } else pruneCompositionViews(owner.projectSnapshot().compositions);
   }
   return { result, graphScroll };
 }
@@ -10523,6 +10890,53 @@ app.addEventListener('click', async (e) => {
   }
   if (d.alignArtwork !== undefined) {
     alignArtwork(b);
+    return;
+  }
+  if (d.action === 'add-layer-folder') {
+    if (deletionBusy() || variableAction) {
+      notify('Finish the active edit before creating a Folder', true);
+      return;
+    }
+    commandChange(
+      'create-layer-folder',
+      {
+        name: 'Folder',
+        layerIds: artworkTarget ? [...artworkSelection] : [],
+      },
+      'Folder created',
+    );
+    return;
+  }
+  if (d.folderName !== undefined) return;
+  if (d.folderToggle !== undefined) {
+    const id = d.folderToggle;
+    const collapsed = collapsedLayerFolders.get(session.activeCompositionId) || new Set();
+    if (collapsed.has(id)) collapsed.delete(id);
+    else collapsed.add(id);
+    collapsedLayerFolders.set(session.activeCompositionId, collapsed);
+    render();
+    [...app.querySelectorAll('[data-folder-toggle]')]
+      .find((item) => item.dataset.folderToggle === id)
+      ?.focus({ preventScroll: true });
+    return;
+  }
+  if (d.folderAdd !== undefined || d.folderOut !== undefined || d.folderDissolve !== undefined) {
+    if (b.disabled || deletionBusy() || variableAction) return;
+    if (d.folderAdd !== undefined || d.folderOut !== undefined) {
+      try {
+        moveSelectionForFolder(d.folderAdd ?? d.folderOut, d.folderOut !== undefined);
+      } catch (error) {
+        notify(error.message, true);
+      }
+      return;
+    }
+    const folderId = d.folderDissolve;
+    const type = 'dissolve-layer-folder';
+    commandChange(
+      type,
+      { folderId, layerIds: [...artworkSelection] },
+      type === 'dissolve-layer-folder' ? 'Folder ungrouped' : 'Folder updated',
+    );
     return;
   }
   if (d.orderLayer !== undefined) {
@@ -12381,6 +12795,11 @@ app.addEventListener(
   true,
 );
 app.addEventListener('dblclick', (e) => {
+  const folderTitle = e.target.closest('[data-folder-name]');
+  if (folderTitle && !nameEdit) {
+    beginFolderNameEdit(folderTitle.dataset.folderName);
+    return;
+  }
   const title = e.target.closest('[data-rename-node], [data-select-layer]');
   if (title && !nameEdit)
     beginNameEdit(title.dataset.selectLayer || current().id, title.dataset.renameNode || null);
@@ -17197,6 +17616,11 @@ document.addEventListener('keydown', (e) => {
     else beginNameEdit(artworkTarget);
     return;
   }
+  if (e.key === 'F2' && e.target.closest?.('[data-folder-name]')) {
+    e.preventDefault();
+    beginFolderNameEdit(e.target.closest('[data-folder-name]').dataset.folderName);
+    return;
+  }
   if (e.key === 'F2' || (e.key === 'Enter' && e.target.matches?.('[data-rename-node]'))) {
     const title = e.target.closest?.('[data-rename-node], [data-select-layer]');
     if (title) {
@@ -18002,26 +18426,33 @@ document.addEventListener('keydown', (event) => {
   const layerId = row.dataset.layer;
   if (event.key.toLowerCase() === 'c') {
     if (!session.hasLayer(session.activeCompositionId, layerId)) return;
-    layerClipboard.copy({
-      owner: session,
-      generation: documents.generation,
-      compositionId: session.activeCompositionId,
-      layerId,
-    });
     event.preventDefault();
-    notify('Layer copied');
+    try {
+      if (compositionActionBusy()) throw Error('Finish or cancel the current edit before copying');
+      layerClipboard.copy({
+        owner: session,
+        generation: documents.generation,
+        compositionId: session.activeCompositionId,
+        layerId,
+      });
+      notify('Layer copied');
+    } catch (error) {
+      notify(error.message, true);
+    }
   } else if (event.key.toLowerCase() === 'v' && layerClipboard.hasCopy) {
     event.preventDefault();
-    const sourceId = layerClipboard.source({
+    const context = {
       owner: session,
       generation: documents.generation,
       compositionId: session.activeCompositionId,
-    });
-    if (!sourceId) {
+    };
+    const sourceId = layerClipboard.source(context),
+      token = layerClipboard.token(context);
+    if (!sourceId || !token) {
       notify('Copied Layer is unavailable in this Composition', true);
       return;
     }
-    duplicateFocusedLayer(sourceId);
+    duplicateFocusedLayer(sourceId, token);
   } else if (event.key.toLowerCase() === 'd') {
     event.preventDefault();
     duplicateFocusedLayer(layerId);

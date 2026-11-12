@@ -17,6 +17,8 @@ import { createCompositionSessionOwner } from '../src/composition-session-owner-
 import { createCharacterPositions, setCharacterOffsets } from '../src/character-identity.js';
 import { makeFontAsset, makeVariableFontAsset, parseFont, resolveFonts } from '../src/fonts.js';
 import { duplicateLayerGeneric } from '../src/artwork-duplication.js';
+import { createLayerClipboardOwner } from '../src/layer-clipboard-owner.js';
+import { duplicationDocument, richDuplicationText } from './fixtures/artwork-duplication.js';
 import {
   deserializeCompositionProject,
   migrateLegacyDocumentToCompositionProject,
@@ -148,7 +150,211 @@ for (const type of ['Curve', 'Multi Path']) {
     assert.deepEqual(reopenedPath.contours[0].points[0].position, originalPoint.position);
     assert.notEqual(reopenedPath.remapSuspended, true);
   });
+
+  test(`${type} snapshot preserves copy-time Path Remap geometry after the live source changes`, () => {
+    const f = fixture(type),
+      clipboard = createLayerClipboardOwner(),
+      context = { owner: f.owner, generation: 1, compositionId: f.owner.activeCompositionId },
+      original = f.owner.snapshot().layers.find((layer) => layer.id === f.layerId),
+      expected = evaluate(original).path.contours[0].points[0].position;
+    clipboard.copy({ ...context, layerId: f.layerId });
+    f.send('set-parameter', {
+      layerId: f.layerId,
+      nodeId: f.remapId,
+      key: `remap.${f.target.id}.position`,
+      value: [99, 71],
+    });
+    const before = serializeCompositionProject(f.owner.projectSnapshot()),
+      result = f.send('paste-layer-snapshot', { token: clipboard.token(context) }),
+      document = f.owner.activeDocument(),
+      live = document.layers.find((layer) => layer.id === f.layerId),
+      copy = document.layers.find((layer) => layer.id === result.layerId),
+      path = evaluate(copy).path;
+    assert.deepEqual(path.contours[0].points[0].position, expected);
+    assert.notDeepEqual(evaluate(live).path.contours[0].points[0].position, expected);
+    assert.notEqual(path.remapSuspended, true);
+    const saved = serializeCompositionProject(f.owner.projectSnapshot());
+    f.send('undo');
+    assert.equal(serializeCompositionProject(f.owner.projectSnapshot()), before);
+    f.send('redo');
+    assert.equal(serializeCompositionProject(f.owner.projectSnapshot()), saved);
+    const reopened = createCompositionSessionOwner(deserializeCompositionProject(saved));
+    assert.deepEqual(
+      evaluate(reopened.activeDocument().layers.find((layer) => layer.id === copy.id)).path
+        .contours[0].points[0].position,
+      expected,
+    );
+  });
 }
+
+test('Text path snapshot checks the old contour against its independent copied contour', () => {
+  const fonts = { default: parseFont(fontBytes('../public/fonts/DejaVuSans.ttf')) },
+    doc = blankDocument(),
+    layer = doc.layers[0],
+    path = node('Circle'),
+    text = node('Text'),
+    fill = node('Fill'),
+    output = layer.nodes[0];
+  text.text = 'Snapshot';
+  text.params.size.value = 10;
+  layer.nodes = [path, text, fill, output];
+  text.pathAttachment = {
+    nodeId: path.id,
+    contourId: evaluate(layer).run(path.id).contours[0].id,
+    startMode: 'distance',
+    start: 0,
+    reversed: false,
+  };
+  connect(layer, text.id, fill.id, 'path');
+  connect(layer, fill.id, output.id, 'path');
+  const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc), {
+      fonts: () => fonts,
+    }),
+    send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload }),
+    clipboard = createLayerClipboardOwner(),
+    context = { owner, generation: 1, compositionId: owner.activeCompositionId },
+    oldRadius = path.params.radius.value;
+  clipboard.copy({ ...context, layerId: layer.id });
+  send('set-parameter', {
+    layerId: layer.id,
+    nodeId: path.id,
+    key: 'radius',
+    value: oldRadius + 70,
+  });
+  const before = serializeCompositionProject(owner.projectSnapshot()),
+    result = send('paste-layer-snapshot', { token: clipboard.token(context) }),
+    after = owner.activeDocument(),
+    copy = after.layers.find((item) => item.id === result.layerId),
+    copiedPath = copy.nodes.find((item) => item.type === 'Circle'),
+    copiedText = copy.nodes.find((item) => item.type === 'Text');
+  assert.equal(copiedPath.params.radius.value, oldRadius);
+  assert.equal(copiedText.pathAttachment.nodeId, copiedPath.id);
+  assert.equal(
+    copiedText.pathAttachment.contourId,
+    evaluate(copy, fonts).run(copiedPath.id).contours[0].id,
+  );
+  const saved = serializeCompositionProject(owner.projectSnapshot());
+  send('undo');
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+  send('redo');
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), saved);
+});
+
+for (const mode of ['Text path', 'Path Remap']) {
+  test(`${mode} snapshot resolves a foreign reference back to the current source Layer`, () => {
+    const fonts = { default: parseFont(fontBytes('../public/fonts/DejaVuSans.ttf')) },
+      doc = blankDocument(),
+      source = doc.layers[0],
+      foreign = blankLayer('External'),
+      localValue = node('Value'),
+      foreignValue = node('Value'),
+      path = node(mode === 'Text path' ? 'Circle' : 'Curve'),
+      fill = node('Fill'),
+      output = source.nodes[0];
+    doc.schemaVersion = 62;
+    source.id = 'artwork-a';
+    foreign.id = 'artwork-b';
+    localValue.id = 'value-a';
+    foreignValue.id = 'value-b';
+    localValue.params.value.value = 60;
+    foreignValue.params.value.expression = 'ref(artwork, "artwork-a", "value-a", "value")';
+    foreign.nodes.push(foreignValue);
+    doc.layers.push(foreign);
+    source.nodes = [localValue, path, fill, output];
+    let text, remap;
+    if (mode === 'Text path') {
+      path.params.radius.expression = 'ref(artwork, "artwork-b", "value-b", "value")';
+      text = node('Text');
+      text.text = 'Snapshot';
+      text.params.size.value = 10;
+      source.nodes.splice(2, 0, text);
+      text.pathAttachment = {
+        nodeId: path.id,
+        contourId: evaluate(source, fonts, undefined, doc).run(path.id).contours[0].id,
+        startMode: 'distance',
+        start: 0,
+        reversed: false,
+      };
+      connect(source, text.id, fill.id, 'path');
+    } else {
+      path.points[0].position.expression = 'ref(artwork, "artwork-b", "value-b", "value"); 150';
+      remap = node('Path Remap');
+      source.nodes.splice(2, 0, remap);
+      connect(source, path.id, remap.id, 'path');
+      connect(source, remap.id, fill.id, 'path');
+      const input = evaluate(source, fonts, undefined, doc).run(path.id);
+      enableRemapPoint(remap, input, path.points[0].id).params.position.value = [8, 3];
+    }
+    connect(source, fill.id, output.id, 'path');
+    const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc), {
+        fonts: () => fonts,
+      }),
+      send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload }),
+      clipboard = createLayerClipboardOwner(),
+      context = { owner, generation: 1, compositionId: owner.activeCompositionId };
+    clipboard.copy({ ...context, layerId: source.id });
+    send('set-parameter', { layerId: source.id, nodeId: localValue.id, key: 'value', value: 120 });
+    const before = serializeCompositionProject(owner.projectSnapshot());
+    const result = send('paste-layer-snapshot', { token: clipboard.token(context) });
+    const current = owner.activeDocument(),
+      copy = current.layers.find((layer) => layer.id === result.layerId),
+      copiedValue = copy.nodes.find((item) => item.type === 'Value'),
+      copiedPath = copy.nodes.find((item) => item.type === path.type),
+      evaluation = evaluate(copy, fonts, current.imageAssets, current);
+    assert.equal(copiedValue.params.value.value, 60, 'local authored value stays at copy time');
+    if (mode === 'Text path') {
+      assert.equal(evaluation.parameterValue(copiedPath.id, 'radius'), 120);
+      assert.equal(
+        copy.nodes.find((item) => item.type === 'Text').pathAttachment.nodeId,
+        copiedPath.id,
+      );
+      assert.equal(evaluation.error, null);
+    } else {
+      assert.notEqual(evaluation.path.remapSuspended, true);
+      assert.deepEqual(evaluation.path.contours[0].points[0].position, [128, 153]);
+    }
+    const after = serializeCompositionProject(owner.projectSnapshot());
+    send('undo');
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+    send('redo');
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), after);
+  });
+}
+
+test('rich Text snapshot retains local character offsets, styles, transforms and kerning', () => {
+  const f = duplicationDocument('Text');
+  richDuplicationText(f.generator);
+  const fonts = { default: parseFont(fontBytes('../public/fonts/DejaVuSans.ttf')) },
+    owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(f.doc), {
+      fonts: () => fonts,
+    }),
+    send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload }),
+    clipboard = createLayerClipboardOwner(),
+    context = { owner, generation: 1, compositionId: owner.activeCompositionId },
+    beforeText = structuredClone(f.generator);
+  clipboard.copy({ ...context, layerId: f.layer.id });
+  send('set-parameter', { layerId: f.layer.id, nodeId: f.generator.id, key: 'size', value: 64 });
+  const result = send('paste-layer-snapshot', { token: clipboard.token(context) }),
+    copied = owner
+      .activeDocument()
+      .layers.find((layer) => layer.id === result.layerId)
+      .nodes.find((item) => item.type === 'Text');
+  assert.equal(copied.params.size.value, beforeText.params.size.value);
+  assert.deepEqual(copied.characterPositions, beforeText.characterPositions);
+  assert.deepEqual(copied.textWrap, beforeText.textWrap);
+  assert.deepEqual(copied.leading, beforeText.leading);
+  const saved = serializeCompositionProject(owner.projectSnapshot());
+  const reopened = createCompositionSessionOwner(deserializeCompositionProject(saved), {
+    fonts: () => fonts,
+  });
+  assert.deepEqual(
+    reopened
+      .activeDocument()
+      .layers.find((layer) => layer.id === result.layerId)
+      .nodes.find((item) => item.type === 'Text').characterPositions,
+    beforeText.characterPositions,
+  );
+});
 
 for (const route of [['Convert to Path'], ['Fill', 'Convert to Path'], ['Text to Path']]) {
   test(`authored Curve point survives ${route.join(' → ')} before Remap`, () => {
@@ -562,6 +768,33 @@ test('a dangling Reference is not revived by fresh copied IDs', () => {
     assert.ok(copy.nodes.every((item) => item.id !== target));
   } finally {
     mock.restoreAll();
+  }
+});
+
+test('snapshot-only dangling Reference IDs cannot be rebound by a newly generated copy ID', () => {
+  const doc = blankDocument(),
+    layer = doc.layers[0],
+    reference = node('Reference');
+  reference.reference = { nodeId: 'copy-future-dangling', portId: 'output' };
+  layer.nodes.push(reference);
+  const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc)),
+    send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload }),
+    clipboard = createLayerClipboardOwner(),
+    context = { owner, generation: 1, compositionId: owner.activeCompositionId };
+  clipboard.copy({ ...context, layerId: layer.id });
+  send('delete-node', { layerId: layer.id, nodeId: reference.id });
+  let next = 0;
+  const uuids = ['future-dangling', 'fresh-layer', 'fresh-output', 'fresh-reference'];
+  const random = mock.method(globalThis.crypto, 'randomUUID', () => uuids[next++]);
+  try {
+    const result = send('paste-layer-snapshot', { token: clipboard.token(context) }),
+      copy = owner.activeDocument().layers.find((item) => item.id === result.layerId),
+      copiedReference = copy.nodes.find((item) => item.type === 'Reference');
+    assert.equal(copiedReference.reference.nodeId, 'copy-future-dangling');
+    assert.ok(copy.nodes.every((item) => item.id !== 'copy-future-dangling'));
+    assert.notEqual(copy.id, 'copy-future-dangling');
+  } finally {
+    random.mock.restore();
   }
 });
 
