@@ -852,6 +852,12 @@ try {
     );
     return checkGroupedColorCoverage();
   });
+  const groupedGradients = await page.evaluate(async () => {
+    const { checkGroupedGradientCoverage } = await import(
+      '/tests/helpers/grouped-color-coverage-acceptance.js'
+    );
+    return checkGroupedGradientCoverage();
+  });
   await fs.writeFile(
     `${output}/results.json`,
     JSON.stringify(
@@ -861,6 +867,7 @@ try {
           'production exportScene/renderElement/exportSVG → browser SVG Image → canvas RGBA alpha',
         results,
         grouped,
+        groupedGradients,
         errors,
       },
       null,
@@ -915,6 +922,65 @@ try {
       dirty: window.nect.fileState.dirty,
     }));
     assert.deepEqual(after, before, `${result.kind}: panel measurement changed authored state`);
+    result.panelPassed = true;
+  }
+  for (const result of groupedGradients) {
+    const label = `${result.kind} ${result.gradientType}`;
+    assert.deepEqual(
+      result.order,
+      [
+        { paint: 'fill', slotId: null, start: 'start_red', end: 'end_green' },
+        { paint: 'stroke', slotId: 'stroke_blue' },
+        { paint: 'fill', slotId: null, start: 'start_red', end: 'end_green' },
+        { paint: 'stroke', slotId: 'stroke_blue' },
+      ],
+      `${label}: group paint order and stop identity`,
+    );
+    for (let index = 0; index < result.reference.length; index++)
+      assert.ok(
+        Math.abs(result.measured[index] - result.reference[index]) <= (64 * 48 * 3) / 255,
+        `${label}: stop contribution disagrees with rendered pixels`,
+      );
+    assert.ok(
+      result.wrongOrder.some(
+        (mass, index) => Math.abs(mass - result.reference[index]) > (64 * 48 * 3) / 255,
+      ),
+      `${label}: oracle must reject grouping all fills before strokes`,
+    );
+    assert.ok(Math.abs(result.painted - result.alpha) <= (64 * 48 * 3) / 255);
+    assert.equal(result.other, 0);
+    assert.equal(result.unchanged, true);
+    const before = await page.evaluate(
+      async ({ kind, gradientType }) => {
+        const { groupedGradientDocument } = await import(
+          '/tests/helpers/grouped-color-coverage-acceptance.js'
+        );
+        const { serialize } = await import('/src/core.js');
+        await window.nect.load(serialize(groupedGradientDocument(kind, gradientType)));
+        return {
+          project: JSON.stringify(window.nect.projectSnapshot()),
+          command: window.nect.commandState,
+          dirty: window.nect.fileState.dirty,
+        };
+      },
+      { kind: result.kind, gradientType: result.gradientType },
+    );
+    await ensureWorkspacePanel(page, 'colors');
+    await page.waitForFunction((percentages) => {
+      const value = (id) => document.querySelector(`[data-color-coverage-id="${id}"]`)?.textContent;
+      return (
+        value('start_red') === `${percentages[0]}%` &&
+        value('end_green') === `${percentages[1]}%` &&
+        value('stroke_blue') === `${percentages[2]}%` &&
+        document.querySelector('[data-color-coverage-status]')?.textContent.includes('Visible area')
+      );
+    }, result.percentages);
+    const after = await page.evaluate(() => ({
+      project: JSON.stringify(window.nect.projectSnapshot()),
+      command: window.nect.commandState,
+      dirty: window.nect.fileState.dirty,
+    }));
+    assert.deepEqual(after, before, `${label}: panel measurement changed authored state`);
     result.panelPassed = true;
   }
   for (const result of results) {
@@ -1115,13 +1181,20 @@ try {
   await fs.writeFile(
     `${output}/results.json`,
     JSON.stringify(
-      { passed: true, route: 'production SVG to browser canvas alpha', results, grouped, errors },
+      {
+        passed: true,
+        route: 'production SVG to browser canvas alpha',
+        results,
+        grouped,
+        groupedGradients,
+        errors,
+      },
       null,
       2,
     ),
   );
   console.log(
-    `Color coverage raster acceptance passed (${results.length} fixtures + ${grouped.length} grouped); ${output}/results.json`,
+    `Color coverage raster acceptance passed (${results.length} fixtures + ${grouped.length} grouped + ${groupedGradients.length} grouped gradients); ${output}/results.json`,
   );
 } finally {
   await browser.close();
