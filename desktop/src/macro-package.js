@@ -1,5 +1,6 @@
 import { snapshotNodeDeclaration } from './node-foundation.js';
 import { isVector2 } from './node-value-validation.js';
+import { transformValues } from './transform-affine.js';
 
 // Internal prototype only: this is not yet a persisted Document or library schema.
 // The first supported graph is a single Path through two literal Transforms.
@@ -18,6 +19,21 @@ function exactKeys(value, expected, what) {
     expected.some((key) => !Object.hasOwn(value, key))
   )
     throw Error(`Invalid ${what}`);
+}
+
+function assertTransformParameters(params) {
+  // Use the same affine checks as the existing Transform evaluator, including
+  // combinations of finite inputs whose resulting matrix would overflow.
+  transformValues({ params }, (key) => params[key]);
+}
+
+function assertEffectiveTransforms(definition, overrides = {}) {
+  const values = new Map(definition.nodes.map((item) => [item.id, { ...item.params }]));
+  for (const parameter of definition.parameters)
+    values.get(parameter.nodeId)[parameter.key] = Object.hasOwn(overrides, parameter.id)
+      ? overrides[parameter.id]
+      : parameter.defaultValue;
+  for (const params of values.values()) assertTransformParameters(params);
 }
 
 function validateDefinition(definition) {
@@ -62,6 +78,7 @@ function validateDefinition(definition) {
       !finite(item.params.rotation)
     )
       throw Error('Invalid Transform literal');
+    assertTransformParameters(item.params);
     nodes.set(item.id, item);
   }
 
@@ -116,6 +133,7 @@ function validateDefinition(definition) {
     ids.add(parameter.id);
     targets.add(target);
   }
+  assertEffectiveTransforms(definition);
 }
 
 // Snapshot prevents caller changes from altering a pinned revision after validation.
@@ -165,6 +183,7 @@ export function snapshotMacroInstance(value, definitionValue) {
   const parameters = new Map(definition.parameters.map((item) => [item.id, item]));
   for (const [id, value] of Object.entries(instance.overrides))
     if (!parameters.has(id) || !finite(value)) throw Error('Invalid Macro override');
+  assertEffectiveTransforms(definition, instance.overrides);
   return instance;
 }
 
@@ -187,10 +206,14 @@ export function resolveMacroInstance(definitionValue, instanceValue) {
 }
 
 export function setMacroOverride(definition, instanceValue, parameterId, value) {
-  const instance = snapshotMacroInstance(instanceValue, definition);
+  if (typeof parameterId !== 'string') throw Error('Missing published parameter');
+  const validated = snapshotMacroDefinition(definition),
+    instance = snapshotMacroInstance(instanceValue, validated);
+  if (!validated.parameters.some((parameter) => parameter.id === parameterId))
+    throw Error('Missing published parameter');
   return snapshotMacroInstance(
     { ...instance, overrides: { ...instance.overrides, [parameterId]: value } },
-    definition,
+    validated,
   );
 }
 
