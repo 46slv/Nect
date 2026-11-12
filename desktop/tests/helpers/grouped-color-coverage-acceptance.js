@@ -22,7 +22,7 @@ async function rgba(svg, width, height) {
   }
 }
 
-function groupedDocument(kind) {
+export function groupedDocument(kind) {
   const doc = blankDocument();
   doc.width = 64;
   doc.height = 48;
@@ -91,6 +91,7 @@ export async function checkGroupedColorCoverage() {
       kind,
       order: passes.map((pass) => [pass.paint, pass.slotId]),
       measured: measured.slots.map((slot) => slot.contribution),
+      percentages: measured.slots.map((slot) => slot.percent),
       other: measured.other.contribution,
       reference,
       painted: measured.paintedPixelEquivalent,
