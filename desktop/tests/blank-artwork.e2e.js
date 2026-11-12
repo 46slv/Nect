@@ -341,6 +341,15 @@ try {
     width = sizeDialog.locator('[name="width"]'),
     height = sizeDialog.locator('[name="height"]'),
     create = sizeDialog.locator('button[type="submit"]');
+  const beforeSizeRevision = await page.evaluate(() => window.nect.commandState.expectedRevision);
+  await width.press('Escape');
+  await sizeDialog.waitFor({ state: 'hidden' });
+  assert.equal(await projectSnapshot(), beforeSize);
+  assert.equal(
+    await page.evaluate(() => window.nect.commandState.expectedRevision),
+    beforeSizeRevision,
+  );
+  await activateCommand(page, 'new');
   for (const value of ['', '0', '-1', '100001']) {
     await width.fill(value);
     assert.equal(await create.isDisabled(), true, value);
@@ -370,16 +379,22 @@ try {
   await sizeDialog.locator('[data-cancel]').click();
   assert.equal(await projectSnapshot(), beforeSize);
   await activateCommand(page, 'new');
-  await width.fill('1250');
-  await height.fill('875');
+  await width.press('Control+A');
+  await width.pressSequentially('1250.5');
+  await height.focus();
+  await height.press('Control+A');
+  await height.pressSequentially('875.25');
+  assert.equal(await width.getAttribute('type'), 'number');
+  assert.equal(await height.getAttribute('type'), 'number');
+  assert.equal(await create.isEnabled(), true);
   await create.click();
   await page.locator('dialog[open] button[value="discard"]').click();
-  await page.waitForFunction(() => window.nect.document.width === 1250);
-  assert.equal((await page.evaluate(() => window.nect.document)).height, 875);
+  await page.waitForFunction(() => window.nect.document.width === 1250.5);
+  assert.equal((await page.evaluate(() => window.nect.document)).height, 875.25);
   const sizedFile = await download('save', 'json');
   assert.deepEqual(
     [JSON.parse(sizedFile).compositions[0].width, JSON.parse(sizedFile).compositions[0].height],
-    [1250, 875],
+    [1250.5, 875.25],
   );
   await page.reload();
   await page.waitForFunction(() => !!window.nect);
@@ -387,8 +402,8 @@ try {
   await activateCommand(page, 'open');
   await page.locator('dialog[open] button[value="discard"]').click();
   await (await sizeOpening).setFiles('test-results/workflow-blank-start.json');
-  await page.waitForFunction(() => window.nect.document.width === 1250);
-  assert.equal((await page.evaluate(() => window.nect.document)).height, 875);
+  await page.waitForFunction(() => window.nect.document.width === 1250.5);
+  assert.equal((await page.evaluate(() => window.nect.document)).height, 875.25);
   assert.deepEqual(errors, []);
   console.log(
     'PASS blank start: confirmed/cancelled New, exact Undo/Redo, empty selection and no phantom hits, Save/reload/transparent SVG+PNG, every independent tool/Pen, draft preservation, +Blank atomicity/capacity, fixture-only demo compatibility and 1280/1600 layout',
