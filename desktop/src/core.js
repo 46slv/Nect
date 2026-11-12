@@ -156,7 +156,6 @@ import {
 import { validateInstancePath } from './instance-points-geometry.js';
 import { polarSettings } from './polar-transform.js';
 import { dashIntervals } from './dash-intervals.js';
-import { roundCorners } from './corner-round-geometry.js';
 import {
   repeatGeometry,
   repeaterSettings,
@@ -588,7 +587,6 @@ const legacyDefinitions = {
     count: p('Scalar', 32),
     spacing: p('Scalar', 24),
   },
-  'Corner Round': { path: p('Path', null), radius: p('Scalar', 12) },
   'Geometry Repeater': {
     path: p('Path', null),
     count: p('Scalar', 6),
@@ -1032,7 +1030,6 @@ const bypassInputs = Object.freeze({
   Mask: 'path',
   Boolean: 'a',
   Transform: 'path',
-  'Corner Round': 'path',
   'Resample Path': 'path',
   'Trim Path': 'path',
   'Set Path Start': 'path',
@@ -3702,18 +3699,20 @@ export function evaluate(
       else if (builtinNodeRegistry.get(n.type)) {
         const registered = builtinNodeRegistry.get(n.type);
         const nodeId = n.id;
+        const warn = (message) => warnings.push(`${n.name}: ${message}`);
         const shape = registered.hasShape ? registered.snapshot(n) : undefined;
         const context = shape
           ? Object.freeze({
               nodeId,
               shape,
+              warn,
               paintedGroup: (inputs) => {
                 const painted = evaluatedPaintedGroup(inputs, { prefix: nodeId });
                 setEvaluationFingerprint(painted, () => [nodeId, inputs]);
                 return painted;
               },
             })
-          : Object.freeze({ nodeId });
+          : Object.freeze({ nodeId, warn });
         result = registered.evaluate(n.operation, read, context);
         assertValue(registered.interface(n.operation, shape).resultType, result);
       } else if (n.type === 'Polygon' || n.type === 'Star') {
@@ -4110,24 +4109,6 @@ export function evaluate(
           n.id,
           null,
           'Canvas character editing is unavailable through Resample Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Corner Round') {
-        const source = read('path');
-        const radius = read('radius');
-        if (radius < 0 || radius > 100000)
-          throw Error('Corner Round radius must be from 0 to 100000 px');
-        result = roundCorners(source, { radius, prefix: fingerprint(n.id) });
-        for (const [reason, count] of Object.entries(result.cornerDiagnostics?.skipped || {}))
-          warnings.push(
-            `${n.name}: ${count} corner(s) left unchanged (${reason}). Curved corners use conservative local G1 blends.`,
-          );
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Corner Round; edit the source Text',
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
