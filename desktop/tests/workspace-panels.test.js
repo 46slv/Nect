@@ -7,6 +7,7 @@ import {
   workspaceRailGeometry,
 } from '../src/workspace-panels.js';
 import { createWorkspaceSurfaceAdapters } from '../src/workspace-surfaces.js';
+import { createEffectsPanel } from '../src/effects-panel.js';
 
 function createTestWorkspacePanels({ storage, ...bindings }) {
   return createWorkspacePanels({ storage, adapters: createWorkspaceSurfaceAdapters(bindings) });
@@ -40,6 +41,38 @@ function fixture() {
     },
   };
 }
+
+test('Effects keeps its search composition while another drawer is requested', (t) => {
+  const win = new Window();
+  t.after(() => win.happyDOM.abort());
+  const root = win.document.createElement('div');
+  root.innerHTML = markup;
+  win.document.body.append(root);
+  const effects = createEffectsPanel({
+    document: win.document,
+    getTarget: () => null,
+    getEntries: () => [{ id: 'builtin:transform', label: 'Transform' }],
+    onApply: () => assert.fail('No artwork is selected'),
+  });
+  const controller = createTestWorkspacePanels({
+    getAssetPanel: () => null,
+    onAssets: () => {},
+    onAlign: () => {},
+    createEffectsView: () => effects.createView(),
+    canDeactivateEffects: () => effects.canDeactivate,
+  });
+  controller.attach(root);
+  controller.select('effects');
+  const input = root.querySelector('[data-effects-search]');
+  input.focus();
+  input.dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
+  controller.select('inspector');
+  assert.equal(controller.active.left, 'effects');
+  assert.equal(win.document.activeElement, input);
+  input.dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true }));
+  controller.select('inspector');
+  assert.equal(controller.active.right, 'inspector');
+});
 
 test('opposite sides switch exclusively without changing the graph', () => {
   const f = fixture();
@@ -149,10 +182,10 @@ test('asset DOM and search survive switch, render and temporary drag retreat', (
 test('repeat attach does not multiply triggers and Escape does not steal text editing', () => {
   const f = fixture();
   f.controller.attach(f.root);
-  assert.equal(f.root.querySelectorAll('[data-workspace-panel]').length, 5);
+  assert.equal(f.root.querySelectorAll('[data-workspace-panel]').length, 6);
   f.root.innerHTML = markup;
   f.controller.attach(f.root);
-  assert.equal(f.root.querySelectorAll('[data-workspace-panel]').length, 5);
+  assert.equal(f.root.querySelectorAll('[data-workspace-panel]').length, 6);
   f.controller.select('inspector');
   const inspector = f.root.querySelector('.inspector');
   const input = f.window.document.createElement('input');
