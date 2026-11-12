@@ -1,4 +1,5 @@
 import { validateColorSlots, validateColorSlotBinding } from './color-slots.js';
+import { validateLayerFolders } from './layer-folders.js';
 import {
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
@@ -134,6 +135,7 @@ function assertDocumentEnvelope(project) {
 
 function assertGlobalEntityIds(project) {
   const ids = new Set();
+  const folderIds = new Set();
   for (const slot of validateColorSlots(project).values())
     assertUniqueId(slot.id, 'Color slot', ids);
   const compositions = project.compositions;
@@ -143,6 +145,10 @@ function assertGlobalEntityIds(project) {
     for (const guide of composition.editor?.guides || []) {
       if (!isRecord(guide)) throw Error('Invalid guide');
       assertUniqueId(guide.id, 'Guide', ids);
+    }
+    for (const folder of composition.editor?.layerFolders || []) {
+      assertUniqueId(folder.id, 'Folder', ids);
+      folderIds.add(folder.id);
     }
     for (const layer of composition.layers || []) {
       if (!isRecord(layer)) throw Error('Invalid Layer');
@@ -160,6 +166,11 @@ function assertGlobalEntityIds(project) {
       }
     }
   }
+
+  for (const composition of compositions)
+    for (const layer of composition.layers || [])
+      for (const group of layer.nodeGroups || [])
+        if (folderIds.has(group.id)) throw Error('Folder ID collides with a node group');
 
   for (const preset of project.nodePresets || []) {
     if (!isRecord(preset)) throw Error('Invalid node preset');
@@ -211,6 +222,7 @@ function assertCompositionProjectFields(project) {
       composition.layers.length > MAX_LAYERS
     )
       throw Error('Invalid Composition layers');
+    validateLayerFolders({ editor: composition.editor, layers: composition.layers });
     for (const layer of composition.layers) {
       if (
         !isRecord(layer) ||

@@ -9,6 +9,7 @@ import {
   bindProjectDocumentContext,
   normalizedProjectSourceForDocument,
   assertProjectReferenceTransition,
+  artworkClipboardTargetsIntact,
 } from './core.js';
 import { CompositionSessionOwner } from './composition-session-owner.js';
 
@@ -25,5 +26,6 @@ export function createCompositionSessionOwner(project, options = {}) {
     bindProjectDocumentContext,
     normalizedProjectSourceForDocument,
     assertProjectReferenceTransition,
+    hasClipboardArtworkTargets: artworkClipboardTargetsIntact,
   });
 }

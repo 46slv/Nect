@@ -120,6 +120,7 @@ export const browserTestFiles = Object.freeze([
   'tests/node-clipboard.e2e.js',
   'tests/layer-clipboard-owner.e2e.js',
   'tests/composition-viewer-state.e2e.js',
+  'tests/layer-folders.e2e.js',
   'tests/node-foundation-toggle.e2e.js',
   'tests/node-foundation-simplify.e2e.js',
   'tests/node-foundation-expand-stroke.e2e.js',

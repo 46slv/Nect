@@ -20,6 +20,8 @@ export function resolveArtworkOrderTarget(doc, layerId, direction) {
       'boundary',
       direction === 'forward' ? 'Already the front layer.' : 'Already the back layer.',
     );
+  if (!canReorderLayerInFolders(doc, layerId, nextIndex))
+    return unavailable('folder-boundary', 'Move Layers into or out of a Folder explicitly.');
   return { supported: true, index, nextIndex };
 }
 
@@ -47,8 +49,11 @@ export function moveArtworkLayerBefore(doc, layerId, beforeLayerId) {
   if (source.locked) throw Error('Unlock this layer before ordering it.');
   const from = doc.layers.indexOf(source);
   let to = beforeLayerId === null ? doc.layers.length : doc.layers.indexOf(before);
-  doc.layers.splice(from, 1);
   if (from < to) to -= 1;
+  if (!canReorderLayerInFolders(doc, layerId, to))
+    throw Error('Move Layers into or out of a Folder explicitly.');
+  doc.layers.splice(from, 1);
   doc.layers.splice(to, 0, source);
   return { moved: from !== to, layerId, beforeLayerId };
 }
+import { canReorderLayerInFolders } from './layer-folders.js';
