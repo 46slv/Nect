@@ -1219,15 +1219,19 @@ const effectsPanel = createEffectsPanel({
     ];
     const key = (label) => label.trim().normalize('NFKC').toLowerCase(),
       totals = new Map(),
-      ordinals = new Map();
+      ordinals = new Map(),
+      reserved = new Set(entries.map((item) => key(item.label)));
     for (const item of entries) totals.set(key(item.label), (totals.get(key(item.label)) || 0) + 1);
     return entries.map((item) => {
-      const name = key(item.label),
-        ordinal = (ordinals.get(name) || 0) + 1;
+      const name = key(item.label);
+      if (totals.get(name) <= 1) return item;
+      let ordinal = ordinals.get(name) || 0,
+        label;
+      do label = `${item.label} · ${++ordinal}`;
+      while (reserved.has(key(label)));
       ordinals.set(name, ordinal);
-      return totals.get(name) > 1
-        ? { ...item, label: `${item.label} · ${ordinal}`, aliases: [...item.aliases, item.label] }
-        : item;
+      reserved.add(key(label));
+      return { ...item, label, aliases: [...item.aliases, item.label] };
     });
   },
   onApply: applyArtworkEffect,

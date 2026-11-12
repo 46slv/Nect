@@ -175,6 +175,7 @@ export function createEffectsPanel({
         }
         row.textContent = entry.label;
         row.setAttribute('aria-label', entry.label);
+        row.title = entry.label;
         row.dataset.favorite = String(favoriteIds.includes(entry.id));
         row.setAttribute('aria-pressed', String(entry.id === selectedId));
         if (list.children[index] !== row) list.insertBefore(row, list.children[index] || null);
