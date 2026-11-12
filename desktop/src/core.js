@@ -593,7 +593,6 @@ const legacyDefinitions = {
   Reference: {},
   SVG: { position: p('Vector2', [0, 0]) },
   'Composition Reference': { position: p('Vector2', [0, 0]) },
-  Fill: { path: p('PaintedPath', null), color: p('Color', { hex: '#36434e', alpha: 1 }) },
   'Linear Gradient Fill': {
     path: p('PaintedPath', null),
     start: p('Vector2', [200, 250]),
@@ -895,7 +894,6 @@ export function outputType(n, port) {
   if (port !== undefined) return undefined;
   if (
     [
-      'Fill',
       'Linear Gradient Fill',
       'Radial Gradient Fill',
       'Angular Gradient Fill',
@@ -934,7 +932,6 @@ const bypassInputs = Object.freeze({
   'Geometry Repeater': 'path',
   'Instance on Points': 'path',
   'Luminance Instances': 'motif',
-  Fill: 'path',
   'Linear Gradient Fill': 'path',
   'Radial Gradient Fill': 'path',
   'Angular Gradient Fill': 'path',
@@ -3008,6 +3005,8 @@ export function evaluate(
             source = input?.source ? byId.get(input.source) : undefined;
           return source ? outputType(source, input.sourcePort) : undefined;
         };
+        const recordPaintSlot = (value, paint, key) =>
+          setEvaluatedPaintSlot(value, paint, parameterColorSlot(n.params[key]));
         const nodeHasEmptyOutput = () => hasEmptyOutput(layer, n);
         const identity = Object.freeze({
           provenance: (currentEra) => provenance(nodeId, undefined, currentEra),
@@ -3024,6 +3023,7 @@ export function evaluate(
               identity,
               hasParameter,
               sourceOutputType,
+              recordPaintSlot,
               hasEmptyOutput: nodeHasEmptyOutput,
               paintedGroup: (inputs) => {
                 const painted = evaluatedPaintedGroup(inputs, { prefix: nodeId });
@@ -3038,6 +3038,7 @@ export function evaluate(
               identity,
               hasParameter,
               sourceOutputType,
+              recordPaintSlot,
               hasEmptyOutput: nodeHasEmptyOutput,
             });
         result = registered.evaluate(n.operation, read, context);
@@ -3666,10 +3667,6 @@ export function evaluate(
         result = cloneEvaluated(result);
         if (isPaintedGroup(result))
           throw Error('Edit paint in the source Composition, or use Convert to Path');
-        if (n.type === 'Fill') {
-          result.fill = read('color');
-          setEvaluatedPaintSlot(result, 'fill', parameterColorSlot(n.params.color));
-        }
         if (
           ['Linear Gradient Fill', 'Radial Gradient Fill', 'Angular Gradient Fill'].includes(n.type)
         )
