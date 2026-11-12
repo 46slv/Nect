@@ -230,14 +230,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Auto Handles',
-    categoryId: 'path',
-    labelJa: '自動ハンドル',
-    aliases: ['自動ハンドル'],
-    description: '自動ハンドル',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Dash Path',
     categoryId: 'path',
     labelJa: '破線',

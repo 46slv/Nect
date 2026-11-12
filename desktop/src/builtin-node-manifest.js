@@ -35,6 +35,8 @@ import { bendPointsDeclaration } from './bend-points-declaration.js';
 import { evaluateBendPoints } from './bend-points-binding.js';
 import { taperDeclaration } from './taper-node-declaration.js';
 import { evaluateTaper } from './taper-node-binding.js';
+import { autoHandlesDeclaration } from './auto-handles-declaration.js';
+import { evaluateAutoHandles } from './auto-handles-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -84,4 +86,10 @@ export const builtinManifest = Object.freeze([
   entry(twistPointsDeclaration, { evaluate: evaluateTwistPoints }, 'Bend Points', 'Bend Points'),
   entry(bendPointsDeclaration, { evaluate: evaluateBendPoints }, 'Taper', 'Taper'),
   entry(taperDeclaration, { evaluate: evaluateTaper }, 'Set Closure', 'Mirror'),
+  entry(
+    autoHandlesDeclaration,
+    { evaluate: evaluateAutoHandles },
+    'Polar Transform',
+    'Resample Path',
+  ),
 ]);
