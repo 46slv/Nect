@@ -131,7 +131,9 @@ test('binding clones before painting, records only after a successful color read
 
 test('equal-color source rewiring preserves distinct slot identities, stroke, history and save', () => {
   const { doc, layer, fill, first, second } = sceneFixture(),
-    session = new CommandSession(doc),
+    unusedFill = node('Fill');
+  layer.nodes.push(unusedFill);
+  const session = new CommandSession(doc),
     send = (type, payload = {}) =>
       session.dispatch({ ...session.state, type, payload: { layerId: layer.id, ...payload } }),
     scene = () => exportScene(session.snapshot())[0];
@@ -156,8 +158,12 @@ test('equal-color source rewiring preserves distinct slot identities, stroke, hi
   const redoPending = sessionState(session);
   assert.throws(
     () =>
-      send('set-parameter', { nodeId: second.id, key: 'value', value: { hex: 'bad', alpha: 2 } }),
-    /Color|driven/i,
+      send('set-parameter', {
+        nodeId: unusedFill.id,
+        key: 'color',
+        value: { hex: 'bad', alpha: 2 },
+      }),
+    /Expected Color/,
   );
   assert.deepEqual(sessionState(session), redoPending);
   send('redo');
