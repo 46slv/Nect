@@ -567,10 +567,16 @@ export function validateMacroProjectCandidate(project) {
   return project;
 }
 
-export function validateMacroProjectTransition(before, candidate) {
+export function validateMacroProjectTransition(before, candidate, options) {
+  const retained =
+    options && typeof options === 'object'
+      ? Object.getOwnPropertyDescriptor(options, 'retainedDefinitionSets')
+      : null;
+  if (!retained || !Object.hasOwn(retained, 'value'))
+    throw Error('Retained Macro definition sets must be supplied');
   validateMacroProjectCandidate(before);
   validateMacroProjectCandidate(candidate);
-  assertMacroProjectDefinitionTransition(before, candidate);
+  assertMacroProjectDefinitionTransition(before, candidate, retained.value);
   return candidate;
 }
 

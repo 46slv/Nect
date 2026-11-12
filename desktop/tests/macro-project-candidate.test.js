@@ -8,6 +8,7 @@ import {
   validateMacroProjectCandidate,
   validateMacroProjectTransition,
 } from '../src/composition-project-model.js';
+import { mergeMacroDefinitions } from '../src/macro-project.js';
 
 // These fixtures describe a candidate codec contract. Macro is not yet a
 // supported Session node, and normal Open/Save does not invoke this check.
@@ -54,6 +55,7 @@ function instance(id, revision = 1, overrides = {}) {
     macro: { definitionId: 'double-transform', definitionRevision: revision, overrides },
   };
 }
+const noRetainedDefinitions = () => ({ retainedDefinitionSets: [] });
 function project() {
   const second = definition(2);
   second.parameters[0].defaultValue = 3;
@@ -145,18 +147,27 @@ test('a candidate cannot silently change a previously pinned definition revision
   assert.strictEqual(validateMacroProjectCandidate(changed), changed);
   const beforeCopy = structuredClone(before),
     changedCopy = structuredClone(changed);
-  assert.throws(() => validateMacroProjectTransition(before, changed), /conflict/i);
+  assert.throws(
+    () => validateMacroProjectTransition(before, changed, noRetainedDefinitions()),
+    /conflict/i,
+  );
   assert.deepEqual(before, beforeCopy);
   assert.deepEqual(changed, changedCopy);
 
   const addedRevision = structuredClone(before);
   addedRevision.macroDefinitions.push(definition(3));
-  assert.strictEqual(validateMacroProjectTransition(before, addedRevision), addedRevision);
+  assert.strictEqual(
+    validateMacroProjectTransition(before, addedRevision, noRetainedDefinitions()),
+    addedRevision,
+  );
 
   const reordered = structuredClone(before),
     original = reordered.macroDefinitions[0];
   reordered.macroDefinitions[0] = Object.fromEntries(Object.entries(original).reverse());
-  assert.strictEqual(validateMacroProjectTransition(before, reordered), reordered);
+  assert.strictEqual(
+    validateMacroProjectTransition(before, reordered, noRetainedDefinitions()),
+    reordered,
+  );
 });
 
 test('candidate transitions refuse definition removal until reuse and History are defined', () => {
@@ -165,7 +176,95 @@ test('candidate transitions refuse definition removal until reuse and History ar
   changed.macroDefinitions.pop();
   changed.compositions[1].layers[0].nodes = [];
   assert.strictEqual(validateMacroProjectCandidate(changed), changed);
-  assert.throws(() => validateMacroProjectTransition(before, changed), /remov/i);
+  assert.throws(
+    () => validateMacroProjectTransition(before, changed, noRetainedDefinitions()),
+    /remov/i,
+  );
+});
+
+test('retained History pins reject reuse with different contents after an Undo', () => {
+  const retained = project(),
+    before = structuredClone(retained);
+  delete before.macroDefinitions;
+  for (const composition of before.compositions) composition.layers[0].nodes = [];
+  const candidate = structuredClone(before),
+    conflicting = definition();
+  conflicting.parameters[0].defaultValue = 9;
+  candidate.macroDefinitions = [conflicting];
+  const oldFuture = structuredClone(retained),
+    oldBefore = structuredClone(before),
+    oldCandidate = structuredClone(candidate);
+  assert.throws(() => validateMacroProjectTransition(before, candidate), /retained/i);
+  assert.throws(
+    () =>
+      validateMacroProjectTransition(before, candidate, {
+        retainedDefinitionSets: [retained.macroDefinitions],
+      }),
+    /conflict/i,
+  );
+  assert.deepEqual(retained, oldFuture);
+  assert.deepEqual(before, oldBefore);
+  assert.deepEqual(candidate, oldCandidate);
+  candidate.macroDefinitions = [definition()];
+  assert.strictEqual(
+    validateMacroProjectTransition(before, candidate, {
+      retainedDefinitionSets: [retained.macroDefinitions],
+    }),
+    candidate,
+  );
+});
+
+test('a transition requires an explicit data-only retained definition set', () => {
+  const candidate = project();
+  let called = 0;
+  const options = {};
+  Object.defineProperty(options, 'retainedDefinitionSets', {
+    get() {
+      called++;
+      return [];
+    },
+  });
+  assert.throws(() => validateMacroProjectTransition(candidate, candidate, options), /retained/i);
+  assert.equal(called, 0);
+  assert.throws(
+    () => validateMacroProjectTransition(candidate, candidate, { retainedDefinitionSets: null }),
+    /retained/i,
+  );
+});
+
+test('definition merge deduplicates equal pins and refuses conflicts without mutating inputs', () => {
+  const first = definition(),
+    same = Object.fromEntries(Object.entries(structuredClone(first)).reverse()),
+    second = definition(2),
+    existing = [first],
+    incoming = [same, second],
+    before = structuredClone([existing, incoming]),
+    merged = mergeMacroDefinitions(existing, incoming);
+  assert.deepEqual(
+    merged.map(({ revision }) => revision),
+    [1, 2],
+  );
+  assert.ok(Object.isFrozen(merged));
+  assert.ok(Object.isFrozen(merged[0].nodes[0].params));
+  assert.deepEqual([existing, incoming], before);
+  const conflicting = definition();
+  conflicting.name = 'Different content';
+  assert.throws(() => mergeMacroDefinitions(existing, [conflicting]), /conflict/i);
+  assert.deepEqual([existing, incoming], before);
+});
+
+test('definition merge rejects accessor array entries without executing them', () => {
+  const incoming = [definition()];
+  let called = 0;
+  Object.defineProperty(incoming, '0', {
+    enumerable: true,
+    get() {
+      called++;
+      return definition();
+    },
+  });
+  assert.throws(() => mergeMacroDefinitions([], incoming), /definition/i);
+  assert.equal(called, 0);
 });
 
 test('override IDs and effective Transform values are validated for every instance', () => {
