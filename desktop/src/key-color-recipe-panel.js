@@ -891,15 +891,27 @@ export function createKeyColorRecipePanel({
       slots.map(({ id, name }) => ({ id, label: name || id })),
       ['Choose a color'],
     );
-    const options = slots
-      .map(({ id, name, value }) => {
-        const original = name || id;
-        const label = labels.get(id);
-        const prefix = `${original} · `;
-        const visible = label.startsWith(prefix)
-          ? `${label.slice(prefix.length)} · ${original}`
-          : label;
-        return `<option value="${esc(id)}">${esc(visible)} · ${esc(value.hex)} · α ${value.alpha}</option>`;
+    const choices = slots.map(({ id, name, value }) => {
+      const original = name || id;
+      const label = labels.get(id);
+      const prefix = `${original} · `;
+      const visible = label.startsWith(prefix)
+        ? `${label.slice(prefix.length)} · ${original}`
+        : label;
+      return { id, original, value, visible };
+    });
+    // A user name can itself look like the ID prefix moved above. If that
+    // creates a collision, put unique IDs first for every candidate so the
+    // distinction remains visible even when a long option is clipped.
+    const visibleLabels = choices.map(({ visible }) => visible.normalize('NFC'));
+    const identityLabels =
+      new Set(visibleLabels).size === choices.length
+        ? null
+        : displayColorLabels(slots.map(({ id }) => ({ id, label: '' })));
+    const options = choices
+      .map(({ id, original, value, visible }) => {
+        const name = identityLabels ? `${identityLabels.get(id).slice(3)} · ${original}` : visible;
+        return `<option value="${esc(id)}">${esc(name)} · ${esc(value.hex)} · α ${value.alpha}</option>`;
       })
       .join('');
     return `<label style="display:flex;min-width:0;max-width:100%">Copy saved color <select data-key-color-copy-saved style="width:240px;min-width:0;max-width:100%"><option value="">Choose a color</option>${options}</select></label>`;

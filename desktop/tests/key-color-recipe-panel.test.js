@@ -1012,6 +1012,25 @@ function copySaved(s, id) {
   s.fire(select, 'change');
 }
 
+test('saved color options stay distinct when a name imitates another ID prefix', (t) => {
+  const doc = savedColorFixture();
+  doc.colorSlots.find((slot) => slot.id === 'other').value = { hex: '#00Ff00', alpha: 0.5 };
+  doc.colorSlots.push({
+    id: 'third',
+    name: '…mant · Same name',
+    value: { hex: '#00Ff00', alpha: 0.5 },
+  });
+  const s = setup(t, 'document', doc);
+  s.open();
+  const options = [...s.query('[data-key-color-copy-saved]').options].slice(1);
+  assert.deepEqual(
+    options.map((option) => option.value),
+    ['dormant', 'other', 'third'],
+  );
+  assert.equal(new Set(options.map((option) => option.textContent.normalize('NFC'))).size, 3);
+  assert.notEqual(options[0].textContent.split(' · ')[0], options[2].textContent.split(' · ')[0]);
+});
+
 for (const kind of ['document', 'project'])
   test(`${kind}: saved color copies by ID into the detached C1 draft and Apply is one Undo`, (t) => {
     const s = setup(t, kind, savedColorFixture());

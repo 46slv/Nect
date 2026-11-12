@@ -1514,6 +1514,11 @@ try {
       value: { hex: '#DeAd09', alpha: 0 },
     },
   );
+  copyFixture.colorSlots.push({
+    id: 'third',
+    name: '…mant · Same name',
+    value: { hex: '#00Ff00', alpha: 0.5 },
+  });
   await load(copyFixture);
   await page.evaluate(() => {
     window.nect.dispatch({
@@ -1535,9 +1540,13 @@ try {
     );
   assert.deepEqual(
     savedOptions.map(({ value }) => value),
-    ['', 'dormant', 'other'],
+    ['', 'dormant', 'other', 'third'],
   );
-  assert.notEqual(savedOptions[1].text, savedOptions[2].text);
+  assert.equal(
+    new Set(savedOptions.map(({ text }) => text.normalize('NFC'))).size,
+    savedOptions.length,
+  );
+  assert.notEqual(savedOptions[1].text.split(' · ')[0], savedOptions[3].text.split(' · ')[0]);
   await preview();
   await savedSelect.selectOption('dormant');
   assert.equal(await page.locator('[data-key-color-apply]').isDisabled(), true);
@@ -1676,6 +1685,8 @@ try {
   const longNames = structuredClone(copyFixture);
   for (const slot of longNames.colorSlots.filter(({ id }) => ['dormant', 'other'].includes(id)))
     slot.name = 'Long saved color '.repeat(7);
+  longNames.colorSlots.find((slot) => slot.id === 'third').name =
+    `…mant · ${'Long saved color '.repeat(7)}`;
   await load(longNames);
   await open();
   const narrowCopy = await savedSelect.evaluate((select) => {
@@ -1692,6 +1703,16 @@ try {
     );
   });
   assert.equal(narrowCopy, true, 'long source names do not overflow the C1 fieldset');
+  const narrowLabels = await savedSelect
+    .locator('option')
+    .evaluateAll((options) =>
+      options.map(({ value, textContent }) => ({ value, text: textContent })),
+    );
+  assert.notEqual(
+    narrowLabels.find(({ value }) => value === 'dormant').text.split(' · ')[0],
+    narrowLabels.find(({ value }) => value === 'third').text.split(' · ')[0],
+    'colliding long names remain distinct at the beginning',
+  );
   await savedSelect.selectOption('other');
   assert.equal(await field('hex').inputValue(), '#DeAd09');
   await page.screenshot({ path: resolve(output, 'saved-color-copy-narrow.png'), fullPage: true });
