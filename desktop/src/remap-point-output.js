@@ -1,4 +1,6 @@
-import { evaluate, remapFingerprintMatches } from './core.js';
+import { bindProjectDocumentContext, evaluate, remapFingerprintMatches } from './core.js';
+import { activeCompositionDocument } from './composition-project-model.js';
+import { resolveFonts } from './fonts.js';
 import { isVector2 } from './node-value-validation.js';
 import { handlePolar, polarHandleValue } from './handle-polar.js';
 
@@ -7,8 +9,9 @@ const keys = ['position', 'handleA', 'handleB'];
 // Committed documents and active font resources are immutable. A drag may reuse
 // a checked snapshot while both retain their identity, then recheck at commit.
 export function createRemapSnapshotGuard(document, fonts, snapshot, read) {
+  const { fingerprint, ...geometry } = snapshot;
   const fontEntries = Object.entries(fonts),
-    expected = JSON.stringify(snapshot);
+    expected = JSON.stringify(geometry);
   let checked = false,
     invalidated = false;
   return (currentDocument, currentFonts, fresh = false) => {
@@ -24,8 +27,11 @@ export function createRemapSnapshotGuard(document, fonts, snapshot, read) {
       return false;
     }
     if (!fresh && checked) return true;
-    const current = read();
-    checked = !!current && JSON.stringify(current) === expected;
+    const current = read(fresh);
+    if (current) {
+      const { fingerprint: currentFingerprint, ...currentGeometry } = current;
+      checked = fingerprint === currentFingerprint && JSON.stringify(currentGeometry) === expected;
+    } else checked = false;
     if (!checked) invalidated = true;
     return checked;
   };
@@ -38,6 +44,15 @@ function indexedPoints(path, wanted) {
       if (!wanted || wanted.has(point.id))
         indexed.set(point.id, indexed.has(point.id) ? null : { contourId: contour.id, point });
   return indexed;
+}
+
+// A fresh Project copy prevents cached Layer evaluation from hiding a change in
+// an existing font object, including in a referenced Composition.
+export function inspectFreshRemapOutput(owner, compositionId, layerId, nodeId, fonts, pointIds) {
+  const project = owner.projectSnapshot(),
+    doc = activeCompositionDocument(project, compositionId);
+  bindProjectDocumentContext(doc, project, compositionId);
+  return inspectRemapOutput(doc, layerId, nodeId, resolveFonts(doc, fonts), null, pointIds);
 }
 
 // The returned snapshots are temporary UI baselines; the Session retains all
@@ -118,6 +133,7 @@ export function remapOutputValue(snapshot, key, component) {
 
 export function remapOutputDelta(snapshot, key, component, value) {
   if (!snapshot.editable[key] || !Number.isFinite(value)) throw Error('Remap point is unavailable');
+  if (value === remapOutputValue(snapshot, key, component)) return [...snapshot.delta[key]];
   if (key === 'position' && ['x', 'y'].includes(component)) {
     const axis = component === 'x' ? 0 : 1,
       delta = [...snapshot.delta.position],

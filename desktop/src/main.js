@@ -83,6 +83,7 @@ import { textToolGroup } from './text-tool.js';
 import { handlePolar, polarHandleValue, commitHandlePolar } from './handle-polar.js';
 import {
   createRemapSnapshotGuard,
+  inspectFreshRemapOutput,
   inspectRemapOutput,
   remapOutputValue,
   remapOutputDelta,
@@ -2052,6 +2053,7 @@ let pendingRender = null,
 // expose their native selection, so replacement also loses select-all before
 // the first input event. Value restoration cannot restore either browser state.
 const numericInputDrafts = new WeakSet();
+const remapOutputEdited = new WeakSet();
 const tabSelectedNumericInputs = new WeakSet();
 let restoringControlFocus = false;
 let tabFocusExpected = false;
@@ -2089,12 +2091,19 @@ app.addEventListener(
     if (event.target.matches('input[type="number"], input[data-numeric-expression]')) {
       tabSelectedNumericInputs.delete(event.target);
       numericInputDrafts.add(event.target);
+      if (event.target.dataset.remapOutput !== undefined) remapOutputEdited.add(event.target);
     }
   },
   true,
 );
 app.addEventListener('change', (event) => numericInputDrafts.delete(event.target), true);
 app.addEventListener('focusout', (event) => {
+  const input = event.target;
+  if (remapOutputEdited.has(input))
+    queueMicrotask(() => {
+      if (input.isConnected && document.activeElement !== input && remapOutputEdited.has(input))
+        input.dispatchEvent(new window.Event('change', { bubbles: true }));
+    });
   numericInputDrafts.delete(event.target);
   if (needsRender) scheduleRender();
 });
@@ -2691,7 +2700,7 @@ function syncRemapSelection() {
   }
   return remapSelectionEpoch;
 }
-function makeRemapOutputScope(input, snapshot) {
+function makeRemapOutputScope(input, snapshot, validSnapshot = null) {
   return {
     owner: session,
     envelope: session.state,
@@ -2705,18 +2714,30 @@ function makeRemapOutputScope(input, snapshot) {
     key: input.dataset.remapOutput,
     component: input.dataset.remapOutputComponent,
     snapshot,
-    validSnapshot: createRemapSnapshotGuard(history.doc, activeFonts(), snapshot, () =>
-      currentRemapOutput(input),
-    ),
+    validSnapshot:
+      validSnapshot ||
+      createRemapSnapshotGuard(history.doc, activeFonts(), snapshot, (fresh) =>
+        currentRemapOutput(input, fresh),
+      ),
   };
 }
-function currentRemapOutput(input) {
+function currentRemapOutput(input, fresh = false) {
   try {
+    if (fresh)
+      return inspectFreshRemapOutput(
+        session,
+        session.activeCompositionId,
+        current().id,
+        input.dataset.node,
+        activeFonts(),
+        [input.dataset.point],
+      ).get(input.dataset.point);
+    const doc = history.doc;
     return inspectRemapOutput(
-      history.doc,
+      doc,
       current().id,
       input.dataset.node,
-      resolveFonts(history.doc, activeFonts()),
+      resolveFonts(doc, activeFonts()),
       null,
       [input.dataset.point],
     ).get(input.dataset.point);
@@ -2725,7 +2746,12 @@ function currentRemapOutput(input) {
   }
 }
 function refreshCleanRemapScope(input) {
-  if (input.value !== input.defaultValue || numericInputDrafts.has(input)) return;
+  if (
+    input.value !== input.defaultValue ||
+    numericInputDrafts.has(input) ||
+    remapOutputEdited.has(input)
+  )
+    return;
   const snapshot = currentRemapOutput(input);
   if (snapshot) remapOutputScopes.set(input, makeRemapOutputScope(input, snapshot));
 }
@@ -2834,7 +2860,7 @@ function remapOutputNumericBinding(input) {
         valid() &&
         source !== input &&
         source.isConnected &&
-        source.value !== source.defaultValue &&
+        (source.value !== source.defaultValue || remapOutputEdited.has(source)) &&
         other?.owner === scope.owner &&
         other.nodeId === scope.nodeId &&
         other.pointId === scope.pointId &&
@@ -2855,7 +2881,7 @@ function remapOutputNumericBinding(input) {
       originalInput = input.value;
       if (!originalInput.trim() || !Number.isFinite(Number(originalInput)))
         throw Error('Expected a finite number');
-      if (input.value !== input.defaultValue) {
+      if (input.value !== input.defaultValue || remapOutputEdited.has(input)) {
         input.dispatchEvent(new window.Event('change', { bubbles: true }));
         scope = remapOutputScopes.get(input);
         if (!valid() || input.value !== input.defaultValue) throw Error('Point change cancelled');
@@ -5673,6 +5699,7 @@ function ownedPointFields(n) {
 }
 function prepareNumericInputs(root, evaluation = null) {
   const remapSnapshots = new Map(),
+    remapGuards = new Map(),
     remapInputs = [...root.querySelectorAll('input[data-remap-output]')];
   for (const input of root.querySelectorAll('input[type="number"]')) {
     if (!input.dataset.scrubStep)
@@ -5700,7 +5727,17 @@ function prepareNumericInputs(root, evaluation = null) {
         }
       }
       const snapshot = remapSnapshots.get(nodeId).get(input.dataset.point);
-      if (snapshot) remapOutputScopes.set(input, makeRemapOutputScope(input, snapshot));
+      if (snapshot) {
+        const key = JSON.stringify([nodeId, input.dataset.point]);
+        if (!remapGuards.has(key))
+          remapGuards.set(
+            key,
+            createRemapSnapshotGuard(history.doc, activeFonts(), snapshot, (fresh) =>
+              currentRemapOutput(input, fresh),
+            ),
+          );
+        remapOutputScopes.set(input, makeRemapOutputScope(input, snapshot, remapGuards.get(key)));
+      }
     }
   }
 }
@@ -6718,8 +6755,11 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   graphOverviewObserver?.disconnect();
   const svgPartInput = svgPartPick ? app.querySelector('#svg-part-file') : null;
   const focused = resetView ? null : captureFocus(app),
+    focusedRemapEdited = focused && remapOutputEdited.has(document.activeElement),
     focusedRemapScope =
-      focused && !focused.cleanNumber ? remapOutputScopes.get(document.activeElement) : null;
+      focused && (!focused.cleanNumber || focusedRemapEdited)
+        ? remapOutputScopes.get(document.activeElement)
+        : null;
   const tabSelectedNumber = !resetView && tabSelectedNumericInputs.has(document.activeElement);
   graphPanJoystick?.destroy();
   graphPanJoystick = null;
@@ -6936,8 +6976,14 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   restoringControlFocus = true;
   try {
     restoreFocus(app, focused);
-    if (focusedRemapScope && document.activeElement?.dataset.remapOutput !== undefined)
+    if (focusedRemapScope && document.activeElement?.dataset.remapOutput !== undefined) {
       remapOutputScopes.set(document.activeElement, focusedRemapScope);
+      if (focusedRemapEdited) {
+        document.activeElement.value = focused.value;
+        remapOutputEdited.add(document.activeElement);
+        numericInputDrafts.add(document.activeElement);
+      }
+    }
     if (tabSelectedNumber && document.activeElement?.matches('input[type="number"]')) {
       document.activeElement.select();
       tabSelectedNumericInputs.add(document.activeElement);
@@ -13506,9 +13552,10 @@ app.addEventListener('change', async (e) => {
   }
   if (drag?.type === 'numeric' && drag.started && el === drag.capture) return;
   if (d.remapOutput !== undefined) {
+    const edited = remapOutputEdited.has(el);
     try {
       if (el.disabled || !el.value.trim()) throw Error('Expected an editable finite point value');
-      if (el.value === el.defaultValue) return;
+      if (!edited && el.value === el.defaultValue) return;
       const scope = remapOutputScopes.get(el),
         pending =
           drag?.type === 'numeric' && !drag.started && drag.binding?.canHandoff?.(el) ? drag : null,
@@ -13526,6 +13573,8 @@ app.addEventListener('change', async (e) => {
     } catch (error) {
       el.value = el.defaultValue;
       notify(error.message, true);
+    } finally {
+      remapOutputEdited.delete(el);
     }
     scheduleRender();
     return;
@@ -17930,6 +17979,7 @@ document.addEventListener('keydown', (e) => {
     e.target.type = 'number';
     delete e.target.dataset.numericExpression;
     numericInputDrafts.delete(e.target);
+    remapOutputEdited.delete(e.target);
     if (needsRender) scheduleRender();
     return;
   }

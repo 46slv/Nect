@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   blankDocument,
   CommandSession,
@@ -11,8 +12,12 @@ import {
 } from '../src/core.js';
 import * as core from '../src/core.js';
 import { isVector2 } from '../src/node-value-validation.js';
+import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
+import { migrateLegacyDocumentToCompositionProject } from '../src/composition-project-model.js';
+import { parseFont } from '../src/fonts.js';
 import {
   createRemapSnapshotGuard,
+  inspectFreshRemapOutput,
   inspectRemapOutput,
   remapOutputDelta,
   remapOutputValue,
@@ -114,6 +119,116 @@ test('Remap snapshot guard detects an in-place font change at the final fresh ch
   font.offset = 2;
   assert.equal(guard(doc, fonts), true, 'drag reuse does not claim a fresh geometry read');
   assert.equal(guard(doc, fonts, true), false, 'commit must reject changed geometry');
+});
+
+test('fresh Remap evaluation detects mutated glyphs without a cached Layer result', () => {
+  const bytes = fs.readFileSync(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url)),
+    font = parseFont(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)),
+    fonts = { default: font },
+    doc = blankDocument(),
+    layer = doc.layers[0],
+    text = node('Text'),
+    remap = node('Path Remap'),
+    output = node('Output');
+  text.text = 'A';
+  layer.nodes = [text, remap, output];
+  layer.output = output.id;
+  connect(layer, text.id, remap.id, 'path');
+  connect(layer, remap.id, output.id, 'path');
+  const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc), {
+      fonts: () => fonts,
+    }),
+    committed = owner.historyView.doc,
+    pointId = evaluate(committed.layers[0], fonts, committed.imageAssets, committed).run(text.id)
+      .contours[0].points[0].id,
+    cached = () =>
+      inspectRemapOutput(committed, layer.id, remap.id, fonts, null, [pointId]).get(pointId),
+    fresh = () =>
+      inspectFreshRemapOutput(owner, owner.activeCompositionId, layer.id, remap.id, fonts, [
+        pointId,
+      ]).get(pointId),
+    baseline = cached(),
+    guard = createRemapSnapshotGuard(committed, fonts, baseline, (isFresh) =>
+      isFresh ? fresh() : cached(),
+    ),
+    before = owner.projectSnapshot();
+  assert.equal(guard(committed, fonts), true);
+  assert.equal(guard(committed, fonts, true), true, 'an unchanged fresh Project matches');
+  let gesture = owner.dispatch({
+    ...owner.state,
+    type: 'begin-gesture',
+    payload: {
+      target: {
+        kind: 'remap-point',
+        layerId: layer.id,
+        nodeId: remap.id,
+        pointId,
+        key: 'position',
+      },
+    },
+  });
+  gesture = owner.dispatch({
+    ...owner.state,
+    type: 'update-gesture',
+    payload: { ...gesture, update: { value: remapOutputDelta(baseline, 'position', 'y', 250) } },
+  });
+  for (const command of font.charToGlyph('A').path.commands)
+    for (const key of ['y', 'y1', 'y2']) if (key in command) command[key] += 700;
+  assert.deepEqual(cached(), baseline, 'the original frozen Layer can return its cached geometry');
+  assert.notDeepEqual(fresh().source, baseline.source);
+  assert.equal(guard(committed, fonts, true), false);
+  owner.dispatch({ ...owner.state, type: 'cancel-gesture', payload: gesture });
+  assert.deepEqual(owner.projectSnapshot(), before);
+  assert.equal(owner.historyView.past.length, 0);
+});
+
+test('fresh Remap evaluation keeps external Composition context', () => {
+  const doc = blankDocument(),
+    layer = doc.layers[0],
+    circle = node('Circle'),
+    remap = node('Path Remap'),
+    output = node('Output'),
+    project = migrateLegacyDocumentToCompositionProject(doc),
+    other = blankDocument(),
+    driver = node('Value');
+  layer.nodes = [circle, remap, output];
+  layer.output = output.id;
+  connect(layer, circle.id, remap.id, 'path');
+  connect(layer, remap.id, output.id, 'path');
+  project.compositions[0].layers = [layer];
+  project.compositions[0].id = 'active';
+  other.layers[0].id = 'other-layer';
+  driver.id = 'other-value';
+  driver.params.value.value = 7;
+  other.layers[0].nodes.push(driver);
+  project.compositions.push({
+    id: 'other',
+    name: 'Other',
+    width: other.width,
+    height: other.height,
+    layers: other.layers,
+    editor: other.editor,
+  });
+  const owner = createCompositionSessionOwner(project, { activeCompositionId: 'active' });
+  owner.dispatch({
+    ...owner.state,
+    type: 'set-parameter-expression',
+    payload: {
+      layerId: layer.id,
+      nodeId: circle.id,
+      key: 'radius',
+      expression: 'ref(composition, "other", "other-layer", "other-value", "value")',
+    },
+  });
+  const document = owner.historyView.doc,
+    pointId = evaluate(document.layers[0], {}, document.imageAssets, document).run(circle.id)
+      .contours[0].points[0].id,
+    regular = inspectRemapOutput(document, layer.id, remap.id, {}, null, [pointId]).get(pointId),
+    fresh = inspectFreshRemapOutput(owner, 'active', layer.id, remap.id, {}, [pointId]).get(
+      pointId,
+    );
+  assert.deepEqual(fresh, regular);
+  assert.ok(fresh.source.position.every(Number.isFinite));
 });
 
 for (const kind of ['raw', 'typed'])
@@ -256,6 +371,16 @@ test('Remap output values use source geometry and offset, preserving the other p
   assert.equal(remapOutputValue(snapshot, 'handleB', 'length'), 0.30000000000000004);
   assert.deepEqual(remapOutputDelta(snapshot, 'position', 'x', 130), [14.700000000000003, 9]);
   assert.deepEqual(remapOutputDelta(snapshot, 'handleB', 'length', 0), [-0.1, 0]);
+  assert.deepEqual(
+    remapOutputDelta(
+      snapshot,
+      'handleB',
+      'length',
+      remapOutputValue(snapshot, 'handleB', 'length'),
+    ),
+    [0.2, 0],
+    'an exactly unchanged output retains the authored delta without float drift',
+  );
 });
 
 test('Remap output rejects duplicate point identity and locks only the driven target', () => {

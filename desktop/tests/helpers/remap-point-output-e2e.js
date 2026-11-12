@@ -56,6 +56,87 @@ export async function verifyRemapPointOutput(page) {
     await panel().locator(`[data-select-panel-point="${fixture.point}"]`).click();
   };
   await selectRemap();
+  // Typing the same rounded display value is an explicit edit; merely focusing
+  // or pressing Enter on the untouched display must not quantize the point.
+  const beforeTinySource = await snapshot();
+  await page.evaluate(({ layer, curve, point }) => {
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-parameter',
+      payload: { layerId: layer, nodeId: curve, key: `${point}.handleB`, value: [-0.1996, 0] },
+    });
+  }, fixture);
+  await settle();
+  assert.equal(await field('handleB', 'length').inputValue(), '0');
+  const beforeTinyEdit = await snapshot();
+  await field('handleB', 'length').focus();
+  await field('handleB', 'length').press('Enter');
+  await settle();
+  assert.equal(await snapshot(), beforeTinyEdit);
+  await field('handleB', 'length').press('Control+A');
+  await field('handleB', 'length').press('0');
+  await field('handleB', 'length').press('Enter');
+  await settle();
+  assert.deepEqual((await output()).handleB, [0, 0], 'explicit zero clears the rounded handle');
+  await page.locator('[data-action="undo"]').click();
+  await settle();
+  assert.equal(await snapshot(), beforeTinyEdit);
+  await page.locator('[data-action="undo"]').click();
+  await settle();
+  assert.equal(await snapshot(), beforeTinySource);
+  await selectRemap();
+
+  await page.evaluate(({ layer, curve, point }) => {
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-parameter',
+      payload: { layerId: layer, nodeId: curve, key: `${point}.position`, value: [100.0004, 100] },
+    });
+  }, fixture);
+  await settle();
+  assert.equal(await field('position', 'x').inputValue(), '100');
+  const beforeTinyPosition = await snapshot();
+  await field('position', 'x').focus();
+  await field('position', 'x').press('Control+A');
+  await field('position', 'x').pressSequentially('100');
+  await page.evaluate(({ layer, curve }) => {
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-parameter',
+      payload: { layerId: layer, nodeId: curve, key: 'closed', value: false },
+    });
+  }, fixture);
+  const intervening = await snapshot();
+  await field('position', 'x').press('Enter');
+  await settle();
+  assert.equal(
+    await snapshot(),
+    intervening,
+    'a same-display draft cannot target a newer revision',
+  );
+  assert.match(await page.locator('.status .message').innerText(), /Point changed/);
+  await page.locator('[data-action="undo"]').click();
+  await settle();
+  assert.equal(await snapshot(), beforeTinyPosition);
+  await selectRemap();
+  await field('position', 'x').focus();
+  await field('position', 'x').press('Control+A');
+  await field('position', 'x').pressSequentially('100');
+  await field('position', 'x').blur();
+  await settle();
+  assert.equal(
+    (await output()).position[0],
+    100,
+    'blur commits the explicitly typed rounded value',
+  );
+  await page.locator('[data-action="undo"]').click();
+  await settle();
+  assert.equal(await snapshot(), beforeTinyPosition);
+  await page.locator('[data-action="undo"]').click();
+  await settle();
+  assert.equal(await snapshot(), beforeTinySource);
+  await selectRemap();
+
   await page.setViewportSize({ width: 1000, height: 800 });
   const lastHandle = field('handleB', 'length'),
     rawDelta = panel().locator(
@@ -96,6 +177,16 @@ export async function verifyRemapPointOutput(page) {
   await field('handleB', 'length').press('Enter');
   await settle();
   assert.deepEqual((await output()).handleB, [20, 0]);
+  const beforeEquivalent = await snapshot(),
+    equivalentRevision = await page.evaluate(() => window.nect.commandState.expectedRevision);
+  await field('handleB', 'length').fill('20.0');
+  await field('handleB', 'length').press('Enter');
+  await settle();
+  assert.equal(await snapshot(), beforeEquivalent);
+  assert.equal(
+    await page.evaluate(() => window.nect.commandState.expectedRevision),
+    equivalentRevision,
+  );
   await field('handleB', 'length').fill('0');
   await field('handleB', 'length').press('Enter');
   await settle();
