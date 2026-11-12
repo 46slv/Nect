@@ -1069,6 +1069,28 @@ test('saved color identity remains visible when native HTML drops a null charact
   assert.equal(new Set(labels).size, 3);
 });
 
+test('long similar IDs use short visible numbers but retain the selected stable ID', (t) => {
+  const makeId = (a, b) => 'W'.repeat(4) + a + 'W'.repeat(61) + b + 'W'.repeat(61);
+  const ids = [makeId('W', 'B'), makeId('W', 'W'), makeId('C', 'B')];
+  const doc = blankDocument();
+  doc.schemaVersion = 58;
+  doc.colorSlots = ids.map((id, index) => ({
+    id,
+    name: 'Same name',
+    value: { hex: ['#112233', '#445566', '#778899'][index], alpha: 1 },
+  }));
+  const s = setup(t, 'document', doc);
+  s.open();
+  const options = [...s.query('[data-key-color-copy-saved]').options].slice(1);
+  assert.deepEqual(
+    options.map((option) => option.value),
+    ids,
+  );
+  assert.equal(new Set(options.map((option) => option.textContent.slice(0, 8))).size, 3);
+  copySaved(s, ids[2]);
+  assert.equal(s.query('[data-key-color-input="hex"]').value, '#778899');
+});
+
 for (const kind of ['document', 'project'])
   test(`${kind}: saved color copies by ID into the detached C1 draft and Apply is one Undo`, (t) => {
     const s = setup(t, kind, savedColorFixture());
@@ -1084,8 +1106,8 @@ for (const kind of ['document', 'project'])
       ['', 'dormant', 'other'],
     );
     assert.notEqual(options[1].textContent, options[2].textContent, 'duplicate names are distinct');
-    assert.match(options[1].textContent, /^…mant · Same name/);
-    assert.match(options[2].textContent, /^…ther · Same name/);
+    assert.match(options[1].textContent, /^1 · Same name/);
+    assert.match(options[2].textContent, /^2 · Same name/);
     s.click('[data-key-color-preview]');
     assert.equal(s.query('[data-key-color-apply]').disabled, false);
     copySaved(s, 'dormant');

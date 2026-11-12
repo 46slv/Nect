@@ -887,17 +887,12 @@ export function createKeyColorRecipePanel({
   function savedColorControl() {
     const slots = savedColorCandidates();
     if (!slots.length) return '';
-    // Prefix every choice when there is more than one. Names may contain
-    // whitespace, invisible characters or text imitating another ID prefix;
-    // the stable, unique prefix remains visible even when a name is clipped.
-    const identityLabels =
-      slots.length > 1 ? displayColorLabels(slots.map(({ id }) => ({ id, label: '' }))) : null;
+    // Compact numbers distinguish even long IDs or visually identical names.
+    // They are presentation only; the option value always remains the slot ID.
     const options = slots
-      .map(({ id, name, value }) => {
+      .map(({ id, name, value }, index) => {
         const original = name || id;
-        const visible = identityLabels
-          ? `${identityLabels.get(id).slice(3)} · ${original}`
-          : original;
+        const visible = slots.length > 1 ? `${index + 1} · ${original}` : original;
         return `<option value="${esc(id)}">${esc(visible)} · ${esc(value.hex)} · α ${value.alpha}</option>`;
       })
       .join('');

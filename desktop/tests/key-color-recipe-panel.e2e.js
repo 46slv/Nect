@@ -1718,6 +1718,24 @@ try {
   assert.equal(await field('hex').inputValue(), '#DeAd09');
   await page.screenshot({ path: resolve(output, 'saved-color-copy-narrow.png'), fullPage: true });
   await cancel();
+  const longId = (a, b) => 'W'.repeat(4) + a + 'W'.repeat(61) + b + 'W'.repeat(61);
+  const longIds = [longId('W', 'B'), longId('W', 'W'), longId('C', 'B')];
+  const longIdFixture = blankDocument();
+  longIdFixture.schemaVersion = 58;
+  longIdFixture.colorSlots = longIds.map((id, index) => ({
+    id,
+    name: 'Same name',
+    value: { hex: ['#112233', '#445566', '#778899'][index], alpha: 1 },
+  }));
+  await load(longIdFixture);
+  await open();
+  const idLabels = await savedSelect
+    .locator('option')
+    .evaluateAll((options) => options.slice(1).map(({ label }) => label.slice(0, 8)));
+  assert.equal(new Set(idLabels).size, 3, 'long IDs are distinct at the start of each option');
+  await savedSelect.selectOption(longIds[2]);
+  assert.equal(await field('hex').inputValue(), '#778899', 'selection uses the full stable ID');
+  await cancel();
   await load(fixture);
   await open();
   await page.screenshot({ path: resolve(output, 'hsl-narrow.png'), fullPage: true });
