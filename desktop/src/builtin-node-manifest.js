@@ -27,6 +27,8 @@ import { expandStrokeDeclaration } from './expand-stroke-declaration.js';
 import { evaluateExpandStroke } from './expand-stroke-binding.js';
 import { puckerBloatDeclaration } from './pucker-bloat-declaration.js';
 import { evaluatePuckerBloat } from './pucker-bloat-binding.js';
+import { wavePointsDeclaration } from './wave-points-declaration.js';
+import { evaluateWavePoints } from './wave-points-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -72,4 +74,5 @@ export const builtinManifest = Object.freeze([
     'Text to Path',
   ),
   entry(puckerBloatDeclaration, { evaluate: evaluatePuckerBloat }, 'Wave Points', 'Wave Points'),
+  entry(wavePointsDeclaration, { evaluate: evaluateWavePoints }, 'Reverse Path', 'Twist Points'),
 ]);

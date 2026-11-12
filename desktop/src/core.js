@@ -159,7 +159,6 @@ import { taperGeometry } from './taper-geometry.js';
 import { bendGeometry } from './bend-geometry.js';
 import { twistGeometry } from './twist-geometry.js';
 import { polarSettings, polarTransformGeometry } from './polar-transform.js';
-import { waveGeometry } from './wave-geometry.js';
 import { dashIntervals } from './dash-intervals.js';
 import { smoothGeometry } from './smooth-geometry.js';
 import { roughenGeometry } from './roughen-geometry.js';
@@ -610,13 +609,6 @@ const legacyDefinitions = {
     inverse: p('Boolean', false),
   },
   'Auto Handles': { path: p('Path', null), strength: p('Scalar', 1) },
-  'Wave Points': {
-    path: p('Path', null),
-    amplitude: p('Scalar', 20),
-    wavelength: p('Scalar', 150),
-    phase: p('Scalar', 0),
-    keepEndpoints: p('Boolean', false),
-  },
   'Subdivide Path': { path: p('Path', null), segments: p('Scalar', 2) },
   Roughen: {
     path: p('Path', null),
@@ -922,17 +914,15 @@ export function node(type, x = 40, y = 40) {
           ? 'horizontal'
           : type === 'Line Screen'
             ? 'horizontal'
-            : type === 'Wave Points'
-              ? 'vertical'
-              : type === 'Mirror'
-                ? 'left-right'
-                : type === 'Closed Path Offset'
-                  ? 'miter'
-                  : type === 'Geometry Repeater'
-                    ? 'linear'
-                    : builtinNodeRegistry.get(type)?.declaration.defaultOperation
-                      ? builtinNodeRegistry.get(type).declaration.defaultOperation
-                      : 'subtract',
+            : type === 'Mirror'
+              ? 'left-right'
+              : type === 'Closed Path Offset'
+                ? 'miter'
+                : type === 'Geometry Repeater'
+                  ? 'linear'
+                  : builtinNodeRegistry.get(type)?.declaration.defaultOperation
+                    ? builtinNodeRegistry.get(type).declaration.defaultOperation
+                    : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -1099,7 +1089,6 @@ const bypassInputs = Object.freeze({
   'Twist Points': 'path',
   'Polar Transform': 'path',
   'Auto Handles': 'path',
-  'Wave Points': 'path',
   'Dash Path': 'path',
   'Vector Transform': 'vector',
   'Path Remap': 'path',
@@ -1796,7 +1785,6 @@ export const operationOptions = {
   'Error Diffusion Dither Image': ['square', 'circle', 'polygon', 'star'],
   Taper: ['horizontal', 'vertical'],
   'Bend Points': ['horizontal', 'vertical'],
-  'Wave Points': ['vertical', 'horizontal'],
   Mirror: ['left-right', 'up-down', 'angle'],
   'Closed Path Offset': ['miter', 'bevel', 'round'],
   'Geometry Repeater': ['linear', 'radial-fit', 'radial-step', 'ae-2d'],
@@ -4151,24 +4139,6 @@ export function evaluate(
           n.id,
           null,
           'Canvas character editing is unavailable through Twist Points; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Wave Points') {
-        const source = read('path');
-        result = waveGeometry(source, {
-          amplitude: read('amplitude'),
-          wavelength: read('wavelength'),
-          phase: read('phase'),
-          direction: n.operation,
-          keepEndpoints: read('keepEndpoints'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Wave Points; edit the source Text',
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
