@@ -128,6 +128,7 @@ import {
   createVariableDocumentPreparer as createVariableBridge,
   assertVariableDocumentReady,
   captureVariablePreparationOptions,
+  createVariablePreparationChild,
   validateVariableText,
   VARIABLE_KIND,
 } from './variable-font/document-bridge.js';
@@ -6427,6 +6428,7 @@ export class CommandSession {
   #textDrafts = new Map();
   #gesture = null;
   #prepared = null;
+  #preparing = null;
   #prepareSequence = 0;
   #nodeClipboard = null;
   #nodeClipboardOwner;
@@ -7442,8 +7444,11 @@ export class CommandSession {
       .find((l) => l.id === payload.layerId)
       ?.nodes.find((n) => n.id === payload.nodeId);
     if (target?.locked) throw Error('Text node is locked');
-    const sequence = ++this.#prepareSequence;
+    const previous = this.#prepared,
+      previousRequest = this.#preparing,
+      sequence = ++this.#prepareSequence;
     this.#prepared = null;
+    previous?.child?.unlink();
     const snapshotPaste = type === 'paste-layer-snapshot';
     const entry = {
       document: this.#history.doc,
@@ -7496,9 +7501,22 @@ export class CommandSession {
       : candidate;
     if (snapshotPaste) assertCurrent();
     bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
-    const ticket = await bridge.prepareDocument(input, options);
+    const child = createVariablePreparationChild(options.signal),
+      request = { bridge, child, ticket: null };
+    this.#preparing = request;
     try {
+      previous?.child?.unlink();
+      if (previous && previous.bridge !== bridge)
+        previous.bridge.discardActivation(previous.ticket);
+      previousRequest?.child.unlink();
+      if (previousRequest && previousRequest.bridge !== bridge)
+        previousRequest.child.controller.abort();
       assertLocal();
+      bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+      const ticket = await bridge.prepareDocument(input, { signal: child.controller.signal });
+      request.ticket = ticket;
+      assertLocal();
+      if (this.#preparing !== request) throw Error('STALE_REVISION: document changed');
       if (snapshotPaste) assertCurrent();
       const fonts = { ...this.#fonts(), ...bridge.preparedFonts(ticket) };
       if (snapshotPaste) {
@@ -7526,10 +7544,12 @@ export class CommandSession {
         );
       if (snapshotPaste) assertCurrent();
       const token = Object.freeze({});
+      this.#preparing = null;
       this.#prepared = {
         token,
         ticket,
         bridge,
+        child,
         candidate,
         expectedRevision,
         type,
@@ -7540,11 +7560,10 @@ export class CommandSession {
       };
       return token;
     } catch (error) {
-      // Do not cancel a newer request that replaced this ticket.
-      try {
-        bridge.assertFresh(ticket);
-        bridge.cancel();
-      } catch {}
+      if (this.#preparing === request) this.#preparing = null;
+      child.unlink();
+      child.controller.abort();
+      if (request.ticket) bridge.discardActivation(request.ticket);
       throw error;
     }
   }
@@ -7678,27 +7697,41 @@ export class CommandSession {
       this.#trackProjectContextRoots();
       if (p.type === 'import-svg') this.#nodeClipboard = null;
       this.#prepared = null;
+      p.child.unlink();
       return { ...this.state, ...p.result, changed: revision !== this.#history.revision };
     } catch (error) {
       if (staging) {
         p.bridge.discardActivation(p.ticket);
         if (this.#prepared === p) this.#prepared = null;
+        p.child.unlink();
       }
       throw error;
     }
   }
   cancelPrepared(bridge, token = null) {
-    if (token && this.#prepared?.token !== token) return;
-    this.#prepared = null;
-    this.#prepareSequence++;
-    bridge.cancel();
+    if (token) {
+      if (this.#prepared?.bridge === bridge) this.discardPrepared(token);
+      return;
+    }
+    const prepared = this.#prepared,
+      request = this.#preparing;
+    if (prepared?.bridge === bridge) this.discardPrepared(prepared.token);
+    if (request?.bridge === bridge) {
+      this.#preparing = null;
+      this.#prepareSequence++;
+      request.child.unlink();
+      request.child.controller.abort();
+      if (request.ticket) bridge.discardActivation(request.ticket);
+    }
   }
   discardPrepared(token) {
     const pending = this.#prepared;
     if (!pending || pending.token !== token) return false;
     this.#prepared = null;
     this.#prepareSequence++;
+    pending.child.unlink();
     pending.bridge.discardActivation(pending.ticket);
+    pending.child.controller.abort();
     return true;
   }
   dispatch(command) {

@@ -148,6 +148,52 @@ async function openWithBlockedWorker(fixture) {
   return { bridge, blocked, owner: makeOwner(), anotherOwner: makeOwner() };
 }
 
+async function openWithBlockedEdit(fixture) {
+  const project = deserializeCompositionProject(fixture.json, deserialize);
+  let hold = false,
+    reachedWorker;
+  const blocked = new Promise((resolve) => {
+    reachedWorker = resolve;
+  });
+  const makeBridge = () =>
+    createVariableDocumentPreparer({
+      workerFactory() {
+        const transport = workerFactory(),
+          send = transport.postMessage;
+        transport.postMessage = (data) => {
+          if (hold) {
+            hold = false;
+            reachedWorker();
+          } else send(data);
+        };
+        return transport;
+      },
+    });
+  let bridge = makeBridge();
+  bridge.activate(
+    await bridge.prepareDocument(activeCompositionDocument(project, fixture.secondId)),
+  );
+  const owner = createCompositionSessionOwner(project, {
+    activeCompositionId: fixture.secondId,
+    fonts: () => bridge.fonts(),
+  });
+  const token = await owner.prepareCommand(
+    {
+      ...owner.state,
+      type: 'set-text-content',
+      payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AW' },
+    },
+    bridge,
+  );
+  owner.commitPrepared(token);
+  const current = owner.snapshot();
+  bridge.dispose();
+  bridge = makeBridge();
+  bridge.activate(await bridge.prepareDocument(current));
+  hold = true;
+  return { bridge, blocked, owner };
+}
+
 test('public signal accessors cannot interpose on Worker preparation or Project publication', async () => {
   const fixture = await makeSavedProject();
   const { owner, bridge } = await openSaved(fixture);
@@ -358,6 +404,162 @@ test('canceling an in-flight Composition switch stops only its child preparation
     assert.equal(owner.activeCompositionId, fixture.firstId);
     assert.equal(bridge.stats().pending, false);
   } finally {
+    bridge.dispose();
+  }
+});
+
+for (const kind of ['edit', 'history']) {
+  test(`canceling an in-flight ${kind} stops its Worker without aborting the caller`, async () => {
+    const fixture = await makeSavedProject(),
+      { bridge, blocked, owner } = await openWithBlockedEdit(fixture),
+      parent = createVariablePreparationController(),
+      before = snapshot(owner, bridge);
+    try {
+      const command =
+        kind === 'history'
+          ? { ...owner.state, type: 'undo' }
+          : {
+              ...owner.state,
+              type: 'set-text-content',
+              payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AX' },
+            };
+      const pending = owner.prepareCommand(command, bridge, { signal: parent.signal }),
+        result = pending.then(
+          () => null,
+          (error) => error,
+        );
+      await blocked;
+      owner.cancelPrepared(bridge);
+      assert.match((await result).message, /CANCEL|STALE/);
+      assert.equal(parent.signal.aborted, false);
+      assert.equal(bridge.stats().pending, false);
+      assert.deepEqual(snapshot(owner, bridge), before);
+    } finally {
+      bridge.dispose();
+    }
+  });
+
+  test(`canceling an old ${kind} leaves a newer shared-parent preparation intact`, async () => {
+    const fixture = await makeSavedProject(),
+      { bridge, blocked, owner } = await openWithBlockedEdit(fixture),
+      parent = createVariablePreparationController(),
+      before = snapshot(owner, bridge);
+    try {
+      const command =
+        kind === 'history'
+          ? { ...owner.state, type: 'undo' }
+          : {
+              ...owner.state,
+              type: 'set-text-content',
+              payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AX' },
+            };
+      const old = owner.prepareCommand(command, bridge, { signal: parent.signal }),
+        result = old.then(
+          () => null,
+          (error) => error,
+        );
+      await blocked;
+      const newer = bridge.prepareDocument(owner.snapshot(), { signal: parent.signal });
+      owner.cancelPrepared(bridge);
+      assert.match((await result).message, /CANCEL|STALE/);
+      const ticket = await newer;
+      bridge.activate(ticket);
+      assert.equal(parent.signal.aborted, false);
+      assert.deepEqual(snapshot(owner, bridge), before);
+    } finally {
+      bridge.dispose();
+    }
+  });
+}
+
+test('a rejected replacement does not orphan the in-flight Worker', async () => {
+  const fixture = await makeSavedProject(),
+    { bridge, blocked, owner } = await openWithBlockedEdit(fixture),
+    parent = createVariablePreparationController(),
+    before = snapshot(owner, bridge);
+  try {
+    const old = owner.prepareCommand(
+        {
+          ...owner.state,
+          type: 'set-text-content',
+          payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AX' },
+        },
+        bridge,
+        { signal: parent.signal },
+      ),
+      result = old.then(
+        () => null,
+        (error) => error,
+      );
+    await blocked;
+    await assert.rejects(
+      owner.prepareCommand(
+        {
+          ...owner.state,
+          type: 'set-text-settings',
+          payload: { layerId: fixture.layerB, nodeId: fixture.textB, settings: { invalid: true } },
+        },
+        bridge,
+      ),
+    );
+    owner.cancelPrepared(bridge);
+    assert.match((await result).message, /CANCEL|STALE/);
+    assert.equal(parent.signal.aborted, false);
+    assert.equal(bridge.stats().pending, false);
+    assert.deepEqual(snapshot(owner, bridge), before);
+  } finally {
+    bridge.dispose();
+  }
+});
+
+test('a rejected edit replacement cancels the superseded History Worker', async () => {
+  const fixture = await makeSavedProject(),
+    { bridge, blocked, owner } = await openWithBlockedEdit(fixture),
+    before = snapshot(owner, bridge);
+  try {
+    const old = owner.prepareCommand({ ...owner.state, type: 'undo' }, bridge),
+      result = old.then(
+        () => null,
+        (error) => error,
+      );
+    await blocked;
+    await assert.rejects(
+      owner.prepareCommand(
+        {
+          ...owner.state,
+          type: 'set-text-settings',
+          payload: { layerId: fixture.layerB, nodeId: fixture.textB, settings: { invalid: true } },
+        },
+        bridge,
+      ),
+    );
+    assert.match((await result).message, /CANCEL|STALE/);
+    assert.equal(bridge.stats().pending, false);
+    assert.deepEqual(snapshot(owner, bridge), before);
+  } finally {
+    bridge.dispose();
+  }
+});
+
+test('parent cancellation is checked even if native abort dispatch is intercepted', async () => {
+  const fixture = await makeSavedProject(),
+    { owner, bridge } = await openSaved(fixture),
+    parent = createVariablePreparationController(),
+    prototype = AbortSignal.prototype,
+    original = Object.getOwnPropertyDescriptor(prototype, 'dispatchEvent');
+  try {
+    const before = snapshot(owner, bridge),
+      token = await owner.prepareCompositionSwitch(fixture.secondId, bridge, {
+        signal: parent.signal,
+      });
+    Object.defineProperty(prototype, 'dispatchEvent', { configurable: true, value: () => true });
+    parent.abort();
+    assert.throws(() => owner.commitPreparedCompositionSwitch(token), /STALE|CANCEL/);
+    assert.deepEqual(snapshot(owner, bridge), before);
+    assert.equal(bridge.stats().candidate, null);
+  } finally {
+    if (original) Object.defineProperty(prototype, 'dispatchEvent', original);
+    else delete prototype.dispatchEvent;
     bridge.dispose();
   }
 });

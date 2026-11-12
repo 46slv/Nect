@@ -11,13 +11,18 @@ const NativeAbortController = AbortController,
   nativeRemoveListener = EventTarget.prototype.removeEventListener,
   nativeAbortController = NativeAbortController.prototype.abort;
 
-export function createVariablePreparationController() {
+function preparationAborted(state) {
+  for (let current = state; current; current = current.parent) if (current.aborted) return true;
+  return false;
+}
+
+function makeVariablePreparationController(parent = null) {
   const visible = new NativeAbortController(),
     internal = new NativeAbortController(),
-    state = { aborted: false, internal };
+    state = { aborted: false, internal, parent };
   const privateSignal = internal.signal;
   Object.defineProperties(privateSignal, {
-    aborted: { get: () => state.aborted },
+    aborted: { get: () => preparationAborted(state) },
     addEventListener: {
       value: (...args) => nativeAddListener.call(privateSignal, ...args),
     },
@@ -40,6 +45,10 @@ export function createVariablePreparationController() {
   });
 }
 
+export function createVariablePreparationController() {
+  return makeVariablePreparationController();
+}
+
 function preparationState(signal) {
   if (signal == null) return null;
   const state = preparationSignals.get(signal);
@@ -57,7 +66,7 @@ export function captureVariablePreparationOptions(options = {}) {
   );
   const signal = descriptor?.value,
     state = preparationState(signal);
-  check(!state?.aborted, 'CANCELLED');
+  check(!preparationAborted(state), 'CANCELLED');
   return Object.freeze({ signal });
 }
 
@@ -65,9 +74,9 @@ export function captureVariablePreparationOptions(options = {}) {
 // separate request that happens to share the caller's parent signal.
 export function createVariablePreparationChild(parentSignal) {
   const parent = preparationState(parentSignal),
-    controller = createVariablePreparationController(),
+    controller = makeVariablePreparationController(parent),
     relay = () => controller.abort();
-  if (parent?.aborted) controller.abort();
+  if (preparationAborted(parent)) controller.abort();
   else parent?.internal.signal.addEventListener('abort', relay, { once: true });
   return Object.freeze({
     controller,
@@ -185,7 +194,7 @@ export function createVariableDocumentPreparer({
       const revision = ++generation;
       clearTicket();
       preparer.setRevision(revision);
-      check(!signalState?.aborted, 'CANCELLED');
+      check(!preparationAborted(signalState), 'CANCELLED');
       const doc = cloneDocument(input);
       validate(doc);
       const fonts = resolveFonts(doc);
@@ -199,8 +208,8 @@ export function createVariableDocumentPreparer({
           const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
           const assetId = await preparer.register(bytes);
           check(
-            generation === revision && !signalState?.aborted,
-            signalState?.aborted ? 'CANCELLED' : 'STALE_RESULT',
+            generation === revision && !preparationAborted(signalState),
+            preparationAborted(signalState) ? 'CANCELLED' : 'STALE_RESULT',
           );
           record = { assetId, metadata: fonts[id].nectVariable };
           registered.set(asset.data, record);
@@ -244,7 +253,7 @@ export function createVariableDocumentPreparer({
           for (const id of ids)
             banks.get(id).set(JSON.stringify([request.text, request.axes]), run);
         }
-        check(!signalState?.aborted, 'CANCELLED');
+        check(!preparationAborted(signalState), 'CANCELLED');
         assertVariableDocumentReady(doc, fonts);
         const ticket = Object.freeze({});
         pendingTicket = {
@@ -276,7 +285,7 @@ export function createVariableDocumentPreparer({
         'STALE_RESULT',
       );
       check(
-        !pending.signalState?.aborted &&
+        !preparationAborted(pending.signalState) &&
           !disposed &&
           pendingTicket === pending &&
           pending.revision === generation,
@@ -295,7 +304,7 @@ export function createVariableDocumentPreparer({
         'STALE_RESULT',
       );
       check(
-        !pending.signalState?.aborted &&
+        !preparationAborted(pending.signalState) &&
           !disposed &&
           pendingTicket === pending &&
           pending.revision === generation,

@@ -270,6 +270,7 @@ export class CompositionSessionOwner {
   #historyViewCache = new WeakMap();
   #historyView = null;
   #prepared = null;
+  #preparingHistory = null;
   #preparedCompositionSwitch = null;
   #macroProjectAdmission;
 
@@ -652,6 +653,7 @@ export class CompositionSessionOwner {
         prepared.bridge.discardActivation(prepared.ticket);
         assertCurrent();
         this.#prepared = null;
+        prepared.child.unlink();
       }
       return { ...this.state, changed: false, projectRevision: this.#history.revision };
     }
@@ -695,6 +697,7 @@ export class CompositionSessionOwner {
       prepared.bridge.publishActivation(prepared.ticket);
       preparedFonts.useLive();
       this.#prepared = null;
+      prepared.child.unlink();
     }
     this.#history[direction]();
     this.#activeCompositionId = activeCompositionId;
@@ -882,6 +885,18 @@ export class CompositionSessionOwner {
       command.type === 'paste-layer-snapshot'
         ? resolveLayerClipboardToken(command.payload?.token, this, compositionId)
         : null;
+    const previousHistory = this.#preparingHistory;
+    this.#preparingHistory = null;
+    if (previousHistory) {
+      previousHistory.child.unlink();
+      if (previousHistory.bridge !== bridge) previousHistory.child.controller.abort();
+    }
+    try {
+      assertBeforePrepare();
+    } catch (error) {
+      previousHistory?.child.controller.abort();
+      throw error;
+    }
     if (command.type === 'undo' || command.type === 'redo') {
       const project =
         (command.type === 'undo' ? this.#history.past : this.#history.future).at(-1) ||
@@ -889,38 +904,60 @@ export class CompositionSessionOwner {
       const targetCompositionId = this.#compositionFor(project);
       const document = this.#documentFor(project, targetCompositionId);
       assertBeforePrepare();
-      const ticket = await bridge.prepareDocument(document, options);
-      if (
-        this.#session !== session ||
-        this.#activeCompositionId !== compositionId ||
-        this.#history.revision !== projectRevision
-      ) {
-        bridge.cancel();
-        throw Error('STALE_REVISION: document changed');
+      const child = createVariablePreparationChild(options.signal),
+        request = { bridge, child, ticket: null };
+      this.#preparingHistory = request;
+      try {
+        request.ticket = await bridge.prepareDocument(document, {
+          signal: child.controller.signal,
+        });
+        if (
+          this.#preparingHistory !== request ||
+          this.#session !== session ||
+          this.#activeCompositionId !== compositionId ||
+          this.#history.revision !== projectRevision
+        )
+          throw Error('STALE_REVISION: document changed');
+        bridge.assertFresh(request.ticket);
+        const token = Object.freeze({});
+        this.#preparingHistory = null;
+        this.#prepared?.child?.unlink();
+        this.#prepared = {
+          token,
+          projectRevision,
+          session,
+          compositionId,
+          type: command.type,
+          command,
+          bridge,
+          ticket: request.ticket,
+          child,
+          document,
+        };
+        return token;
+      } catch (error) {
+        if (this.#preparingHistory === request) this.#preparingHistory = null;
+        child.unlink();
+        child.controller.abort();
+        if (request.ticket) bridge.discardActivation(request.ticket);
+        throw error;
       }
-      const token = Object.freeze({});
-      this.#prepared = {
-        token,
-        projectRevision,
-        session,
-        compositionId,
-        type: command.type,
-        command,
-        bridge,
-        ticket,
-        document,
-      };
-      return token;
     }
 
     assertBeforePrepare();
-    const innerToken = await session.prepareCommand(command, bridge, options);
+    let innerToken;
+    try {
+      innerToken = await session.prepareCommand(command, bridge, options);
+    } catch (error) {
+      previousHistory?.child.controller.abort();
+      throw error;
+    }
     if (
       this.#session !== session ||
       this.#activeCompositionId !== compositionId ||
       this.#history.revision !== projectRevision
     ) {
-      session.cancelPrepared(bridge, innerToken);
+      session.discardPrepared?.(innerToken);
       throw Error('STALE_REVISION: document changed');
     }
     try {
@@ -937,10 +974,11 @@ export class CompositionSessionOwner {
       )
         throw Error('STALE_REVISION: document changed');
     } catch (error) {
-      session.cancelPrepared(bridge, innerToken);
+      session.discardPrepared?.(innerToken);
       throw error;
     }
     const token = Object.freeze({});
+    this.#prepared?.child?.unlink();
     this.#prepared = {
       token,
       projectRevision,
@@ -982,8 +1020,11 @@ export class CompositionSessionOwner {
           this.#history.revision !== pending.projectRevision)
       ) {
         if (this.#prepared === pending) this.#prepared = null;
-        if (pending.ticket) pending.bridge.discardActivation(pending.ticket);
-        else pending.session.discardPrepared?.(pending.innerToken);
+        if (pending.ticket) {
+          pending.child.unlink();
+          pending.bridge.discardActivation(pending.ticket);
+          pending.child.controller.abort();
+        } else pending.session.discardPrepared?.(pending.innerToken);
       }
       throw error;
     }
@@ -992,7 +1033,9 @@ export class CompositionSessionOwner {
         return this.#stepHistory(prepared.type, prepared.command, prepared);
       } catch (error) {
         if (this.#prepared === prepared) this.#prepared = null;
+        prepared.child.unlink();
         prepared.bridge.discardActivation(prepared.ticket);
+        prepared.child.controller.abort();
         throw error;
       }
     }
@@ -1066,12 +1109,21 @@ export class CompositionSessionOwner {
   }
 
   cancelPrepared(bridge) {
-    const prepared = this.#prepared;
-    this.#prepared = null;
+    const prepared = this.#prepared,
+      request = this.#preparingHistory;
     if (prepared?.bridge === bridge) {
-      if (prepared.ticket) bridge.cancel();
-      else prepared.session.cancelPrepared(bridge);
-      return;
+      this.#prepared = null;
+      if (prepared.ticket) {
+        prepared.child.unlink();
+        bridge.discardActivation(prepared.ticket);
+        prepared.child.controller.abort();
+      } else prepared.session.discardPrepared?.(prepared.innerToken);
+    }
+    if (request?.bridge === bridge) {
+      this.#preparingHistory = null;
+      request.child.unlink();
+      request.child.controller.abort();
+      if (request.ticket) bridge.discardActivation(request.ticket);
     }
     this.#session.cancelPrepared?.(bridge);
   }

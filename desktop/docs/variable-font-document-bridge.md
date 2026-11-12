@@ -94,6 +94,10 @@ Repeated exact bytes deduplicate; slider changes do not create assets.
 preview. `session.cancelPrepared(bridge)` cancels it. Session/revision checks, active
 edit guards, layer/node locks, downstream bounded-geometry checks and final ready-bank
 checks precede commit. A stale token cannot overwrite a newer synchronous edit.
+Cancellation and stale cleanup affect only that Session's request or ticket, including
+while a Worker is still preparing; they do not cancel a newer request on the bridge or
+abort a caller's shared controller. Parent cancellation remains authoritative at the
+final publication check even if an abort event is not relayed.
 Commit is one history operation; preview does not mutate history. Text draft support,
 when available, must preserve its exact draft version rather than replaying guessed
 selection edits. Do not mutate an active runtime behind the Session's font callback.
