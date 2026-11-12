@@ -61,6 +61,8 @@ import { rectangleDeclaration } from './rectangle-node-declaration.js';
 import { evaluateRectangle } from './rectangle-node-binding.js';
 import { subdividePathDeclaration } from './subdivide-path-declaration.js';
 import { evaluateSubdividePath } from './subdivide-path-binding.js';
+import { trimPathDeclaration } from './trim-path-declaration.js';
+import { evaluateTrimPath } from './trim-path-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -158,4 +160,5 @@ export const builtinManifest = Object.freeze([
     'Pucker & Bloat',
     'Reverse Path',
   ),
+  entry(trimPathDeclaration, { evaluate: evaluateTrimPath }, 'Expand Stroke', 'Simplify Path'),
 ]);

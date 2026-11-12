@@ -134,14 +134,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Trim Path',
-    categoryId: 'path',
-    labelJa: '切り取り',
-    aliases: ['切り取り', 'トリム'],
-    description: '切り取り トリム',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Set Path Start',
     categoryId: 'path',
     labelJa: '始点',
