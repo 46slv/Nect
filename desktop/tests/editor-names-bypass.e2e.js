@@ -1,4 +1,5 @@
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -14,6 +15,46 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } }),
   errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'nect-names-bypass-'));
+async function reloadOutcome() {
+  const outcome = new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timer);
+      page.off('dialog', onDialog);
+      page.off('load', onLoad);
+    };
+    const onDialog = async (dialog) => {
+      try {
+        const type = dialog.type();
+        await dialog.dismiss();
+        cleanup();
+        resolve(type);
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
+    };
+    const onLoad = () => {
+      cleanup();
+      resolve('reloaded');
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(Error('Browser reload produced neither a dialog nor a load'));
+    }, 10000);
+    page.once('dialog', onDialog);
+    page.once('load', onLoad);
+  });
+  await page.evaluate(() => {
+    setTimeout(() => window.location.reload(), 0);
+  });
+  return outcome;
+}
+async function saveBrowserDocument() {
+  const download = page.waitForEvent('download');
+  await activateBoundaryCommand(page, 'save');
+  await download;
+  await page.waitForFunction(() => !window.nect.fileState.dirty);
+}
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
@@ -54,6 +95,67 @@ try {
     redo = () => page.locator('[data-action="redo"]').click();
   const initial = await saved(),
     originalSVG = await svg();
+  await saveBrowserDocument();
+  const restoreSavedFixture = async () => {
+    await page.waitForFunction(() => window.nect);
+    await page.evaluate((json) => window.nect.load(json), initial);
+    await saveBrowserDocument();
+    assert.equal(await saved(), initial);
+  };
+  // Opening the name field alone, or returning to its original value, is not
+  // an edit that needs a browser warning.
+  await title('names-effect').dblclick();
+  assert.equal(await reloadOutcome(), 'reloaded');
+  await restoreSavedFixture();
+  await title('names-effect').dblclick();
+  const originalName = await name().inputValue();
+  await name().fill('Temporary name');
+  await name().fill(originalName);
+  assert.equal(await reloadOutcome(), 'reloaded');
+  await restoreSavedFixture();
+  // An in-progress IME conversion is protected even before its value changes.
+  await title('names-effect').dblclick();
+  await name().evaluate((el) =>
+    el.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })),
+  );
+  assert.equal(await reloadOutcome(), 'beforeunload');
+  assert.equal(await name().inputValue(), originalName);
+  await name().evaluate((el) =>
+    el.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true })),
+  );
+  await name().press('Escape');
+  // A committed change proves the browser's beforeunload warning is active.
+  await title('names-effect').dblclick();
+  await name().fill('Committed before warning');
+  await name().press('Enter');
+  assert.equal(await page.evaluate(() => window.nect.fileState.dirty), true);
+  assert.equal(await reloadOutcome(), 'beforeunload');
+  assert.equal((await get('names-effect')).name, 'Committed before warning');
+  await undo();
+  assert.equal(await saved(), initial);
+  assert.equal(await page.evaluate(() => window.nect.fileState.dirty), false);
+  // An active name exists outside the authored snapshot. A cancelled browser
+  // reload must leave both Node and Layer drafts available for the user.
+  await title('names-effect').dblclick();
+  await name().fill('Uncommitted node name');
+  assert.equal(await page.evaluate(() => window.nect.fileState.dirty), false);
+  assert.equal(await reloadOutcome(), 'beforeunload');
+  assert.equal(await name().inputValue(), 'Uncommitted node name');
+  assert.equal(await saved(), initial);
+  await name().press('Escape');
+  await ensureWorkspacePanel(page, 'layers');
+  await page.locator('[data-select-layer="names-layer"]').dblclick();
+  await name().fill('Uncommitted layer name');
+  assert.equal(await page.evaluate(() => window.nect.fileState.dirty), false);
+  assert.equal(await reloadOutcome(), 'beforeunload');
+  assert.equal(await name().inputValue(), 'Uncommitted layer name');
+  await name().press('Enter');
+  assert.equal(
+    await page.evaluate(() => window.nect.document.layers[0].name),
+    'Uncommitted layer name',
+  );
+  await undo();
+  assert.equal(await saved(), initial);
   // Actual Chromium event sequence, including pointer capture and first-click selection render.
   await title('names-effect').dblclick();
   await name().waitFor();
@@ -238,9 +340,11 @@ try {
       fullPage: true,
     });
   }
+  await saveBrowserDocument();
+  assert.equal(await reloadOutcome(), 'reloaded', 'a clean document reloads without a warning');
   assert.deepEqual(errors, []);
   console.log(
-    'Actual title double-click/F2, IME draft/cancel/blur/no-op/history, graph drag, visibility canvas/SVG/PNG and typed reversible bypass JSON/CLI passed',
+    'Actual title double-click/F2, Node/Layer draft reload warning, IME draft/cancel/blur/no-op/history, graph drag, visibility canvas/SVG/PNG and typed reversible bypass JSON/CLI passed',
   );
 } finally {
   await browser.close();

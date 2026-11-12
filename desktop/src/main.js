@@ -17658,7 +17658,11 @@ void document.fonts?.ready?.then(() => {
   if (canvasFit && !navigationBusy()) fitCanvas();
 });
 window.addEventListener('beforeunload', (e) => {
-  if (!desktop && (documents.hasPendingEdits() || documents.dirty || documents.saving)) {
+  const pendingName = nameEdit && (nameEdit.composing || nameEdit.value !== nameEdit.original);
+  if (
+    !desktop &&
+    (documents.hasPendingEdits() || pendingName || documents.dirty || documents.saving)
+  ) {
     e.preventDefault();
     e.returnValue = '';
   }
