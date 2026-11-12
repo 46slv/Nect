@@ -249,9 +249,7 @@ export {
   layoutGridLines,
   setLayoutGrid,
 } from './guides.js';
-// The full build initializes PaperScript with new Function, which native CSP blocks.
-// Geometry needs only the core build; keep script-src free of unsafe-eval.
-import paper from 'paper/dist/paper-core.js';
+import { fromPaper, getPaperScope, toPaper } from './paper-runtime.js';
 import {
   validateFontAssets,
   resolveFonts,
@@ -263,9 +261,10 @@ import {
 import { layoutText, validateLeading } from './text-layout.js';
 import { validateTextWrap, withWrapExtent } from './text-wrap.js';
 import { validateTextPathAttachment, validateTextPathMode, projectTextPath } from './text-path.js';
-import { offsetClosedPath, OFFSET_EDITOR_LIMITS, OffsetError } from './closed-offset.js';
-import { offsetGroupedClosedPathDetailed } from './grouped-closed-offset.js';
+import { OffsetError } from './closed-offset.js';
+import { closedOffsetSettings } from './closed-offset-node-settings.js';
 export { OFFSET_EDITOR_LIMITS } from './closed-offset.js';
+export { closedOffsetSettings } from './closed-offset-node-settings.js';
 import { fingerprint } from './fingerprint.js';
 import {
   createCharacterPositions,
@@ -298,11 +297,12 @@ export {
   anchorFromOutputDelta,
 } from './transform-affine.js';
 import { identityMatrix, characterTransform, routeCharacters } from './character-geometry.js';
+import { radialSettings } from './radial-geometry.js';
+export { radialSettings } from './radial-geometry.js';
 export * from './character-identity.js';
 export * from './character-geometry.js';
 export * from './transform-handles.js';
-const scope = new paper.PaperScope();
-scope.setup(new scope.Size(1200, 800));
+const scope = getPaperScope();
 export const clone = (x) => structuredClone(x);
 // Font assets are immutable and shared across snapshots; copying large base64 strings
 // for every keystroke would turn a 20 MB font into gigabytes of undo history.
@@ -531,31 +531,10 @@ const legacyDefinitions = {
     softness: p('Scalar', 0.05),
   },
   Mask: { path: p('PaintedPath', null), mask: p('Path', null), invert: p('Boolean', false) },
-  Circle: { center: p('Vector2', [350, 250]), radius: p('Scalar', 120) },
-  Ellipse: { center: p('Vector2', [350, 250]), size: p('Vector2', [240, 160]) },
-  Rectangle: { center: p('Vector2', [460, 250]), size: p('Vector2', [180, 220]) },
-  Polygon: {
-    center: p('Vector2', [350, 250]),
-    sides: p('Scalar', 6),
-    radius: p('Scalar', 120),
-    rotation: p('Scalar', 0),
-  },
-  Star: {
-    center: p('Vector2', [350, 250]),
-    points: p('Scalar', 5),
-    outerRadius: p('Scalar', 120),
-    innerRadius: p('Scalar', 60),
-    rotation: p('Scalar', 0),
-  },
   Curve: { closed: p('Boolean', true) },
   'Multi Path': {},
   Boolean: { a: p('Path', null), b: p('Path', null) },
   'Convert to Path': { path: p('Path', null) },
-  'Closed Path Offset': {
-    path: p('Path', null),
-    amount: p('Scalar', 10),
-    miterLimit: p('Scalar', 4),
-  },
   'Path Remap': { path: p('Path', null), offset: p('Vector2', [0, 0]) },
   Transform: {
     path: p('Path', null),
@@ -578,12 +557,6 @@ const legacyDefinitions = {
   'Set Path Start': {
     path: p('Path', null),
     start: p('Scalar', 0),
-  },
-  'Subdivide Path': { path: p('Path', null), segments: p('Scalar', 2) },
-  'Resample Path': {
-    path: p('Path', null),
-    count: p('Scalar', 32),
-    spacing: p('Scalar', 24),
   },
   'Geometry Repeater': {
     path: p('Path', null),
@@ -734,18 +707,6 @@ for (const type of imageDitherTypes) {
   const shapeType = type.replace(/ Image$/, '');
   definitions[type] = { ...structuredClone(definitions[shapeType]), path: p('Image', null) };
 }
-export function closedOffsetSettings(read) {
-  const amount = read('amount'),
-    miterLimit = read('miterLimit');
-  if (!Number.isFinite(amount) || (amount !== 0 && Math.abs(amount) < 0.0001))
-    throw new OffsetError(
-      'OFFSET_AMOUNT',
-      'Offset amount must be zero or at least 0.0001 px in magnitude',
-    );
-  if (!Number.isFinite(miterLimit) || miterLimit < 1 || miterLimit > 100)
-    throw new OffsetError('OFFSET_OPTIONS', 'Offset miter limit must be between 1 and 100');
-  return { amount, miterLimit };
-}
 export function linearGradientSettings(read) {
   return createLinearGradientFill(
     Object.fromEntries(['start', 'end', 'startColor', 'endColor'].map((key) => [key, read(key)])),
@@ -776,41 +737,6 @@ export function luminanceModifierSettings(read) {
   )
     throw Error('Luminance grid origin components must be finite and within ±100000 px');
   return { pitch, invert, gridOrigin, tonePower };
-}
-// Keep count validation shared by JSON/direct input and resolved expression/socket input.
-export function radialSettings(type, read) {
-  const key = type === 'Polygon' ? 'sides' : 'points',
-    count = read(key);
-  if (!Number.isInteger(count) || count < 3 || count > 256)
-    throw Error(`${type} ${key} must be an integer from 3 to 256`);
-  const outer = read(type === 'Polygon' ? 'radius' : 'outerRadius'),
-    inner = type === 'Star' ? read('innerRadius') : outer;
-  if (![outer, inner].every((v) => Number.isFinite(v) && v > 0 && v <= 100000))
-    throw Error('Radii must be positive and at most 100000 px');
-  if (inner > outer) throw Error('Star innerRadius must not exceed outerRadius');
-  return { count, outer, inner };
-}
-function radialPath(n, read) {
-  const { count, outer, inner } = radialSettings(n.type, read),
-    center = read('center'),
-    rotation = read('rotation') % 360,
-    total = n.type === 'Star' ? count * 2 : count,
-    identity = `${n.id}:${n.type}:${count}`;
-  return {
-    contours: [
-      {
-        id: identity,
-        closed: true,
-        points: Array.from({ length: total }, (_, i) => {
-          const angle = ((rotation - 90 + (i * 360) / total) * Math.PI) / 180,
-            radius = n.type === 'Star' && i % 2 ? inner : outer,
-            position = [center[0] + radius * Math.cos(angle), center[1] + radius * Math.sin(angle)];
-          assertValue('Vector2', position);
-          return { id: `${identity}:${i}`, position, handleA: [0, 0], handleB: [0, 0] };
-        }),
-      },
-    ],
-  };
 }
 export function parseStrokeDash(value) {
   const raw = value.trim();
@@ -863,17 +789,13 @@ export function node(type, x = 40, y = 40) {
     points: type === 'Curve' ? [point(250, 150), point(450, 150), point(350, 350)] : [],
     operation: isDither(type)
       ? 'square'
-      : type === 'Resample Path'
-        ? 'count'
-        : type === 'Line Screen'
-          ? 'horizontal'
-          : type === 'Closed Path Offset'
-            ? 'miter'
-            : type === 'Geometry Repeater'
-              ? 'linear'
-              : builtinNodeRegistry.get(type)?.declaration.defaultOperation
-                ? builtinNodeRegistry.get(type).declaration.defaultOperation
-                : 'subtract',
+      : type === 'Line Screen'
+        ? 'horizontal'
+        : type === 'Geometry Repeater'
+          ? 'linear'
+          : builtinNodeRegistry.get(type)?.declaration.defaultOperation
+            ? builtinNodeRegistry.get(type).declaration.defaultOperation
+            : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -1025,13 +947,10 @@ const bypassInputs = Object.freeze({
   Mask: 'path',
   Boolean: 'a',
   Transform: 'path',
-  'Resample Path': 'path',
   'Trim Path': 'path',
   'Set Path Start': 'path',
-  'Subdivide Path': 'path',
   'Dash Path': 'path',
   'Path Remap': 'path',
-  'Closed Path Offset': 'path',
   'Geometry Repeater': 'path',
   'Instance on Points': 'path',
   'Luminance Instances': 'motif',
@@ -1721,9 +1640,7 @@ export const operationOptions = {
   'Error Diffusion Dither': ['square', 'circle', 'polygon', 'star'],
   'Ordered Dither Image': ['square', 'circle', 'polygon', 'star'],
   'Error Diffusion Dither Image': ['square', 'circle', 'polygon', 'star'],
-  'Closed Path Offset': ['miter', 'bevel', 'round'],
   'Geometry Repeater': ['linear', 'radial-fit', 'radial-step', 'ae-2d'],
-  'Resample Path': ['count', 'spacing'],
   'Line Screen': ['horizontal', 'vertical'],
   Boolean: ['union', 'subtract', 'intersect', 'difference'],
   ...Object.fromEntries(
@@ -1748,11 +1665,6 @@ export function activeParameters(n) {
           : ['path', 'count', 'center', 'startAngle', 'angle']
       ).includes(key),
     );
-  if (n.type === 'Resample Path')
-    return entries.filter(
-      ([key]) => key === 'path' || key === (n.operation === 'spacing' ? 'spacing' : 'count'),
-    );
-
   if (
     isTransform(n) &&
     (!n.params.uniformScale ||
@@ -2569,16 +2481,6 @@ function assertValue(type, value) {
   if (type === 'Vector2' && !isVector2(value)) throw Error('Expected Vector2');
   if (type === 'Boolean' && typeof value !== 'boolean') throw Error('Expected Boolean');
 }
-function toPaper(path) {
-  let compound = new scope.CompoundPath({ insert: false });
-  for (const contour of path.contours) {
-    let child = new scope.Path({ insert: false, closed: contour.closed });
-    for (const pt of contour.points)
-      child.add(new scope.Segment(pt.position, pt.handleA, pt.handleB));
-    compound.addChild(child);
-  }
-  return compound;
-}
 function booleanOperand(path) {
   if (!path.contours.some((c) => c.group !== undefined)) return toPaper(path);
   let result = null;
@@ -2594,21 +2496,6 @@ function booleanOperand(path) {
     result = union;
   }
   return result || toPaper({ contours: [] });
-}
-function fromPaper(item, prefix) {
-  let children = item.children || [item];
-  return {
-    contours: children.map((c, ci) => ({
-      id: `${prefix}:c${ci}`,
-      closed: c.closed,
-      points: c.segments.map((s, si) => ({
-        id: `${prefix}:c${ci}:p${si}`,
-        position: [s.point.x, s.point.y],
-        handleA: [s.handleIn.x, s.handleIn.y],
-        handleB: [s.handleOut.x, s.handleOut.y],
-      })),
-    })),
-  };
 }
 
 // Paper's getTimeAt() uses an absolute 1e-12 length tolerance. Normalize very
@@ -2958,144 +2845,6 @@ function setPathStartGeometry(source, { start, prefix }) {
     });
     if (contours.reduce((sum, contour) => sum + contour.points.length, 0) > 100000)
       throw Error('Set Path Start exceeds geometry budget');
-    return { ...source, contours };
-  } finally {
-    item.remove();
-  }
-}
-
-function subdividePathGeometry(source, { segments, prefix }) {
-  if (!source || !Array.isArray(source.contours)) throw Error('Connect a Path input');
-  if (!Number.isInteger(segments) || segments < 1 || segments > 32)
-    throw Error('Subdivide segments must be an integer from 1 to 32');
-  if (typeof prefix !== 'string' || !prefix)
-    throw Error('Subdivide Path needs a nonempty ID prefix');
-  if (source.contours.length > 10000) throw Error('Subdivide Path exceeds geometry budget');
-
-  let inputPoints = 0,
-    outputPoints = 0;
-  for (const contour of source.contours) {
-    if (!Array.isArray(contour?.points) || typeof contour.closed !== 'boolean')
-      throw Error('Subdivide Path needs valid contours');
-    inputPoints += contour.points.length;
-    if (inputPoints > 100000) throw Error('Subdivide Path exceeds geometry budget');
-    const count = contour.points.length;
-    outputPoints +=
-      count === 0 ? 0 : contour.closed ? count * segments : 1 + (count - 1) * segments;
-    if (outputPoints > 100000) throw Error('Subdivide Path exceeds geometry budget');
-    for (const point of contour.points) {
-      if (
-        !point ||
-        !Array.isArray(point.position) ||
-        !Array.isArray(point.handleA) ||
-        !Array.isArray(point.handleB)
-      )
-        throw Error('Subdivide Path needs valid points');
-      assertValue('Vector2', point.position);
-      assertValue('Vector2', point.handleA);
-      assertValue('Vector2', point.handleB);
-    }
-  }
-
-  const copy = () => ({
-    ...source,
-    contours: source.contours.map((contour, contourIndex) => ({
-      ...contour,
-      id: `${prefix}:c${contourIndex}`,
-      points: contour.points.map((point, pointIndex) => ({
-        ...point,
-        id: `${prefix}:c${contourIndex}:p${pointIndex}`,
-        position: [...point.position],
-        handleA: [...point.handleA],
-        handleB: [...point.handleB],
-      })),
-    })),
-  });
-  if (segments === 1) return copy();
-
-  const item = toPaper(source);
-  try {
-    const contours = source.contours.map((contour, contourIndex) => {
-      const sourceCount = contour.points.length,
-        path = item.children[contourIndex],
-        edgeCount = contour.closed ? sourceCount : Math.max(0, sourceCount - 1);
-      if (edgeCount === 0) {
-        const points = contour.points.map((point, pointIndex) => ({
-          ...point,
-          id: `${prefix}:c${contourIndex}:p${pointIndex}`,
-          position: [...point.position],
-          handleA: [...point.handleA],
-          handleB: [...point.handleB],
-        }));
-        return { ...contour, id: `${prefix}:c${contourIndex}`, points };
-      }
-      if (path.curves.length !== edgeCount)
-        throw Error('Subdivide Path could not resolve curve edges');
-      const points = [];
-      for (let edgeIndex = 0; edgeIndex < edgeCount; edgeIndex++) {
-        const curve = path.curves[edgeIndex],
-          sourceStart = contour.points[edgeIndex],
-          sourceEnd = contour.points[(edgeIndex + 1) % sourceCount],
-          keepLineHandles =
-            sourceStart.handleB[0] === 0 &&
-            sourceStart.handleB[1] === 0 &&
-            sourceEnd.handleA[0] === 0 &&
-            sourceEnd.handleA[1] === 0;
-        for (let partIndex = 0; partIndex < segments; partIndex++) {
-          const values = curve.getPart(partIndex / segments, (partIndex + 1) / segments).values;
-          if (!Array.isArray(values) || values.length !== 8 || !values.every(Number.isFinite))
-            throw Error('Subdivide Path exceeds finite coordinates');
-          const start = [values[0], values[1]],
-            control1 = [values[2], values[3]],
-            control2 = [values[4], values[5]],
-            end = [values[6], values[7]],
-            startHandle = keepLineHandles
-              ? [0, 0]
-              : [control1[0] - start[0], control1[1] - start[1]],
-            endHandle = keepLineHandles ? [0, 0] : [control2[0] - end[0], control2[1] - end[1]];
-          let startPoint;
-          if (points.length === 0) {
-            startPoint = {
-              ...sourceStart,
-              id: `${prefix}:c${contourIndex}:p0`,
-              position: start,
-              handleA: [...sourceStart.handleA],
-              handleB: startHandle,
-            };
-            points.push(startPoint);
-          } else {
-            startPoint = points[points.length - 1];
-            startPoint.handleB = startHandle;
-          }
-
-          const isClosedSeam =
-            contour.closed && edgeIndex === edgeCount - 1 && partIndex === segments - 1;
-          if (isClosedSeam) {
-            points[0].handleA = endHandle;
-          } else {
-            const pointIndex = points.length;
-            points.push({
-              ...(partIndex === segments - 1 ? sourceEnd : {}),
-              id: `${prefix}:c${contourIndex}:p${pointIndex}`,
-              position: end,
-              handleA: endHandle,
-              handleB:
-                !contour.closed && edgeIndex === edgeCount - 1 && partIndex === segments - 1
-                  ? [...sourceEnd.handleB]
-                  : [0, 0],
-            });
-          }
-        }
-      }
-      for (const point of points) {
-        assertValue('Vector2', point.position);
-        assertValue('Vector2', point.handleA);
-        assertValue('Vector2', point.handleB);
-      }
-      return { ...contour, id: `${prefix}:c${contourIndex}`, points };
-    });
-    if (contours.reduce((sum, contour) => sum + contour.points.length, 0) !== outputPoints)
-      throw Error('Subdivide Path exceeded its geometry estimate');
     return { ...source, contours };
   } finally {
     item.remove();
@@ -3723,31 +3472,6 @@ export function evaluate(
             });
         result = registered.evaluate(n.operation, read, context);
         assertValue(registered.interface(n.operation, shape).resultType, result);
-      } else if (n.type === 'Polygon' || n.type === 'Star') {
-        result = radialPath(n, read);
-      } else if (n.type === 'Circle' || n.type === 'Ellipse' || n.type === 'Rectangle') {
-        const center = read('center');
-        let item;
-        if (n.type === 'Circle')
-          item = new scope.Path.Circle({
-            center,
-            radius: Math.max(0, read('radius')),
-            insert: false,
-          });
-        else {
-          let size = read('size').map(Math.abs),
-            rectangle = new scope.Rectangle(
-              center[0] - size[0] / 2,
-              center[1] - size[1] / 2,
-              ...size,
-            );
-          item =
-            n.type === 'Ellipse'
-              ? new scope.Path.Ellipse({ rectangle, insert: false })
-              : new scope.Path.Rectangle({ rectangle, insert: false });
-        }
-        result = fromPaper(item, n.id);
-        item.remove();
       } else if (n.type === 'Image') {
         if (!Object.hasOwn(imageAssets, n.asset)) throw Error('Missing image asset');
         const size = read('size');
@@ -3996,110 +3720,6 @@ export function evaluate(
           n.id,
           null,
           'Canvas character editing is unavailable through Set Path Start; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Subdivide Path') {
-        const source = read('path');
-        result = subdividePathGeometry(source, {
-          segments: read('segments'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Subdivide Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Resample Path') {
-        const source = read('path');
-        if (!source) throw Error('Connect a Path input');
-        if (!operationOptions['Resample Path'].includes(n.operation))
-          throw Error('Invalid Resample operation');
-        const count = n.operation === 'count' ? read('count') : null,
-          spacing = n.operation === 'spacing' ? read('spacing') : null,
-          sourcePoints = source.contours.reduce((sum, c) => sum + c.points.length, 0);
-        if (n.operation === 'count') {
-          if (!Number.isInteger(count) || count < 2 || count > 1024)
-            throw Error('Resample count must be an integer from 2 to 1024');
-          if (count < 3 && source.contours.some((c) => c.closed))
-            throw Error('Closed contours require at least 3 samples');
-        } else if (!Number.isFinite(spacing) || spacing < 0.0001 || spacing > 100000)
-          throw Error('Resample spacing must be from 0.0001 to 100000 px');
-        if (
-          source.contours.length > 10000 ||
-          sourcePoints > 100000 ||
-          (n.operation === 'count' &&
-            (source.contours.length * count > 100000 || sourcePoints * count > 2000000))
-        )
-          throw Error('Resample exceeds geometry budget');
-        const item = toPaper(source),
-          prefix = fingerprint(n.id);
-        try {
-          const plans = source.contours.map((c, ci) => {
-            const path = item.children[ci],
-              length = path.length;
-            if (!Number.isFinite(length)) throw Error('Resample exceeds finite path length');
-            const samples =
-              n.operation === 'count'
-                ? count
-                : c.points.length === 0
-                  ? 0
-                  : c.closed
-                    ? Math.max(3, Math.ceil(length / spacing))
-                    : Math.max(2, Math.ceil(length / spacing) + 1);
-            if (
-              c.points.length > 0 &&
-              (!Number.isInteger(samples) || samples < (c.closed ? 3 : 2) || samples > 1024)
-            )
-              throw Error('Resample spacing requires more than 1024 samples for a contour');
-            return { path, length, samples };
-          });
-          const outputPoints = plans.reduce((sum, plan) => sum + plan.samples, 0),
-            work = plans.reduce(
-              (sum, plan, index) => sum + source.contours[index].points.length * plan.samples,
-              0,
-            );
-          if (outputPoints > 100000 || work > 2000000)
-            throw Error('Resample exceeds geometry budget');
-          result = {
-            contours: source.contours.map((c, ci) => {
-              const { path, length, samples } = plans[ci];
-              return {
-                id: `${prefix}:c${ci}`,
-                closed: c.closed,
-                ...(c.group !== undefined ? { group: c.group } : {}),
-                points: c.points.length
-                  ? Array.from({ length: samples }, (_, pi) => {
-                      const distance = length * (pi / (c.closed ? samples : samples - 1));
-                      const sampled = path.getPointAt(distance);
-                      const position = sampled
-                        ? [sampled.x, sampled.y]
-                        : length === 0
-                          ? [...c.points[0].position]
-                          : null;
-                      assertValue('Vector2', position);
-                      return {
-                        id: `${prefix}:c${ci}:p${pi}`,
-                        position,
-                        handleA: [0, 0],
-                        handleB: [0, 0],
-                      };
-                    })
-                  : [],
-              };
-            }),
-          };
-        } finally {
-          item.remove();
-        }
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Resample Path; edit the source Text',
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
@@ -4475,35 +4095,6 @@ export function evaluate(
             signature(result),
             result.contours.map((contour) => [contour.id, contour.points.map((point) => point.id)]),
           ]);
-        }
-      } else if (n.type === 'Closed Path Offset') {
-        const source = read('path');
-        if (!source) throw Error('Connect a Path input');
-        const { amount, miterLimit } = closedOffsetSettings(read);
-        if (!operationOptions[n.type].includes(n.operation))
-          throw new OffsetError('OFFSET_OPTIONS', 'Invalid Offset join');
-        if (amount === 0) result = source;
-        else {
-          const options = { join: n.operation, miterLimit, prefix: n.id };
-          result = source.contours.some((contour) => contour.group !== undefined)
-            ? offsetGroupedClosedPathDetailed(source, amount, options, OFFSET_EDITOR_LIMITS).path
-            : offsetClosedPath(source, amount, options, OFFSET_EDITOR_LIMITS);
-          result.unstable = true;
-          setEvaluationFingerprint(result, (currentEra) => [
-            provenance(n.id, undefined, currentEra),
-            amount,
-            n.operation,
-            miterLimit,
-            evaluatedFingerprint(source, currentEra),
-            source.contours,
-            signature(result),
-          ]);
-          result.characterOccurrences = routeCharacters(
-            source,
-            n.id,
-            null,
-            'Canvas character editing is unavailable through Closed Path Offset',
-          );
         }
       } else if (n.type === 'Imported Path') {
         result = parsePath(n.rawPath, n.id);
