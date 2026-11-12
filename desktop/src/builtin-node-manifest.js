@@ -43,6 +43,8 @@ import { smoothPathDeclaration } from './smooth-path-declaration.js';
 import { evaluateSmoothPath } from './smooth-path-binding.js';
 import { roughenDeclaration } from './roughen-node-declaration.js';
 import { evaluateRoughen } from './roughen-node-binding.js';
+import { mirrorDeclaration } from './mirror-node-declaration.js';
+import { evaluateMirror } from './mirror-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -111,4 +113,5 @@ export const builtinManifest = Object.freeze([
     'Corner Round',
   ),
   entry(roughenDeclaration, { evaluate: evaluateRoughen }, 'Subdivide Path', 'Pucker & Bloat'),
+  entry(mirrorDeclaration, { evaluate: evaluateMirror }, 'Corner Round', 'Path Remap'),
 ]);
