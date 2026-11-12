@@ -509,6 +509,39 @@ test('prepared History captures its command before caller mutation and never inv
       'AW',
     );
 
+    const payloadGetter = { ...owner.state, type: 'set-text-content' };
+    Object.defineProperty(payloadGetter, 'payload', {
+      enumerable: true,
+      get() {
+        called++;
+        payloadGetter.type = 'undo';
+        controller.abort();
+        return {};
+      },
+    });
+    await assert.rejects(owner.prepareCommand(payloadGetter, bridge), /prepared command payload/i);
+    assert.equal(called, 0);
+    assert.equal(controller.signal.aborted, false);
+
+    const nested = {
+      ...owner.state,
+      type: 'set-text-content',
+      payload: { nodeId: fixture.textB, text: 'AX' },
+    };
+    Object.defineProperty(nested.payload, 'layerId', {
+      enumerable: true,
+      get() {
+        nested.type = 'undo';
+        return fixture.layerB;
+      },
+    });
+    owner.commitPrepared(await owner.prepareCommand(nested, bridge));
+    assert.equal(nested.type, 'undo');
+    assert.equal(
+      owner.snapshot().layers[0].nodes.find((item) => item.id === fixture.textB).text,
+      'AX',
+    );
+
     const invalid = { ...owner.state, type: 'undo' };
     Object.defineProperty(invalid, 'expectedRevision', {
       enumerable: true,
@@ -517,7 +550,7 @@ test('prepared History captures its command before caller mutation and never inv
         return 0;
       },
     });
-    await assert.rejects(owner.prepareCommand(invalid, bridge), /prepared History command/i);
+    await assert.rejects(owner.prepareCommand(invalid, bridge), /prepared command envelope/i);
     assert.equal(called, 0);
 
     const inherited = Object.assign(
