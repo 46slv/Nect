@@ -361,6 +361,12 @@ try {
   await page.mouse.up();
   assert.equal(Number(await width.inputValue()), scrubbedWidth, 'Escape cancels the active scrub');
   assert.equal(await sizeDialog.isVisible(), true);
+  await page.mouse.move(widthBox.x + 15, widthBox.y + widthBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(widthBox.x + 45, widthBox.y + widthBox.height / 2, { steps: 4 });
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await page.mouse.up();
+  assert.equal(Number(await width.inputValue()), scrubbedWidth, 'window blur cancels the scrub');
   await sizeDialog.locator('[data-cancel]').click();
   assert.equal(await projectSnapshot(), beforeSize);
   await activateCommand(page, 'new');

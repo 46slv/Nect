@@ -134,6 +134,7 @@ export function chooseNewProjectSize({ width, height, isCurrent }) {
   document.addEventListener('pointermove', onMove);
   document.addEventListener('pointerup', onEnd);
   document.addEventListener('pointercancel', onEnd);
+  window.addEventListener('blur', cancelScrub);
   update();
 
   return new Promise((resolve, reject) => {
@@ -145,6 +146,7 @@ export function chooseNewProjectSize({ width, height, isCurrent }) {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onEnd);
       document.removeEventListener('pointercancel', onEnd);
+      window.removeEventListener('blur', cancelScrub);
       dialog.remove();
       if (!result && isCurrent() && previousFocus?.isConnected)
         previousFocus.focus({ preventScroll: true });
