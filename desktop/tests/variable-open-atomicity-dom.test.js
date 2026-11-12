@@ -292,6 +292,11 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
       document.fontAssets = { [asset.id]: asset.asset };
       document.layers[0].nodes.push(text);
       document.layers[0].nodes[0].params.path.source = text.id;
+      const rectangle = node('Rectangle'),
+        fill = node('Fill');
+      fill.params.path.source = rectangle.id;
+      other.nodes.push(rectangle, fill);
+      other.nodes[0].params.path.source = fill.id;
       document.layers.push(other);
       const project = migrateLegacyDocumentToCompositionProject(document),
         second = migrateLegacyDocumentToCompositionProject(next).compositions[0];
@@ -325,11 +330,15 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
       const beforePaste = JSON.stringify(win.nect.projectSnapshot());
       shortcut(document.layers[0].id, 'v');
       await waitFor(() => !win.variableBusyForTest() && win.nect.document.layers.length === 3);
-      const afterPaste = JSON.stringify(win.nect.projectSnapshot());
+      const afterPaste = JSON.stringify(win.nect.projectSnapshot()),
+        pastedId = win.nect.document.layers[1].id;
       let gate = gateNextPreparation();
       click('[data-action="undo"]');
       await gate.ready;
-      click(`[data-select-layer="${other.id}"]`);
+      root
+        .querySelector(`[data-select-layer="${other.id}"]`)
+        .dispatchEvent(new win.MouseEvent('click', { bubbles: true, shiftKey: true }));
+      assert.deepEqual(win.openStateForTest().artworkSelection, [pastedId, other.id]);
       assert.equal(win.openStateForTest().activeLayer, other.id);
       gate.release();
       await waitFor(
@@ -337,6 +346,11 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
           !win.variableBusyForTest() && JSON.stringify(win.nect.projectSnapshot()) === beforePaste,
       );
       assert.equal(win.openStateForTest().activeLayer, other.id, 'newer selection survives Undo');
+      assert.deepEqual(
+        win.openStateForTest().artworkSelection,
+        [other.id],
+        'removed Layer is pruned',
+      );
 
       gate = gateNextPreparation();
       click('[data-action="redo"]');
@@ -353,6 +367,23 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
       gate = gateNextPreparation();
       click('[data-action="undo"]');
       await gate.ready;
+      click(`[data-select-layer="${other.id}"]`);
+      root
+        .querySelector(`[data-select-layer="${pastedId}"]`)
+        .dispatchEvent(new win.MouseEvent('click', { bubbles: true, shiftKey: true }));
+      assert.deepEqual(win.openStateForTest().artworkSelection, [other.id, pastedId]);
+      assert.equal(win.openStateForTest().activeLayer, pastedId);
+      gate.release();
+      await waitFor(
+        () =>
+          !win.variableBusyForTest() && JSON.stringify(win.nect.projectSnapshot()) === beforePaste,
+      );
+      assert.equal(win.openStateForTest().activeLayer, other.id, 'surviving Layer becomes active');
+      assert.deepEqual(win.openStateForTest().artworkSelection, [other.id]);
+
+      gate = gateNextPreparation();
+      click('[data-action="undo"]');
+      await gate.ready;
       const replacement = migrateLegacyDocumentToCompositionProject(blankDocument());
       await win.openForTest(replacement);
       const replaced = JSON.stringify(win.nect.projectSnapshot());
@@ -364,6 +395,121 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
         'old preparation cannot change the replacement',
       );
       assert.equal(win.variableBusyForTest(), false);
+
+      // A newly selected Graph node can disappear during Undo while another
+      // selected node survives; keep the survivor as the primary selection.
+      await win.openForTest(project);
+      const created = win.nect.dispatch({
+        ...win.nect.commandState,
+        type: 'create-node',
+        payload: { layerId: document.layers[0].id, nodeType: 'Value', position: [40, 40] },
+      });
+      const selectNode = (id, shiftKey = false) => {
+        const head = root.querySelector(`.node[data-id="${id}"] .node-head`);
+        assert.ok(head, id);
+        head.dispatchEvent(
+          new win.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 8, shiftKey }),
+        );
+        root.dispatchEvent(
+          new win.PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 8 }),
+        );
+      };
+      selectNode(text.id);
+      gate = gateNextPreparation();
+      click('[data-action="undo"]');
+      await gate.ready;
+      selectNode(created.nodeId, true);
+      assert.deepEqual(win.openStateForTest().selection, [text.id, created.nodeId]);
+      assert.equal(win.openStateForTest().selected, created.nodeId);
+      gate.release();
+      await waitFor(
+        () =>
+          !win.variableBusyForTest() &&
+          !win.nect.document.layers[0].nodes.some((item) => item.id === created.nodeId),
+      );
+      assert.deepEqual(win.openStateForTest().selection, [text.id]);
+      assert.equal(win.openStateForTest().selected, text.id);
+    },
+  );
+
+  await t.test(
+    'cancelled snapshot preparation refreshes controls without discarding a newer name draft',
+    async () => {
+      const doc = blankDocument(),
+        text = node('Text'),
+        other = blankDocument().layers[0],
+        rectangle = node('Rectangle'),
+        fill = node('Fill');
+      Object.assign(text, {
+        font: asset.id,
+        text: 'AV',
+        variation: { version: 1, fontId: asset.id, axes: {} },
+      });
+      doc.fontAssets = { [asset.id]: asset.asset };
+      doc.layers[0].nodes.push(text);
+      doc.layers[0].nodes[0].params.path.source = text.id;
+      fill.params.path.source = rectangle.id;
+      other.nodes.push(rectangle, fill);
+      other.nodes[0].params.path.source = fill.id;
+      doc.layers.push(other);
+      await win.openForTest(migrateLegacyDocumentToCompositionProject(doc));
+      const { folderId } = win.nect.dispatch({
+        ...win.nect.commandState,
+        type: 'create-layer-folder',
+        payload: { name: 'Target', layerIds: [] },
+      });
+      const root = win.document,
+        waitFor = async (predicate) => {
+          const deadline = Date.now() + 15000;
+          while (!predicate()) {
+            if (Date.now() >= deadline) throw Error('Variable-font test timed out');
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+        },
+        row = (id) => root.querySelector(`[data-select-layer="${id}"]`),
+        shortcut = (id, key) => {
+          row(id).focus();
+          row(id).dispatchEvent(
+            new win.KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true }),
+          );
+        };
+      openDOMPanel(root, 'layers');
+      shortcut(doc.layers[0].id, 'c');
+      assert.ok(await win.editForTest('set-text-content', { nodeId: text.id, text: 'AWZ' }));
+      const before = JSON.stringify(win.nect.projectSnapshot());
+      let gate = gateNextPreparation();
+      shortcut(doc.layers[0].id, 'v');
+      await gate.ready;
+      row(other.id).click();
+      assert.equal(root.querySelector(`[data-folder-add="${folderId}"]`).disabled, true);
+      gate.release();
+      await waitFor(() => !win.variableBusyForTest());
+      assert.match(
+        root.querySelector('.status .message').textContent,
+        /selection changed.*cancelled/i,
+      );
+      assert.equal(root.querySelector(`[data-folder-add="${folderId}"]`).disabled, false);
+      assert.equal(JSON.stringify(win.nect.projectSnapshot()), before);
+
+      row(doc.layers[0].id).click();
+      gate = gateNextPreparation();
+      shortcut(doc.layers[0].id, 'v');
+      await gate.ready;
+      row(other.id).click();
+      row(other.id).focus();
+      row(other.id).dispatchEvent(new win.KeyboardEvent('keydown', { key: 'F2', bubbles: true }));
+      const name = root.querySelector('[data-rename-name]');
+      assert.ok(name);
+      name.value = 'Uncommitted name';
+      name.dispatchEvent(new win.Event('input', { bubbles: true }));
+      gate.release();
+      await waitFor(() => !win.variableBusyForTest());
+      assert.equal(root.querySelector('[data-rename-name]'), name);
+      assert.equal(name.value, 'Uncommitted name');
+      assert.equal(JSON.stringify(win.nect.projectSnapshot()), before);
+      name.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await waitFor(() => !root.querySelector('[data-rename-name]'));
+      assert.equal(root.querySelector(`[data-folder-add="${folderId}"]`).disabled, false);
     },
   );
 

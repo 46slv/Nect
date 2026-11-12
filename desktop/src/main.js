@@ -1321,6 +1321,15 @@ async function preparedChange(
     if (variableAction !== action || session !== action.owner) return null;
     if (!isCurrent()) {
       cancelVariableAction();
+      notify('Document or selection changed; operation cancelled', true);
+      if (
+        documents.hasDraft() ||
+        editingControl(document.activeElement) ||
+        sharedColors.editing ||
+        numericInputDrafts.has(document.activeElement)
+      )
+        needsRender = true;
+      else render();
       return null;
     }
     if (preview) {
@@ -1712,6 +1721,37 @@ function restoreHistorySelection(state) {
     for (const [id, batch] of structuredClone(state.remapBatches)) remapBatches.set(id, batch);
   }
 }
+function restoreSurvivingHistorySelection(state) {
+  const layerIds = new Set(history.doc.layers.map((layer) => layer.id)),
+    artworkIds = [...state.artworkSelection].filter((id) => layerIds.has(id)),
+    artworkTarget = artworkIds.includes(state.artworkTarget)
+      ? state.artworkTarget
+      : artworkIds.at(-1) || null,
+    active =
+      artworkTarget ||
+      (layerIds.has(state.activeLayer) ? state.activeLayer : history.doc.layers[0].id),
+    layer = history.doc.layers.find((item) => item.id === active),
+    nodeIds = new Set(layer.nodes.map((item) => item.id)),
+    selectedIds = [...state.selection].filter((id) => nodeIds.has(id)),
+    selected = selectedIds.includes(state.selected) ? state.selected : selectedIds.at(-1) || null,
+    sameEditTarget = active === state.activeLayer && selected === state.selected;
+  restoreHistorySelection({
+    ...state,
+    activeLayer: active,
+    artworkTarget,
+    artworkSelection: new Set(artworkIds),
+    selected: artworkTarget ? null : selected,
+    selection: new Set(artworkTarget ? [] : selectedIds),
+    ...(sameEditTarget
+      ? {}
+      : {
+          characterEdit: null,
+          pointSelection: { nodeId: null, ids: new Set() },
+          pointFocus: null,
+          remapBatches: new Map(),
+        }),
+  });
+}
 function stepHistory(redo = false) {
   if (osTextDrafts.size) {
     notify('Apply or cancel the OS Text edit before Undo/Redo', true);
@@ -1741,10 +1781,12 @@ function stepHistory(redo = false) {
     // selection is not overwritten when the History step completes.
     if (viewNeutral) restoreHistorySelection(priorUI);
     const pendingSelection = selectionSignature(selectionSnapshot(true));
-    let restoreRecordedSelection = false;
+    let restoreRecordedSelection = false,
+      latestSelection = null;
     const capturePendingDeletion = () => {
+      latestSelection = selectionSnapshot(true);
       restoreRecordedSelection =
-        !viewNeutral && selectionSignature(selectionSnapshot(true)) === pendingSelection;
+        !viewNeutral && selectionSignature(latestSelection) === pendingSelection;
       if (deleted && entryToken === deleted.before && history.entryToken === entryToken) {
         saveCompositionViewState();
         deleted.view = compositionViewStates.snapshot(deleted.compositionId) || deleted.view;
@@ -1767,6 +1809,8 @@ function stepHistory(redo = false) {
         } else {
           const state = restoreRecordedSelection && selectionHistory.get(history.doc);
           if (state) restoreHistorySelection(state);
+          else if (!viewNeutral && latestSelection)
+            restoreSurvivingHistorySelection(latestSelection);
           if (!history.doc.layers.some((layer) => layer.id === activeLayer)) {
             activeLayer = history.doc.layers[0].id;
             selected = null;
