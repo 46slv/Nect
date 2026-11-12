@@ -132,8 +132,8 @@ centers, angular rotation/direction/nonuniform positions, circular
 distance and pad, transparent/unequal alpha, clipped and antialiased geometry,
 equal/missing IDs and overlap/stroke order. Grouped angular Join and Repeater
 fixtures also compare each stop's per-pixel mass and alpha with independently
-recolored production SVG, including holes, AA and single-group parity. Their
-independent oracle uses analytical ramps and forward source-over, with 16×16 polygon-edge integration
+recolored production SVG, including holes, AA and single-group parity. Ungrouped
+fixtures use analytical ramps and forward source-over, with 16×16 polygon-edge integration
 for the radial/angular AA fixtures, and explicit midpoint-wedge premultiplied
 alpha weights for angular paints; it does not use the production mask or coverage reducer.
 For the fixed opaque-center angular fixture, an independently constructed ordered
@@ -141,5 +141,8 @@ For the fixed opaque-center angular fixture, an independently constructed ordere
 the ideal-angle oracle remains strict on the interior excluding only its 28
 positive-ray/center pixels. Whole-fixture totals and explicit seam/center probes
 use the independent primitive reference, without widening tolerances.
+`color-coverage-opacity.e2e.js` compares solid Repeater group contribution masks
+and rendered pixels against a separately decoded production SVG, including
+translucent background, holes, antialiasing, ordering and save/reload.
 Configured assertions are not a passed browser run: results must be checked for
 the exact published commit. Native WebView2 acceptance remains separate.

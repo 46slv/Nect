@@ -57,11 +57,46 @@ try {
           rasterizeCoverageAlpha,
         ),
         reference = await pixels(exportSVG(doc));
+      const buffers = await Promise.all(
+        passes.map((pass) => rasterizeCoverageAlpha(pass.svg, { width: 64, height: 48 })),
+      );
+      const redScene = scene.find((entry) => entry.paintProvenance?.fill === 'red');
+      const expectedGroups = new Map();
+      for (const contour of redScene.value.contours)
+        if (!expectedGroups.has(contour.group))
+          expectedGroups.set(contour.group, contour.repeaterOpacity ?? 1);
+      const redPasses = passes
+        .map((pass, index) => ({ pass, index }))
+        .filter(({ pass }) => pass.slotId === 'red');
+      const passOrder = redPasses.map(({ pass }) =>
+        Number(pass.svg.match(/<g opacity="([^"]+)"/)?.[1] ?? 1),
+      );
       const mass = [0, 0];
+      let maxPixelError = 0,
+        edgePixels = 0;
       for (let i = 0; i < reference.length; i += 4) {
         const alpha = reference[i + 3] / 255;
         mass[0] += (reference[i] / 255) * alpha;
         mass[1] += (reference[i + 2] / 255) * alpha;
+        const contribution = [0, 0];
+        let remaining = 1;
+        for (let pass = passes.length - 1; pass >= 0; pass--) {
+          const current = buffers[pass][i / 4];
+          contribution[passes[pass].slotId === 'red' ? 0 : 1] += remaining * current;
+          remaining *= 1 - current;
+        }
+        maxPixelError = Math.max(
+          maxPixelError,
+          Math.abs(contribution[0] - (reference[i] / 255) * alpha),
+          Math.abs(contribution[1] - (reference[i + 2] / 255) * alpha),
+        );
+        if (
+          redPasses.some(
+            ({ index }, j) =>
+              buffers[index][i / 4] > 0 && buffers[index][i / 4] < passOrder[j] * 0.7 - 0.02,
+          )
+        )
+          edgePixels++;
       }
       results.push({
         options,
@@ -71,6 +106,11 @@ try {
         other: measured.other.contribution,
         unchanged: serialize(doc) === before,
         groups: scene.flatMap((entry) => entry.value.contours.map((c) => c.repeaterOpacity ?? 1)),
+        expectedOrder: [...expectedGroups.values()],
+        passOrder,
+        maxPixelError,
+        edgePixels,
+        holePass: redPasses.map(({ index }) => buffers[index][14 * 64 + 14]),
         hole: Array.from(reference.slice((14 * 64 + 14) * 4, (14 * 64 + 14) * 4 + 4)),
       });
     }
@@ -81,6 +121,8 @@ try {
     assert.ok(result.groups.some((opacity) => opacity !== 1));
     assert.equal(result.other, 0);
     assert.deepEqual(result.reloaded, result.measured);
+    assert.deepEqual(result.passOrder, result.expectedOrder);
+    assert.ok(result.maxPixelError < 5 / 255, `pixel error ${result.maxPixelError}`);
     for (let i = 0; i < 2; i++)
       assert.ok(
         Math.abs(result.measured[i] - result.reference[i]) < 6,
@@ -89,6 +131,8 @@ try {
   }
   assert.ok(results[0].measured[0] > 0 && results[0].measured[1] > 0);
   assert.ok(results[0].hole[0] < 4 && results[0].hole[2] > 250 && results[0].hole[3] > 0);
+  assert.ok(results[0].holePass.every((alpha) => alpha === 0));
+  assert.ok(results[0].edgePixels > 0);
   assert.notDeepEqual(results[0].groups, results[1].groups);
   assert.equal(results[3].measured[0], 0);
   console.log('PASS solid repeater opacity, source-over backdrop, holes and fractional copies');
