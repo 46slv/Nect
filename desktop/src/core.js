@@ -7630,7 +7630,13 @@ export class CommandSession {
       ).candidate;
     }
     if (['nodes-translate', 'curve-point', 'remap-point'].includes(target.kind)) {
-      const perPoint = update.pointMoves !== undefined;
+      const perPoint = update.pointMoves !== undefined,
+        absoluteRemap = update.value !== undefined;
+      if (absoluteRemap) {
+        if (target.kind !== 'remap-point' || perPoint || update.delta !== undefined)
+          throw Error('Invalid absolute Remap value');
+        assertValue('Vector2', update.value);
+      }
       if (perPoint) {
         if (
           !['curve-point', 'remap-point'].includes(target.kind) ||
@@ -7639,7 +7645,7 @@ export class CommandSession {
           !Array.isArray(update.pointMoves)
         )
           throw Error('Invalid per-point movement');
-      } else assertValue('Vector2', update.delta);
+      } else if (!absoluteRemap) assertValue('Vector2', update.delta);
       const pointMoves = new Map();
       if (perPoint)
         for (const move of update.pointMoves) {
@@ -7657,6 +7663,7 @@ export class CommandSession {
         if (q.locked || q.source || q.expression) throw Error('Parameter is locked or driven');
         q.value = original.map((v, i) => v + delta[i]);
       };
+      let absoluteUnchanged = false;
       if (target.kind === 'nodes-translate') {
         if (
           !Array.isArray(target.nodeIds) ||
@@ -7723,6 +7730,8 @@ export class CommandSession {
           (pointIds.length > 1 && target.key !== 'position')
         )
           throw Error('Select distinct point anchors');
+        if (absoluteRemap && pointIds.length !== 1)
+          throw Error('Absolute Remap value requires one point');
         if (
           update.independent !== undefined &&
           (typeof update.independent !== 'boolean' || target.key === 'position')
@@ -7767,7 +7776,14 @@ export class CommandSession {
               throw Error('Retained edit is suspended; rebind before dragging');
             const edit = enableRemapPoint(node, input, pointId);
             const delta = perPoint ? pointMoves.get(pointId) : update.delta;
-            write(edit.params[target.key], undefined, delta);
+            if (absoluteRemap) {
+              const q = edit.params[target.key];
+              if (!q || q.type !== 'Vector2') throw Error('Missing vector parameter');
+              if (q.locked || q.source || q.expression)
+                throw Error('Parameter is locked or driven');
+              absoluteUnchanged = update.value.every((value, index) => value === q.value[index]);
+              q.value = [...update.value];
+            } else write(edit.params[target.key], undefined, delta);
             if (perPoint && delta.every((value) => value === 0)) {
               const index = node.edits.indexOf(edit);
               if (original) node.edits[index] = original;
@@ -7778,9 +7794,11 @@ export class CommandSession {
       }
       // Returning to the origin must retain sparse Remap edits and the redo branch.
       if (
-        (perPoint ? [...pointMoves.values()] : [update.delta]).every((delta) =>
-          delta.every((value) => value === 0),
-        )
+        absoluteRemap
+          ? absoluteUnchanged
+          : (perPoint ? [...pointMoves.values()] : [update.delta]).every((delta) =>
+              delta.every((value) => value === 0),
+            )
       )
         return cloneDocument(base);
       validate(candidate);
