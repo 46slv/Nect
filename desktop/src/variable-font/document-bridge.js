@@ -68,21 +68,20 @@ export function createVariableDocumentPreparer({
     activeUsage = { runs: 0, commands: 0, serializedBytes: 0 };
   let pendingTicket = null;
   const detachTicket = (pending) => {
-    if (!pending || pending.detached) return;
-    // Mark first so a reentrant cancellation cannot recursively detach it.
+    if (!pending || pending.detachAttempted) return;
+    // Never retry an externally supplied teardown after a throw or reentry.
+    pending.detachAttempted = true;
+    pending.signal?.removeEventListener('abort', pending.abort);
     pending.detached = true;
-    try {
-      pending.signal?.removeEventListener('abort', pending.abort);
-    } catch (error) {
-      pending.detached = false;
-      throw error;
-    }
   };
   const clearTicket = () => {
     const pending = pendingTicket;
-    detachTicket(pending);
-    // A callback may have installed a newer ticket while detaching the old one.
-    if (pendingTicket === pending) pendingTicket = null;
+    try {
+      detachTicket(pending);
+    } finally {
+      // A callback may have installed a newer ticket while detaching the old one.
+      if (pendingTicket === pending) pendingTicket = null;
+    }
   };
   return {
     async prepareDocument(input, { signal } = {}) {
@@ -210,12 +209,16 @@ export function createVariableDocumentPreparer({
       activeUsage = pending.usage;
       pendingTicket = null;
     },
-    discardStagedActivation(ticket) {
+    discardActivation(ticket) {
       const pending = pendingTicket;
-      if (!pending || pending.ticket !== ticket || !pending.detached) return false;
-      // The staged listener is already detached. Do not inspect an aborted
-      // signal or invalidate a newer ticket on the same bridge.
-      pendingTicket = null;
+      if (!pending || pending.ticket !== ticket) return false;
+      try {
+        detachTicket(pending);
+      } catch {
+        // The listener is now inert once its candidate is discarded. Do not
+        // retry a teardown callback which has already thrown.
+      }
+      if (pendingTicket === pending) pendingTicket = null;
       return true;
     },
     activate(ticket) {

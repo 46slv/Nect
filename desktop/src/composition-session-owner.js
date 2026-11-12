@@ -35,9 +35,9 @@ function macroVersionAdmitted(classify, project) {
   return admitted;
 }
 
-function capturePreparedHistoryCommand(command) {
-  const captured = {};
-  for (const key of ['type', 'sessionId', 'expectedRevision']) {
+function capturePreparedHistoryCommand(command, type) {
+  const captured = Object.assign(Object.create(null), { type });
+  for (const key of ['sessionId', 'expectedRevision']) {
     const descriptor = Object.getOwnPropertyDescriptor(command, key);
     if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value'))
       throw Error('Invalid prepared History command');
@@ -617,7 +617,8 @@ export class CompositionSessionOwner {
       if (prepared) {
         prepared.bridge.assertFresh(prepared.ticket);
         assertCurrent();
-        prepared.bridge.cancel();
+        prepared.bridge.discardActivation(prepared.ticket);
+        assertCurrent();
         this.#prepared = null;
       }
       return { ...this.state, changed: false, projectRevision: this.#history.revision };
@@ -807,10 +808,10 @@ export class CompositionSessionOwner {
       command && typeof command === 'object'
         ? Object.getOwnPropertyDescriptor(command, 'type')
         : null;
-    if (typeDescriptor && !Object.hasOwn(typeDescriptor, 'value'))
+    if (!typeDescriptor || !typeDescriptor.enumerable || !Object.hasOwn(typeDescriptor, 'value'))
       throw Error('Invalid prepared command type');
-    if (['undo', 'redo'].includes(typeDescriptor?.value))
-      command = capturePreparedHistoryCommand(command);
+    if (['undo', 'redo'].includes(typeDescriptor.value))
+      command = capturePreparedHistoryCommand(command, typeDescriptor.value);
     this.#assertCurrentCommand(command);
     this.#assertQuiescent();
     if (command.type === 'delete-color-slot')
@@ -905,25 +906,34 @@ export class CompositionSessionOwner {
   }
 
   commitPrepared(token) {
-    const prepared = this.#assertPrepared(token);
-    this.#assertQuiescent();
-    this.#assertPrepared(token);
+    const pending = this.#prepared;
+    let prepared;
+    try {
+      prepared = this.#assertPrepared(token);
+      this.#assertQuiescent();
+      this.#assertPrepared(token);
+    } catch (error) {
+      if (
+        this.#macroProjectAdmission &&
+        pending?.token === token &&
+        pending.ticket &&
+        (this.#prepared !== pending ||
+          this.#session !== pending.session ||
+          this.#activeCompositionId !== pending.compositionId ||
+          this.#history.revision !== pending.projectRevision)
+      ) {
+        if (this.#prepared === pending) this.#prepared = null;
+        pending.bridge.discardActivation(pending.ticket);
+      }
+      throw error;
+    }
     if (prepared.ticket) {
       if (this.#macroProjectAdmission) {
         try {
           return this.#stepHistory(prepared.type, prepared.command, prepared);
         } catch (error) {
-          if (this.#prepared === prepared) {
-            this.#prepared = null;
-            if (!prepared.bridge.discardStagedActivation(prepared.ticket)) {
-              try {
-                prepared.bridge.assertFresh(prepared.ticket);
-                prepared.bridge.cancel();
-              } catch {
-                // Do not cancel a newer ticket on the same bridge.
-              }
-            }
-          }
+          if (this.#prepared === prepared) this.#prepared = null;
+          prepared.bridge.discardActivation(prepared.ticket);
           throw error;
         }
       }
