@@ -1182,6 +1182,7 @@ const coverageView = createColorCoverageView({
 const effectsPanel = createEffectsPanel({
   document,
   getTarget: effectPanelTarget,
+  getTargetVersion: effectPanelVersion,
   getEntries: () => {
     const entry = nodeCatalog.find((item) => item.typeId === 'Transform');
     return [
@@ -1211,6 +1212,7 @@ const workspacePanels = createWorkspacePanels({
     createColorsView: () => sharedColors.createView(),
     canDeactivateColors: () => sharedColors.canDeactivate,
     createEffectsView: () => effectsPanel.createView(),
+    refreshEffectsView: () => effectsPanel.refreshTarget(),
     canDeactivateEffects: () => effectsPanel.canDeactivate,
     onAlign: () => {},
   }),
@@ -1941,6 +1943,26 @@ function selectArtwork(layerId, { toggle = false, preserve = false } = {}) {
 }
 function artworkMove() {
   return resolveArtworkMoveSelection(history.doc, artworkSelection, { fonts });
+}
+function effectPanelVersion() {
+  const envelope = session.state;
+  return [
+    session,
+    envelope.sessionId,
+    envelope.expectedRevision,
+    session.projectRevision,
+    session.activeCompositionId,
+    documents.generation,
+    sourceEpoch,
+    workspacePanels.active.left,
+    activeLayer,
+    artworkTarget,
+    artworkSelection.size,
+    artworkSelection.has(artworkTarget),
+    deletionBusy(),
+    !!variableAction,
+    documents.hasDraft(),
+  ];
 }
 function effectPanelTarget() {
   // Inactive drawers are rebuilt during ordinary renders; avoid planning them.

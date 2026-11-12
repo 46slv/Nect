@@ -98,6 +98,7 @@ export function createWorkspaceSurfaceAdapters({
   createColorsView,
   canDeactivateColors,
   createEffectsView,
+  refreshEffectsView,
   canDeactivateEffects,
 }) {
   if (
@@ -106,6 +107,7 @@ export function createWorkspaceSurfaceAdapters({
     (createColorsView !== undefined && typeof createColorsView !== 'function') ||
     (canDeactivateColors !== undefined && typeof canDeactivateColors !== 'function') ||
     (createEffectsView !== undefined && typeof createEffectsView !== 'function') ||
+    (refreshEffectsView !== undefined && typeof refreshEffectsView !== 'function') ||
     (canDeactivateEffects !== undefined && typeof canDeactivateEffects !== 'function')
   )
     throw Error('Invalid legacy surface binding');
@@ -160,9 +162,12 @@ export function createWorkspaceSurfaceAdapters({
           const effects = createEffectsView?.();
           if (effects) host.append(effects);
         },
-        refresh({ wrap, displayed, id }) {
+        refresh({ wrap, active, displayed, viewerMode, id }) {
           const effects = wrap.querySelector('.effects-panel');
-          if (effects) effects.hidden = displayed !== id;
+          if (effects) {
+            effects.hidden = displayed !== id;
+            if (active === id && !viewerMode) refreshEffectsView?.();
+          }
         },
       },
     ),

@@ -39,6 +39,49 @@ try {
   await page.getByRole('button', { name: 'Toggle Effects panel', exact: true }).click();
   assert.equal(await page.locator('[data-effects-target]').innerText(), 'Circle');
   const search = page.getByRole('searchbox', { name: 'Search effects' });
+  const circleId = await page.evaluate(
+    () =>
+      window.nect.document.layers
+        .flatMap((layer) => layer.nodes)
+        .find((node) => node.type === 'Circle').id,
+  );
+  await page
+    .locator(`.graph .node[data-id="${circleId}"]`)
+    .getByRole('spinbutton', { name: 'Circle Position X', exact: true })
+    .click();
+  assert.equal(await page.locator('[data-effects-apply]').isDisabled(), true);
+  assert.equal(await page.locator('[data-effects-status]').innerText(), 'Select artwork');
+  await page.locator('.artboard .shape').first().click();
+  assert.equal(await page.locator('[data-effects-target]').innerText(), 'Circle');
+
+  await page.evaluate(
+    () => (window.hiddenEffectApply = document.querySelector('[data-effects-apply]')),
+  );
+  await page.locator('.viewer-tabs [data-viewer-mode="viewers"]').click();
+  await page.evaluate(() => window.hiddenEffectApply.click());
+  assert.equal(await project(), before);
+  await page.locator('.viewer-tabs [data-viewer-mode="artwork"]').click();
+
+  // A press begun while IME is composing must not become an Apply on release.
+  const cdp = await page.context().newCDPSession(page);
+  await search.focus();
+  await cdp.send('Input.imeSetComposition', { text: '移動', selectionStart: 0, selectionEnd: 2 });
+  const applyBox = await page.locator('[data-effects-apply]').boundingBox();
+  assert.equal(await page.locator('[data-effects-apply]').isDisabled(), true);
+  await page.mouse.click(applyBox.x + applyBox.width / 2, applyBox.y + applyBox.height / 2);
+  assert.equal(await project(), before);
+  assert.equal(await search.evaluate((element) => element === document.activeElement), true);
+  assert.equal(await page.locator('[data-effects-apply]').isDisabled(), true);
+  await cdp.send('Input.insertText', { text: '移動' });
+
+  // Committing by Tab keeps the result row alive as the browser moves focus.
+  await search.fill('');
+  await search.focus();
+  await page.evaluate(() => (window.effectSearchRow = document.querySelector('[data-effect-id]')));
+  await cdp.send('Input.imeSetComposition', { text: '移動', selectionStart: 0, selectionEnd: 2 });
+  await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.activeElement === window.effectSearchRow), true);
+  assert.equal(await project(), before);
   await search.fill('移動');
   assert.equal(await page.getByRole('button', { name: 'Transform', exact: true }).count(), 1);
   await page.screenshot({ path: 'test-results/effects-panel-search.png', animations: 'disabled' });

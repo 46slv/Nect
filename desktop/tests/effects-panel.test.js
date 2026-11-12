@@ -78,17 +78,68 @@ test('IME confirmation and search Enter do not apply, while an explicit Apply do
   const view = f.mount();
   const search = view.querySelector('[data-effects-search]');
   const apply = view.querySelector('[data-effects-apply]');
+  const row = view.querySelector('[data-effect-id="builtin:transform"]');
   f.fire(search, 'compositionstart');
   search.value = '移動';
   f.fire(search, 'input', { isComposing: true });
   assert.equal(apply.disabled, true);
+  const down = new f.win.PointerEvent('pointerdown', { bubbles: true, cancelable: true });
+  apply.dispatchEvent(down);
+  assert.equal(down.defaultPrevented, true);
   f.fire(search, 'keydown', { key: 'Enter', isComposing: true });
   apply.click();
   assert.equal(f.actions.length, 0);
   f.fire(search, 'compositionend');
+  assert.equal(view.querySelector('[data-effect-id="builtin:transform"]'), row);
   assert.equal(apply.disabled, false);
   f.fire(search, 'keydown', { key: 'Enter' });
   assert.equal(f.actions.length, 0);
+  apply.click();
+  assert.equal(f.actions.length, 1);
+});
+
+test('workspace refresh updates a changed target without rebuilding an unchanged one', (t) => {
+  const win = new Window();
+  t.after(() => win.happyDOM.abort());
+  const owner = {};
+  let revision = 1,
+    calls = 0,
+    current = { label: 'Circle', snapshot: { revision } };
+  const panel = createEffectsPanel({
+    document: win.document,
+    getTarget: () => {
+      calls++;
+      return current;
+    },
+    getTargetVersion: () => [owner, revision],
+    getEntries: () => [{ id: 'transform', label: 'Transform' }],
+    onApply: () => assert.fail('No artwork is selected'),
+  });
+  const view = panel.createView();
+  win.document.body.append(view);
+  const row = view.querySelector('[data-effect-id]');
+  panel.refreshTarget();
+  assert.equal(calls, 1);
+  current = null;
+  revision++;
+  panel.refreshTarget();
+  assert.equal(calls, 2);
+  assert.equal(view.querySelector('[data-effects-apply]').disabled, true);
+  assert.equal(view.querySelector('[data-effects-status]').textContent, 'Select artwork');
+  assert.equal(view.querySelector('[data-effect-id]'), row);
+});
+
+test('hidden or inert effects views cannot be activated through a retained control', (t) => {
+  const f = fixture(t);
+  const view = f.mount(),
+    apply = view.querySelector('[data-effects-apply]');
+  view.hidden = true;
+  apply.click();
+  view.hidden = false;
+  view.setAttribute('inert', '');
+  apply.click();
+  assert.deepEqual(f.actions, []);
+  view.removeAttribute('inert');
   apply.click();
   assert.equal(f.actions.length, 1);
 });
