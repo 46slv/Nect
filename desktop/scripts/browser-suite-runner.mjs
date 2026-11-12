@@ -142,6 +142,11 @@ export const browserTestFiles = Object.freeze([
   'tests/node-foundation-primitives.e2e.js',
   'tests/node-foundation-subdivide.e2e.js',
   'tests/node-foundation-resample.e2e.js',
+  'tests/node-foundation-trim.e2e.js',
+  'tests/node-foundation-path-start.e2e.js',
+  'tests/node-foundation-dash.e2e.js',
+  'tests/node-foundation-convert-to-path.e2e.js',
+  'tests/effects-panel.e2e.js',
   'tests/asset-folder-favorites.e2e.js',
 ]);
 

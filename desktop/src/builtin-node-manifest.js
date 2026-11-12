@@ -71,6 +71,14 @@ import { subdividePathDeclaration } from './subdivide-path-declaration.js';
 import { evaluateSubdividePath } from './subdivide-path-binding.js';
 import { resamplePathDeclaration } from './resample-path-declaration.js';
 import { evaluateResamplePath } from './resample-path-binding.js';
+import { trimPathDeclaration } from './trim-path-declaration.js';
+import { evaluateTrimPath } from './trim-path-binding.js';
+import { setPathStartDeclaration } from './set-path-start-declaration.js';
+import { evaluateSetPathStart } from './set-path-start-binding.js';
+import { dashPathDeclaration } from './dash-path-declaration.js';
+import { evaluateDashPath } from './dash-path-binding.js';
+import { convertToPathDeclaration } from './convert-to-path-declaration.js';
+import { evaluateConvertToPath } from './convert-to-path-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -178,4 +186,8 @@ export const builtinManifest = Object.freeze([
     'Reverse Path',
   ),
   entry(resamplePathDeclaration, { evaluate: evaluateResamplePath }, 'Roughen', 'Subdivide Path'),
+  entry(trimPathDeclaration, { evaluate: evaluateTrimPath }, 'Expand Stroke', 'Simplify Path'),
+  entry(setPathStartDeclaration, { evaluate: evaluateSetPathStart }, 'Trim Path', 'Trim Path'),
+  entry(dashPathDeclaration, { evaluate: evaluateDashPath }, 'Smooth Path', 'Auto Handles'),
+  entry(convertToPathDeclaration, { evaluate: evaluateConvertToPath }, 'Join Geometry', 'Text'),
 ]);
