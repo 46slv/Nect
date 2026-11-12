@@ -17,11 +17,13 @@ import { keyColorRecipeInitializationSlotIds } from './key-color-recipe-document
 import { assertColorSlotUnused } from './color-slots.js';
 import { prepareProjectCompositionsImport } from './composition-project-import.js';
 import { resolveLayerClipboardToken } from './layer-clipboard-owner.js';
+import { mergeMacroDefinitions } from './macro-project.js';
 import {
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
   QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
   COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION,
+  MACRO_SCHEMA_VERSION,
   CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
@@ -30,18 +32,31 @@ import {
 const PROJECT_HISTORY_TOKEN = Symbol('project history token');
 
 function macroVersionAdmitted(classify, project) {
-  const admitted = classify(project.schemaVersion);
+  const version =
+    project && typeof project === 'object'
+      ? Object.getOwnPropertyDescriptor(project, 'schemaVersion')
+      : null;
+  if (!version || !version.enumerable || !Object.hasOwn(version, 'value'))
+    throw Error('Invalid Macro schema version');
+  const admitted = classify(version.value);
   if (typeof admitted !== 'boolean') throw Error('Invalid Macro admission classifier');
   return admitted;
 }
+const macroSchemaAdmitted = (schemaVersion) => schemaVersion >= MACRO_SCHEMA_VERSION;
 
-function capturePreparedHistoryCommand(command, type) {
+function capturePreparedCommand(command, type) {
   const captured = Object.assign(Object.create(null), { type });
   for (const key of ['sessionId', 'expectedRevision']) {
     const descriptor = Object.getOwnPropertyDescriptor(command, key);
     if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value'))
-      throw Error('Invalid prepared History command');
+      throw Error('Invalid prepared command envelope');
     captured[key] = descriptor.value;
+  }
+  const payload = Object.getOwnPropertyDescriptor(command, 'payload');
+  if (payload) {
+    if (!payload.enumerable || !Object.hasOwn(payload, 'value'))
+      throw Error('Invalid prepared command payload');
+    captured.payload = payload.value;
   }
   return Object.freeze(captured);
 }
@@ -284,8 +299,12 @@ export class CompositionSessionOwner {
     if (macroProjectAdmission !== null && typeof macroProjectAdmission !== 'function')
       throw Error('Invalid Macro admission classifier');
     validateCompositionProject(project);
-    if (macroProjectAdmission && macroVersionAdmitted(macroProjectAdmission, project))
-      validateMacroProjectCandidate(project);
+    // Project History mutates its root in place. Do not retain a caller-owned
+    // object or share/freeze its asset records across the ownership boundary.
+    const ownedProject = structuredClone(project);
+    validateCompositionProject(ownedProject);
+    if (macroProjectAdmission && macroVersionAdmitted(macroProjectAdmission, ownedProject))
+      validateMacroProjectCandidate(ownedProject);
     this.#History = History;
     this.#CommandSession = CommandSession;
     this.#blankDocument = blankDocument;
@@ -297,8 +316,8 @@ export class CompositionSessionOwner {
     this.#assertProjectReferenceTransition = assertProjectReferenceTransition;
     this.#hasClipboardArtworkTargets = hasClipboardArtworkTargets;
     this.#normalizedProjectSourceForDocument = normalizedProjectSourceForDocument;
-    this.#assertProjectReferenceTransition(project, project, fonts());
-    this.#history = new this.#History(project);
+    this.#assertProjectReferenceTransition(ownedProject, ownedProject, fonts());
+    this.#history = new this.#History(ownedProject);
     this.#fonts = fonts;
     this.#busy = busy;
     this.#onCommitted = onCommitted;
@@ -400,8 +419,10 @@ export class CompositionSessionOwner {
     const retainedDefinitionSets = [];
     for (const project of [...this.#history.past, ...this.#history.future])
       if (admitted(project)) {
-        validateMacroProjectCandidate(project);
-        retainedDefinitionSets.push(project.macroDefinitions ?? []);
+        const definitions = Object.getOwnPropertyDescriptor(project, 'macroDefinitions');
+        if (definitions && (!definitions.enumerable || !Object.hasOwn(definitions, 'value')))
+          throw Error('Invalid retained Macro definitions');
+        retainedDefinitionSets.push(definitions ? definitions.value : []);
         assertCurrent();
       }
     if (previousAdmitted)
@@ -810,8 +831,7 @@ export class CompositionSessionOwner {
         : null;
     if (!typeDescriptor || !typeDescriptor.enumerable || !Object.hasOwn(typeDescriptor, 'value'))
       throw Error('Invalid prepared command type');
-    if (['undo', 'redo'].includes(typeDescriptor.value))
-      command = capturePreparedHistoryCommand(command, typeDescriptor.value);
+    command = capturePreparedCommand(command, typeDescriptor.value);
     this.#assertCurrentCommand(command);
     this.#assertQuiescent();
     if (command.type === 'delete-color-slot')
@@ -1120,6 +1140,70 @@ export class CompositionSessionOwner {
   }
 
   dispatch(command) {
+    if (command?.type === 'register-macro-definition') {
+      this.#assertCurrentCommand(command);
+      const session = this.#session,
+        before = this.#history.doc,
+        revision = this.#history.revision,
+        sessionRevision = session.state.expectedRevision,
+        compositionId = this.#activeCompositionId;
+      const assertCurrent = () => {
+        const check = () => {
+          if (
+            this.#session !== session ||
+            this.#history.doc !== before ||
+            this.#history.revision !== revision ||
+            this.#activeCompositionId !== compositionId ||
+            session.state.expectedRevision !== sessionRevision
+          )
+            throw Error('STALE_REVISION: document changed');
+        };
+        check();
+        this.#assertQuiescent();
+        check();
+      };
+      assertCurrent();
+      if (before.schemaVersion < MACRO_SCHEMA_VERSION && Object.hasOwn(before, 'macroDefinitions'))
+        throw Error('Cannot replace opaque Macro definitions');
+      const definitionDescriptor =
+        command.payload && Object.getOwnPropertyDescriptor(command.payload, 'definition');
+      if (
+        !definitionDescriptor ||
+        !definitionDescriptor.enumerable ||
+        !Object.hasOwn(definitionDescriptor, 'value')
+      )
+        throw Error('Invalid Macro definition');
+      const previous =
+          before.schemaVersion >= MACRO_SCHEMA_VERSION ? (before.macroDefinitions ?? []) : [],
+        definitions = mergeMacroDefinitions(previous, [definitionDescriptor.value]);
+      assertCurrent();
+      if (
+        before.schemaVersion >= MACRO_SCHEMA_VERSION &&
+        JSON.stringify(previous) === JSON.stringify(definitions)
+      )
+        return { ...this.state, changed: false, projectRevision: revision };
+      const document = this.#documentFor(before, compositionId);
+      document.schemaVersion = Math.max(document.schemaVersion, MACRO_SCHEMA_VERSION);
+      document.macroDefinitions = definitions;
+      const candidate = this.#projectWithDocument(before, compositionId, document);
+      assertCurrent();
+      const previousAdmission = this.#macroProjectAdmission;
+      if (!previousAdmission) this.#macroProjectAdmission = macroSchemaAdmitted;
+      try {
+        const changed = this.#commitProject(candidate, compositionId, command.type, assertCurrent);
+        return { ...this.state, changed, projectRevision: this.#history.revision };
+      } catch (error) {
+        if (
+          !previousAdmission &&
+          this.#session === session &&
+          this.#history.doc === before &&
+          this.#history.revision === revision &&
+          this.#activeCompositionId === compositionId
+        )
+          this.#macroProjectAdmission = null;
+        throw error;
+      }
+    }
     if (command?.type === 'delete-composition') {
       const session = this.#session,
         activeId = this.#activeCompositionId,

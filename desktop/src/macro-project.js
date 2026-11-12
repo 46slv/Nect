@@ -33,34 +33,30 @@ function ownEnumerableValue(record, key, label, { optional = false } = {}) {
   return descriptor.value;
 }
 
-// Inspect the typed route before the existing codec reads any hidden payload.
-// This is an opt-in admission contract, not a change to ordinary Open/Save.
-export function assertMacroCandidateEnvelope(project) {
-  ownEnumerableValue(project, 'macroDefinitions', 'Macro definitions', { optional: true });
-  const compositions = ownEnumerableValue(project, 'compositions', 'Macro Project compositions');
-  for (const composition of dataArray(compositions, 'Macro Project compositions')) {
-    const layers = ownEnumerableValue(composition, 'layers', 'Macro Composition layers');
-    for (const layer of dataArray(layers, 'Macro Composition layers')) {
-      const nodes = ownEnumerableValue(layer, 'nodes', 'Macro Layer nodes');
-      for (const node of dataArray(nodes, 'Macro Layer nodes')) {
-        ownEnumerableValue(node, 'id', 'Macro candidate node ID');
-        const type = ownEnumerableValue(node, 'type', 'Macro candidate node type');
-        if (typeof type !== 'string') throw Error('Invalid Macro candidate node type');
-        if (type !== 'Macro') continue;
-        const pin = ownEnumerableValue(node, 'macro', 'Macro instance pin');
-        if (!pin || typeof pin !== 'object' || Array.isArray(pin))
-          throw Error('Invalid Macro instance pin');
-        const keys = Reflect.ownKeys(pin);
-        if (
-          keys.length !== 3 ||
-          keys.some((key) => !['definitionId', 'definitionRevision', 'overrides'].includes(key))
-        )
-          throw Error('Invalid Macro instance pin');
-        for (const key of keys) ownEnumerableValue(pin, key, 'Macro instance pin field');
-      }
+function assertMacroLayersEnvelope(layers) {
+  for (const layer of dataArray(layers, 'Macro Composition layers')) {
+    const nodes = ownEnumerableValue(layer, 'nodes', 'Macro Layer nodes');
+    for (const node of dataArray(nodes, 'Macro Layer nodes')) {
+      ownEnumerableValue(node, 'id', 'Macro candidate node ID');
+      const type = ownEnumerableValue(node, 'type', 'Macro candidate node type');
+      if (typeof type !== 'string') throw Error('Invalid Macro candidate node type');
+      if (type !== 'Macro') continue;
+      const pin = ownEnumerableValue(node, 'macro', 'Macro instance pin');
+      if (!pin || typeof pin !== 'object' || Array.isArray(pin))
+        throw Error('Invalid Macro instance pin');
+      const keys = Reflect.ownKeys(pin);
+      if (
+        keys.length !== 3 ||
+        keys.some((key) => !['definitionId', 'definitionRevision', 'overrides'].includes(key))
+      )
+        throw Error('Invalid Macro instance pin');
+      for (const key of keys) ownEnumerableValue(pin, key, 'Macro instance pin field');
     }
   }
-  const presets = ownEnumerableValue(project, 'nodePresets', 'Macro Project presets', {
+}
+
+function assertMacroPresetsEnvelope(document) {
+  const presets = ownEnumerableValue(document, 'nodePresets', 'Macro Project presets', {
     optional: true,
   });
   if (presets !== undefined)
@@ -70,6 +66,23 @@ export function assertMacroCandidateEnvelope(project) {
         for (const node of dataArray(nodes, 'Macro preset nodes'))
           ownEnumerableValue(node, 'type', 'Macro preset node type');
     }
+}
+
+// Inspect the typed route before the existing codec reads any hidden payload.
+export function assertMacroCandidateEnvelope(project) {
+  ownEnumerableValue(project, 'macroDefinitions', 'Macro definitions', { optional: true });
+  const compositions = ownEnumerableValue(project, 'compositions', 'Macro Project compositions');
+  for (const composition of dataArray(compositions, 'Macro Project compositions'))
+    assertMacroLayersEnvelope(
+      ownEnumerableValue(composition, 'layers', 'Macro Composition layers'),
+    );
+  assertMacroPresetsEnvelope(project);
+}
+
+export function assertMacroDocumentEnvelope(document) {
+  ownEnumerableValue(document, 'macroDefinitions', 'Macro definitions', { optional: true });
+  assertMacroLayersEnvelope(ownEnumerableValue(document, 'layers', 'Macro Document layers'));
+  assertMacroPresetsEnvelope(document);
 }
 
 // JSON.stringify invokes own or inherited toJSON methods, including hidden
@@ -150,34 +163,47 @@ export function mergeMacroDefinitions(existing, incoming) {
 // Candidate-only representation. The normal Project codec does not call this
 // until the Macro node, versioned persistence and Session have a common owner.
 // Its caller must first validate the whole Project as data-only JSON.
-export function assertMacroProjectReferences(project) {
-  const { registry } = definitionsRegistry(projectDefinitions(project));
-  for (const composition of project.compositions)
-    for (const layer of composition.layers)
-      for (const node of layer.nodes) {
-        if (node.type !== 'Macro') continue;
-        const pin = node.macro;
-        if (
-          !pin ||
-          typeof pin !== 'object' ||
-          Array.isArray(pin) ||
-          Object.keys(pin).length !== 3 ||
-          !Object.hasOwn(pin, 'definitionId') ||
-          !Object.hasOwn(pin, 'definitionRevision') ||
-          !Object.hasOwn(pin, 'overrides') ||
-          typeof pin.definitionId !== 'string' ||
-          !Number.isSafeInteger(pin.definitionRevision)
-        )
-          throw Error('Invalid Macro instance pin');
-        const definition = registry.get(pin.definitionId)?.get(pin.definitionRevision);
-        if (!definition) throw Error('Macro definition for instance pin is missing');
-        snapshotMacroInstance({ id: node.id, ...pin }, definition);
-      }
+function assertMacroLayerReferences(layers, registry) {
+  for (const layer of layers)
+    for (const node of layer.nodes) {
+      if (node.type !== 'Macro') continue;
+      const pin = node.macro;
+      if (
+        !pin ||
+        typeof pin !== 'object' ||
+        Array.isArray(pin) ||
+        Object.keys(pin).length !== 3 ||
+        !Object.hasOwn(pin, 'definitionId') ||
+        !Object.hasOwn(pin, 'definitionRevision') ||
+        !Object.hasOwn(pin, 'overrides') ||
+        typeof pin.definitionId !== 'string' ||
+        !Number.isSafeInteger(pin.definitionRevision)
+      )
+        throw Error('Invalid Macro instance pin');
+      const definition = registry.get(pin.definitionId)?.get(pin.definitionRevision);
+      if (!definition) throw Error('Macro definition for instance pin is missing');
+      snapshotMacroInstance({ id: node.id, ...pin }, definition);
+    }
+}
 
+function assertNoMacroPresets(project) {
   // Detached presets currently have no definition-closure contract.
   for (const preset of project.nodePresets || [])
     if (Array.isArray(preset.nodes) && preset.nodes.some((node) => node?.type === 'Macro'))
       throw Error('Macro node presets need a definition closure');
+}
+
+export function assertMacroProjectReferences(project) {
+  const { registry } = definitionsRegistry(projectDefinitions(project));
+  for (const composition of project.compositions)
+    assertMacroLayerReferences(composition.layers, registry);
+  assertNoMacroPresets(project);
+}
+
+export function assertMacroDocumentReferences(document) {
+  const { registry } = definitionsRegistry(projectDefinitions(document));
+  assertMacroLayerReferences(document.layers, registry);
+  assertNoMacroPresets(document);
 }
 
 // A later revision may be added, but the same ID/revision must not acquire

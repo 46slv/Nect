@@ -209,6 +209,23 @@ test('without an admission adapter the existing opaque Project behavior is uncha
   assert.deepEqual(owner.projectSnapshot().macroDefinitions, initial.macroDefinitions);
 });
 
+test('owner detaches its Project before external admission and font callbacks', () => {
+  const input = project(),
+    owner = new CompositionSessionOwner(input, {
+      ...adapters,
+      macroProjectAdmission: () => {
+        input.name = 'external classifier';
+        return false;
+      },
+      fonts: () => {
+        input.compositions[0].name = 'external font callback';
+        return {};
+      },
+    });
+  assert.equal(owner.projectSnapshot().name, 'Project');
+  assert.equal(owner.projectSnapshot().compositions[0].name, 'A');
+});
+
 test('unadmitted History keeps its opaque field without interpreting it as definitions', () => {
   const initial = project();
   initial.macroDefinitions = { note: 'user data' };

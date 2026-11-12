@@ -2,6 +2,8 @@ import { validateColorSlots, validateColorSlotBinding } from './color-slots.js';
 import { validateLayerFolders } from './layer-folders.js';
 import {
   assertMacroCandidateEnvelope,
+  assertMacroDocumentEnvelope,
+  assertMacroDocumentReferences,
   assertMacroProjectDefinitionTransition,
   assertMacroProjectReferences,
   assertNoMacroCandidateJsonCallbacks,
@@ -11,6 +13,7 @@ import {
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
   QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
   COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION,
+  MACRO_SCHEMA_VERSION,
   hasComponentCompositionReferenceSyntax,
   nodesHaveComponentCompositionReferenceSyntax,
   hasQualifiedColorReferenceSyntax,
@@ -557,8 +560,21 @@ function assertLayerReferenceScope(project) {
 
 export function validateCompositionProject(project) {
   assertJsonTree(project);
+  if (project?.schemaVersion >= MACRO_SCHEMA_VERSION) {
+    assertMacroCandidateEnvelope(project);
+    assertNoMacroCandidateJsonCallbacks(project);
+  }
   assertCompositionProjectFields(project);
+  if (project.schemaVersion >= MACRO_SCHEMA_VERSION) assertMacroProjectReferences(project);
   return project;
+}
+
+export function validateMacroDocumentCandidate(document) {
+  assertMacroDocumentEnvelope(document);
+  assertJsonTree(document);
+  assertNoMacroCandidateJsonCallbacks(document);
+  assertMacroDocumentReferences(document);
+  return document;
 }
 
 // Prototype admission for a prospective Macro-enabled Project. The existing

@@ -11,6 +11,7 @@ import {
   assertNoLegacyArtworkDocumentPromotion,
   assertNoLegacyHandleReferencePromotion,
   assertNoLegacyHandleDocumentPromotion,
+  validateMacroDocumentCandidate,
 } from './composition-project-model.js';
 export { expression } from './expression-parser.js';
 import { JOIN_SLOT_LIMIT, validJoinSlotOrder } from './join-slots-protocol.js';
@@ -21,6 +22,7 @@ import {
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
   QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
   COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION,
+  MACRO_SCHEMA_VERSION,
   hasComponentCompositionReferenceSyntax,
   nodesHaveComponentCompositionReferenceSyntax,
   componentCompositionReferences,
@@ -5669,6 +5671,11 @@ export function migratePaint(doc) {
   return doc;
 }
 export function validate(doc) {
+  const versionDescriptor =
+    doc && typeof doc === 'object' ? Object.getOwnPropertyDescriptor(doc, 'schemaVersion') : null;
+  if (versionDescriptor && !Object.hasOwn(versionDescriptor, 'value'))
+    throw Error('Invalid schema version descriptor');
+  if (versionDescriptor?.value >= MACRO_SCHEMA_VERSION) validateMacroDocumentCandidate(doc);
   let activeKeyers = 0;
   let activeImageDithers = 0;
   const idPattern = nodeIdPattern;
@@ -5745,7 +5752,8 @@ export function validate(doc) {
       doc.schemaVersion !== ARTWORK_REFERENCE_SCHEMA_VERSION &&
       doc.schemaVersion !== COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
       doc.schemaVersion !== QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION &&
-      doc.schemaVersion !== COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION)
+      doc.schemaVersion !== COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION &&
+      doc.schemaVersion !== MACRO_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   const colorSlots = validateColorSlots(doc);
@@ -6495,6 +6503,11 @@ export function validate(doc) {
   return doc;
 }
 export function serialize(doc) {
+  const versionDescriptor =
+    doc && typeof doc === 'object' ? Object.getOwnPropertyDescriptor(doc, 'schemaVersion') : null;
+  if (versionDescriptor && !Object.hasOwn(versionDescriptor, 'value'))
+    throw Error('Invalid schema version descriptor');
+  if (versionDescriptor?.value >= MACRO_SCHEMA_VERSION) validateMacroDocumentCandidate(doc);
   // This optional historical receipt must never lose non-JSON data in a direct
   // codec call, even when the caller did not construct a Session first.
   if (doc && Object.hasOwn(doc, 'keyColorRecipe')) validateColorSlots(doc);
