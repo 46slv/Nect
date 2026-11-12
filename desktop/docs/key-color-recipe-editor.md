@@ -66,6 +66,13 @@ literal until an explicit HSL change, and a hue-only edit on gray preserves HEX.
   valid direct HEX input keeps its spelling. Gray hue changes stay local until
   saturation/lightness produces another color, and do not set the recipe's
   separate OKLCH hue hint. Preview/Apply remain the only route to authored state.
+- **Copy saved color** selects an existing shared color by stable slot ID and
+  copies its exact HEX spelling and alpha into C1; it creates no reference and
+  leaves the source untouched. The current Apply's active destination slots,
+  including C1, are excluded. Names are disambiguated when needed. Selection
+  invalidates an old preview and is refused during composition, a scrub, or a
+  stale captured Session/Composition. The research draft can use the same copy
+  without choosing or creating a candidate.
 - Each active derived slot exposes finite stored **ΔL** and **Δr** intent. These
   are offsets, not clamped slider positions; the pure model owns effective
   clamps and gamut behavior. Dormant slot intent/results stay read-only and
@@ -148,8 +155,11 @@ it does not replace the panel, dispatcher or Session.
 The registered browser acceptance covers a real modal, keyboard/pointer launch,
 before/after literals, invalid/cancel paths, one-Undo, Save download → app reload →
 native JSON file-input Open, legacy gesture isolation, stale edits, lock/alpha
-refusal and narrow layout. It blocks font requests and uses only its generated
-synthetic fixture, not user documents.
+refusal, saved-color copy and narrow layout. Copy coverage includes stable IDs,
+duplicate names, active destination exclusion, exact HEX/alpha0, preview
+invalidation, simulated composition, stale/silent input, pending Redo, one-Undo
+Apply and source preservation after reopening. It blocks font requests and uses
+only its generated synthetic fixture, not user documents.
 
 The C1 HSL addition passed this browser acceptance in Windows Chrome, including
 plane/keyboard/numeric edits, gray hue, cancellation, one-Undo Apply, browser
