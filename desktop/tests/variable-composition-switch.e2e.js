@@ -397,10 +397,51 @@ try {
     true,
   );
   await nameInput.press('Escape');
+  // The variable preview is real Worker-backed pending work even though it has
+  // not made the saved project dirty. A cancelled browser reload keeps it.
+  await page.locator('[role="tab"][data-active-composition="variable-second"]').click();
+  await page.waitForFunction(() => window.nect.activeCompositionId === 'variable-second');
+  await page.locator(`.node[data-id="${text.id}"] .node-head strong`).click();
+  await ensureWorkspacePanel(page, 'inspector');
+  const typography = page.locator('.inspector-body [data-text-inspector-section="typography"]');
+  if (!(await typography.evaluate((element) => element.open)))
+    await typography.locator('summary').click();
+  const axis = page.locator('.inspector-body [data-variable-axis="wght"]');
+  await axis.fill('650');
+  await page.waitForFunction(() =>
+    document.querySelector('.status .message')?.textContent.includes('axis preview'),
+  );
+  assert.equal(await page.evaluate(() => window.nect.fileState.dirty), false);
+  let warning;
+  page.once('dialog', async (dialog) => {
+    warning = dialog.type();
+    await dialog.dismiss();
+  });
+  let reloadError;
+  try {
+    await page.reload({ timeout: 3000 });
+  } catch (error) {
+    reloadError = error;
+  }
+  assert.equal(warning, 'beforeunload');
+  if (reloadError) assert.match(reloadError.message, /Timeout/);
+  assert.equal(await axis.inputValue(), '650');
+  // Browser focusout may commit the value after the warning is dismissed.
+  // Either it is still a clean preview or it is an authored, dirty edit.
+  const afterWarning = await page.evaluate(
+    (id) => ({
+      weight: window.nect.document.layers[0].nodes.find((entry) => entry.id === id).variation.axes
+        .wght,
+      dirty: window.nect.fileState.dirty,
+    }),
+    text.id,
+  );
+  assert.ok([550, 650].includes(afterWarning.weight));
+  assert.equal(afterWarning.dirty, afterWarning.weight === 650);
   assert.deepEqual(errors, []);
   assert.equal(mainNavigations, 1, 'Vite must not reload the active test page');
   console.log(
-    'PASS: sandboxed Chrome variable Composition view state, keyboard, History/Redo, Color uses, inline name race and SVG',
+    'PASS: sandboxed Chrome variable Composition view state, keyboard, History/Redo, Color uses, inline name race, pending preview reload guard and SVG',
   );
 } finally {
   await browser.close();
