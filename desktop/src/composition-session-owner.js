@@ -582,7 +582,7 @@ export class CompositionSessionOwner {
     return true;
   }
 
-  #stepHistory(direction, command) {
+  #stepHistory(direction, command, prepared = null) {
     this.#assertCurrentCommand(command);
     const session = this.#session,
       revision = this.#history.revision,
@@ -591,6 +591,7 @@ export class CompositionSessionOwner {
     const assertCurrent = () => {
       this.#assertCurrentCommand(command);
       if (
+        (prepared && this.#prepared !== prepared) ||
         this.#session !== session ||
         this.#history.revision !== revision ||
         this.#activeCompositionId !== compositionId
@@ -601,8 +602,15 @@ export class CompositionSessionOwner {
     this.#assertQuiescent();
     assertCurrent();
     const candidate = (direction === 'undo' ? this.#history.past : this.#history.future).at(-1);
-    if (!candidate)
+    if (!candidate) {
+      if (prepared) {
+        prepared.bridge.assertFresh(prepared.ticket);
+        assertCurrent();
+        prepared.bridge.cancel();
+        this.#prepared = null;
+      }
       return { ...this.state, changed: false, projectRevision: this.#history.revision };
+    }
     validateCompositionProject(candidate);
     if (this.#macroProjectAdmission) {
       const admitted = macroVersionAdmitted(this.#macroProjectAdmission, candidate);
@@ -615,12 +623,33 @@ export class CompositionSessionOwner {
     )
       ? this.#activeCompositionId
       : candidate.compositions[0].id;
-    const nextSession = this.#makeSession(candidate, activeCompositionId, this.#fonts, session);
+    const preparedFonts = prepared
+      ? preparedCompositionFonts(this.#fonts, prepared.bridge, prepared.ticket)
+      : null;
+    const nextSession = this.#makeSession(
+      candidate,
+      activeCompositionId,
+      preparedFonts ? preparedFonts.read : this.#fonts,
+      session,
+    );
     assertCurrent();
+    if (prepared) {
+      prepared.bridge.assertFresh(prepared.ticket);
+      assertCurrent();
+      this.#assertQuiescent();
+      assertCurrent();
+      prepared.bridge.assertFresh(prepared.ticket);
+      assertCurrent();
+      // The new Session already binds the target Project and inherits clipboard
+      // authority. Publish the prepared bank only after all fallible preflight.
+      prepared.bridge.activate(prepared.ticket);
+      preparedFonts.useLive();
+      this.#prepared = null;
+    }
     this.#history[direction]();
     this.#activeCompositionId = activeCompositionId;
     this.#session = nextSession;
-    this.#session.setProjectContext?.(this.#history.doc, activeCompositionId);
+    if (!prepared) this.#session.setProjectContext?.(this.#history.doc, activeCompositionId);
     this.#notifyCommitted(direction);
     return { ...this.state, changed: true, projectRevision: this.#history.revision };
   }
@@ -859,6 +888,22 @@ export class CompositionSessionOwner {
     this.#assertQuiescent();
     this.#assertPrepared(token);
     if (prepared.ticket) {
+      if (this.#macroProjectAdmission) {
+        try {
+          return this.#stepHistory(prepared.type, prepared.command, prepared);
+        } catch (error) {
+          if (this.#prepared === prepared) {
+            this.#prepared = null;
+            try {
+              prepared.bridge.assertFresh(prepared.ticket);
+              prepared.bridge.cancel();
+            } catch {
+              // Do not cancel a newer ticket on the same bridge.
+            }
+          }
+          throw error;
+        }
+      }
       prepared.bridge.assertFresh(prepared.ticket);
       prepared.bridge.activate(prepared.ticket);
       this.#prepared = null;

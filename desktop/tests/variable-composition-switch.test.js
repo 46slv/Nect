@@ -101,7 +101,7 @@ async function makeSavedProject({ firstText = false } = {}) {
   }
 }
 
-async function openSaved(fixture) {
+async function openSaved(fixture, options = {}) {
   const project = deserializeCompositionProject(fixture.json, deserialize),
     bridge = newBridge();
   const first = activeCompositionDocument(project, fixture.firstId);
@@ -111,9 +111,103 @@ async function openSaved(fixture) {
     owner: createCompositionSessionOwner(project, {
       activeCompositionId: fixture.firstId,
       fonts: () => bridge.fonts(),
+      ...options,
     }),
   };
 }
+
+test('a reentrant Macro classification cannot publish a stale prepared History font bank', async () => {
+  const fixture = await makeSavedProject();
+  let owner,
+    trigger = false;
+  const opened = await openSaved(fixture, {
+    macroProjectAdmission: () => {
+      if (trigger) {
+        trigger = false;
+        owner.switchComposition(fixture.firstId);
+      }
+      return false;
+    },
+  });
+  owner = opened.owner;
+  const { bridge } = opened;
+  try {
+    owner.commitPreparedCompositionSwitch(
+      await owner.prepareCompositionSwitch(fixture.secondId, bridge),
+    );
+    owner.commitPrepared(
+      await owner.prepareCommand(
+        {
+          ...owner.state,
+          type: 'set-text-content',
+          payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AW' },
+        },
+        bridge,
+      ),
+    );
+    owner.commitPrepared(await owner.prepareCommand({ ...owner.state, type: 'undo' }, bridge));
+    const beforeProject = serializeCompositionProject(owner.projectSnapshot()),
+      beforeHistory = owner.historyState,
+      beforeBank = bridge.stats().active,
+      token = await owner.prepareCommand({ ...owner.state, type: 'redo' }, bridge);
+    assert.equal(beforeHistory.canRedo, true);
+    trigger = true;
+    assert.throws(() => owner.commitPrepared(token), /STALE/);
+    assert.equal(owner.activeCompositionId, fixture.firstId);
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), beforeProject);
+    assert.deepEqual(owner.historyState, beforeHistory);
+    assert.deepEqual(bridge.stats().active, beforeBank);
+  } finally {
+    bridge.dispose();
+  }
+});
+
+test('prepared History with Macro admission retains live fonts and the node clipboard', async () => {
+  const fixture = await makeSavedProject();
+  const { owner, bridge } = await openSaved(fixture, { macroProjectAdmission: () => false });
+  try {
+    owner.commitPreparedCompositionSwitch(
+      await owner.prepareCompositionSwitch(fixture.secondId, bridge),
+    );
+    const created = owner.dispatch({
+      ...owner.state,
+      type: 'create-node',
+      payload: { layerId: fixture.layerB, nodeType: 'Value' },
+    });
+    owner.dispatch({
+      ...owner.state,
+      type: 'copy-nodes',
+      payload: { layerId: fixture.layerB, nodeIds: [created.nodeId] },
+    });
+    owner.commitPrepared(
+      await owner.prepareCommand(
+        {
+          ...owner.state,
+          type: 'set-text-content',
+          payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AW' },
+        },
+        bridge,
+      ),
+    );
+    const edited = exportSVG(owner.snapshot(), bridge.fonts());
+    owner.commitPrepared(await owner.prepareCommand({ ...owner.state, type: 'undo' }, bridge));
+    assert.equal(exportSVG(owner.snapshot(), bridge.fonts()), fixture.expectedB);
+    owner.commitPrepared(await owner.prepareCommand({ ...owner.state, type: 'redo' }, bridge));
+    assert.equal(exportSVG(owner.snapshot(), bridge.fonts()), edited);
+    const pasted = owner.dispatch({
+      ...owner.state,
+      type: 'paste-nodes',
+      payload: { layerId: fixture.layerB },
+    });
+    assert.equal(pasted.nodeIds.length, 1);
+    assert.equal(
+      owner.snapshot().layers[0].nodes.find((entry) => entry.id === pasted.nodeIds[0]).type,
+      'Value',
+    );
+  } finally {
+    bridge.dispose();
+  }
+});
 
 test('real variable Text in a second Composition opens, edits, round-trips and switches without History edits', async () => {
   const fixture = await makeSavedProject();
