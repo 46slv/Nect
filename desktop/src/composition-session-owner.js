@@ -18,6 +18,7 @@ import { assertColorSlotUnused } from './color-slots.js';
 import { prepareProjectCompositionsImport } from './composition-project-import.js';
 import { resolveLayerClipboardToken } from './layer-clipboard-owner.js';
 import { mergeMacroDefinitions } from './macro-project.js';
+import { assertCompatibleMacroDefinition } from './macro-package.js';
 import {
   captureVariablePreparationOptions,
   createVariablePreparationChild,
@@ -808,6 +809,16 @@ export class CompositionSessionOwner {
     const project = this.#history.doc,
       composition = project.compositions.find((item) => item.id === compositionId);
     if (!composition) return false;
+    for (const definition of resources.macroDefinitions || []) {
+      const current = project.macroDefinitions?.find(
+        (item) => item.id === definition.id && item.revision === definition.revision,
+      );
+      try {
+        if (!current || !assertCompatibleMacroDefinition(definition, current)) return false;
+      } catch {
+        return false;
+      }
+    }
     if (resources.layerIds.some((id) => !composition.layers.some((layer) => layer.id === id)))
       return false;
     if (resources.slotIds.some((id) => !project.colorSlots?.some((slot) => slot.id === id)))

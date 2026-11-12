@@ -33,7 +33,7 @@ function definition() {
   };
 }
 
-function fixture() {
+function fixture(options = {}, registeredDefinition = definition()) {
   const doc = blankDocument(),
     layer = doc.layers[0],
     source = node('Rectangle'),
@@ -45,9 +45,12 @@ function fixture() {
   connect(layer, source.id, transform.id, 'path');
   connect(layer, transform.id, fill.id, 'path');
   connect(layer, fill.id, output.id, 'path');
-  const owner = createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(doc));
+  const owner = createCompositionSessionOwner(
+    migrateLegacyDocumentToCompositionProject(doc),
+    options,
+  );
   const send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload });
-  send('register-macro-definition', { definition: definition() });
+  send('register-macro-definition', { definition: registeredDefinition });
   const plan = planMacroInsertion(owner.snapshot(), layer.id, {
     definitionId: 'double',
     revision: 1,
@@ -322,6 +325,68 @@ test('actual connected Path overflow and a stale insertion request preserve Proj
   assert.deepEqual(f.owner.historyState, history);
 });
 
+for (const type of ['insert-macro', 'set-macro-override', 'reset-macro-override']) {
+  test(`${type} rejects a reentrant edit without splitting Project and Session`, () => {
+    let owner,
+      armed = false,
+      nested,
+      nestedHistory;
+    const f = fixture({
+      fonts: () => {
+        if (armed) {
+          armed = false;
+          owner.dispatch({
+            ...owner.state,
+            type: 'set-document-settings',
+            payload: { key: 'width', value: 777 },
+          });
+          nested = owner.projectSnapshot();
+          nestedHistory = owner.historyState;
+        }
+        return {};
+      },
+    });
+    owner = f.owner;
+    let instance;
+    if (type !== 'insert-macro') {
+      ({ instance } = insert(f));
+      if (type === 'reset-macro-override')
+        f.send('set-macro-override', {
+          layerId: f.layer.id,
+          nodeId: instance.id,
+          parameterId: 'scale',
+          value: 2,
+        });
+    }
+    const payload =
+      type === 'insert-macro'
+        ? f.request
+        : {
+            layerId: f.layer.id,
+            nodeId: instance.id,
+            parameterId: 'scale',
+            ...(type === 'set-macro-override' ? { value: 3 } : {}),
+          };
+    armed = true;
+    assert.throws(() => f.send(type, payload), /STALE/);
+    assert.ok(nested);
+    assert.deepEqual(owner.projectSnapshot(), nested);
+    assert.deepEqual(owner.historyState, nestedHistory);
+    assert.equal(owner.snapshot().width, 777);
+    const projectLayer = nested.compositions[0].layers.find((item) => item.id === f.layer.id),
+      sessionLayer = owner.snapshot().layers.find((item) => item.id === f.layer.id);
+    assert.deepEqual(sessionLayer, projectLayer);
+    f.send('set-document-settings', { key: 'height', value: 888 });
+    assert.equal(owner.projectSnapshot().compositions[0].width, 777);
+    assert.equal(owner.snapshot().width, 777);
+    assert.equal(owner.snapshot().height, 888);
+    assert.deepEqual(
+      owner.snapshot().layers.find((item) => item.id === f.layer.id),
+      projectLayer,
+    );
+  });
+}
+
 test('a disconnected Macro cannot hide overflowing instance geometry', () => {
   const f = fixture(),
     { instance } = insert(f);
@@ -359,6 +424,79 @@ test('an upstream Rectangle edit cannot overflow an existing Macro instance', ()
   assert.equal(serializeCompositionProject(f.owner.projectSnapshot()), before);
   assert.deepEqual(f.owner.historyState, history);
 });
+
+for (const mode of ['insert', 'override', 'upstream', 'downstream']) {
+  test(`${mode} rejects finite Macro geometry that would overflow its terminal Transform`, () => {
+    const registered = definition();
+    if (mode === 'insert') registered.parameters[0].defaultValue = 1e307;
+    const f = fixture({}, registered);
+    f.send('set-parameter', {
+      layerId: f.layer.id,
+      nodeId: f.source.id,
+      key: 'center',
+      value: [2, 0],
+    });
+    f.send('set-parameter', {
+      layerId: f.layer.id,
+      nodeId: f.source.id,
+      key: 'size',
+      value: [1, 1],
+    });
+    f.send('set-parameter', {
+      layerId: f.layer.id,
+      nodeId: f.transform.id,
+      key: 'scale',
+      value: 100,
+    });
+    f.request = {
+      expectedProjectRevision: f.owner.projectRevision,
+      target: planMacroInsertion(f.owner.snapshot(), f.layer.id, {
+        definitionId: 'double',
+        revision: 1,
+      }).target,
+    };
+    let instance;
+    if (mode !== 'insert') {
+      ({ instance } = insert(f));
+      if (mode !== 'override')
+        f.send('set-macro-override', {
+          layerId: f.layer.id,
+          nodeId: instance.id,
+          parameterId: 'scale',
+          value: mode === 'upstream' ? 1e304 : 1e305,
+        });
+    }
+    f.send('set-document-settings', { key: 'width', value: 777 });
+    f.send('undo');
+    if (mode === 'insert') f.request.expectedProjectRevision = f.owner.projectRevision;
+    const before = serializeCompositionProject(f.owner.projectSnapshot()),
+      history = f.owner.historyState;
+    assert.equal(history.canRedo, true);
+    const attempt =
+      mode === 'insert'
+        ? () => f.send('insert-macro', f.request)
+        : mode === 'override'
+          ? () =>
+              f.send('set-macro-override', {
+                layerId: f.layer.id,
+                nodeId: instance.id,
+                parameterId: 'scale',
+                value: 1e307,
+              })
+          : () =>
+              f.send('set-parameter', {
+                layerId: f.layer.id,
+                nodeId: mode === 'upstream' ? f.source.id : f.transform.id,
+                key: mode === 'upstream' ? 'center' : 'scale',
+                value: mode === 'upstream' ? [2000, 0] : 10000,
+              });
+    assert.throws(attempt, /finite|overflow/i);
+    assert.equal(serializeCompositionProject(f.owner.projectSnapshot()), before);
+    assert.deepEqual(f.owner.historyState, history);
+    f.send('redo');
+    assert.equal(f.owner.snapshot().width, 777);
+  });
+}
 
 test('a cross-Layer driver cannot overflow an affected Macro', () => {
   const { f } = largeMacro(),
@@ -499,6 +637,138 @@ test('an upstream change checks a Viewer-only Macro even when the Output Macro r
   assert.deepEqual(owner.historyState, history);
 });
 
+test('an unconnected Viewer Transform is checked when its Macro source changes', () => {
+  const f = fixture();
+  f.send('set-parameter', {
+    layerId: f.layer.id,
+    nodeId: f.source.id,
+    key: 'center',
+    value: [2, 0],
+  });
+  f.send('set-parameter', { layerId: f.layer.id, nodeId: f.source.id, key: 'size', value: [1, 1] });
+  f.request = {
+    expectedProjectRevision: f.owner.projectRevision,
+    target: planMacroInsertion(f.owner.snapshot(), f.layer.id, {
+      definitionId: 'double',
+      revision: 1,
+    }).target,
+  };
+  const { instance } = insert(f),
+    project = f.owner.projectSnapshot(),
+    layer = project.compositions[0].layers.find((item) => item.id === f.layer.id),
+    viewer = node('Transform');
+  viewer.params.path.source = instance.id;
+  viewer.params.scale.value = 100;
+  layer.nodes.push(viewer);
+  const owner = createCompositionSessionOwner(project),
+    send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload }),
+    before = serializeCompositionProject(owner.projectSnapshot()),
+    history = owner.historyState;
+  assert.throws(
+    () =>
+      send('set-macro-override', {
+        layerId: f.layer.id,
+        nodeId: instance.id,
+        parameterId: 'scale',
+        value: 1e307,
+      }),
+    /finite|overflow/i,
+  );
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+  assert.deepEqual(owner.historyState, history);
+});
+
+test('a second downstream Transform cannot overflow after a valid Macro and first Transform', () => {
+  const f = fixture();
+  f.send('set-parameter', {
+    layerId: f.layer.id,
+    nodeId: f.source.id,
+    key: 'center',
+    value: [2, 0],
+  });
+  f.send('set-parameter', { layerId: f.layer.id, nodeId: f.source.id, key: 'size', value: [1, 1] });
+  f.send('set-parameter', {
+    layerId: f.layer.id,
+    nodeId: f.transform.id,
+    key: 'scale',
+    value: 100,
+  });
+  f.request = {
+    expectedProjectRevision: f.owner.projectRevision,
+    target: planMacroInsertion(f.owner.snapshot(), f.layer.id, {
+      definitionId: 'double',
+      revision: 1,
+    }).target,
+  };
+  const { instance } = insert(f),
+    project = f.owner.projectSnapshot(),
+    layer = project.compositions[0].layers.find((item) => item.id === f.layer.id),
+    next = node('Transform');
+  next.params.path.source = f.transform.id;
+  next.params.scale.value = 100;
+  layer.nodes.push(next);
+  layer.nodes.find((item) => item.id === f.fill.id).params.path.source = next.id;
+  const owner = createCompositionSessionOwner(project),
+    before = serializeCompositionProject(owner.projectSnapshot()),
+    history = owner.historyState;
+  assert.throws(
+    () =>
+      owner.dispatch({
+        ...owner.state,
+        type: 'set-macro-override',
+        payload: { layerId: f.layer.id, nodeId: instance.id, parameterId: 'scale', value: 1e305 },
+      }),
+    /finite|overflow/i,
+  );
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+  assert.deepEqual(owner.historyState, history);
+});
+
+test('a Path modifier does not hide an overflowing downstream Transform', () => {
+  const f = fixture();
+  f.send('set-parameter', {
+    layerId: f.layer.id,
+    nodeId: f.source.id,
+    key: 'center',
+    value: [2, 0],
+  });
+  f.send('set-parameter', { layerId: f.layer.id, nodeId: f.source.id, key: 'size', value: [1, 1] });
+  f.send('set-parameter', {
+    layerId: f.layer.id,
+    nodeId: f.transform.id,
+    key: 'scale',
+    value: 100,
+  });
+  f.request = {
+    expectedProjectRevision: f.owner.projectRevision,
+    target: planMacroInsertion(f.owner.snapshot(), f.layer.id, {
+      definitionId: 'double',
+      revision: 1,
+    }).target,
+  };
+  const { instance } = insert(f),
+    project = f.owner.projectSnapshot(),
+    layer = project.compositions[0].layers.find((item) => item.id === f.layer.id),
+    remap = node('Path Remap');
+  remap.params.path.source = instance.id;
+  layer.nodes.push(remap);
+  layer.nodes.find((item) => item.id === f.transform.id).params.path.source = remap.id;
+  const owner = createCompositionSessionOwner(project),
+    before = serializeCompositionProject(owner.projectSnapshot()),
+    history = owner.historyState;
+  assert.throws(
+    () =>
+      owner.dispatch({
+        ...owner.state,
+        type: 'set-macro-override',
+        payload: { layerId: f.layer.id, nodeId: instance.id, parameterId: 'scale', value: 1e307 },
+      }),
+    /finite|overflow/i,
+  );
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+  assert.deepEqual(owner.historyState, history);
+});
+
 test('a healthy Macro remains editable when a separate existing Macro output overflows', () => {
   const { f, instance } = largeMacro(),
     duplicate = f.send('duplicate-layer', { layerId: f.layer.id }),
@@ -536,6 +806,54 @@ test('a healthy Macro remains editable when a separate existing Macro output ove
     before.compositions[0].layers[0].nodes.find((item) => item.id === instance.id).macro.overrides
       .scale,
     1e305,
+  );
+});
+
+test('an existing internal Macro overflow does not excuse a new downstream overflow', () => {
+  const { f, instance } = largeMacro(),
+    project = f.owner.projectSnapshot(),
+    layer = project.compositions[0].layers.find((item) => item.id === f.layer.id);
+  layer.nodes.find((item) => item.id === f.source.id).params.center.value = [10000, 0];
+  layer.nodes.find((item) => item.id === instance.id).macro.overrides.scale = 1e307;
+  layer.nodes.find((item) => item.id === f.transform.id).params.scale.value = 100;
+  const owner = createCompositionSessionOwner(project),
+    before = serializeCompositionProject(owner.projectSnapshot()),
+    history = owner.historyState;
+  assert.throws(
+    () =>
+      owner.dispatch({
+        ...owner.state,
+        type: 'set-parameter',
+        payload: { layerId: f.layer.id, nodeId: f.source.id, key: 'center', value: [2, 0] },
+      }),
+    /finite|overflow/i,
+  );
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+  assert.deepEqual(owner.historyState, history);
+});
+
+test('a healthy Viewer Macro remains editable beside an existing broken output in the same Layer', () => {
+  const { f, instance } = largeMacro(),
+    project = f.owner.projectSnapshot(),
+    layer = project.compositions[0].layers.find((item) => item.id === f.layer.id),
+    secondSource = node('Rectangle'),
+    second = structuredClone(layer.nodes.find((item) => item.id === instance.id));
+  layer.nodes.find((item) => item.id === f.source.id).params.size.value = [10000, 10000];
+  secondSource.params.center.value = [0, 0];
+  secondSource.params.size.value = [1, 1];
+  second.id = 'healthy-viewer-macro';
+  second.params.path.source = secondSource.id;
+  second.macro.overrides.scale = 1;
+  layer.nodes.push(secondSource, second);
+  const owner = createCompositionSessionOwner(project);
+  owner.dispatch({
+    ...owner.state,
+    type: 'set-macro-override',
+    payload: { layerId: f.layer.id, nodeId: second.id, parameterId: 'scale', value: 2 },
+  });
+  assert.equal(
+    owner.snapshot().layers[0].nodes.find((item) => item.id === second.id).macro.overrides.scale,
+    2,
   );
 });
 
@@ -630,6 +948,54 @@ test('a Layer snapshot retains its copied Macro pin and override through paste a
   const reopened = createCompositionSessionOwner(deserializeCompositionProject(saved, deserialize));
   assertSameArtwork(pathSnapshot(reopened, result.layerId), copiedPath, { sameIds: false });
 });
+
+for (const mode of ['exact-history-restore', 'branched-replacement']) {
+  test(`a Layer snapshot tracks its Macro definition across ${mode}`, () => {
+    let owner;
+    const clipboard = createLayerClipboardOwner(),
+      f = fixture({
+        onCommitted: (state) => {
+          if (owner && clipboard.hasCopy && state.sessionId === owner.id)
+            clipboard.observe({
+              owner,
+              generation: 1,
+              operation: state.operation,
+              history: owner.historyView,
+            });
+        },
+      });
+    owner = f.owner;
+    insert(f);
+    const context = { owner, generation: 1, compositionId: owner.activeCompositionId },
+      expected = pathSnapshot(owner, f.layer.id);
+    clipboard.copy({ ...context, layerId: f.layer.id });
+    const originalToken = clipboard.token(context);
+    f.send('undo'); // insertion
+    f.send('undo'); // definition registration
+    assert.equal(clipboard.token(context), null);
+    if (mode === 'exact-history-restore') {
+      f.send('redo');
+      const token = clipboard.token(context);
+      assert.equal(token, originalToken);
+      const result = f.send('paste-layer-snapshot', { token });
+      assertSameArtwork(pathSnapshot(owner, result.layerId), expected, { sameIds: false });
+    } else {
+      f.send('set-document-settings', { key: 'width', value: 777 });
+      const replacement = definition();
+      replacement.parameters[0].defaultValue = 2;
+      f.send('register-macro-definition', { definition: replacement });
+      const before = serializeCompositionProject(owner.projectSnapshot()),
+        history = owner.historyState;
+      assert.equal(clipboard.token(context), null);
+      assert.throws(
+        () => f.send('paste-layer-snapshot', { token: originalToken }),
+        /unavailable|clipboard/i,
+      );
+      assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+      assert.deepEqual(owner.historyState, history);
+    }
+  });
+}
 
 test('operations without Macro definition closure reject atomically and preserve Redo', () => {
   const f = fixture(),
