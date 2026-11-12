@@ -41,9 +41,12 @@ test('Shared Colors controller view mounts through adapter and uses Session thro
   colorsToggle().click();
   assert.ok(colors());
   const host = document.querySelector('[data-drawer-side="left"]'),
-    slot = host.querySelector('[data-workspace-asset-slot]');
+    slot = host.querySelector('[data-workspace-asset-slot]'),
+    effects = host.querySelector('.effects-panel');
   assert.equal(colors().parentNode, host);
-  assert.deepEqual([...host.children], [slot, colors()]);
+  assert.equal(slot.nextElementSibling, colors());
+  assert.equal(effects.parentNode, host);
+  assert.equal(effects.hidden, true);
   const before = (win.nect.projectSnapshot().colorSlots || []).length;
   const beforeAddRevision = win.nect.commandState.expectedRevision;
   colors().querySelector('[data-shared-color-add]').click();
@@ -98,6 +101,7 @@ test('Shared Colors controller view mounts through adapter and uses Session thro
   const compositionState = { ...win.nect.commandState };
   for (const selector of [
     '[data-workspace-panel="assets"]',
+    '[data-workspace-panel="effects"]',
     '[data-workspace-panel="layers"]',
     '[data-workspace-panel="colors"]',
     '[data-shared-color-add]',
