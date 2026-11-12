@@ -270,14 +270,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Taper',
-    categoryId: 'transform',
-    labelJa: '先細り',
-    aliases: ['先細り'],
-    description: '先細り',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Roughen',
     categoryId: 'transform',
     labelJa: 'ラフ',
