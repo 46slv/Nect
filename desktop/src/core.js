@@ -290,6 +290,8 @@ export {
   anchorFromOutputDelta,
 } from './transform-affine.js';
 import { identityMatrix, characterTransform, routeCharacters } from './character-geometry.js';
+import { radialSettings } from './radial-geometry.js';
+export { radialSettings } from './radial-geometry.js';
 export * from './character-identity.js';
 export * from './character-geometry.js';
 export * from './transform-handles.js';
@@ -526,12 +528,6 @@ const legacyDefinitions = {
   Circle: { center: p('Vector2', [350, 250]), radius: p('Scalar', 120) },
   Ellipse: { center: p('Vector2', [350, 250]), size: p('Vector2', [240, 160]) },
   Rectangle: { center: p('Vector2', [460, 250]), size: p('Vector2', [180, 220]) },
-  Polygon: {
-    center: p('Vector2', [350, 250]),
-    sides: p('Scalar', 6),
-    radius: p('Scalar', 120),
-    rotation: p('Scalar', 0),
-  },
   Star: {
     center: p('Vector2', [350, 250]),
     points: p('Scalar', 5),
@@ -768,19 +764,6 @@ export function luminanceModifierSettings(read) {
   )
     throw Error('Luminance grid origin components must be finite and within ±100000 px');
   return { pitch, invert, gridOrigin, tonePower };
-}
-// Keep count validation shared by JSON/direct input and resolved expression/socket input.
-export function radialSettings(type, read) {
-  const key = type === 'Polygon' ? 'sides' : 'points',
-    count = read(key);
-  if (!Number.isInteger(count) || count < 3 || count > 256)
-    throw Error(`${type} ${key} must be an integer from 3 to 256`);
-  const outer = read(type === 'Polygon' ? 'radius' : 'outerRadius'),
-    inner = type === 'Star' ? read('innerRadius') : outer;
-  if (![outer, inner].every((v) => Number.isFinite(v) && v > 0 && v <= 100000))
-    throw Error('Radii must be positive and at most 100000 px');
-  if (inner > outer) throw Error('Star innerRadius must not exceed outerRadius');
-  return { count, outer, inner };
 }
 function radialPath(n, read) {
   const { count, outer, inner } = radialSettings(n.type, read),
