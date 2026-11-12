@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { deserialize, evaluate, node, point, serialize } from '../src/core.js';
-import { prepareCurveMacroCandidate } from '../src/macro-execution.js';
+import { prepareLiteralMacroCandidate } from '../src/macro-execution.js';
 import { setMacroOverride } from '../src/macro-package.js';
 
 function definition() {
@@ -61,7 +61,7 @@ test('Detached execution follows the existing Transform evaluator and preserves 
     def = definition(),
     inst = instance(),
     before = structuredClone({ source, def, inst }),
-    result = prepareCurveMacroCandidate(source, def, inst),
+    result = prepareLiteralMacroCandidate(source, def, inst),
     layer = result.document.layers[0],
     output = result.path.contours[0];
   assert.deepEqual({ source, def, inst }, before);
@@ -87,13 +87,53 @@ test('Detached execution follows the existing Transform evaluator and preserves 
   assert.equal(source.name, before.source.name);
 });
 
+test('A literal Rectangle uses the same Path evaluation and retains generated point IDs', () => {
+  const source = node('Rectangle'),
+    def = definition(),
+    inst = instance();
+  source.params.center.value = [25, 40];
+  source.params.size.value = [18, 12];
+  const before = structuredClone({ source, def, inst }),
+    result = prepareLiteralMacroCandidate(source, def, inst),
+    frame = evaluate(result.document.layers[0], {}, {}, result.document, null, true),
+    original = frame.run(result.sourceNodeId),
+    output = result.path;
+  assert.deepEqual({ source, def, inst }, before);
+  assert.equal(output.contours.length, original.contours.length);
+  for (const [contourIndex, contour] of original.contours.entries()) {
+    const next = output.contours[contourIndex];
+    assert.equal(next.id, contour.id);
+    for (const [pointIndex, originalPoint] of contour.points.entries()) {
+      const transformed = next.points[pointIndex];
+      assert.equal(transformed.id, originalPoint.id);
+      close(transformed.position[0], -originalPoint.position[1] + 10);
+      close(transformed.position[1], originalPoint.position[0] + 20);
+    }
+  }
+  const driven = structuredClone(source);
+  driven.params.size.source = 'outside';
+  assert.throws(() => prepareLiteralMacroCandidate(driven, def, inst), /driven/i);
+});
+
+test('A valid source may omit unused rawPath, but a nonempty one is refused', () => {
+  for (const source of [curve(), node('Rectangle')]) {
+    delete source.rawPath;
+    const before = structuredClone(source);
+    const result = prepareLiteralMacroCandidate(source, definition(), instance());
+    assert.ok(result.path.contours.length);
+    assert.deepEqual(source, before);
+    source.rawPath = 'M 0 0 L 1 1';
+    assert.throws(() => prepareLiteralMacroCandidate(source, definition(), instance()));
+  }
+});
+
 test('An override creates a new detached evaluation without mutating either instance or source', () => {
   const source = curve(),
     def = definition(),
     first = instance(),
     second = setMacroOverride(def, first, 'angle', 0),
-    rotated = prepareCurveMacroCandidate(source, def, first),
-    unrotated = prepareCurveMacroCandidate(source, def, second);
+    rotated = prepareLiteralMacroCandidate(source, def, first),
+    unrotated = prepareLiteralMacroCandidate(source, def, second);
   close(rotated.path.contours[0].points[0].position[0], 8);
   close(unrotated.path.contours[0].points[0].position[0], 11);
   close(unrotated.path.contours[0].points[0].position[1], 22);
@@ -114,10 +154,10 @@ test('A finite Transform matrix that would overflow the connected Path is refuse
   def.parameters[0].key = 'scale';
   def.parameters[0].defaultValue = 2;
   const before = structuredClone({ source, def, inst });
-  assert.throws(() => prepareCurveMacroCandidate(source, def, inst), /finite coordinates/i);
+  assert.throws(() => prepareLiteralMacroCandidate(source, def, inst), /finite coordinates/i);
   assert.deepEqual({ source, def, inst }, before);
   const safe = setMacroOverride(def, inst, 'angle', 0);
-  const result = prepareCurveMacroCandidate(source, def, safe);
+  const result = prepareLiteralMacroCandidate(source, def, safe);
   assert.equal(result.path.contours[0].points[0].position[0], 10);
 });
 
@@ -126,7 +166,7 @@ test('An overflow from a handle endpoint or from the second Transform is refused
     const source = curve();
     source.points[0].position.value = [1e308, 0];
     source.points[0].handleB.value = [1e308, 0];
-    assert.throws(() => prepareCurveMacroCandidate(source, definition(), instance()), /finite/i);
+    assert.throws(() => prepareLiteralMacroCandidate(source, definition(), instance()), /finite/i);
   }
   {
     const source = curve(),
@@ -134,17 +174,17 @@ test('An overflow from a handle endpoint or from the second Transform is refused
     source.points[0].position.value = [1e308, 0];
     def.parameters[0].defaultValue = 0;
     def.nodes.find((item) => item.id === 'local-b').params.scale = 2;
-    assert.throws(() => prepareCurveMacroCandidate(source, def, instance()), /finite/i);
+    assert.throws(() => prepareLiteralMacroCandidate(source, def, instance()), /finite/i);
   }
 });
 
-test('Driven, external and non-Curve sources are rejected without changing source or instance', () => {
+test('Driven, external and unsupported sources are rejected without changing source or instance', () => {
   for (const edit of [
     (source) => (source.params.closed.expression = 'true'),
     (source) => (source.points[0].position.source = 'foreign-node'),
     (source) => (source.reference = { nodeId: 'outside' }),
     (source) => (source.asset = 'image-outside'),
-    (source) => (source.type = 'Rectangle'),
+    (source) => (source.type = 'Image'),
     (source) => (source.bypassed = true),
   ]) {
     const source = curve(),
@@ -152,7 +192,7 @@ test('Driven, external and non-Curve sources are rejected without changing sourc
       inst = instance();
     edit(source);
     const before = structuredClone({ source, def, inst });
-    assert.throws(() => prepareCurveMacroCandidate(source, def, inst));
+    assert.throws(() => prepareLiteralMacroCandidate(source, def, inst));
     assert.deepEqual({ source, def, inst }, before);
   }
 });
@@ -167,7 +207,10 @@ test('Source accessors are refused without being invoked', () => {
       return 'unsafe';
     },
   });
-  assert.throws(() => prepareCurveMacroCandidate(source, definition(), instance()), /plain data/i);
+  assert.throws(
+    () => prepareLiteralMacroCandidate(source, definition(), instance()),
+    /plain data/i,
+  );
   assert.equal(called, false);
 });
 
@@ -176,6 +219,6 @@ test('A mismatched definition pin cannot produce a detached candidate', () => {
     def = definition(),
     inst = { ...instance(), definitionRevision: 2 },
     before = structuredClone({ source, def, inst });
-  assert.throws(() => prepareCurveMacroCandidate(source, def, inst), /unpinned/i);
+  assert.throws(() => prepareLiteralMacroCandidate(source, def, inst), /unpinned/i);
   assert.deepEqual({ source, def, inst }, before);
 });

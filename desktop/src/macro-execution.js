@@ -7,26 +7,26 @@ import {
   snapshotMacroInstance,
 } from './macro-package.js';
 
-// A detached, literal Curve is the only source supported by this prototype.
+// Detached literal Curve and Rectangle sources are supported by this prototype.
 // It is not a Project edit or a substitute for validating a real Session candidate.
 function copyData(value, active = new Set()) {
   if (value === null || ['string', 'boolean', 'undefined'].includes(typeof value)) return value;
   if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value !== 'object' || active.has(value)) throw Error('Curve must be plain data');
+  if (typeof value !== 'object' || active.has(value)) throw Error('Source must be plain data');
   const array = Array.isArray(value),
     prototype = Object.getPrototypeOf(value);
   if (array ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null)
-    throw Error('Curve must be plain data');
+    throw Error('Source must be plain data');
   const descriptors = Object.getOwnPropertyDescriptors(value),
     keys = Reflect.ownKeys(descriptors);
-  if (keys.some((key) => typeof key !== 'string')) throw Error('Curve must be plain data');
+  if (keys.some((key) => typeof key !== 'string')) throw Error('Source must be plain data');
   active.add(value);
   const result = array ? [] : {};
   if (array) {
     for (let index = 0; index < value.length; index++) {
       const item = descriptors[String(index)];
       if (!item || !item.enumerable || !Object.hasOwn(item, 'value'))
-        throw Error('Curve must be plain data');
+        throw Error('Source must be plain data');
       result.push(copyData(item.value, active));
     }
     if (
@@ -35,12 +35,12 @@ function copyData(value, active = new Set()) {
           key !== 'length' && (!/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= value.length),
       )
     )
-      throw Error('Curve must be plain data');
+      throw Error('Source must be plain data');
   } else {
     for (const key of keys) {
       const item = descriptors[key];
       if (!item.enumerable || !Object.hasOwn(item, 'value'))
-        throw Error('Curve must be plain data');
+        throw Error('Source must be plain data');
       Object.defineProperty(result, key, {
         value: copyData(item.value, active),
         enumerable: true,
@@ -53,23 +53,25 @@ function copyData(value, active = new Set()) {
   return result;
 }
 
-function literalCurve(value) {
+function literalSource(value) {
   const source = copyData(value);
+  const parameterKeys =
+    source?.type === 'Curve' ? ['closed'] : source?.type === 'Rectangle' ? ['center', 'size'] : [];
   if (
-    source?.type !== 'Curve' ||
+    !parameterKeys.length ||
     source.bypassed ||
     source.reference != null ||
     source.compositionReference != null ||
     source.pathAttachment != null ||
     source.asset != null ||
-    source.rawPath !== '' ||
+    (source.rawPath !== undefined && source.rawPath !== '') ||
     !Array.isArray(source.edits) ||
     source.edits.length ||
     !source.params ||
-    Object.keys(source.params).length !== 1 ||
-    !Object.hasOwn(source.params, 'closed')
+    Object.keys(source.params).length !== parameterKeys.length ||
+    parameterKeys.some((key) => !Object.hasOwn(source.params, key))
   )
-    throw Error('Macro prototype requires a literal Curve');
+    throw Error('Macro prototype requires a literal Curve or Rectangle');
   if (
     parameters(source).some(
       ([, input]) =>
@@ -79,7 +81,7 @@ function literalCurve(value) {
         input.sourcePort !== undefined,
     )
   )
-    throw Error('Macro prototype cannot use driven Curve inputs');
+    throw Error('Macro prototype cannot use driven source inputs');
   return source;
 }
 
@@ -139,8 +141,8 @@ function assertFiniteTransform(path, transform) {
 // The result is a detached probe document, never an authored Project candidate.
 // A future Session owner must recheck target/definition identity and evaluate
 // the actual connected candidate immediately before its atomic commit.
-export function prepareCurveMacroCandidate(sourceValue, definitionValue, instanceValue) {
-  const source = literalCurve(sourceValue),
+export function prepareLiteralMacroCandidate(sourceValue, definitionValue, instanceValue) {
+  const source = literalSource(sourceValue),
     definition = snapshotMacroDefinition(definitionValue),
     instance = snapshotMacroInstance(instanceValue, definition),
     resolved = resolveMacroInstance(definition, instance),
