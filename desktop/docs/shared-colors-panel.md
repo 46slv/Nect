@@ -99,12 +99,14 @@ composite/readback differences are reconciled proportionally only within 4/255 p
 pixel. If a painted pixel has no recoverable component mass (including near-zero
 alpha/AA-edge precision cases), or the discrepancy exceeds that bound, the entire
 measurement is unavailable. No mass is invented, assigned to Other, or partly shown.
-Independent contour groups with solid or two-stop linear/radial paint are measured
-in the renderer's per-group fill-then-stroke order, including fully opaque 2D
-Repeater copies. A group's contours stay together so holes keep their original
-fill rule. Grouped angular gradients, partial Repeater opacity or alternate paint,
-focal/elliptical/extra-stop paints, gradient strokes, authored masks, filters and blend modes remain
-unsupported; the whole scene becomes unavailable rather than partly measured.
+Independent contour groups with solid, two-stop linear/radial or four-stop angular
+paint are measured in the renderer's per-group fill-then-stroke order, including
+fully opaque 2D Repeater copies. A group's contours stay together so holes keep
+their original fill rule. Each isolated angular pass reuses a pattern built from
+the whole evaluated path, matching the production pattern bounds and radius.
+Partial Repeater opacity or alternate paint, focal/elliptical/extra-stop paints,
+gradient strokes, authored masks, filters and blend modes remain unsupported;
+the whole scene becomes unavailable rather than partly measured.
 
 The longest sample edge is at most 256 pixels;
 aggregate alpha storage is capped at 4,194,304 samples, counting the full angular
@@ -125,8 +127,10 @@ descriptors, exact provenance, history/reopen, order and nonmutation) and
 fixtures cover linear/radial ramps and four-stop angular wedges, inside/outside
 centers, angular rotation/direction/nonuniform positions, circular
 distance and pad, transparent/unequal alpha, clipped and antialiased geometry,
-equal/missing IDs and overlap/stroke order. Their independent oracle uses
-analytical ramps and forward source-over, with 16×16 polygon-edge integration
+equal/missing IDs and overlap/stroke order. Grouped angular Join and Repeater
+fixtures also compare each stop's per-pixel mass and alpha with independently
+recolored production SVG, including holes, AA and single-group parity. Their
+independent oracle uses analytical ramps and forward source-over, with 16×16 polygon-edge integration
 for the radial/angular AA fixtures, and explicit midpoint-wedge premultiplied
 alpha weights for angular paints; it does not use the production mask or coverage reducer.
 For the fixed opaque-center angular fixture, an independently constructed ordered
