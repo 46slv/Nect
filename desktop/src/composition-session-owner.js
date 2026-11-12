@@ -1082,6 +1082,7 @@ export class CompositionSessionOwner {
         'paste-nodes',
         'paste-layer-snapshot',
         'move-layers-to-folder',
+        'order-layer-folder',
         'remove-layers-from-folder',
       ].includes(command?.type);
     const layerClipboardSnapshot =
