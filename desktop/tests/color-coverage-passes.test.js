@@ -459,6 +459,7 @@ test('grouped angular passes retain the full production pattern for every stop',
   first.params.center.value = [60, 55];
   second.params.center.value = [230, 145];
   gradient.params.center.value = [-20, 40];
+  layer.name = 'Escaped & " fill="#000000" fill-opacity="1" fill-rule="nonzero"';
   layer.nodes.push(second, join);
   connect(layer, first.id, join.id, 'a');
   connect(layer, second.id, join.id, 'b');
@@ -479,7 +480,10 @@ test('grouped angular passes retain the full production pattern for every stop',
   const local = renderElement(
     {
       ...scene[0].value,
-      contours: scene[0].value.contours.filter((contour) => contour.group === firstGroup),
+      stroke: undefined,
+      contours: scene[0].value.contours
+        .filter((contour) => contour.group === firstGroup)
+        .map(({ group: _group, ...contour }) => contour),
     },
     scene[0].layer,
   );
@@ -487,6 +491,12 @@ test('grouped angular passes retain the full production pattern for every stop',
     definition(local).match(/<pattern[^>]*>/)[0],
     original.match(/<pattern[^>]*>/)[0],
     'a locally rebuilt pattern must not accidentally make this fixture pass',
+  );
+  const expectedShape = `<defs>${original}</defs>${local.slice(local.indexOf('</defs>') + '</defs>'.length)}`;
+  assert.equal(
+    result[0].svg,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${doc.width}" height="${doc.height}" viewBox="0 0 ${doc.width} ${doc.height}" overflow="hidden">${expectedShape}</svg>`,
+    'the isolated path and its escaped attributes must match the production renderer',
   );
   for (const fill of [result[0], result[2]]) {
     assert.equal(definition(fill.svg), original);

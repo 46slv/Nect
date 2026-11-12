@@ -111,17 +111,28 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
     const isolated = { ...value, [paint === 'fill' ? 'stroke' : 'fill']: undefined };
     const svg = (path, attributes = '', definitions = '') => {
       const patternId = 'nect-gradient-0';
-      let element = renderElement(path, layer, {}, attributes, patternId);
-      if (angularGeometry && element) {
+      let element;
+      if (angularGeometry) {
         // The production renderer builds one angular pattern from all contours,
-        // then paints each group with it. Keep the isolated group's path while
-        // replacing its local pattern with the same full-geometry definition.
-        const end = element.indexOf('</defs>');
-        if (!element.startsWith(`<defs><pattern id="${patternId}" `) || end < 0)
-          throw Error('Angular coverage requires the production pattern definition');
+        // then paints each group with it. Ask the renderer for the isolated
+        // shape using a solid placeholder, avoiding a discarded 720-wedge
+        // group-local pattern for every pass and contribution.
         const pattern = fullAngularPattern(angularGeometry, path.fill, patternId);
-        element = `<defs>${pattern}</defs>${element.slice(end + '</defs>'.length)}`;
-      }
+        element = renderElement(
+          { ...path, fill: { hex: '#000000', alpha: 1 } },
+          layer,
+          {},
+          attributes,
+          patternId,
+        );
+        if (element) {
+          const placeholder = ' fill="#000000" fill-opacity="1" fill-rule="nonzero"',
+            at = element.indexOf(placeholder);
+          if (!element.startsWith('<path ') || at < 0 || element.indexOf(placeholder, at + 1) >= 0)
+            throw Error('Angular coverage requires the production path paint attribute');
+          element = `<defs>${pattern}</defs>${element.slice(0, at)} fill="url(#${patternId})" fill-rule="nonzero"${element.slice(at + placeholder.length)}`;
+        }
+      } else element = renderElement(path, layer, {}, attributes, patternId);
       const result = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" overflow="hidden">${definitions}${element}</svg>`;
       svgBytes += result.length;
       if (result.length > 4 * 1024 * 1024 || svgBytes > 16 * 1024 * 1024)
