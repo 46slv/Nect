@@ -94,22 +94,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Polygon',
-    categoryId: 'create',
-    labelJa: '多角形',
-    aliases: ['多角形'],
-    description: '多角形',
-    creationRoute: 'add',
-  },
-  {
-    typeId: 'Star',
-    categoryId: 'create',
-    labelJa: '星',
-    aliases: ['星'],
-    description: '星',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Curve',
     categoryId: 'create',
     labelJa: '曲線',

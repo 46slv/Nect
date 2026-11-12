@@ -55,6 +55,10 @@ import { vectorTransformDeclaration } from './vector-transform-declaration.js';
 import { evaluateVectorTransform } from './vector-transform-binding.js';
 import { outputDeclaration } from './output-node-declaration.js';
 import { evaluateOutput } from './output-node-binding.js';
+import { polygonDeclaration } from './polygon-node-declaration.js';
+import { evaluatePolygon } from './polygon-node-binding.js';
+import { starDeclaration } from './star-node-declaration.js';
+import { evaluateStar } from './star-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -144,4 +148,6 @@ export const builtinManifest = Object.freeze([
     'Vector Math',
   ),
   entry(outputDeclaration, { evaluate: evaluateOutput }, 'Stroke', null, 'private'),
+  entry(polygonDeclaration, { evaluate: evaluatePolygon }, 'Rectangle', 'Rectangle'),
+  entry(starDeclaration, { evaluate: evaluateStar }, 'Polygon', 'Polygon'),
 ]);
