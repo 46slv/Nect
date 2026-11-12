@@ -118,14 +118,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Set Path Start',
-    categoryId: 'path',
-    labelJa: '始点',
-    aliases: ['始点'],
-    description: '始点',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Resample Path',
     categoryId: 'path',
     labelJa: '再サンプル',
