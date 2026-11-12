@@ -1050,6 +1050,25 @@ test('saved color options account for whitespace collapsed by native option labe
   assert.equal(new Set(labels).size, 3);
 });
 
+test('saved color identity remains visible when native HTML drops a null character', (t) => {
+  const doc = savedColorFixture();
+  doc.colorSlots.find((slot) => slot.id === 'other').value = { hex: '#00Ff00', alpha: 0.5 };
+  doc.colorSlots.push({
+    id: 'third',
+    name: '…mant\u0000 · Same name',
+    value: { hex: '#00Ff00', alpha: 0.5 },
+  });
+  const s = setup(t, 'document', doc);
+  s.open();
+  const labels = [...s.query('[data-key-color-copy-saved]').options].slice(1).map((option) =>
+    option.textContent
+      .replace(/\u0000/g, '')
+      .replace(/[\t\n\f\r ]+/g, ' ')
+      .trim(),
+  );
+  assert.equal(new Set(labels).size, 3);
+});
+
 for (const kind of ['document', 'project'])
   test(`${kind}: saved color copies by ID into the detached C1 draft and Apply is one Undo`, (t) => {
     const s = setup(t, kind, savedColorFixture());

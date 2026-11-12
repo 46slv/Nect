@@ -1519,6 +1519,11 @@ try {
     name: '…mant  · Same name',
     value: { hex: '#00Ff00', alpha: 0.5 },
   });
+  copyFixture.colorSlots.push({
+    id: 'fourth',
+    name: '…mant\u0000 · Same name',
+    value: { hex: '#00Ff00', alpha: 0.5 },
+  });
   await load(copyFixture);
   await page.evaluate(() => {
     window.nect.dispatch({
@@ -1538,7 +1543,7 @@ try {
     .evaluateAll((options) => options.map(({ value, label }) => ({ value, text: label })));
   assert.deepEqual(
     savedOptions.map(({ value }) => value),
-    ['', 'dormant', 'other', 'third'],
+    ['', 'dormant', 'other', 'third', 'fourth'],
   );
   assert.equal(
     new Set(savedOptions.map(({ text }) => text.normalize('NFC'))).size,

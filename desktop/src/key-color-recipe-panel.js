@@ -887,37 +887,18 @@ export function createKeyColorRecipePanel({
   function savedColorControl() {
     const slots = savedColorCandidates();
     if (!slots.length) return '';
-    const labels = displayColorLabels(
-      slots.map(({ id, name }) => ({ id, label: name || id })),
-      ['Choose a color'],
-    );
-    const choices = slots.map(({ id, name, value }) => {
-      const original = name || id;
-      const label = labels.get(id);
-      const prefix = `${original} · `;
-      const visible = label.startsWith(prefix)
-        ? `${label.slice(prefix.length)} · ${original}`
-        : label;
-      return { id, original, value, visible };
-    });
-    // A user name can itself look like the ID prefix moved above. If that
-    // creates a collision, put unique IDs first for every candidate so the
-    // distinction remains visible even when a long option is clipped.
-    // Native <option> labels collapse ASCII whitespace before display.
-    const visibleLabels = choices.map(({ visible }) =>
-      visible
-        .replace(/[\t\n\f\r ]+/g, ' ')
-        .trim()
-        .normalize('NFC'),
-    );
+    // Prefix every choice when there is more than one. Names may contain
+    // whitespace, invisible characters or text imitating another ID prefix;
+    // the stable, unique prefix remains visible even when a name is clipped.
     const identityLabels =
-      new Set(visibleLabels).size === choices.length
-        ? null
-        : displayColorLabels(slots.map(({ id }) => ({ id, label: '' })));
-    const options = choices
-      .map(({ id, original, value, visible }) => {
-        const name = identityLabels ? `${identityLabels.get(id).slice(3)} · ${original}` : visible;
-        return `<option value="${esc(id)}">${esc(name)} · ${esc(value.hex)} · α ${value.alpha}</option>`;
+      slots.length > 1 ? displayColorLabels(slots.map(({ id }) => ({ id, label: '' }))) : null;
+    const options = slots
+      .map(({ id, name, value }) => {
+        const original = name || id;
+        const visible = identityLabels
+          ? `${identityLabels.get(id).slice(3)} · ${original}`
+          : original;
+        return `<option value="${esc(id)}">${esc(visible)} · ${esc(value.hex)} · α ${value.alpha}</option>`;
       })
       .join('');
     return `<label style="display:flex;min-width:0;max-width:100%">Copy saved color <select data-key-color-copy-saved style="width:240px;min-width:0;max-width:100%"><option value="">Choose a color</option>${options}</select></label>`;
