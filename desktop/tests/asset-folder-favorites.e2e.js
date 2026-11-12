@@ -86,6 +86,39 @@ try {
   await page.keyboard.press('Enter');
   await ready(panel);
   assert.equal(await select().inputValue(), firstId);
+  const pendingRefresh = page.waitForEvent('filechooser');
+  await panel.getByRole('button', { name: 'Refresh', exact: true }).click();
+  const refreshChooser = await pendingRefresh;
+  assert.equal(await panel.locator('[data-quick-open]').nth(1).isDisabled(), true);
+  assert.equal(
+    await panel.getByRole('button', { name: 'Unpin folder', exact: true }).isDisabled(),
+    true,
+  );
+  assert.equal(await select().isDisabled(), true);
+  await panel
+    .locator('[data-quick-open]')
+    .nth(1)
+    .evaluate((button) => button.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  assert.equal(await select().inputValue(), firstId, 'pending picker cannot switch folders');
+  await select().evaluate((element, id) => {
+    element.value = id;
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  }, secondId);
+  await panel
+    .getByRole('button', { name: 'Unpin folder', exact: true })
+    .evaluate((button) => button.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  assert.equal(await select().inputValue(), firstId, 'stale change cannot retarget the picker');
+  assert.equal(await panel.locator('[data-quick-open]').count(), 2);
+  await refreshChooser.setFiles(first);
+  await ready(panel);
+  assert.equal(await select().inputValue(), firstId);
+  assert.equal(await panel.locator('[data-quick-open]').nth(1).isDisabled(), false);
+  const cancelRefresh = page.waitForEvent('filechooser');
+  await panel.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await cancelRefresh;
+  await panel.locator('[data-asset-folder-input]').dispatchEvent('cancel');
+  assert.equal(await select().isDisabled(), false, 'cancel restores folder controls');
+  assert.equal(await panel.locator('[data-quick-open]').nth(1).isDisabled(), false);
   assert.deepEqual(
     await page.evaluate(() => ({
       document: window.nect.projectSnapshot(),

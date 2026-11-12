@@ -241,23 +241,25 @@ export function mountAssetLibrary({
     status.dataset.error = String(error);
   }
   function buttons() {
-    grid.inert = busy;
-    search.disabled = busy && !searchDuringRefresh;
-    hierarchy.disabled = more.disabled = busy;
-    for (const field of Object.values(fields)) field.disabled = busy;
-    place.disabled = busy || !selected || !!selected.error;
+    const choosingFolder = folderPickIntent !== null;
+    const blocked = busy || choosingFolder;
+    grid.inert = blocked;
+    search.disabled = choosingFolder || (busy && !searchDuringRefresh);
+    hierarchy.disabled = more.disabled = blocked;
+    for (const field of Object.values(fields)) field.disabled = blocked;
+    place.disabled = blocked || !selected || !!selected.error;
     graph.disabled = place.disabled;
     join.disabled = graph.disabled || selected?.kind === 'image';
-    add.disabled = refresh.disabled = remove.disabled = busy;
+    add.disabled = refresh.disabled = remove.disabled = blocked;
     refresh.disabled ||= !roots.length;
     remove.disabled ||= !roots.length;
-    rootSelect.disabled = busy || !roots.length;
+    rootSelect.disabled = blocked || !roots.length;
     const rootId = rootSelect.value;
-    pin.disabled = busy || favoriteReadFailed || !roots.some((root) => root.id === rootId);
+    pin.disabled = blocked || favoriteReadFailed || !roots.some((root) => root.id === rootId);
     pin.textContent = favorites.includes(rootId) ? 'Unpin folder' : 'Pin folder';
     pin.setAttribute('aria-pressed', String(favorites.includes(rootId)));
     for (const button of quick.querySelectorAll('button')) {
-      button.disabled = busy || (button.hasAttribute('data-quick-remove') && favoriteReadFailed);
+      button.disabled = blocked || (button.hasAttribute('data-quick-remove') && favoriteReadFailed);
       if (button.hasAttribute('data-quick-open')) {
         const active = button.dataset.quickOpen === rootId;
         button.setAttribute('aria-pressed', String(active));
@@ -369,7 +371,7 @@ export function mountAssetLibrary({
         whiteSpace: 'nowrap',
       });
       openButton.onclick = () => {
-        if (!alive || busy || !roots.some((entry) => entry.id === id)) return;
+        if (!alive || busy || folderPickIntent || !roots.some((entry) => entry.id === id)) return;
         folderRegistrationError = null;
         rootSelect.value = id;
         buttons();
@@ -387,7 +389,7 @@ export function mountAssetLibrary({
     }
   }
   function changeFavorites(next) {
-    if (!alive || busy || favoriteReadFailed) return;
+    if (!alive || busy || folderPickIntent || favoriteReadFailed) return;
     folderRegistrationError = null;
     if (next.length > MAX_FAVORITES) {
       message('Quick access is full; remove an unavailable folder first', true);
@@ -410,6 +412,7 @@ export function mountAssetLibrary({
     message('Quick access updated');
   }
   pin.onclick = () => {
+    if (!alive || busy || folderPickIntent) return;
     const id = rootSelect.value;
     if (!roots.some((root) => root.id === id)) return;
     changeFavorites(
@@ -596,6 +599,7 @@ export function mountAssetLibrary({
     drawItems();
   }
   async function refreshRoot() {
+    if (!alive || folderPickIntent) return;
     const id = rootSelect.value;
     const refreshRequest = ++refreshSequence;
     epoch++;
@@ -655,11 +659,22 @@ export function mountAssetLibrary({
       }
     }
   }
+  function beginBrowserFolderPick(intent) {
+    if (!alive || busy || folderPickIntent) return;
+    folderPickIntent = { ...intent, previousRootId: rootSelect.value };
+    picker.value = '';
+    buttons();
+    try {
+      picker.click();
+    } catch (error) {
+      folderPickIntent = null;
+      buttons();
+      message(String(error.message || error), true);
+    }
+  }
   async function addFolder() {
     if (!desktop) {
-      folderPickIntent = { mode: 'add' };
-      picker.value = '';
-      picker.click();
+      beginBrowserFolderPick({ mode: 'add' });
       return;
     }
     busy = true;
@@ -745,31 +760,36 @@ export function mountAssetLibrary({
       drawRoots(id);
       await refreshRoot();
     } catch (error) {
-      message(error.message, true);
+      if (alive) message(error.message, true);
+    } finally {
+      if (alive) buttons();
     }
   };
   picker.addEventListener('cancel', () => {
     const refreshing = folderPickIntent?.mode === 'refresh';
     folderPickIntent = null;
-    if (alive)
+    if (alive) {
+      buttons();
       message(
         refreshing ? 'Catalog unchanged. Remove folder to clear.' : 'Folder selection unchanged',
       );
+    }
   });
   add.onclick = () => {
+    if (!alive || busy || folderPickIntent) return;
     folderRegistrationError = null;
     void addFolder();
   };
   refresh.onclick = () => {
+    if (!alive || busy || folderPickIntent) return;
     folderRegistrationError = null;
     if (desktop) void refreshRoot();
     else {
-      folderPickIntent = { mode: 'refresh', rootId: rootSelect.value };
-      picker.value = '';
-      picker.click();
+      beginBrowserFolderPick({ mode: 'refresh', rootId: rootSelect.value });
     }
   };
   remove.onclick = async () => {
+    if (!alive || busy || folderPickIntent) return;
     folderRegistrationError = null;
     busy = true;
     buttons();
@@ -792,6 +812,11 @@ export function mountAssetLibrary({
     }
   };
   rootSelect.onchange = () => {
+    if (!alive || busy) return;
+    if (folderPickIntent) {
+      rootSelect.value = folderPickIntent.previousRootId;
+      return;
+    }
     folderRegistrationError = null;
     void refreshRoot();
   };
