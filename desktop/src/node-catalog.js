@@ -166,14 +166,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Corner Round',
-    categoryId: 'path',
-    labelJa: '角丸',
-    aliases: ['角丸'],
-    description: '角丸',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Trim Path',
     categoryId: 'path',
     labelJa: '切り取り',
