@@ -1,4 +1,5 @@
 import { workspaceIcon } from './ui-icons.js';
+import { createLayerClipboardOwner } from './layer-clipboard-owner.js';
 import { samePrivateFontSource } from './private-font-source.js';
 import { createFontChoiceController } from './font-choice-controller.js';
 import {
@@ -1439,7 +1440,16 @@ const sessionOptions = {
       rememberViewNeutralHistory(history.undoToken, history.entryToken);
     // A copied slot reference expires at the first committed removal, even if
     // another import later introduces the same ID while its panel is hidden.
-    if (state.sessionId === session.id) sharedColors.observeCommittedProject();
+    if (state.sessionId === session.id) {
+      if (layerClipboard.hasCopy)
+        layerClipboard.observe({
+          owner: session,
+          generation: documents.generation,
+          operation: state.operation,
+          history,
+        });
+      sharedColors.observeCommittedProject();
+    }
     // Let the operation finish a document-lifetime transition (e.g. SVG import)
     // before associating its committed state with a recovery document identity.
     queueMicrotask(() => {
@@ -1500,7 +1510,7 @@ let history = session.historyView,
   selected = null,
   artworkTarget = null,
   artworkSelection = new Set(),
-  layerClipboard = null,
+  layerClipboard = createLayerClipboardOwner(),
   selectedNodePreset = null,
   tool = 'select',
   textTools = null,
@@ -9621,6 +9631,7 @@ function replaceDocument(
   viewerState = createViewerState();
   session = replacement;
   history = session.historyView;
+  layerClipboard.clear();
   variableBridge = preparedBridge;
   documents.replace({ binding, saved });
   if (previousBridge && previousBridge !== preparedBridge) previousBridge.dispose();
@@ -17969,15 +17980,26 @@ document.addEventListener('keydown', (event) => {
   if (!row || !app.contains(row)) return;
   const layerId = row.dataset.layer;
   if (event.key.toLowerCase() === 'c') {
-    layerClipboard = [layerId];
+    if (!session.hasLayer(session.activeCompositionId, layerId)) return;
+    layerClipboard.copy({
+      owner: session,
+      generation: documents.generation,
+      compositionId: session.activeCompositionId,
+      layerId,
+    });
     event.preventDefault();
     notify('Layer copied');
-  } else if (event.key.toLowerCase() === 'v' && layerClipboard?.length) {
+  } else if (event.key.toLowerCase() === 'v' && layerClipboard.hasCopy) {
     event.preventDefault();
-    const sourceId = layerClipboard.find((id) =>
-      history.doc.layers.some((layer) => layer.id === id),
-    );
-    if (!sourceId) return;
+    const sourceId = layerClipboard.source({
+      owner: session,
+      generation: documents.generation,
+      compositionId: session.activeCompositionId,
+    });
+    if (!sourceId) {
+      notify('Copied Layer is unavailable in this Composition', true);
+      return;
+    }
     duplicateFocusedLayer(sourceId);
   } else if (event.key.toLowerCase() === 'd') {
     event.preventDefault();
