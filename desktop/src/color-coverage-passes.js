@@ -3,13 +3,17 @@
 import { renderElement } from './core.js';
 import { renderLinearGradientFill } from './linear-gradient.js';
 import { renderRadialGradientFill } from './radial-gradient.js';
+import { renderAngularGradientFill } from './angular-gradient.js';
 import { contourGroups } from './path-groups.js';
+import { formatSvgNumber } from './svg-number-format.js';
 
 const angularStops = ['startColor', 'color1', 'color2', 'endColor'];
 const gradientRenderers = {
   'linear-gradient': renderLinearGradientFill,
   'radial-gradient': renderRadialGradientFill,
 };
+const unsupported =
+  'Coverage attribution requires plain solid, two-stop linear/radial-gradient or four-stop angular-gradient paths';
 
 function slot(id) {
   if (id !== null && (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(id)))
@@ -23,6 +27,18 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
   if (![width, height].every((n) => Number.isFinite(n) && n > 0 && n <= 100000))
     throw Error('Invalid coverage artboard bounds');
   const paints = [];
+  // Group opacity is currently admitted only for solid fill-only scenes. A
+  // fill and stroke share one group alpha in the renderer and cannot be
+  // attributed as independently faded paints.
+  const partialOpacity = scene.some(
+    (entry) =>
+      Array.isArray(entry?.value?.contours) &&
+      entry.value.contours.some(
+        (contour) => contour?.repeaterOpacity !== undefined && contour.repeaterOpacity !== 1,
+      ),
+  );
+  if (partialOpacity && scene.some((entry) => entry?.value?.stroke || entry?.value?.fill?.kind))
+    throw Error(`${unsupported}; partial opacity supports only solid fill-only scenes`);
   // Preflight the whole scene before emitting anything. Unsupported attribution
   // must not silently become a percentage for only the supported objects.
   for (const entry of scene) {
@@ -45,15 +61,16 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
         (c) =>
           !c ||
           (c.group !== undefined && typeof c.group !== 'string') ||
-          (c.repeaterOpacity !== undefined && c.repeaterOpacity !== 1) ||
+          (c.repeaterOpacity !== undefined &&
+            (!Number.isFinite(c.repeaterOpacity) ||
+              c.repeaterOpacity < 0 ||
+              c.repeaterOpacity > 1 ||
+              (c.repeaterOpacity !== 1 && c.group === undefined))) ||
           c.repeaterFill !== undefined ||
           c.repeaterStroke !== undefined,
-      ) ||
-      (value.fill?.kind === 'angular-gradient' && value.contours.some((c) => c.group !== undefined))
+      )
     )
-      throw Error(
-        'Coverage attribution requires plain solid, two-stop linear/radial-gradient or four-stop angular-gradient paths',
-      );
+      throw Error(unsupported);
     const provenance = entry.paintProvenance ?? bindings.get(layer.id) ?? {};
     // The production renderer paints each independent group in order, with
     // that group's fill followed by its stroke. Splitting all fills from all
@@ -61,6 +78,9 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
     const grouped = value.contours.some((contour) => contour.group !== undefined);
     const groups = grouped ? contourGroups(value) : [value.contours];
     for (const contours of groups) {
+      const groupOpacity = grouped ? (contours[0]?.repeaterOpacity ?? 1) : 1;
+      if (contours.some((contour) => (contour.repeaterOpacity ?? 1) !== groupOpacity))
+        throw Error('Coverage attribution requires consistent group opacity');
       const groupValue = grouped
         ? { ...value, contours: contours.map(({ group: _group, ...contour }) => contour) }
         : value;
@@ -84,16 +104,62 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
           slotId = stopIds[0];
           stopIds = null;
         }
-        paints.push({ layer, value: groupValue, paint, slotId, stopIds, angular });
+        paints.push({
+          layer,
+          value: groupValue,
+          paint,
+          slotId,
+          stopIds,
+          angular,
+          angularGeometry: angular && grouped ? value : null,
+          groupOpacity,
+        });
         if (paints.length > 256) throw Error('Coverage paint pass budget exceeded');
       }
     }
   }
   let svgBytes = 0;
-  return paints.map(({ layer, value, paint, slotId, stopIds, angular }) => {
+  const angularPatterns = new WeakMap();
+  const fullAngularPattern = (geometry, fill, id) => {
+    let patterns = angularPatterns.get(geometry);
+    if (!patterns) angularPatterns.set(geometry, (patterns = new Map()));
+    const key = JSON.stringify(fill);
+    if (!patterns.has(key))
+      patterns.set(key, renderAngularGradientFill(fill, id, geometry).definition);
+    return patterns.get(key);
+  };
+  return paints.map((pass) => {
+    const { layer, value, paint, slotId, stopIds, angular, angularGeometry, groupOpacity } = pass;
     const isolated = { ...value, [paint === 'fill' ? 'stroke' : 'fill']: undefined };
     const svg = (path, attributes = '', definitions = '') => {
-      const result = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" overflow="hidden">${definitions}${renderElement(path, layer, {}, attributes)}</svg>`;
+      const patternId = 'nect-gradient-0';
+      let element;
+      if (angularGeometry) {
+        // The production renderer builds one angular pattern from all contours,
+        // then paints each group with it. Ask the renderer for the isolated
+        // shape using a solid placeholder, avoiding a discarded 720-wedge
+        // group-local pattern for every pass and contribution.
+        const pattern = fullAngularPattern(angularGeometry, path.fill, patternId);
+        element = renderElement(
+          { ...path, fill: { hex: '#000000', alpha: 1 } },
+          layer,
+          {},
+          attributes,
+          patternId,
+        );
+        if (element) {
+          const placeholder = ' fill="#000000" fill-opacity="1" fill-rule="nonzero"',
+            at = element.indexOf(placeholder);
+          if (!element.startsWith('<path ') || at < 0 || element.indexOf(placeholder, at + 1) >= 0)
+            throw Error('Angular coverage requires the production path paint attribute');
+          element = `<defs>${pattern}</defs>${element.slice(0, at)} fill="url(#${patternId})" fill-rule="nonzero"${element.slice(at + placeholder.length)}`;
+        }
+      } else element = renderElement(path, layer, {}, attributes, patternId);
+      const content =
+        groupOpacity === 1
+          ? element
+          : `<g opacity="${formatSvgNumber(groupOpacity)}">${element}</g>`;
+      const result = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" overflow="hidden">${definitions}${content}</svg>`;
       svgBytes += result.length;
       if (result.length > 4 * 1024 * 1024 || svgBytes > 16 * 1024 * 1024)
         throw Error('Coverage SVG budget exceeded');
