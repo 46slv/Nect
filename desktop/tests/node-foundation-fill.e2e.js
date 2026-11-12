@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright-core';
-import { blankDocument, connect, node, serialize } from '../src/core.js';
+import {
+  blankDocument,
+  connect,
+  enableRemapPoint,
+  evaluate,
+  node,
+  serialize,
+} from '../src/core.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 
 const doc = blankDocument(),
@@ -84,8 +91,85 @@ try {
   await page.screenshot({
     path: `test-results/node-foundation-fill-${process.env.EVIDENCE_LABEL || 'current'}.png`,
   });
+
+  const remapDoc = blankDocument(),
+    remapLayer = remapDoc.layers[0],
+    remapOutput = remapLayer.nodes[0],
+    imported = node('Imported Path', 40, 80),
+    upstreamFill = node('Fill', 340, 80),
+    convert = node('Convert to Path', 640, 80),
+    remap = node('Path Remap', 940, 80),
+    repaint = node('Fill', 1240, 80);
+  imported.rawPath = 'M0 0 L100 0 L100 100 L0 100 Z';
+  for (const [item, id] of [
+    [imported, 'shape'],
+    [upstreamFill, 'fill'],
+    [convert, 'convert'],
+    [remap, 'remap'],
+    [repaint, 'final'],
+  ])
+    item.id = id;
+  remapLayer.nodes.push(imported, upstreamFill, convert, remap, repaint);
+  for (const [from, to] of [
+    [imported, upstreamFill],
+    [upstreamFill, convert],
+    [convert, remap],
+    [remap, repaint],
+    [repaint, remapOutput],
+  ])
+    connect(remapLayer, from.id, to.id, 'path');
+  const converted = evaluate(remapLayer, {}, remapDoc.imageAssets, remapDoc).run(convert.id);
+  enableRemapPoint(remap, converted, converted.contours[0].points[0].id).params.position.value = [
+    3, 1,
+  ];
+  await page.evaluate((value) => window.nect.load(value), serialize(remapDoc));
+  const remapState = () =>
+      page.evaluate(() => {
+        const evaluation = window.nect.evaluate(),
+          path = evaluation.run('remap');
+        return {
+          warnings: evaluation.warnings,
+          fingerprint: evaluation.run('convert').fingerprint,
+          point: path.contours[0].points[0],
+        };
+      }),
+    fillCard = page.locator('.graph .node[data-id="fill"]');
+  await fillCard.locator('.node-head strong').click();
+  const beforeRemap = await saved(),
+    activeRemap = await remapState(),
+    alpha = page.locator(
+      '.inspector-body .field[data-node="fill"][data-key="color"] [data-color="alpha"]',
+    );
+  assert.deepEqual(activeRemap.point.position, [3, 1]);
+  assert.deepEqual(activeRemap.warnings, []);
+  await alpha.fill('0.5');
+  await alpha.press('Tab');
+  const recolored = await saved();
+  assert.notEqual(recolored, beforeRemap);
+  assert.deepEqual(await remapState(), activeRemap);
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(await saved(), beforeRemap);
+  await page.locator('[data-action="redo"]').click();
+  assert.equal(await saved(), recolored);
+  assert.deepEqual(await remapState(), activeRemap);
+  await page.locator('[data-action="undo"]').click();
+  await fillCard.locator('[data-bypass="fill"]').click();
+  const bypassedRemap = await saved(),
+    suspended = await remapState();
+  assert.equal(suspended.point.id, activeRemap.point.id);
+  assert.deepEqual(suspended.point.position, [0, 0]);
+  assert.match(suspended.warnings.join(' '), /suspended/i);
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(await saved(), beforeRemap);
+  assert.deepEqual(await remapState(), activeRemap);
+  await page.locator('[data-action="redo"]').click();
+  assert.equal(await saved(), bypassedRemap);
+  assert.match((await remapState()).warnings.join(' '), /suspended/i);
+  await page.evaluate((value) => window.nect.load(value), bypassedRemap);
+  assert.equal(await saved(), bypassedRemap);
+  assert.match((await remapState()).warnings.join(' '), /suspended/i);
   assert.deepEqual(errors, []);
-  console.log('PASS Fill source, equal-color slot identity, bypass, Undo/Redo and reload');
+  console.log('PASS Fill color slots, provenance, bypass, Remap, Undo/Redo and reload');
 } finally {
   await browser.close();
 }

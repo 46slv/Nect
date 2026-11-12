@@ -4,6 +4,7 @@ import {
   blankDocument,
   node,
   connect,
+  enableRemapPoint,
   evaluate,
   exportScene,
   CommandSession,
@@ -15,6 +16,7 @@ import { createNodeRegistry } from '../src/node-foundation.js';
 import { nectNodeHost } from '../src/nect-node-host.js';
 import { fillDeclaration } from '../src/fill-node-declaration.js';
 import { evaluateFill } from '../src/fill-node-binding.js';
+import { colorCoveragePasses } from '../src/color-coverage-passes.js';
 
 const color = { hex: '#123456', alpha: 0.5 };
 
@@ -218,6 +220,89 @@ test('a painted group rejects Fill before reading invalid color; bypass retains 
   assert.equal(bypassed.path.kind, 'painted-group');
 });
 
+test('Fill color and bypass preserve the current Convert to Path and Remap history semantics', () => {
+  const doc = blankDocument(),
+    layer = doc.layers[0],
+    output = layer.nodes[0],
+    source = node('Imported Path'),
+    fill = node('Fill'),
+    convert = node('Convert to Path'),
+    remap = node('Path Remap'),
+    final = node('Fill');
+  source.rawPath = 'M0 0 L100 0 L100 100 L0 100 Z';
+  for (const [item, id] of [
+    [source, 'shape'],
+    [fill, 'fill'],
+    [convert, 'convert'],
+    [remap, 'remap'],
+    [final, 'final'],
+  ])
+    item.id = id;
+  layer.nodes.push(source, fill, convert, remap, final);
+  for (const [from, to] of [
+    [source, fill],
+    [fill, convert],
+    [convert, remap],
+    [remap, final],
+    [final, output],
+  ])
+    connect(layer, from.id, to.id, 'path');
+  const initial = evaluate(layer, {}, doc.imageAssets, doc),
+    converted = initial.run(convert.id),
+    point = converted.contours[0].points[0];
+  assert.equal(
+    converted.fingerprint,
+    'sha256:443cfef11556ae8b1c1dcab526d1fdb7a2382897335fb42e16ba4fa9a766bdf0',
+  );
+  assert.equal(point.id, 'shape:c0:p0');
+  enableRemapPoint(remap, converted, point.id).params.position.value = [3, 1];
+  const session = new CommandSession(deserialize(serialize(doc))),
+    send = (type, payload = {}) =>
+      session.dispatch({ ...session.state, type, payload: { layerId: layer.id, ...payload } }),
+    read = () => {
+      const snapshot = session.snapshot(),
+        evaluation = evaluate(snapshot.layers[0], {}, snapshot.imageAssets, snapshot),
+        path = evaluation.run(remap.id);
+      return {
+        error: evaluation.error,
+        warnings: evaluation.warnings,
+        fingerprint: evaluation.run(convert.id).fingerprint,
+        point: path.contours[0].points[0],
+      };
+    },
+    original = serialize(session.snapshot());
+  const active = read();
+  assert.equal(active.error, null);
+  assert.deepEqual(active.warnings, []);
+  assert.deepEqual(active.point.position, [3, 1]);
+  send('set-parameter', { nodeId: fill.id, key: 'color', value: color });
+  const recolored = serialize(session.snapshot());
+  assert.deepEqual(read(), active);
+  send('undo');
+  assert.equal(serialize(session.snapshot()), original);
+  send('redo');
+  assert.equal(serialize(session.snapshot()), recolored);
+  assert.deepEqual(read(), active);
+  send('undo');
+  send('set-node-bypassed', { nodeId: fill.id, bypassed: true });
+  const bypassed = serialize(session.snapshot()),
+    suspended = read();
+  assert.equal(
+    suspended.fingerprint,
+    'sha256:3f977fcc5455f4d32b4c13c1f61895f59a176164cd7074b5944d6c353b3dd567',
+  );
+  assert.equal(suspended.point.id, point.id);
+  assert.deepEqual(suspended.point.position, [0, 0]);
+  assert.match(suspended.warnings.join(' '), /suspended/i);
+  send('undo');
+  assert.equal(serialize(session.snapshot()), original);
+  assert.deepEqual(read(), active);
+  send('redo');
+  assert.equal(serialize(session.snapshot()), bypassed);
+  assert.match(read().warnings.join(' '), /suspended/i);
+  assert.equal(serialize(deserialize(bypassed)), bypassed);
+});
+
 for (const kind of ['join', 'repeater']) {
   test(`Fill preserves ${kind} geometry groups and exact paint identities`, () => {
     const { doc, layer, output, shape, stroke, fill } = sceneFixture();
@@ -243,6 +328,15 @@ for (const kind of ['join', 'repeater']) {
       result = exportScene(doc)[0];
     assert.ok(result.value.contours.length >= 2);
     assert.deepEqual(result.paintProvenance, { stroke: 'stroke', fill: 'first' });
+    assert.deepEqual(
+      colorCoveragePasses([result], doc).map((pass) => [pass.paint, pass.slotId]),
+      [
+        ['fill', 'first'],
+        ['stroke', 'stroke'],
+        ['fill', 'first'],
+        ['stroke', 'stroke'],
+      ],
+    );
     assert.equal(serialize(doc), before);
     assert.deepEqual(exportScene(deserialize(before))[0].paintProvenance, result.paintProvenance);
   });
