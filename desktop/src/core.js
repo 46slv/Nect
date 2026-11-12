@@ -218,6 +218,7 @@ import {
   renameLayerFolder,
   addLayersToFolder,
   moveLayersToFolder,
+  orderLayerFolder,
   removeLayersFromFolder,
   dissolveLayerFolder,
 } from './layer-folders.js';
@@ -710,7 +711,6 @@ const legacyDefinitions = {
     miterLimit: p('Scalar', 4),
     dashOffset: p('Scalar', 0),
   },
-  Output: { path: p('PaintedPath', null) },
   Text: {
     position: p('Vector2', [200, 300]),
     size: p('Scalar', 100),
@@ -999,7 +999,6 @@ export function outputType(n, port) {
       'Error Diffusion Dither',
       'Line Screen',
       'Stroke',
-      'Output',
     ].includes(n.type)
   )
     return 'PaintedPath';
@@ -3692,6 +3691,7 @@ export function evaluate(
         const nodeId = n.id;
         const warn = (message) => warnings.push(`${n.name}: ${message}`);
         const hasParameter = (key) => !!n.params[key];
+        const nodeHasEmptyOutput = () => hasEmptyOutput(layer, n);
         const identity = Object.freeze({
           provenance: (currentEra) => provenance(nodeId, undefined, currentEra),
           fingerprint: evaluatedFingerprint,
@@ -3706,13 +3706,21 @@ export function evaluate(
               cloneEvaluated,
               identity,
               hasParameter,
+              hasEmptyOutput: nodeHasEmptyOutput,
               paintedGroup: (inputs) => {
                 const painted = evaluatedPaintedGroup(inputs, { prefix: nodeId });
                 setEvaluationFingerprint(painted, () => [nodeId, inputs]);
                 return painted;
               },
             })
-          : Object.freeze({ nodeId, warn, cloneEvaluated, identity, hasParameter });
+          : Object.freeze({
+              nodeId,
+              warn,
+              cloneEvaluated,
+              identity,
+              hasParameter,
+              hasEmptyOutput: nodeHasEmptyOutput,
+            });
         result = registered.evaluate(n.operation, read, context);
         assertValue(registered.interface(n.operation, shape).resultType, result);
       } else if (n.type === 'Polygon' || n.type === 'Star') {
@@ -4548,12 +4556,11 @@ export function evaluate(
         } finally {
           for (const item of liveOperands) item.remove();
         }
-      } else if (hasEmptyOutput(layer, n)) result = { contours: [] };
-      else {
+      } else {
         result = read('path');
         if (!result) throw Error(`Connect a ${n.params.path.type} input`);
         result = cloneEvaluated(result);
-        if (isPaintedGroup(result) && n.type !== 'Output')
+        if (isPaintedGroup(result))
           throw Error('Edit paint in the source Composition, or use Convert to Path');
         if (n.type === 'Fill') {
           result.fill = read('color');
@@ -8045,6 +8052,7 @@ export class CommandSession {
       'paste-layer-snapshot',
       'apply-effect',
       'move-layers-to-folder',
+      'order-layer-folder',
       'remove-layers-from-folder',
     ].includes(commandType);
     return this.#observeCommit(() => this.#dispatch(command, entry, copyAttempt), {
@@ -8072,6 +8080,7 @@ export class CommandSession {
       'paste-layer-snapshot',
       'apply-effect',
       'move-layers-to-folder',
+      'order-layer-folder',
       'remove-layers-from-folder',
     ].includes(type);
     const layerClipboardSnapshot =
@@ -8655,6 +8664,7 @@ export class CommandSession {
         'rename-layer-folder',
         'add-layers-to-folder',
         'move-layers-to-folder',
+        'order-layer-folder',
         'remove-layers-from-folder',
         'dissolve-layer-folder',
       ].includes(type)
@@ -8672,9 +8682,11 @@ export class CommandSession {
               ? addLayersToFolder(candidate, payload)
               : type === 'move-layers-to-folder'
                 ? moveLayersToFolder(candidate, payload)
-                : type === 'remove-layers-from-folder'
-                  ? removeLayersFromFolder(candidate, payload)
-                  : dissolveLayerFolder(candidate, payload);
+                : type === 'order-layer-folder'
+                  ? orderLayerFolder(candidate, payload)
+                  : type === 'remove-layers-from-folder'
+                    ? removeLayersFromFolder(candidate, payload)
+                    : dissolveLayerFolder(candidate, payload);
       validate(candidate);
       return { candidate, result };
     }

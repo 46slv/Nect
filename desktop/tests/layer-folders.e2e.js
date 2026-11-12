@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
+import { verifyFolderBlockOrder } from './helpers/layer-folder-order-e2e.js';
 
 const browser = await chromium.launch({
   executablePath:
@@ -620,6 +621,7 @@ try {
   );
   assert.deepEqual(await project(), afterOut);
   assert.notDeepEqual(await pixel(), beforeOutPixel);
+  await verifyFolderBlockOrder(page);
   assert.deepEqual(errors, []);
   console.log('PASS Layer Folder organization, confirmed order change, Undo and project reopen');
 } finally {

@@ -137,6 +137,7 @@ export const browserTestFiles = Object.freeze([
   'tests/node-foundation-text-to-path.e2e.js',
   'tests/node-foundation-set-closure.e2e.js',
   'tests/node-foundation-vector-transform.e2e.js',
+  'tests/node-foundation-output.e2e.js',
   'tests/effects-panel.e2e.js',
 ]);
 
