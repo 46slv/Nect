@@ -22,6 +22,8 @@ import { colorCoveragePasses } from './color-coverage-passes.js';
 import { sampleColorCoverage } from './color-coverage-sampling.js';
 import { rasterizeCoverageAlpha } from './color-coverage-raster.js';
 import { createSharedColorsPanel } from './shared-colors-panel.js';
+import { createEffectsPanel } from './effects-panel.js';
+import { planTransformEffect, TRANSFORM_EFFECT_ID } from './effect-insert-plan.js';
 import { createKeyColorRecipePanel } from './key-color-recipe-panel.js';
 import { createHslColorPicker } from './hsl-color-popover.js';
 import {
@@ -63,7 +65,7 @@ import { hasLayerSolo, layerIsVisible } from './layer-visibility.js';
 import { osTextIntent } from './os-font-outline.js';
 import { desktopTextIntent } from './desktop-font-text.js';
 import { queryShapeSources, directGeometryUses } from './source-navigation.js';
-import { nodeCategories, nodePickerItems, searchNodeItems } from './node-catalog.js';
+import { nodeCatalog, nodeCategories, nodePickerItems, searchNodeItems } from './node-catalog.js';
 import { createViewerState, mountViewers, updateViewers } from './node-viewers.js';
 import { createCompositionViewStateStore } from './composition-view-state.js';
 import { attachExpressionCompletion, expressionReferenceType } from './expression-completion.js';
@@ -1177,6 +1179,22 @@ const coverageView = createColorCoverageView({
     );
   },
 });
+const effectsPanel = createEffectsPanel({
+  document,
+  getTarget: effectPanelTarget,
+  getEntries: () => {
+    const entry = nodeCatalog.find((item) => item.typeId === 'Transform');
+    return [
+      {
+        id: TRANSFORM_EFFECT_ID,
+        label: nodeTypeLabel('Transform'),
+        aliases: [entry?.labelJa, ...(entry?.aliases || [])].filter(Boolean),
+      },
+    ];
+  },
+  onApply: applyArtworkEffect,
+  onError: (error) => notify(error.message, true),
+});
 const workspacePanels = createWorkspacePanels({
   storage: {
     getItem: (key) => localStorage.getItem(key),
@@ -1192,6 +1210,8 @@ const workspacePanels = createWorkspacePanels({
     onColors: () => coverageView.refresh(),
     createColorsView: () => sharedColors.createView(),
     canDeactivateColors: () => sharedColors.canDeactivate,
+    createEffectsView: () => effectsPanel.createView(),
+    canDeactivateEffects: () => effectsPanel.canDeactivate,
     onAlign: () => {},
   }),
 });
@@ -1921,6 +1941,96 @@ function selectArtwork(layerId, { toggle = false, preserve = false } = {}) {
 }
 function artworkMove() {
   return resolveArtworkMoveSelection(history.doc, artworkSelection, { fonts });
+}
+function effectPanelTarget() {
+  // Inactive drawers are rebuilt during ordinary renders; avoid planning them.
+  if (workspacePanels.active.left !== 'effects') return null;
+  if (
+    !artworkTarget ||
+    artworkSelection.size !== 1 ||
+    !artworkSelection.has(artworkTarget) ||
+    activeLayer !== artworkTarget
+  )
+    return artworkSelection.size > 1 ? { reason: 'Select one artwork' } : null;
+  const owner = session,
+    layer = history.doc.layers.find((item) => item.id === artworkTarget),
+    envelope = { ...owner.state },
+    projectRevision = owner.projectRevision,
+    generation = documents.generation,
+    compositionId = owner.activeCompositionId;
+  if (!layer) return null;
+  if (deletionBusy() || variableAction || documents.hasDraft())
+    return { label: layer.name, reason: 'Finish the current edit' };
+  let plan;
+  try {
+    plan = planTransformEffect(history.doc, layer.id, {
+      fonts: resolveFonts(history.doc, activeFonts()),
+      imageAssets: history.doc.imageAssets,
+    });
+  } catch (error) {
+    return { label: layer.name, reason: error.message };
+  }
+  if (!plan.supported) return { label: layer.name, reason: plan.reason };
+  if (
+    owner !== session ||
+    owner.state.sessionId !== envelope.sessionId ||
+    owner.state.expectedRevision !== envelope.expectedRevision ||
+    owner.projectRevision !== projectRevision ||
+    owner.activeCompositionId !== compositionId ||
+    documents.generation !== generation
+  )
+    return { label: layer.name, reason: 'Artwork changed' };
+  return {
+    label: layer.name,
+    snapshot: Object.freeze({
+      owner,
+      envelope: Object.freeze(envelope),
+      projectRevision,
+      generation,
+      compositionId,
+      layerId: layer.id,
+      expectedTarget: Object.freeze({ ...plan.target }),
+    }),
+  };
+}
+function applyArtworkEffect(effectId, target) {
+  const { owner, envelope, projectRevision, generation, compositionId, layerId, expectedTarget } =
+    target;
+  if (
+    effectId !== TRANSFORM_EFFECT_ID ||
+    workspacePanels.active.left !== 'effects' ||
+    owner !== session ||
+    owner.state.sessionId !== envelope.sessionId ||
+    owner.state.expectedRevision !== envelope.expectedRevision ||
+    owner.projectRevision !== projectRevision ||
+    owner.activeCompositionId !== compositionId ||
+    documents.generation !== generation ||
+    artworkTarget !== layerId ||
+    activeLayer !== layerId ||
+    artworkSelection.size !== 1 ||
+    !artworkSelection.has(layerId) ||
+    deletionBusy() ||
+    variableAction ||
+    documents.hasDraft()
+  )
+    throw Error('Artwork changed; select it again');
+  const priorUI = selectionSnapshot(true);
+  const result = owner.dispatch({
+    ...envelope,
+    type: 'apply-effect',
+    payload: { layerId, effectId, expectedTarget },
+  });
+  if (!result.changed) return;
+  selected = result.nodeId;
+  selection = new Set([selected]);
+  artworkTarget = null;
+  artworkSelection = new Set();
+  selectionHistory.set(history.past.at(-1), priorUI);
+  selectionHistory.set(history.doc, selectionSnapshot(true));
+  workspacePanels.select('inspector');
+  notify('Effect applied');
+  render();
+  revealNode(selected);
 }
 function hasCanvasOnlyMove(move) {
   const targets =
