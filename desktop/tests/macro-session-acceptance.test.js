@@ -77,18 +77,18 @@ function pathSnapshot(owner, layerId) {
   });
 }
 
-function assertSameArtwork(actual, expected) {
+function assertSameArtwork(actual, expected, { sameIds = true } = {}) {
   assert.deepEqual(actual.fill, expected.fill);
   assert.deepEqual(actual.stroke, expected.stroke);
   assert.equal(actual.contours.length, expected.contours.length);
   for (const [index, contour] of expected.contours.entries()) {
     const next = actual.contours[index];
-    assert.equal(next.id, contour.id);
+    if (sameIds) assert.equal(next.id, contour.id);
     assert.equal(next.closed, contour.closed);
     assert.equal(next.points.length, contour.points.length);
     for (const [pointIndex, point] of contour.points.entries()) {
       const nextPoint = next.points[pointIndex];
-      assert.equal(nextPoint.id, point.id);
+      if (sameIds) assert.equal(nextPoint.id, point.id);
       for (const key of ['position', 'handleA', 'handleB'])
         for (let axis = 0; axis < 2; axis++)
           assert.ok(Math.abs(nextPoint[key][axis] - point[key][axis]) < 1e-8);
@@ -201,4 +201,55 @@ test('actual connected Path overflow and a stale insertion request preserve Proj
   );
   assert.equal(serializeCompositionProject(f.owner.projectSnapshot()), before);
   assert.deepEqual(f.owner.historyState, history);
+});
+
+test('a complete same-Project duplicate creates an independent Macro instance with the same pin', () => {
+  const f = fixture(),
+    { instance } = insert(f),
+    originalPath = pathSnapshot(f.owner, f.layer.id),
+    copied = f.send('duplicate-layer', { layerId: f.layer.id }),
+    copy = f.owner.snapshot().layers.find((item) => item.id === copied.layerId),
+    copyInstance = copy.nodes.find((item) => item.type === 'Macro'),
+    copyPath = pathSnapshot(f.owner, copied.layerId);
+  assert.notEqual(copyInstance.id, instance.id);
+  assert.deepEqual(copyInstance.macro, instance.macro);
+  assertSameArtwork(copyPath, originalPath, { sameIds: false });
+  f.send('set-macro-override', {
+    layerId: copied.layerId,
+    nodeId: copyInstance.id,
+    parameterId: 'scale',
+    value: 2,
+  });
+  assertSameArtwork(pathSnapshot(f.owner, f.layer.id), originalPath);
+  assert.notDeepEqual(pathSnapshot(f.owner, copied.layerId), copyPath);
+  f.send('undo');
+  assertSameArtwork(pathSnapshot(f.owner, copied.layerId), copyPath);
+  f.send('redo');
+  const saved = serializeCompositionProject(f.owner.projectSnapshot()),
+    reopened = createCompositionSessionOwner(deserializeCompositionProject(saved, deserialize));
+  assert.notDeepEqual(pathSnapshot(reopened, copied.layerId), copyPath);
+  assertSameArtwork(pathSnapshot(reopened, f.layer.id), originalPath);
+});
+
+test('operations without Macro definition closure reject atomically and preserve Redo', () => {
+  const f = fixture(),
+    { instance } = insert(f),
+    sourceProject = f.owner.projectSnapshot(),
+    sourceCompositionId = sourceProject.compositions[0].id;
+  f.send('set-document-settings', { key: 'width', value: 777 });
+  f.send('undo');
+  const before = serializeCompositionProject(f.owner.projectSnapshot()),
+    state = f.owner.state,
+    history = f.owner.historyState;
+  assert.equal(history.canRedo, true);
+  for (const [type, payload] of [
+    ['copy-nodes', { layerId: f.layer.id, nodeIds: [instance.id] }],
+    ['save-node-preset', { layerId: f.layer.id, nodeIds: [instance.id], name: 'Attempt' }],
+    ['import-project-compositions', { sourceProject, compositionIds: [sourceCompositionId] }],
+  ]) {
+    assert.throws(() => f.send(type, payload), /macro|closure|support/i, type);
+    assert.equal(serializeCompositionProject(f.owner.projectSnapshot()), before);
+    assert.deepEqual(f.owner.state, state);
+    assert.deepEqual(f.owner.historyState, history);
+  }
 });
