@@ -17998,6 +17998,7 @@ document.addEventListener('keydown', (e) => {
         input.type = 'number';
         delete input.dataset.numericExpression;
         numericInputDrafts.delete(input);
+        remapOutputEdited.delete(input);
         if (needsRender) scheduleRender();
         notify('Invalid calculation', true);
       }
