@@ -49,7 +49,7 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
           c.repeaterFill !== undefined ||
           c.repeaterStroke !== undefined,
       ) ||
-      (value.fill?.kind && value.contours.some((c) => c.group !== undefined))
+      (value.fill?.kind === 'angular-gradient' && value.contours.some((c) => c.group !== undefined))
     )
       throw Error(
         'Coverage attribution requires plain solid, two-stop linear/radial-gradient or four-stop angular-gradient paths',

@@ -134,7 +134,7 @@ test('fully opaque repeater copies remain measurable but partial opacity is reje
   assert.throws(() => passes(scene, doc), /plain solid/);
 });
 
-test('grouped gradients and excessive grouped passes remain unavailable', () => {
+test('grouped angular gradients and excessive grouped passes remain unavailable', () => {
   const { doc, scene } = fixture();
   const original = scene[0].value;
   const grouped = {
@@ -218,6 +218,37 @@ function gradientFixture(type = 'Linear Gradient Fill') {
   gradient.params.startColor.colorSlotId = 'first';
   gradient.params.endColor.colorSlotId = 'second';
   return { doc, layer, gradient };
+}
+
+for (const type of ['Linear Gradient Fill', 'Radial Gradient Fill']) {
+  test(`${type}: grouped fills preserve stop identity and per-group paint order`, () => {
+    const { doc, layer, gradient } = gradientFixture(type);
+    const shape = layer.nodes.find((n) => n.type === 'Rectangle');
+    const second = node('Rectangle');
+    const join = node('Join Geometry');
+    second.params.center.value = [340, 250];
+    layer.nodes.push(second, join);
+    connect(layer, shape.id, join.id, 'a');
+    connect(layer, second.id, join.id, 'b');
+    connect(layer, join.id, gradient.id, 'path');
+    const scene = exportScene(doc),
+      before = JSON.stringify(scene);
+    const result = passes(scene, doc);
+    assert.deepEqual(
+      result.map((p) => p.paint),
+      ['fill', 'stroke', 'fill', 'stroke'],
+    );
+    for (const fill of [result[0], result[2]]) {
+      assert.deepEqual([fill.split.startSlotId, fill.split.endSlotId], ['first', 'second']);
+      assert.match(fill.svg, /gradientUnits="userSpaceOnUse"/);
+    }
+    assert.equal(JSON.stringify(scene), before);
+    gradient.params.endColor.colorSlotId = 'first';
+    const same = passes(exportScene(doc), doc);
+    assert.equal(same[0].slotId, 'first');
+    assert.equal(same[2].slotId, 'first');
+    assert.equal(same[0].split, undefined);
+  });
 }
 
 test('two-stop linear gradients preserve stable stop IDs, production alpha and one paint order', () => {
