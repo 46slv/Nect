@@ -37,6 +37,8 @@ import { taperDeclaration } from './taper-node-declaration.js';
 import { evaluateTaper } from './taper-node-binding.js';
 import { autoHandlesDeclaration } from './auto-handles-declaration.js';
 import { evaluateAutoHandles } from './auto-handles-binding.js';
+import { polarTransformDeclaration } from './polar-transform-declaration.js';
+import { evaluatePolarTransform } from './polar-transform-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -91,5 +93,11 @@ export const builtinManifest = Object.freeze([
     { evaluate: evaluateAutoHandles },
     'Polar Transform',
     'Resample Path',
+  ),
+  entry(
+    polarTransformDeclaration,
+    { evaluate: evaluatePolarTransform },
+    'Twist Points',
+    'Angular Gradient Fill',
   ),
 ]);

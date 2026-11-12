@@ -154,7 +154,7 @@ import {
   selectLuminanceCenters,
 } from './luminance-instances.js';
 import { validateInstancePath } from './instance-points-geometry.js';
-import { polarSettings, polarTransformGeometry } from './polar-transform.js';
+import { polarSettings } from './polar-transform.js';
 import { dashIntervals } from './dash-intervals.js';
 import { smoothGeometry } from './smooth-geometry.js';
 import { roughenGeometry } from './roughen-geometry.js';
@@ -591,16 +591,6 @@ const legacyDefinitions = {
     start: p('Scalar', 0),
   },
   'Set Closure': { path: p('Path', null), closed: p('Boolean', true) },
-  'Polar Transform': {
-    path: p('Path', null),
-    origin: p('Vector2', [0, 0]),
-    center: p('Vector2', [480, 270]),
-    width: p('Scalar', 960),
-    height: p('Scalar', 540),
-    radius: p('Scalar', 270),
-    angle: p('Scalar', -90),
-    inverse: p('Boolean', false),
-  },
   'Subdivide Path': { path: p('Path', null), segments: p('Scalar', 2) },
   Roughen: {
     path: p('Path', null),
@@ -1074,7 +1064,6 @@ const bypassInputs = Object.freeze({
   'Set Path Start': 'path',
   'Set Closure': 'path',
   'Subdivide Path': 'path',
-  'Polar Transform': 'path',
   'Dash Path': 'path',
   'Vector Transform': 'vector',
   'Path Remap': 'path',
@@ -4049,25 +4038,6 @@ export function evaluate(
           evaluatedFingerprint(source, currentEra) || signature(source),
           signature(result),
         ]);
-      } else if (n.type === 'Polar Transform') {
-        const source = read('path');
-        result = polarTransformGeometry(
-          source,
-          Object.fromEntries(
-            ['origin', 'center', 'width', 'height', 'radius', 'angle', 'inverse'].map((key) => [
-              key,
-              read(key),
-            ]),
-          ),
-        );
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Polar Transform; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Subdivide Path') {
         const source = read('path');
         result = subdividePathGeometry(source, {
