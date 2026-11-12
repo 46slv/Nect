@@ -114,7 +114,6 @@ import {
   assertCompositionAcyclic,
   isPaintedGroup,
   paintedGroup,
-  groupGeometry,
 } from './composition-reference.js';
 export { compositionReferenceTargets } from './composition-reference.js';
 import { splitPathSegment } from './path-point-insertion.js';
@@ -543,7 +542,6 @@ const legacyDefinitions = {
   Curve: { closed: p('Boolean', true) },
   'Multi Path': {},
   Boolean: { a: p('Path', null), b: p('Path', null) },
-  'Convert to Path': { path: p('Path', null) },
   'Closed Path Offset': {
     path: p('Path', null),
     amount: p('Scalar', 10),
@@ -1030,7 +1028,6 @@ const bypassInputs = Object.freeze({
   'Geometry Repeater': 'path',
   'Instance on Points': 'path',
   'Luminance Instances': 'motif',
-  'Convert to Path': 'path',
   Fill: 'path',
   'Linear Gradient Fill': 'path',
   'Radial Gradient Fill': 'path',
@@ -3686,6 +3683,11 @@ export function evaluate(
         const nodeId = n.id;
         const warn = (message) => warnings.push(`${n.name}: ${message}`);
         const hasParameter = (key) => !!n.params[key];
+        const sourceOutputType = (key) => {
+          const input = n.params[key],
+            source = input?.source ? byId.get(input.source) : undefined;
+          return source ? outputType(source, input.sourcePort) : undefined;
+        };
         const identity = Object.freeze({
           provenance: (currentEra) => provenance(nodeId, undefined, currentEra),
           fingerprint: evaluatedFingerprint,
@@ -3700,13 +3702,21 @@ export function evaluate(
               cloneEvaluated,
               identity,
               hasParameter,
+              sourceOutputType,
               paintedGroup: (inputs) => {
                 const painted = evaluatedPaintedGroup(inputs, { prefix: nodeId });
                 setEvaluationFingerprint(painted, () => [nodeId, inputs]);
                 return painted;
               },
             })
-          : Object.freeze({ nodeId, warn, cloneEvaluated, identity, hasParameter });
+          : Object.freeze({
+              nodeId,
+              warn,
+              cloneEvaluated,
+              identity,
+              hasParameter,
+              sourceOutputType,
+            });
         result = registered.evaluate(n.operation, read, context);
         assertValue(registered.interface(n.operation, shape).resultType, result);
       } else if (n.type === 'Polygon' || n.type === 'Star') {
@@ -4446,22 +4456,6 @@ export function evaluate(
           null,
           `Canvas character editing is unavailable through ${n.type}; edit upstream Text`,
         );
-      } else if (n.type === 'Convert to Path') {
-        const source = read('path');
-        if (!source) throw Error('Connect a Path or PaintedPath input');
-        result = isPaintedGroup(source) ? groupGeometry(source) : cloneEvaluated(source);
-        if (
-          outputType(byId.get(n.params.path.source), n.params.path.sourcePort) === 'PaintedPath'
-        ) {
-          delete result.fill;
-          delete result.stroke;
-          setEvaluationFingerprint(result, (currentEra) => [
-            'painted-path-geometry',
-            provenance(n.id, undefined, currentEra),
-            signature(result),
-            result.contours.map((contour) => [contour.id, contour.points.map((point) => point.id)]),
-          ]);
-        }
       } else if (n.type === 'Closed Path Offset') {
         const source = read('path');
         if (!source) throw Error('Connect a Path input');

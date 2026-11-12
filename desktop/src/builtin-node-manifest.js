@@ -53,6 +53,8 @@ import { setClosureDeclaration } from './set-closure-declaration.js';
 import { evaluateSetClosure } from './set-closure-binding.js';
 import { vectorTransformDeclaration } from './vector-transform-declaration.js';
 import { evaluateVectorTransform } from './vector-transform-binding.js';
+import { convertToPathDeclaration } from './convert-to-path-declaration.js';
+import { evaluateConvertToPath } from './convert-to-path-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -141,4 +143,5 @@ export const builtinManifest = Object.freeze([
     'Transform',
     'Vector Math',
   ),
+  entry(convertToPathDeclaration, { evaluate: evaluateConvertToPath }, 'Join Geometry', 'Text'),
 ]);

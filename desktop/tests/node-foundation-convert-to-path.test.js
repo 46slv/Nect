@@ -6,11 +6,13 @@ import {
   bypassContract,
   CommandSession,
   connect,
+  definitions,
   deserialize,
   enableRemapPoint,
   evaluate,
   node,
   outputType,
+  outputPorts,
   serialize,
   setNodeBypassed,
 } from '../src/core.js';
@@ -18,6 +20,9 @@ import { paintedGroup } from '../src/composition-reference.js';
 import { signature } from '../src/path-signature.js';
 import { createNodeRegistry, parseNodeDeclaration } from '../src/node-foundation.js';
 import { nectNodeHost } from '../src/nect-node-host.js';
+import { builtinManifest } from '../src/builtin-node-manifest.js';
+import { builtinNodeRegistry } from '../src/builtin-node-registry.js';
+import { nodeCatalog } from '../src/node-catalog.js';
 import { convertToPathDeclaration } from '../src/convert-to-path-declaration.js';
 import { evaluateConvertToPath } from '../src/convert-to-path-binding.js';
 
@@ -122,6 +127,21 @@ test('Convert to Path declaration resolves in an isolated trusted registry', () 
   });
 });
 
+test('Convert to Path is registered with its existing interface and placement', () => {
+  const instance = node('Convert to Path'),
+    registered = builtinNodeRegistry.get(instance.type),
+    manifest = builtinManifest.find((row) => row.declaration.typeId === instance.type),
+    defs = Object.keys(definitions),
+    catalog = nodeCatalog.map(({ typeId }) => typeId);
+  assert.deepEqual(registered.declaration, convertToPathDeclaration);
+  assert.equal(manifest.binding.evaluate, evaluateConvertToPath);
+  assert.deepEqual(outputPorts(instance), [{ id: undefined, label: '', type: 'Path' }]);
+  assert.equal(defs[defs.indexOf(instance.type) - 1], 'Join Geometry');
+  assert.equal(defs[defs.indexOf(instance.type) + 1], 'Closed Path Offset');
+  assert.equal(catalog[catalog.indexOf(instance.type) - 1], 'Text');
+  assert.equal(catalog[catalog.indexOf(instance.type) + 1], 'Text to Path');
+});
+
 for (const scenario of Object.keys(expected)) {
   test(`Convert to Path retains current ${scenario} output, fingerprint and saved Remap`, () => {
     const { doc, layer, source, converter } = fixture(scenario),
@@ -185,6 +205,23 @@ test('source type, not the value shape, decides whether appearance is removed', 
   assert.equal(Object.hasOwn(painted, 'stroke'), false);
   assert.ok(Object.hasOwn(source, 'fill'));
   assert.ok(Object.hasOwn(source, 'stroke'));
+});
+
+test('a same-geometry Path to bypassed PaintedPath rewire updates the evaluated fingerprint', () => {
+  const { layer, shape, source, converter } = fixture('bypassed-fill');
+  connect(layer, shape.id, converter.id, 'path');
+  const plain = evaluate(layer).run(converter.id);
+  assert.equal(plain.fingerprint, undefined);
+  connect(layer, source.id, converter.id, 'path');
+  const changed = evaluate(layer),
+    input = changed.run(source.id),
+    converted = changed.run(converter.id);
+  assert.equal(outputType(source), 'PaintedPath');
+  assert.equal(Object.hasOwn(input, 'fill'), false);
+  assert.deepEqual(converted.contours, plain.contours);
+  assert.match(converted.fingerprint, /^sha256:/);
+  connect(layer, shape.id, converter.id, 'path');
+  assert.deepEqual(evaluate(layer).run(converter.id), plain);
 });
 
 test('missing inputs and masked painted groups fail without changing their source', () => {

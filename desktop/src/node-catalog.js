@@ -142,14 +142,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Convert to Path',
-    categoryId: 'path',
-    labelJa: 'パス変換',
-    aliases: ['パス変換'],
-    description: 'パス変換',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Closed Path Offset',
     categoryId: 'path',
     labelJa: '閉じた輪郭',
