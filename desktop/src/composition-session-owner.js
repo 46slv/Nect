@@ -634,6 +634,8 @@ export class CompositionSessionOwner {
     );
     assertCurrent();
     if (prepared) {
+      prepared.bridge.stageActivation(prepared.ticket);
+      assertCurrent();
       prepared.bridge.assertFresh(prepared.ticket);
       assertCurrent();
       this.#assertQuiescent();
@@ -642,7 +644,7 @@ export class CompositionSessionOwner {
       assertCurrent();
       // The new Session already binds the target Project and inherits clipboard
       // authority. Publish the prepared bank only after all fallible preflight.
-      prepared.bridge.activate(prepared.ticket);
+      prepared.bridge.publishActivation(prepared.ticket);
       preparedFonts.useLive();
       this.#prepared = null;
     }

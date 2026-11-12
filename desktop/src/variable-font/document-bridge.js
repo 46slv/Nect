@@ -67,9 +67,22 @@ export function createVariableDocumentPreparer({
     disposed = false,
     activeUsage = { runs: 0, commands: 0, serializedBytes: 0 };
   let pendingTicket = null;
+  const detachTicket = (pending) => {
+    if (!pending || pending.detached) return;
+    // Mark first so a reentrant cancellation cannot recursively detach it.
+    pending.detached = true;
+    try {
+      pending.signal?.removeEventListener('abort', pending.abort);
+    } catch (error) {
+      pending.detached = false;
+      throw error;
+    }
+  };
   const clearTicket = () => {
-    pendingTicket?.signal?.removeEventListener('abort', pendingTicket.abort);
-    pendingTicket = null;
+    const pending = pendingTicket;
+    detachTicket(pending);
+    // A callback may have installed a newer ticket while detaching the old one.
+    if (pendingTicket === pending) pendingTicket = null;
   };
   return {
     async prepareDocument(input, { signal } = {}) {
@@ -177,6 +190,25 @@ export function createVariableDocumentPreparer({
     preparedFonts(ticket) {
       this.assertFresh(ticket);
       return pendingTicket.fonts;
+    },
+    stageActivation(ticket) {
+      this.assertFresh(ticket);
+      detachTicket(pendingTicket);
+      this.assertFresh(ticket);
+    },
+    publishActivation(ticket) {
+      const pending = pendingTicket;
+      check(
+        !disposed &&
+          pending?.ticket === ticket &&
+          pending.revision === generation &&
+          pending.detached,
+        'STALE_RESULT',
+      );
+      // This publication has no caller-provided callback or AbortSignal access.
+      currentFonts = pending.fonts;
+      activeUsage = pending.usage;
+      pendingTicket = null;
     },
     activate(ticket) {
       this.assertFresh(ticket);

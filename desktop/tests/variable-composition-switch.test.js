@@ -209,6 +209,52 @@ test('prepared History with Macro admission retains live fonts and the node clip
   }
 });
 
+test('AbortSignal cleanup cannot publish a stale prepared History or font bank', async () => {
+  const fixture = await makeSavedProject();
+  const { owner, bridge } = await openSaved(fixture, { macroProjectAdmission: () => false });
+  const controller = new AbortController(),
+    signal = controller.signal,
+    remove = signal.removeEventListener.bind(signal);
+  let trigger = false;
+  signal.removeEventListener = (...args) => {
+    remove(...args);
+    if (trigger) {
+      trigger = false;
+      owner.switchComposition(fixture.firstId);
+    }
+  };
+  try {
+    owner.commitPreparedCompositionSwitch(
+      await owner.prepareCompositionSwitch(fixture.secondId, bridge),
+    );
+    owner.commitPrepared(
+      await owner.prepareCommand(
+        {
+          ...owner.state,
+          type: 'set-text-content',
+          payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AW' },
+        },
+        bridge,
+      ),
+    );
+    owner.commitPrepared(await owner.prepareCommand({ ...owner.state, type: 'undo' }, bridge));
+    const beforeProject = serializeCompositionProject(owner.projectSnapshot()),
+      beforeHistory = owner.historyState,
+      beforeBank = bridge.stats().active,
+      token = await owner.prepareCommand({ ...owner.state, type: 'redo' }, bridge, { signal });
+    trigger = true;
+    assert.throws(() => owner.commitPrepared(token), /STALE/);
+    assert.equal(owner.activeCompositionId, fixture.firstId);
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), beforeProject);
+    assert.deepEqual(owner.historyState, beforeHistory);
+    assert.deepEqual(bridge.stats().active, beforeBank);
+    owner.switchComposition(fixture.secondId);
+    assert.equal(exportSVG(owner.snapshot(), bridge.fonts()), fixture.expectedB);
+  } finally {
+    bridge.dispose();
+  }
+});
+
 test('real variable Text in a second Composition opens, edits, round-trips and switches without History edits', async () => {
   const fixture = await makeSavedProject();
   const { owner, bridge } = await openSaved(fixture);
