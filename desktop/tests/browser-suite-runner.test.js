@@ -170,9 +170,10 @@ test('browser runner preserves all 55 original scripts, arguments, order, and CS
     'tests/node-foundation-auto-handles.e2e.js',
     'tests/node-foundation-smooth.e2e.js',
     'tests/node-foundation-roughen.e2e.js',
+    'tests/node-foundation-mirror.e2e.js',
   ]);
-  assert.equal(browserTestFiles.length, 129);
-  assert.equal(new Set(browserTestFiles).size, 129);
+  assert.equal(browserTestFiles.length, 130);
+  assert.equal(new Set(browserTestFiles).size, 130);
   assert.ok(Object.isFrozen(browserTestFiles));
   const workflow = await readFile(
     new URL('../../.github/workflows/verify-windows.yml', import.meta.url),
