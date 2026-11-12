@@ -4,6 +4,8 @@ import {
   blankDocument,
   node,
   connect,
+  activeParameters,
+  bypassContract,
   enableRemapPoint,
   evaluate,
   exportScene,
@@ -11,14 +13,40 @@ import {
   serialize,
   deserialize,
   definitions,
+  outputPorts,
+  outputType,
 } from '../src/core.js';
 import { createNodeRegistry } from '../src/node-foundation.js';
+import { builtinManifest } from '../src/builtin-node-manifest.js';
+import { builtinNodeRegistry } from '../src/builtin-node-registry.js';
 import { nectNodeHost } from '../src/nect-node-host.js';
 import { fillDeclaration } from '../src/fill-node-declaration.js';
 import { evaluateFill } from '../src/fill-node-binding.js';
 import { colorCoveragePasses } from '../src/color-coverage-passes.js';
 
 const color = { hex: '#123456', alpha: 0.5 };
+
+test('production Fill uses its trusted declaration and existing painted interface', () => {
+  const registered = builtinNodeRegistry.get('Fill'),
+    manifest = builtinManifest.find((row) => row.declaration.typeId === 'Fill'),
+    current = node('Fill'),
+    other = node('Fill');
+  assert.ok(registered && manifest);
+  assert.equal(manifest.binding.evaluate, evaluateFill);
+  assert.deepEqual(registered.declaration, fillDeclaration);
+  assert.deepEqual(manifest.placement, { definitionAfter: 'Expression', catalogAfter: 'Color' });
+  assert.deepEqual(
+    activeParameters(current).map(([id]) => id),
+    ['path', 'color'],
+  );
+  assert.deepEqual(outputPorts(current), [{ id: undefined, label: '', type: 'PaintedPath' }]);
+  assert.equal(outputType(current), 'PaintedPath');
+  assert.equal(outputType(current, 'default'), undefined);
+  assert.equal(bypassContract(current).supported, true);
+  current.params.color.value.alpha = 0;
+  assert.equal(other.params.color.value.alpha, 1);
+  assert.equal(definitions.Fill.color.value.alpha, 1);
+});
 
 function sceneFixture() {
   const doc = blankDocument(),

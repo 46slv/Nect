@@ -79,6 +79,8 @@ import { dashPathDeclaration } from './dash-path-declaration.js';
 import { evaluateDashPath } from './dash-path-binding.js';
 import { convertToPathDeclaration } from './convert-to-path-declaration.js';
 import { evaluateConvertToPath } from './convert-to-path-binding.js';
+import { fillDeclaration } from './fill-node-declaration.js';
+import { evaluateFill } from './fill-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -190,4 +192,5 @@ export const builtinManifest = Object.freeze([
   entry(setPathStartDeclaration, { evaluate: evaluateSetPathStart }, 'Trim Path', 'Trim Path'),
   entry(dashPathDeclaration, { evaluate: evaluateDashPath }, 'Smooth Path', 'Auto Handles'),
   entry(convertToPathDeclaration, { evaluate: evaluateConvertToPath }, 'Join Geometry', 'Text'),
+  entry(fillDeclaration, { evaluate: evaluateFill }, 'Expression', 'Color'),
 ]);
