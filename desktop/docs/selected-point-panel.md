@@ -38,7 +38,7 @@ A zero-length handle displays 0° with its Angle input disabled. Increasing its
 Length starts along +X; set a non-zero length before choosing another angle.
 Negative lengths, empty and non-finite values are rejected. The shared safe
 arithmetic input evaluator works with Enter; Escape discards the input draft.
-These added fields support typing and native number steps, with no drag scrub.
+These fields support typing, native number steps and the shared numeric scrub.
 
 Each accepted edit uses the same curve-point Session gesture as Canvas dragging,
 including corner/smooth/symmetric coupling, locked/driven protection and one
@@ -47,7 +47,22 @@ Canvas's existing coupling behavior (including collapsing the opposite handle
 for linked modes); no NaN or remembered direction is introduced. Canvas edits,
 X/Y edits, Undo/Redo and JSON reload recalculate the displayed polar values.
 Focused point-panel edits retain focus and nested scroll across rendering.
-Path Remap and multi-point batch editing are unchanged.
+Multi-point batch polar editing is unchanged.
+
+## Path Remap output points
+
+The Graph and Inspector point rows show the current Remap output's Position X/Y
+and Incoming/Outgoing Angle° and Length, before downstream nodes. Existing Δ
+controls remain available. Position and handles follow source changes because
+the stored values are still Remap deltas, not a second copy of the output point.
+Each committed input or scrub is one Session gesture and one Undo; Cancel or a
+return to the original value preserves the previous History and sparse edits.
+
+The source and output must identify one matching point in one contour. A locked
+or driven delta is read-only. A suspended generated-point edit stays read-only
+until Rebind; a stale Project, selection, source identity, font result or value
+cannot consume a pending input. The zero-length policy matches owned Curve
+handles: Angle is disabled at zero, and growing Length starts along +X.
 
 Focused checks: `node --test tests/handle-polar.test.js
 tests/canvas-gesture-session.test.js`; real Chrome fixture:

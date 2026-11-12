@@ -1,6 +1,7 @@
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import { verifyRemapPointOutput } from './helpers/remap-point-output-e2e.js';
 
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
@@ -149,6 +150,8 @@ try {
   await page.locator('[data-action="redo"]').click();
   assert.equal(await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot())), after);
   result.historyUndoRedo = true;
+  await verifyRemapPointOutput(page);
+  result.remapOutputEditing = true;
   assert.deepEqual(result.pageErrors, []);
   await fs.mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/workflow-composition-point-selection.png' });

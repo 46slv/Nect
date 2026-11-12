@@ -353,6 +353,7 @@ try {
   });
   await page.mouse.up();
   const remapKey = `remap.${remapPoint.id}.position`;
+  const graphRemap = page.locator(`.graph .node[data-id="${remapId}"]`);
   let remapField = page.locator(`.graph .field[data-node="${remapId}"][data-key="${remapKey}"]`);
   assert.equal(await remapField.count(), 1);
   await remapField.locator('[data-fx]').click();
@@ -419,7 +420,7 @@ try {
     ),
     retained,
   );
-  await page.locator(`[data-rebind-remap="${remapPoint.id}"]`).click();
+  await graphRemap.locator(`[data-rebind-remap="${remapPoint.id}"]`).click();
   assert.equal((await page.evaluate(() => window.nect.evaluate().warnings)).length, 0);
   const batchIds = await page.evaluate(
     (id) =>
@@ -431,26 +432,24 @@ try {
     remapId,
   );
   assert.equal(batchIds.length, 3);
-  await page
-    .locator(`.graph .node[data-id="${remapId}"]`)
-    .getByRole('button', { name: 'Browse all points', exact: true })
-    .click();
+  await graphRemap.getByRole('button', { name: 'Browse all points', exact: true }).click();
   const beforeBlockedBatch = await page.evaluate(() => JSON.stringify(window.nect.document));
-  await page.locator(`[data-batch-point="${batchIds[0]}"]`).check();
-  await page.locator(`[data-batch-point="${batchIds[1]}"]`).check();
-  await page.getByLabel('Batch delta X', { exact: true }).fill('5');
-  await page.getByLabel('Batch delta Y', { exact: true }).fill('7');
-  await page.getByRole('button', { name: 'Move selected points', exact: true }).click();
+  await graphRemap.locator(`[data-batch-point="${batchIds[0]}"]`).check();
+  await graphRemap.locator(`[data-batch-point="${batchIds[1]}"]`).check();
+  await graphRemap.getByLabel('Batch delta X', { exact: true }).fill('5');
+  await graphRemap.getByLabel('Batch delta Y', { exact: true }).fill('7');
+  await graphRemap.getByRole('button', { name: 'Move selected points', exact: true }).click();
   assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), beforeBlockedBatch);
   assert.match(await page.locator('.status').innerText(), /locked or driven/);
-  await page.getByRole('button', { name: 'Clear batch selection', exact: true }).click();
-  for (const id of batchIds.slice(1)) await page.locator(`[data-batch-point="${id}"]`).check();
+  await graphRemap.getByRole('button', { name: 'Clear batch selection', exact: true }).click();
+  for (const id of batchIds.slice(1))
+    await graphRemap.locator(`[data-batch-point="${id}"]`).check();
   const beforeBatch = await page.evaluate(() => JSON.stringify(window.nect.document));
   const originalBatchPoint = await page.evaluate(
     (id) => window.nect.evaluate().run(id).contours[0].points[1].position,
     remapId,
   );
-  await page.getByRole('button', { name: 'Move selected points', exact: true }).click();
+  await graphRemap.getByRole('button', { name: 'Move selected points', exact: true }).click();
   assert.deepEqual(
     await page.evaluate(
       (id) => window.nect.evaluate().run(id).contours[0].points[1].position,
