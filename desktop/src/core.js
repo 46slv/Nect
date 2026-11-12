@@ -211,6 +211,7 @@ import {
   renameLayerFolder,
   addLayersToFolder,
   moveLayersToFolder,
+  orderLayerFolder,
   removeLayersFromFolder,
   dissolveLayerFolder,
 } from './layer-folders.js';
@@ -8037,6 +8038,7 @@ export class CommandSession {
       'paste-nodes',
       'paste-layer-snapshot',
       'move-layers-to-folder',
+      'order-layer-folder',
       'remove-layers-from-folder',
     ].includes(commandType);
     return this.#observeCommit(() => this.#dispatch(command, entry, copyAttempt), {
@@ -8063,6 +8065,7 @@ export class CommandSession {
       'paste-nodes',
       'paste-layer-snapshot',
       'move-layers-to-folder',
+      'order-layer-folder',
       'remove-layers-from-folder',
     ].includes(type);
     const layerClipboardSnapshot =
@@ -8611,6 +8614,7 @@ export class CommandSession {
         'rename-layer-folder',
         'add-layers-to-folder',
         'move-layers-to-folder',
+        'order-layer-folder',
         'remove-layers-from-folder',
         'dissolve-layer-folder',
       ].includes(type)
@@ -8628,9 +8632,11 @@ export class CommandSession {
               ? addLayersToFolder(candidate, payload)
               : type === 'move-layers-to-folder'
                 ? moveLayersToFolder(candidate, payload)
-                : type === 'remove-layers-from-folder'
-                  ? removeLayersFromFolder(candidate, payload)
-                  : dissolveLayerFolder(candidate, payload);
+                : type === 'order-layer-folder'
+                  ? orderLayerFolder(candidate, payload)
+                  : type === 'remove-layers-from-folder'
+                    ? removeLayersFromFolder(candidate, payload)
+                    : dissolveLayerFolder(candidate, payload);
       validate(candidate);
       return { candidate, result };
     }
