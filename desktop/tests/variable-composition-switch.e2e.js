@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { chromium } from 'playwright-core';
-import { blankDocument, node } from '../src/core.js';
+import { blankDocument, layer, node } from '../src/core.js';
 import { makeVariableFontAsset } from '../src/fonts.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateBoundaryCommand } from './helpers/boundary-controls.js';
@@ -22,7 +22,8 @@ const first = blankDocument(),
   firstText = node('Text'),
   firstColor = node('Color'),
   text = node('Text'),
-  color = node('Color');
+  color = node('Color'),
+  other = layer('Other layer');
 firstText.position = [400, 120];
 firstColor.position = [800, 120];
 first.layers[0].nodes.push(firstText, firstColor);
@@ -35,6 +36,7 @@ Object.assign(text, {
 color.position = [700, 120];
 second.layers[0].nodes.push(text, color);
 second.layers[0].nodes[0].params.path.source = text.id;
+second.layers.push(other);
 first.fontAssets = { [asset.id]: asset.asset };
 first.schemaVersion = 54;
 first.colorSlots = [{ id: 'brand', name: 'Brand', value: { hex: '#112233', alpha: 1 } }];
@@ -397,10 +399,90 @@ try {
     true,
   );
   await nameInput.press('Escape');
+  // The variable preview is real Worker-backed pending work even though it has
+  // not made the saved project dirty. A cancelled browser reload keeps it.
+  await page.locator('[role="tab"][data-active-composition="variable-second"]').click();
+  await page.waitForFunction(() => window.nect.activeCompositionId === 'variable-second');
+  await page.locator(`.node[data-id="${text.id}"] .node-head strong`).click();
+  await ensureWorkspacePanel(page, 'inspector');
+  const typography = page.locator('.inspector-body [data-text-inspector-section="typography"]');
+  if (!(await typography.evaluate((element) => element.open)))
+    await typography.locator('summary').click();
+  const axis = page.locator('.inspector-body [data-variable-axis="wght"]');
+  await axis.fill('650');
+  await page.waitForFunction(() =>
+    document.querySelector('.status .message')?.textContent.includes('axis preview'),
+  );
+  assert.equal(await page.evaluate(() => window.nect.fileState.dirty), false);
+  let warning;
+  page.once('dialog', async (dialog) => {
+    warning = dialog.type();
+    await dialog.dismiss();
+  });
+  let reloadError;
+  try {
+    await page.reload({ timeout: 3000 });
+  } catch (error) {
+    reloadError = error;
+  }
+  assert.equal(warning, 'beforeunload');
+  if (reloadError) assert.match(reloadError.message, /Timeout/);
+  assert.equal(await axis.inputValue(), '650');
+  // Browser focusout may commit the value after the warning is dismissed.
+  // Either it is still a clean preview or it is an authored, dirty edit.
+  const afterWarning = await page.evaluate(
+    (id) => ({
+      weight: window.nect.document.layers[0].nodes.find((entry) => entry.id === id).variation.axes
+        .wght,
+      dirty: window.nect.fileState.dirty,
+    }),
+    text.id,
+  );
+  assert.ok([550, 650].includes(afterWarning.weight));
+  assert.equal(afterWarning.dirty, afterWarning.weight === 650);
+  // Hold a genuine Worker request while the user leaves the axis field and
+  // clicks another Layer's Delete. The prepared edit must still be able to finish.
+  await page.evaluate(() => {
+    const post = window.Worker.prototype.postMessage;
+    window.holdAxisMessages = true;
+    window.heldAxisMessages = [];
+    window.Worker.prototype.postMessage = function (...args) {
+      if (window.holdAxisMessages) {
+        window.heldAxisMessages.push(() => post.apply(this, args));
+        return;
+      }
+      return post.apply(this, args);
+    };
+  });
+  await axis.fill('700');
+  await page.waitForFunction(() => window.heldAxisMessages.length > 0);
+  const beforeDelete = await page.evaluate(() => window.nect.projectSnapshot());
+  await ensureWorkspacePanel(page, 'layers');
+  await page.locator(`[data-delete-layer="${other.id}"]`).click();
+  assert.match(
+    await page.locator('.status .message').innerText(),
+    /Finish or cancel variable font preparation/,
+  );
+  assert.deepEqual(await page.evaluate(() => window.nect.projectSnapshot()), beforeDelete);
+  await page.evaluate(() => {
+    window.holdAxisMessages = false;
+    for (const send of window.heldAxisMessages) send();
+  });
+  await page.waitForFunction(
+    (id) =>
+      window.nect.document.layers[0].nodes.find((entry) => entry.id === id).variation.axes.wght ===
+      700,
+    text.id,
+  );
+  await page.locator('[data-action="undo"]').click();
+  await page.waitForFunction(
+    (expected) => JSON.stringify(window.nect.projectSnapshot()) === JSON.stringify(expected),
+    beforeDelete,
+  );
   assert.deepEqual(errors, []);
   assert.equal(mainNavigations, 1, 'Vite must not reload the active test page');
   console.log(
-    'PASS: sandboxed Chrome variable Composition view state, keyboard, History/Redo, Color uses, inline name race and SVG',
+    'PASS: sandboxed Chrome variable Composition view state, keyboard, History/Redo, Color uses, inline name race, pending preview reload and Layer Delete guards, and SVG',
   );
 } finally {
   await browser.close();
