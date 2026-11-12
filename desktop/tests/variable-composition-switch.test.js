@@ -116,13 +116,22 @@ async function openSaved(fixture, options = {}) {
   };
 }
 
-for (const mode of ['new-ticket', 'gesture', 'busy']) {
+for (const mode of ['new-ticket', 'gesture', 'busy', 'late-abort']) {
   test(`final signal freshness rejects ${mode} reentry before any prepared text publication`, async () => {
     const fixture = await makeSavedProject();
-    let busy = false;
-    const { owner, bridge } = await openSaved(fixture, { busy: () => busy });
-    const controller = new AbortController(),
-      signal = controller.signal,
+    let busy = false,
+      abortOnBusy = false;
+    const controller = new AbortController();
+    const { owner, bridge } = await openSaved(fixture, {
+      busy: () => {
+        if (abortOnBusy) {
+          abortOnBusy = false;
+          controller.abort();
+        }
+        return busy;
+      },
+    });
+    const signal = controller.signal,
       remove = signal.removeEventListener.bind(signal),
       nativeAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted').get;
     let armed = false,
@@ -139,6 +148,7 @@ for (const mode of ['new-ticket', 'gesture', 'busy']) {
         if (armed && detached && ++reads === 2) {
           if (mode === 'new-ticket') newer = bridge.prepareDocument(owner.snapshot());
           else if (mode === 'busy') busy = true;
+          else if (mode === 'late-abort') abortOnBusy = true;
           else
             owner.dispatch({
               ...owner.state,
