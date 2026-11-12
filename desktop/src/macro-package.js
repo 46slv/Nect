@@ -4,7 +4,7 @@ import { transformValues } from './transform-affine.js';
 
 // Project admission and the bounded Session route use pinned definitions from
 // this validator. The first definition is one Path through two literal
-// Transforms; the Effects workflow and external library are still separate.
+// Transforms; the external library remains separate.
 const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,180}$/;
 const scalarKeys = new Set(['scale', 'rotation']);
 const hasId = (value) => typeof value === 'string' && idPattern.test(value);
