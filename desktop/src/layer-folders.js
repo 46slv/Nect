@@ -188,6 +188,8 @@ function applyLayerFolderPlan(doc, payload, plan) {
       plan.paintOrder.some((id, index) => payload.expectedPaintOrder[index] !== id))
   )
     throw Error('Confirm the changed Layer order before moving');
+  if (!plan.orderChanged && plan.members.length === 0)
+    return { folderId: payload.folderId, orderChanged: false };
   const byId = new Map(doc.layers.map((layer) => [layer.id, layer]));
   doc.layers = plan.paintOrder.map((id) => byId.get(id));
   for (const entry of plan.members) {
@@ -201,6 +203,58 @@ function applyLayerFolderPlan(doc, payload, plan) {
 
 export function moveLayersToFolder(doc, payload) {
   return applyLayerFolderPlan(doc, payload, planLayerFolderMove(doc, payload));
+}
+
+// Move a populated Folder as one root-level block over the neighboring Layer or
+// populated Folder. The Layer array remains the sole source of paint order.
+export function planLayerFolderOrder(doc, { folderId, direction }) {
+  if (!['forward', 'backward'].includes(direction)) throw Error('Choose Forward or Backward');
+  validateLayerFolders(doc);
+  const folder = findFolder(doc, folderId),
+    selected = selectedLayers(
+      doc,
+      folder.members.map((member) => member.layerId),
+    ),
+    layerIds = selected.map((layer) => layer.id),
+    original = doc.layers.map((layer) => layer.id);
+  if (!selected.length) return { paintOrder: original, orderChanged: false, members: [], layerIds };
+
+  const start = doc.layers.indexOf(selected[0]),
+    end = start + selected.length,
+    adjacentIndex = direction === 'forward' ? end : start - 1;
+  if (adjacentIndex < 0 || adjacentIndex >= doc.layers.length)
+    return { paintOrder: original, orderChanged: false, members: [], layerIds };
+
+  const neighbor = doc.layers[adjacentIndex],
+    neighborFolder = folderForLayer(doc, neighbor.id),
+    neighborIds = new Set(neighborFolder?.members.map((member) => member.layerId) || [neighbor.id]),
+    neighborLayers = doc.layers.filter((layer) => neighborIds.has(layer.id)),
+    neighborStart = doc.layers.indexOf(neighborLayers[0]),
+    neighborEnd = neighborStart + neighborLayers.length,
+    reordered =
+      direction === 'forward'
+        ? [
+            ...doc.layers.slice(0, start),
+            ...neighborLayers,
+            ...selected,
+            ...doc.layers.slice(neighborEnd),
+          ]
+        : [
+            ...doc.layers.slice(0, neighborStart),
+            ...selected,
+            ...neighborLayers,
+            ...doc.layers.slice(end),
+          ];
+  return {
+    paintOrder: reordered.map((layer) => layer.id),
+    orderChanged: true,
+    members: [],
+    layerIds,
+  };
+}
+
+export function orderLayerFolder(doc, payload) {
+  return applyLayerFolderPlan(doc, payload, planLayerFolderOrder(doc, payload));
 }
 
 export function planLayerFolderRemoval(doc, { folderId, layerIds }) {

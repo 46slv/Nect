@@ -22,6 +22,10 @@ uses the front of the Composition. Cancellation leaves the project and History
 unchanged. **Move out** also keeps the order when the remaining Folder members
 are contiguous; otherwise it asks before moving the selection immediately in
 front of the remaining Folder. Renaming, collapsing and ungrouping do not change the paint order.
+The Folder's forward/backward controls move its populated span over the adjacent
+root Layer or populated Folder. The current and proposed paint orders are shown
+before the move; Cancel leaves the Project and History unchanged. A Folder with
+locked members cannot move, and an empty Folder has no paint-order position.
 Moving across a Folder boundary through ordinary reorder is refused; move into
 or out of the Folder explicitly. Duplicate stays in its source Folder; deleting
 its last member keeps the empty Folder. SVG replacement replaces the active
