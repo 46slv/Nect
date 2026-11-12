@@ -280,7 +280,10 @@ export function mountAssetLibrary({
   const slots = element('div', undefined, { role: 'group', 'aria-label': 'Quick slots' });
   Object.assign(slots.style, { display: 'flex', gap: '6px', minWidth: '0' });
   slots.hidden = true;
+  const slotClearButtons = [];
   const slotButtons = Array.from({ length: QUICK_SLOT_COUNT }, (_, index) => {
+    const group = element('div');
+    Object.assign(group.style, { display: 'flex', flex: '1 1 0', minWidth: '0' });
     const button = element('button', String(index + 1), { 'data-quick-slot': String(index + 1) });
     Object.assign(button.style, {
       flex: '1 1 0',
@@ -288,8 +291,18 @@ export function mountAssetLibrary({
       overflow: 'hidden',
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
+      padding: '2px 3px',
+      minHeight: '28px',
     });
-    slots.append(button);
+    const clear = element('button', '×', {
+      'aria-label': `Clear slot ${index + 1}`,
+      title: `Clear slot ${index + 1}`,
+    });
+    Object.assign(clear.style, { flex: '0 0 20px', width: '20px', padding: '0' });
+    clear.hidden = true;
+    slotClearButtons.push(clear);
+    group.append(button, clear);
+    slots.append(group);
     return button;
   });
   const search = element('input', undefined, {
@@ -514,6 +527,10 @@ export function mountAssetLibrary({
       );
       button.title = entry ? `${entry.rootId} / ${entry.relativePath}` : `Slot ${number} empty`;
       button.disabled = blocked || assetFavoriteReadFailed || !entry;
+      const clear = slotClearButtons[index];
+      clear.hidden = !entry;
+      clear.style.display = entry ? '' : 'none';
+      clear.disabled = blocked || assetFavoriteReadFailed || !entry;
     });
     for (const button of quick.querySelectorAll('button')) {
       button.disabled =
@@ -728,14 +745,14 @@ export function mountAssetLibrary({
     message('Quick access updated');
   }
   function changeAssetFavorites(next) {
-    if (!alive || busy || folderPickIntent || assetFavoriteReadFailed) return;
+    if (!alive || busy || folderPickIntent || assetFavoriteReadFailed) return false;
     if (next.length > MAX_FAVORITES) {
       message('Asset Quick access is full', true);
-      return;
+      return false;
     }
     if (next.some((entry) => !validAssetFavorite(entry))) {
       message('Asset cannot be pinned', true);
-      return;
+      return false;
     }
     const identities = next.map((entry) => assetFavoriteKey(entry.rootId, entry.relativePath));
     const assignedSlots = next.filter((entry) => entry.slot).map((entry) => entry.slot.number);
@@ -744,7 +761,7 @@ export function mountAssetLibrary({
       new Set(assignedSlots).size !== assignedSlots.length
     ) {
       message('Asset cannot be pinned', true);
-      return;
+      return false;
     }
     try {
       if (desktop) favoriteStorage.setItem(ASSET_ITEM_FAVORITES_KEY, JSON.stringify(next));
@@ -759,7 +776,7 @@ export function mountAssetLibrary({
     } catch {
       assetFavoriteStorageError = 'Asset Quick access could not be saved';
       message(assetFavoriteStorageError, true);
-      return;
+      return false;
     }
     assetFavorites = next.map(copyAssetFavorite);
     assetFavoritesVersion++;
@@ -767,6 +784,7 @@ export function mountAssetLibrary({
     assetFavoriteStorageError = null;
     drawFavorites();
     message('Quick access updated');
+    return true;
   }
   slotSelect.onchange = () => {
     if (!alive || slotSelect.disabled || !['', '1', '2', '3'].includes(slotSelect.value)) {
@@ -776,6 +794,24 @@ export function mountAssetLibrary({
     slotDraftValue = slotSelect.value;
     buttons();
   };
+  slotClearButtons.forEach((button, index) => {
+    button.onclick = () => {
+      if (button.disabled || busy || !canUseQuickSlot()) return;
+      const number = index + 1;
+      if (!assetFavorites.some((entry) => entry.slot?.number === number)) return;
+      const hadFocus = panel.ownerDocument.activeElement === button;
+      const changed = changeAssetFavorites(
+        assetFavorites.map((entry) => {
+          if (entry.slot?.number !== number) return entry;
+          const { slot, ...favorite } = entry;
+          return favorite;
+        }),
+      );
+      const active = panel.ownerDocument.activeElement;
+      if (changed && hadFocus && (active === button || active === panel.ownerDocument.body))
+        (rootSelect.disabled ? add : rootSelect).focus({ preventScroll: true });
+    };
+  });
   for (const field of Object.values(fields)) field.addEventListener('input', buttons);
   slotAssign.onclick = () => {
     if (!alive || slotAssign.disabled || !selected || !listing) return;
@@ -785,7 +821,16 @@ export function mountAssetLibrary({
     );
     if (!selectedEntry || rootSelect.value !== selectedEntry.rootId) return;
     const number = slotDraftValue ? Number(slotDraftValue) : 0;
-    const slot = number ? { number, sha256: selected.sha256, metadata: currentMetadata() } : null;
+    const slot = number
+      ? {
+          number,
+          sha256:
+            selectedEntry.slot && selectedEntry.slot.number !== number
+              ? selectedEntry.slot.sha256
+              : selected.sha256,
+          metadata: currentMetadata(),
+        }
+      : null;
     if (slot && (selected.error || !validQuickSlot(slot))) return;
     changeAssetFavorites(
       assetFavorites.map((entry) => {
@@ -881,7 +926,10 @@ export function mountAssetLibrary({
     const value = await prepare(item);
     if (!alive || token !== epoch || choice !== choiceSequence) return;
     selected = { ...item, ...value };
-    for (const field of Object.values(fields)) field.value = '';
+    const assigned = assetFavorites.find(
+      (entry) => entry.rootId === listing?.root?.id && entry.relativePath === item.relativePath,
+    )?.slot?.metadata;
+    for (const key of METADATA_KEYS) fields[key].value = assigned?.[key] ?? '';
     detail.hidden = false;
     name.textContent = item.relativePath;
     location.textContent = value.sourceLocation || '';
