@@ -36,74 +36,99 @@ function fixture(project) {
 }
 
 for (const project of [false, true]) {
-  test(`${project ? 'project' : 'document'} Session rejects deleting a used SVG source without altering artwork or history`, () => {
-    const { owner, send, consumerId, sourceLayerId } = fixture(project);
-    send('create-blank-layer', { name: 'Other' });
-    send('undo');
-    const before = serialize(owner.snapshot()),
-      state = owner.state,
-      svg = exportSVG(owner.snapshot()),
-      past = owner.historyView.past.length,
-      future = owner.historyView.future.length;
-    assert.equal(future, 1);
-    assert.throws(() => send('delete-layer', { layerId: sourceLayerId }), /used by/i);
-    assert.equal(serialize(owner.snapshot()), before);
-    assert.deepEqual(owner.state, state);
-    assert.equal(owner.historyView.past.length, past);
-    assert.equal(owner.historyView.future.length, future);
-    assert.equal(exportSVG(owner.snapshot()), svg);
-    assert.equal(
-      evaluate(
-        owner.snapshot().layers.find((l) => l.id === consumerId),
-        {},
-        {},
-        owner.snapshot(),
-      ).error,
-      null,
-    );
-    send('redo');
-    assert.equal(owner.snapshot().layers.at(-1).name, 'Other');
-  });
-
-  test(`${project ? 'project' : 'document'} multi-delete rejects when any consumer survives`, () => {
-    const { owner, send, consumerId, sourceLayerId } = fixture(project);
-    send('create-blank-layer', { name: 'Other' });
-    const otherId = owner.snapshot().layers.at(-1).id;
-    const before = serialize(owner.snapshot()),
-      state = owner.state;
-    assert.throws(() => send('delete-layers', { layerIds: [sourceLayerId, otherId] }), /used by/i);
-    assert.equal(serialize(owner.snapshot()), before);
-    assert.deepEqual(owner.state, state);
-    assert.ok(owner.snapshot().layers.some((l) => l.id === consumerId));
-  });
-
-  test(`${project ? 'project' : 'document'} Session protects a disconnected SVG asset reference`, () => {
-    const document = blankDocument(),
-      owner = project
-        ? createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(document))
-        : new CommandSession(document),
-      send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload });
-    const { sourceLayerId } = send('insert-svg-asset', {
-      route: 'graph',
-      layerId: document.layers[0].id,
-      source: tree(),
-      name: 'mark.svg',
-      provenance: {
-        version: 1,
-        mode: 'embedded',
-        rootId: 'test-root',
-        relativePath: 'mark.svg',
-        sourceLocation: 'test/mark.svg',
-        sha256: 'a'.repeat(64),
-        author: 'Nect test',
-        source: 'Self-authored',
-        license: 'Test fixture',
-      },
+  if (project) {
+    test(`${project ? 'project' : 'document'} Session rejects deleting a used SVG source without altering artwork or history`, () => {
+      const { owner, send, consumerId, sourceLayerId } = fixture(project);
+      send('create-blank-layer', { name: 'Other' });
+      send('undo');
+      const before = serialize(owner.snapshot()),
+        state = owner.state,
+        svg = exportSVG(owner.snapshot()),
+        past = owner.historyView.past.length,
+        future = owner.historyView.future.length;
+      assert.equal(future, 1);
+      assert.throws(() => send('delete-layer', { layerId: sourceLayerId }), /used by/i);
+      assert.equal(serialize(owner.snapshot()), before);
+      assert.deepEqual(owner.state, state);
+      assert.equal(owner.historyView.past.length, past);
+      assert.equal(owner.historyView.future.length, future);
+      assert.equal(exportSVG(owner.snapshot()), svg);
+      assert.equal(
+        evaluate(
+          owner.snapshot().layers.find((l) => l.id === consumerId),
+          {},
+          {},
+          owner.snapshot(),
+        ).error,
+        null,
+      );
+      send('redo');
+      assert.equal(owner.snapshot().layers.at(-1).name, 'Other');
     });
-    const before = serialize(owner.snapshot());
-    assert.throws(() => send('delete-layer', { layerId: sourceLayerId }), /used by/i);
-    assert.equal(serialize(owner.snapshot()), before);
-  });
+
+    test(`${project ? 'project' : 'document'} multi-delete rejects when any consumer survives`, () => {
+      const { owner, send, consumerId, sourceLayerId } = fixture(project);
+      send('create-blank-layer', { name: 'Other' });
+      const otherId = owner.snapshot().layers.at(-1).id;
+      const before = serialize(owner.snapshot()),
+        state = owner.state;
+      assert.throws(
+        () => send('delete-layers', { layerIds: [sourceLayerId, otherId] }),
+        /used by/i,
+      );
+      assert.equal(serialize(owner.snapshot()), before);
+      assert.deepEqual(owner.state, state);
+      assert.ok(owner.snapshot().layers.some((l) => l.id === consumerId));
+    });
+
+    test(`${project ? 'project' : 'document'} Session protects a disconnected SVG asset reference`, () => {
+      const document = blankDocument(),
+        owner = project
+          ? createCompositionSessionOwner(migrateLegacyDocumentToCompositionProject(document))
+          : new CommandSession(document),
+        send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload });
+      const { sourceLayerId } = send('insert-svg-asset', {
+        route: 'graph',
+        layerId: document.layers[0].id,
+        source: tree(),
+        name: 'mark.svg',
+        provenance: {
+          version: 1,
+          mode: 'embedded',
+          rootId: 'test-root',
+          relativePath: 'mark.svg',
+          sourceLocation: 'test/mark.svg',
+          sha256: 'a'.repeat(64),
+          author: 'Nect test',
+          source: 'Self-authored',
+          license: 'Test fixture',
+        },
+      });
+      const before = serialize(owner.snapshot());
+      assert.throws(() => send('delete-layer', { layerId: sourceLayerId }), /used by/i);
+      assert.equal(serialize(owner.snapshot()), before);
+    });
+  } else {
+    test('document Session retains a diagnosed missing SVG source and exact Undo/Redo', () => {
+      const { owner, send, consumerId, sourceLayerId } = fixture(false);
+      const before = serialize(owner.snapshot());
+      send('delete-layer', { layerId: sourceLayerId });
+      const missing = owner.snapshot();
+      assert.equal(
+        evaluate(
+          missing.layers.find((layer) => layer.id === consumerId),
+          {},
+          {},
+          missing,
+        ).errorCode,
+        'COMPOSITION_TARGET_MISSING',
+      );
+      send('undo');
+      assert.equal(serialize(owner.snapshot()), before);
+      send('redo');
+      assert.ok(!owner.snapshot().layers.some((layer) => layer.id === sourceLayerId));
+    });
+  }
 
   test(`${project ? 'project' : 'document'} Session can delete source and all consumers together with one Undo/Redo`, () => {
     const { owner, send, consumerId, sourceLayerId } = fixture(project);
