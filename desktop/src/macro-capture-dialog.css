@@ -1,0 +1,47 @@
+.macro-capture-dialog {
+  box-sizing: border-box;
+  width: min(28rem, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+}
+.macro-capture-dialog form,
+.macro-capture-name,
+.macro-capture-dialog [data-macro-controls] {
+  display: grid;
+  gap: 8px;
+}
+.macro-capture-dialog form {
+  gap: 14px;
+}
+.macro-capture-dialog h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.macro-capture-dialog fieldset {
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.macro-capture-dialog legend {
+  margin-bottom: 8px;
+}
+.macro-capture-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.macro-capture-dialog input[type='text'] {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+.macro-capture-dialog output:empty {
+  display: none;
+}
+.macro-capture-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
