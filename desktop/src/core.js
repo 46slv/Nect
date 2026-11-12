@@ -219,6 +219,14 @@ import { distributeArtworkGaps } from './artwork-gap-distribution.js';
 import { importSVGTree } from './svg-import.js';
 import { prepareCompositionImport } from './project-composition-import.js';
 import {
+  validateLayerFolders,
+  createLayerFolder,
+  renameLayerFolder,
+  addLayersToFolder,
+  removeLayersFromFolder,
+  dissolveLayerFolder,
+} from './layer-folders.js';
+import {
   GRID_ORIGIN_SCHEMA_VERSION,
   GRID_ANGLE_SCHEMA_VERSION,
   validateGuides,
@@ -6105,6 +6113,7 @@ export function validate(doc) {
     throw Error(`Nine-point grid origin requires schemaVersion ${GRID_ORIGIN_SCHEMA_VERSION}`);
   if (!Array.isArray(doc.layers) || doc.layers.length < 1 || doc.layers.length > 100)
     throw Error('Invalid layers');
+  validateLayerFolders(doc, id);
   for (const key of ['width', 'height'])
     if (!Number.isFinite(doc[key]) || doc[key] <= 0 || doc[key] > 100000)
       throw Error('Invalid artboard size');
@@ -8756,6 +8765,32 @@ export class CommandSession {
     return { ...this.state, ...result, changed: revision !== this.#history.revision };
   }
   #commandCandidate(type, payload, before, deferVariable = false) {
+    if (
+      [
+        'create-layer-folder',
+        'rename-layer-folder',
+        'add-layers-to-folder',
+        'remove-layers-from-folder',
+        'dissolve-layer-folder',
+      ].includes(type)
+    ) {
+      const candidate = cloneDocument(before);
+      const result =
+        type === 'create-layer-folder'
+          ? createLayerFolder(candidate, {
+              ...payload,
+              folderId: payload.folderId ?? uid('folder'),
+            })
+          : type === 'rename-layer-folder'
+            ? renameLayerFolder(candidate, payload)
+            : type === 'add-layers-to-folder'
+              ? addLayersToFolder(candidate, payload)
+              : type === 'remove-layers-from-folder'
+                ? removeLayersFromFolder(candidate, payload)
+                : dissolveLayerFolder(candidate, payload);
+      validate(candidate);
+      return { candidate, result };
+    }
     if (colorSlotCommands.has(type)) {
       const candidate = cloneDocument(before);
       const result = applyColorSlotCommand(candidate, type, payload, () => uid('color'));
