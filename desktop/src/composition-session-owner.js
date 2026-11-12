@@ -19,6 +19,10 @@ import { prepareProjectCompositionsImport } from './composition-project-import.j
 import { resolveLayerClipboardToken } from './layer-clipboard-owner.js';
 import { mergeMacroDefinitions } from './macro-project.js';
 import {
+  captureVariablePreparationOptions,
+  createVariablePreparationChild,
+} from './variable-font/document-bridge.js';
+import {
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
   QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
@@ -266,6 +270,8 @@ export class CompositionSessionOwner {
   #historyViewCache = new WeakMap();
   #historyView = null;
   #prepared = null;
+  #preparingHistory = null;
+  #prepareSequence = 0;
   #preparedCompositionSwitch = null;
   #macroProjectAdmission;
 
@@ -648,6 +654,7 @@ export class CompositionSessionOwner {
         prepared.bridge.discardActivation(prepared.ticket);
         assertCurrent();
         this.#prepared = null;
+        prepared.child.unlink();
       }
       return { ...this.state, changed: false, projectRevision: this.#history.revision };
     }
@@ -691,6 +698,7 @@ export class CompositionSessionOwner {
       prepared.bridge.publishActivation(prepared.ticket);
       preparedFonts.useLive();
       this.#prepared = null;
+      prepared.child.unlink();
     }
     this.#history[direction]();
     this.#activeCompositionId = activeCompositionId;
@@ -836,6 +844,31 @@ export class CompositionSessionOwner {
   }
 
   async prepareCommand(command, bridge, options = {}) {
+    const beforeOptions = {
+      session: this.#session,
+      project: this.#history.doc,
+      revision: this.#history.revision,
+      compositionId: this.#activeCompositionId,
+      prepared: this.#prepared,
+      preparedSwitch: this.#preparedCompositionSwitch,
+      sequence: this.#prepareSequence,
+      bridgeEpoch: bridge.preparationEpoch?.(),
+    };
+    options = captureVariablePreparationOptions(options);
+    const assertBeforePrepare = () => {
+      bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+      if (
+        this.#session !== beforeOptions.session ||
+        this.#history.doc !== beforeOptions.project ||
+        this.#history.revision !== beforeOptions.revision ||
+        this.#activeCompositionId !== beforeOptions.compositionId ||
+        this.#prepared !== beforeOptions.prepared ||
+        this.#preparedCompositionSwitch !== beforeOptions.preparedSwitch ||
+        this.#prepareSequence !== beforeOptions.sequence
+      )
+        throw Error('STALE_REVISION: document changed');
+    };
+    assertBeforePrepare();
     const typeDescriptor =
       command && typeof command === 'object'
         ? Object.getOwnPropertyDescriptor(command, 'type')
@@ -845,6 +878,7 @@ export class CompositionSessionOwner {
     command = capturePreparedCommand(command, typeDescriptor.value);
     this.#assertCurrentCommand(command);
     this.#assertQuiescent();
+    assertBeforePrepare();
     if (command.type === 'delete-color-slot')
       assertColorSlotUnused(this.#history.doc, command.payload?.slotId);
     const session = this.#session,
@@ -854,43 +888,94 @@ export class CompositionSessionOwner {
       command.type === 'paste-layer-snapshot'
         ? resolveLayerClipboardToken(command.payload?.token, this, compositionId)
         : null;
+    // Quiescence and clipboard callbacks may have aborted this replacement.
+    // Keep the old request owned and cancellable until the new one is valid.
+    captureVariablePreparationOptions(options);
+    assertBeforePrepare();
+    const previousHistory = this.#preparingHistory;
+    this.#preparingHistory = null;
+    if (previousHistory) {
+      previousHistory.child.unlink();
+      if (previousHistory.bridge !== bridge) previousHistory.child.controller.abort();
+    }
+    try {
+      assertBeforePrepare();
+    } catch (error) {
+      previousHistory?.child.controller.abort();
+      throw error;
+    }
     if (command.type === 'undo' || command.type === 'redo') {
-      const project =
-        (command.type === 'undo' ? this.#history.past : this.#history.future).at(-1) ||
-        this.#history.doc;
-      const targetCompositionId = this.#compositionFor(project);
-      const document = this.#documentFor(project, targetCompositionId);
-      const ticket = await bridge.prepareDocument(document, options);
-      if (
-        this.#session !== session ||
-        this.#activeCompositionId !== compositionId ||
-        this.#history.revision !== projectRevision
-      ) {
-        bridge.cancel();
-        throw Error('STALE_REVISION: document changed');
+      let document;
+      try {
+        const project =
+          (command.type === 'undo' ? this.#history.past : this.#history.future).at(-1) ||
+          this.#history.doc;
+        const targetCompositionId = this.#compositionFor(project);
+        document = this.#documentFor(project, targetCompositionId);
+        captureVariablePreparationOptions(options);
+        assertBeforePrepare();
+      } catch (error) {
+        previousHistory?.child.controller.abort();
+        throw error;
       }
-      const token = Object.freeze({});
-      this.#prepared = {
-        token,
-        projectRevision,
-        session,
-        compositionId,
-        type: command.type,
-        command,
-        bridge,
-        ticket,
-        document,
-      };
-      return token;
+      const sequence = ++this.#prepareSequence;
+      const child = createVariablePreparationChild(options.signal),
+        request = { bridge, child, ticket: null };
+      this.#preparingHistory = request;
+      try {
+        request.ticket = await bridge.prepareDocument(document, {
+          signal: child.controller.signal,
+        });
+        if (
+          this.#preparingHistory !== request ||
+          this.#prepareSequence !== sequence ||
+          this.#session !== session ||
+          this.#activeCompositionId !== compositionId ||
+          this.#history.revision !== projectRevision
+        )
+          throw Error('STALE_REVISION: document changed');
+        bridge.assertFresh(request.ticket);
+        const token = Object.freeze({});
+        this.#preparingHistory = null;
+        this.#prepared?.child?.unlink();
+        this.#prepared = {
+          token,
+          projectRevision,
+          session,
+          compositionId,
+          type: command.type,
+          command,
+          bridge,
+          ticket: request.ticket,
+          child,
+          document,
+        };
+        return token;
+      } catch (error) {
+        if (this.#preparingHistory === request) this.#preparingHistory = null;
+        child.unlink();
+        child.controller.abort();
+        if (request.ticket) bridge.discardActivation(request.ticket);
+        throw error;
+      }
     }
 
-    const innerToken = await session.prepareCommand(command, bridge, options);
+    assertBeforePrepare();
+    const sequence = ++this.#prepareSequence;
+    let innerToken;
+    try {
+      innerToken = await session.prepareCommand(command, bridge, options);
+    } catch (error) {
+      previousHistory?.child.controller.abort();
+      throw error;
+    }
     if (
       this.#session !== session ||
       this.#activeCompositionId !== compositionId ||
-      this.#history.revision !== projectRevision
+      this.#history.revision !== projectRevision ||
+      this.#prepareSequence !== sequence
     ) {
-      session.cancelPrepared(bridge, innerToken);
+      session.discardPrepared?.(innerToken);
       throw Error('STALE_REVISION: document changed');
     }
     try {
@@ -903,14 +988,17 @@ export class CompositionSessionOwner {
       if (
         this.#session !== session ||
         this.#activeCompositionId !== compositionId ||
-        this.#history.revision !== projectRevision
+        this.#history.revision !== projectRevision ||
+        this.#prepareSequence !== sequence
       )
         throw Error('STALE_REVISION: document changed');
+      session.assertPrepared?.(innerToken);
     } catch (error) {
-      session.cancelPrepared(bridge, innerToken);
+      session.discardPrepared?.(innerToken);
       throw error;
     }
     const token = Object.freeze({});
+    this.#prepared?.child?.unlink();
     this.#prepared = {
       token,
       projectRevision,
@@ -952,8 +1040,11 @@ export class CompositionSessionOwner {
           this.#history.revision !== pending.projectRevision)
       ) {
         if (this.#prepared === pending) this.#prepared = null;
-        if (pending.ticket) pending.bridge.discardActivation(pending.ticket);
-        else pending.session.discardPrepared?.(pending.innerToken);
+        if (pending.ticket) {
+          pending.child.unlink();
+          pending.bridge.discardActivation(pending.ticket);
+          pending.child.controller.abort();
+        } else pending.session.discardPrepared?.(pending.innerToken);
       }
       throw error;
     }
@@ -962,7 +1053,9 @@ export class CompositionSessionOwner {
         return this.#stepHistory(prepared.type, prepared.command, prepared);
       } catch (error) {
         if (this.#prepared === prepared) this.#prepared = null;
+        prepared.child.unlink();
         prepared.bridge.discardActivation(prepared.ticket);
+        prepared.child.controller.abort();
         throw error;
       }
     }
@@ -1036,12 +1129,21 @@ export class CompositionSessionOwner {
   }
 
   cancelPrepared(bridge) {
-    const prepared = this.#prepared;
-    this.#prepared = null;
+    const prepared = this.#prepared,
+      request = this.#preparingHistory;
     if (prepared?.bridge === bridge) {
-      if (prepared.ticket) bridge.cancel();
-      else prepared.session.cancelPrepared(bridge);
-      return;
+      this.#prepared = null;
+      if (prepared.ticket) {
+        prepared.child.unlink();
+        bridge.discardActivation(prepared.ticket);
+        prepared.child.controller.abort();
+      } else prepared.session.discardPrepared?.(prepared.innerToken);
+    }
+    if (request?.bridge === bridge) {
+      this.#preparingHistory = null;
+      request.child.unlink();
+      request.child.controller.abort();
+      if (request.ticket) bridge.discardActivation(request.ticket);
     }
     this.#session.cancelPrepared?.(bridge);
   }
@@ -1091,9 +1193,29 @@ export class CompositionSessionOwner {
   }
 
   async prepareCompositionSwitch(compositionId, bridge, options = {}) {
+    const beforeOptions = {
+      session: this.#session,
+      project: this.#history.doc,
+      revision: this.#history.revision,
+      compositionId: this.#activeCompositionId,
+      preparedSwitch: this.#preparedCompositionSwitch,
+      bridgeEpoch: bridge.preparationEpoch?.(),
+    };
+    options = captureVariablePreparationOptions(options);
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+    if (
+      this.#session !== beforeOptions.session ||
+      this.#history.doc !== beforeOptions.project ||
+      this.#history.revision !== beforeOptions.revision ||
+      this.#activeCompositionId !== beforeOptions.compositionId ||
+      this.#preparedCompositionSwitch !== beforeOptions.preparedSwitch
+    )
+      throw Error('STALE_REVISION: document changed');
     if (!this.#history.doc.compositions.some((entry) => entry.id === compositionId))
       throw Error('Unknown active Composition ID');
     if (compositionId === this.#activeCompositionId) return null;
+    const child = createVariablePreparationChild(options.signal),
+      previous = this.#preparedCompositionSwitch;
     const request = {
       session: this.#session,
       sourceId: this.#activeCompositionId,
@@ -1101,11 +1223,17 @@ export class CompositionSessionOwner {
       projectRevision: this.#history.revision,
       bridge,
       ticket: null,
+      child,
     };
     this.#preparedCompositionSwitch = request;
     try {
+      if (previous) {
+        previous.child.unlink();
+        previous.child.controller.abort();
+      }
+      if (this.#preparedCompositionSwitch !== request) throw Error('STALE_OPERATION');
       const document = this.#documentFor(this.#history.doc, compositionId);
-      request.ticket = await bridge.prepareDocument(document, options);
+      request.ticket = await bridge.prepareDocument(document, { signal: child.controller.signal });
       if (this.#preparedCompositionSwitch !== request) throw Error('STALE_OPERATION');
       this.#assertCompositionSwitchCurrent(request);
       bridge.assertFresh(request.ticket);
@@ -1113,15 +1241,9 @@ export class CompositionSessionOwner {
       return request.token;
     } catch (error) {
       if (this.#preparedCompositionSwitch === request) this.#preparedCompositionSwitch = null;
-      // Never invalidate a newer operation's ticket on the same bridge.
-      if (request.ticket) {
-        try {
-          bridge.assertFresh(request.ticket);
-          bridge.cancel();
-        } catch {
-          // The ticket has already been canceled or superseded.
-        }
-      }
+      child.unlink();
+      child.controller.abort();
+      if (request.ticket) bridge.discardActivation(request.ticket);
       throw error;
     }
   }
@@ -1130,14 +1252,9 @@ export class CompositionSessionOwner {
     const request = this.#preparedCompositionSwitch;
     if (!request || request.bridge !== bridge) return;
     this.#preparedCompositionSwitch = null;
-    if (request.ticket) {
-      try {
-        bridge.assertFresh(request.ticket);
-        bridge.cancel();
-      } catch {
-        // The ticket has already been canceled or superseded.
-      }
-    }
+    request.child.unlink();
+    request.child.controller.abort();
+    if (request.ticket) bridge.discardActivation(request.ticket);
   }
 
   commitPreparedCompositionSwitch(token, { beforeCommit = () => {} } = {}) {
@@ -1186,9 +1303,12 @@ export class CompositionSessionOwner {
       this.#activeCompositionId = targetId;
       this.#session = nextSession;
       this.#preparedCompositionSwitch = null;
+      request.child.unlink();
       return true;
     } catch (error) {
       if (this.#preparedCompositionSwitch === request) this.#preparedCompositionSwitch = null;
+      request.child.unlink();
+      request.child.controller.abort();
       bridge.discardActivation(ticket);
       throw error;
     }
@@ -1380,6 +1500,7 @@ export class CompositionSessionOwner {
       [
         'paste-nodes',
         'paste-layer-snapshot',
+        'apply-effect',
         'move-layers-to-folder',
         'order-layer-folder',
         'remove-layers-from-folder',

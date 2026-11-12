@@ -6,6 +6,10 @@ import { readSVGSource, importSVGTree } from './svg-import.js';
 import { exportSVG } from './core.js';
 
 const browserRoots = new Map();
+// Browser directory access and its opaque IDs last only for this page session.
+const browserFavorites = new Set();
+export const ASSET_FOLDER_FAVORITES_KEY = 'nect.asset-folder-favorites.v1';
+const MAX_FAVORITES = 128;
 // Presentation only: root IDs still own registration, refresh and placement.
 const rootDisplayNumbers = new Map();
 let nextRootDisplayNumber = 1;
@@ -94,12 +98,40 @@ export function mountAssetLibrary({
     pendingBootstrap = null,
     folderRegistrationError = null,
     roots = [],
+    currentRootId = '',
     listing = null,
     selected = null,
     busy = false,
     searchDuringRefresh = false,
+    refreshSequence = 0,
+    checkingRoots = true,
+    favorites = [],
+    favoriteStorage = null,
+    favoriteStorageError = null,
+    favoriteReadFailed = false,
     shown = 48,
     choiceSequence = 0;
+  const failedRoots = new Set();
+  if (desktop) {
+    try {
+      favoriteStorage = panel.ownerDocument.defaultView.localStorage;
+      const stored = favoriteStorage.getItem(ASSET_FOLDER_FAVORITES_KEY);
+      const saved = stored === null ? [] : JSON.parse(stored);
+      if (
+        !Array.isArray(saved) ||
+        saved.length > MAX_FAVORITES ||
+        saved.some(
+          (id) => typeof id !== 'string' || !id || id.length > 256 || /[\u0000-\u001f]/.test(id),
+        ) ||
+        new Set(saved).size !== saved.length
+      )
+        throw Error('Invalid Quick access settings');
+      favorites = saved;
+    } catch {
+      favoriteReadFailed = true;
+      favoriteStorageError = 'Quick access could not be loaded';
+    }
+  } else favorites = [...browserFavorites];
   const prepared = new Map();
   let dragTicket = null;
   const dragType = 'application/x-nect-library-ticket';
@@ -131,7 +163,19 @@ export function mountAssetLibrary({
   const add = element('button', 'Add folder');
   const refresh = element('button', 'Refresh');
   const remove = element('button', 'Remove', { title: 'Unregister folder' });
-  folders.append(rootSelect, add, refresh, remove);
+  const pin = element('button', 'Pin folder', { 'aria-pressed': 'false' });
+  folders.append(rootSelect, add, refresh, remove, pin);
+  const quick = element('div', undefined, { role: 'group', 'aria-label': 'Quick access' });
+  // Keep a long list from consuming the catalog at narrow workspace widths.
+  Object.assign(quick.style, {
+    display: 'none',
+    alignItems: 'center',
+    flex: '0 0 auto',
+    gap: '6px',
+    maxWidth: '100%',
+    minWidth: '0',
+    overflowX: 'auto',
+  });
   const search = element('input', undefined, {
     type: 'search',
     placeholder: 'Search assets',
@@ -183,30 +227,48 @@ export function mountAssetLibrary({
     'data-asset-folder-input': '',
   });
   picker.hidden = true;
-  panel.append(header, folders, filters, status, warnings, grid, more, detail, picker);
+  panel.append(header, folders, quick, filters, status, warnings, grid, more, detail, picker);
   document.body.append(panel);
   function message(text, error = false) {
     // Automatic bootstrap/refresh must not erase a failed registration. A
     // subsequent explicit interaction clears it and can report its own state.
-    if (folderRegistrationError && text !== folderRegistrationError) {
-      text = error ? `${folderRegistrationError} · ${text}` : folderRegistrationError;
+    const persistent = [folderRegistrationError, favoriteStorageError].filter(Boolean);
+    if (persistent.length) {
+      if (error && !persistent.includes(text)) persistent.push(text);
+      text = persistent.join(' · ');
       error = true;
     }
     status.textContent = text;
     status.dataset.error = String(error);
   }
   function buttons() {
-    grid.inert = busy;
-    search.disabled = busy && !searchDuringRefresh;
-    hierarchy.disabled = more.disabled = busy;
-    for (const field of Object.values(fields)) field.disabled = busy;
-    place.disabled = busy || !selected || !!selected.error;
+    const choosingFolder = folderPickIntent !== null;
+    const blocked = busy || choosingFolder;
+    grid.inert = blocked;
+    search.disabled = choosingFolder || (busy && !searchDuringRefresh);
+    hierarchy.disabled = more.disabled = blocked;
+    for (const field of Object.values(fields)) field.disabled = blocked;
+    place.disabled = blocked || !selected || !!selected.error;
     graph.disabled = place.disabled;
     join.disabled = graph.disabled || selected?.kind === 'image';
-    add.disabled = refresh.disabled = remove.disabled = busy;
+    add.disabled = refresh.disabled = remove.disabled = blocked;
     refresh.disabled ||= !roots.length;
     remove.disabled ||= !roots.length;
-    rootSelect.disabled = busy || !roots.length;
+    rootSelect.disabled = blocked || !roots.length;
+    const rootId = rootSelect.value;
+    pin.disabled = blocked || favoriteReadFailed || !roots.some((root) => root.id === rootId);
+    pin.textContent = favorites.includes(rootId) ? 'Unpin folder' : 'Pin folder';
+    pin.setAttribute('aria-pressed', String(favorites.includes(rootId)));
+    for (const button of quick.querySelectorAll('button')) {
+      button.disabled = blocked || (button.hasAttribute('data-quick-remove') && favoriteReadFailed);
+      if (button.hasAttribute('data-quick-open')) {
+        const active = button.dataset.quickOpen === rootId;
+        button.setAttribute('aria-pressed', String(active));
+        button.style.borderColor = active ? '#326aa2' : '';
+        button.style.backgroundColor = active ? '#e8f1fa' : '';
+        button.style.boxShadow = active ? 'inset 0 0 0 1px #326aa2' : '';
+      }
+    }
   }
   function closePanel() {
     if (!alive) return;
@@ -249,6 +311,115 @@ export function mountAssetLibrary({
   }
   close.onclick = closePanel;
   document.addEventListener('keydown', keydown);
+  function drawFavorites() {
+    if (!alive) return;
+    const focused = panel.ownerDocument.activeElement;
+    const focusedId = focused?.dataset?.quickOpen || focused?.dataset?.quickRemove;
+    const focusedAction = focused?.hasAttribute?.('data-quick-open') ? 'quickOpen' : 'quickRemove';
+    quick.replaceChildren();
+    quick.style.display = favorites.length ? 'flex' : 'none';
+    if (favorites.length) {
+      const label = element('span', 'Pinned');
+      label.style.whiteSpace = 'nowrap';
+      quick.append(label);
+    }
+    for (const id of favorites) {
+      const root = roots.find((entry) => entry.id === id);
+      const option = [...rootSelect.options].find((entry) => entry.value === id);
+      const label = root
+        ? option?.textContent || root.name
+        : `${checkingRoots ? 'Checking' : 'Unavailable'} folder ${id}`;
+      if (!root) {
+        const unpin = element('button', undefined, {
+          'data-quick-remove': id,
+          'aria-label': `Remove ${label} from Quick access`,
+          title: `Remove ${label} from Quick access`,
+        });
+        Object.assign(unpin.style, {
+          display: 'flex',
+          alignItems: 'center',
+          flex: '0 0 auto',
+          gap: '6px',
+          maxWidth: 'min(13rem, calc(100% - 50px))',
+        });
+        const missingLabel = element('span', label);
+        Object.assign(missingLabel.style, {
+          minWidth: '0',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        });
+        unpin.append(missingLabel, element('span', '×', { 'aria-hidden': 'true' }));
+        unpin.onclick = () => changeFavorites(favorites.filter((entry) => entry !== id));
+        quick.append(unpin);
+        continue;
+      }
+      const openButton = element('button', label, {
+        'data-quick-open': id,
+        'aria-label': `Open ${label}`,
+        'aria-pressed': String(rootSelect.value === id),
+        title: root?.path || id,
+      });
+      if (failedRoots.has(id)) {
+        openButton.textContent = `${label} (Unavailable)`;
+        openButton.setAttribute('aria-label', `Open ${label} (unavailable)`);
+      }
+      Object.assign(openButton.style, {
+        flex: '0 0 auto',
+        maxWidth: '13rem',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      });
+      openButton.onclick = () => {
+        if (!alive || busy || folderPickIntent || !roots.some((entry) => entry.id === id)) return;
+        folderRegistrationError = null;
+        rootSelect.value = id;
+        buttons();
+        void refreshRoot();
+      };
+      quick.append(openButton);
+    }
+    buttons();
+    if (focusedId) {
+      const replacement = [...quick.querySelectorAll('button')].find(
+        (button) => button.dataset[focusedAction] === focusedId && !button.disabled,
+      );
+      if (replacement) replacement.focus({ preventScroll: true });
+      else if (!pin.disabled) pin.focus({ preventScroll: true });
+    }
+  }
+  function changeFavorites(next) {
+    if (!alive || busy || folderPickIntent || favoriteReadFailed) return;
+    folderRegistrationError = null;
+    if (next.length > MAX_FAVORITES) {
+      message('Quick access is full; remove an unavailable folder first', true);
+      return;
+    }
+    try {
+      if (desktop) favoriteStorage.setItem(ASSET_FOLDER_FAVORITES_KEY, JSON.stringify(next));
+      else {
+        browserFavorites.clear();
+        for (const id of next) browserFavorites.add(id);
+      }
+    } catch {
+      favoriteStorageError = 'Quick access could not be saved';
+      message(favoriteStorageError, true);
+      return;
+    }
+    favorites = next;
+    favoriteStorageError = null;
+    drawFavorites();
+    message('Quick access updated');
+  }
+  pin.onclick = () => {
+    if (!alive || busy || folderPickIntent) return;
+    const id = rootSelect.value;
+    if (!roots.some((root) => root.id === id)) return;
+    changeFavorites(
+      favorites.includes(id) ? favorites.filter((entry) => entry !== id) : [...favorites, id],
+    );
+  };
   function drawRoots(id = rootSelect.value) {
     if (!alive) return;
     const ids = new Set(roots.map((root) => root.id));
@@ -271,7 +442,8 @@ export function mountAssetLibrary({
     }
     const selectedId = roots.some((r) => r.id === id) ? id : roots[0]?.id;
     if (selectedId !== undefined) rootSelect.value = selectedId;
-    buttons();
+    currentRootId = selectedId ?? '';
+    drawFavorites();
   }
   async function open(item) {
     if (desktop)
@@ -429,7 +601,10 @@ export function mountAssetLibrary({
     drawItems();
   }
   async function refreshRoot() {
+    if (!alive || folderPickIntent) return;
     const id = rootSelect.value;
+    currentRootId = id;
+    const refreshRequest = ++refreshSequence;
     epoch++;
     selected = null;
     detail.hidden = true;
@@ -453,7 +628,14 @@ export function mountAssetLibrary({
       const value = desktop
         ? await invoke('refresh_asset_folder', { rootId: id })
         : browserRoots.get(id);
-      if (!alive || token !== epoch) return;
+      if (!alive || token !== epoch || refreshRequest !== refreshSequence) return;
+      if (
+        desktop &&
+        (value?.root?.id !== id || !Array.isArray(value.items) || !Array.isArray(value.warnings))
+      )
+        throw Error('Invalid asset folder response');
+      if (!value) throw Error('Folder is unavailable');
+      failedRoots.delete(id);
       acceptListing(
         desktop
           ? value
@@ -468,18 +650,34 @@ export function mountAssetLibrary({
             },
       );
     } catch (error) {
-      if (alive) message(String(error.message || error), true);
+      if (alive && token === epoch && refreshRequest === refreshSequence) {
+        failedRoots.add(id);
+        message(String(error.message || error), true);
+      }
     } finally {
-      busy = false;
-      searchDuringRefresh = false;
-      if (alive) buttons();
+      if (alive && refreshRequest === refreshSequence) {
+        busy = false;
+        searchDuringRefresh = false;
+        drawFavorites();
+      }
+    }
+  }
+  function beginBrowserFolderPick(intent) {
+    if (!alive || busy || folderPickIntent) return;
+    folderPickIntent = { ...intent, previousRootId: rootSelect.value };
+    picker.value = '';
+    buttons();
+    try {
+      picker.click();
+    } catch (error) {
+      folderPickIntent = null;
+      buttons();
+      message(String(error.message || error), true);
     }
   }
   async function addFolder() {
     if (!desktop) {
-      folderPickIntent = { mode: 'add' };
-      picker.value = '';
-      picker.click();
+      beginBrowserFolderPick({ mode: 'add' });
       return;
     }
     busy = true;
@@ -500,6 +698,7 @@ export function mountAssetLibrary({
         throw Error('Selected folder is unavailable');
       folderEpoch++;
       pendingBootstrap = null;
+      checkingRoots = false;
       roots = result.roots;
       drawRoots(result.selectedRootId);
       await refreshRoot();
@@ -559,35 +758,41 @@ export function mountAssetLibrary({
       const id = previous?.id || 'browser-' + crypto.randomUUID();
       const root = { id, name: folderName, files };
       browserRoots.set(id, root);
+      checkingRoots = false;
       roots = [...browserRoots.values()];
       drawRoots(id);
       await refreshRoot();
     } catch (error) {
-      message(error.message, true);
+      if (alive) message(error.message, true);
+    } finally {
+      if (alive) buttons();
     }
   };
   picker.addEventListener('cancel', () => {
     const refreshing = folderPickIntent?.mode === 'refresh';
     folderPickIntent = null;
-    if (alive)
+    if (alive) {
+      buttons();
       message(
         refreshing ? 'Catalog unchanged. Remove folder to clear.' : 'Folder selection unchanged',
       );
+    }
   });
   add.onclick = () => {
+    if (!alive || busy || folderPickIntent) return;
     folderRegistrationError = null;
     void addFolder();
   };
   refresh.onclick = () => {
+    if (!alive || busy || folderPickIntent) return;
     folderRegistrationError = null;
     if (desktop) void refreshRoot();
     else {
-      folderPickIntent = { mode: 'refresh', rootId: rootSelect.value };
-      picker.value = '';
-      picker.click();
+      beginBrowserFolderPick({ mode: 'refresh', rootId: rootSelect.value });
     }
   };
   remove.onclick = async () => {
+    if (!alive || busy || folderPickIntent) return;
     folderRegistrationError = null;
     busy = true;
     buttons();
@@ -610,6 +815,15 @@ export function mountAssetLibrary({
     }
   };
   rootSelect.onchange = () => {
+    if (!alive) return;
+    if (folderPickIntent) {
+      rootSelect.value = folderPickIntent.previousRootId;
+      return;
+    }
+    if (busy) {
+      rootSelect.value = currentRootId;
+      return;
+    }
     folderRegistrationError = null;
     void refreshRoot();
   };
@@ -700,11 +914,14 @@ export function mountAssetLibrary({
   graph.onclick = () => void placeAsset('graph');
   function settleBootstrap(result) {
     if (!alive || result.version !== folderEpoch) return;
+    checkingRoots = false;
     if (result.error) {
+      drawFavorites();
       message(String(result.error.message || result.error), true);
       return;
     }
     if (!Array.isArray(result.roots)) {
+      drawFavorites();
       message('Invalid asset folder list', true);
       return;
     }
@@ -712,6 +929,7 @@ export function mountAssetLibrary({
     drawRoots();
     void refreshRoot();
   }
+  drawFavorites();
   message('Reading folders…');
   void (async () => {
     // Item redraws do not supersede folder discovery. A successful folder

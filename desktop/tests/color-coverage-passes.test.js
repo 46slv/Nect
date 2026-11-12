@@ -85,6 +85,71 @@ test('scene order and paint alpha survive the production renderer bridge', () =>
   assert.equal(reverse[0].layerId, b.layer.id);
 });
 
+test('joined solid paths emit fill and stroke in each rendered group order', () => {
+  const { doc, layer } = fixture();
+  const shape = layer.nodes.find((n) => n.type === 'Rectangle');
+  const fill = layer.nodes.find((n) => n.type === 'Fill');
+  const stroke = layer.nodes.find((n) => n.type === 'Stroke');
+  const second = node('Rectangle');
+  const join = node('Join Geometry');
+  second.params.center.value = [340, 250];
+  fill.params.color.value.alpha = 0.5;
+  stroke.params.color.value.alpha = 0.75;
+  layer.nodes.push(second, join);
+  connect(layer, shape.id, join.id, 'a');
+  connect(layer, second.id, join.id, 'b');
+  connect(layer, join.id, fill.id, 'path');
+  const scene = exportScene(doc);
+  const before = JSON.stringify(scene);
+  assert.equal(new Set(scene[0].value.contours.map((c) => c.group)).size, 2);
+  const result = passes(scene, doc, new Map([[layer.id, { fill: 'c1', stroke: 'c2' }]]));
+  assert.deepEqual(
+    result.map((p) => [p.paint, p.slotId]),
+    [
+      ['fill', 'c1'],
+      ['stroke', 'c2'],
+      ['fill', 'c1'],
+      ['stroke', 'c2'],
+    ],
+  );
+  assert.notEqual(result[0].svg, result[2].svg);
+  assert.equal(JSON.stringify(scene), before);
+});
+
+test('fully opaque repeater copies remain measurable but partial opacity is rejected', () => {
+  const { doc, layer } = fixture();
+  doc.schemaVersion = 37;
+  const shape = layer.nodes.find((n) => n.type === 'Rectangle');
+  const fill = layer.nodes.find((n) => n.type === 'Fill');
+  const repeat = node('Geometry Repeater');
+  repeat.operation = 'ae-2d';
+  repeat.params.count.value = 2;
+  layer.nodes.push(repeat);
+  connect(layer, shape.id, repeat.id, 'path');
+  connect(layer, repeat.id, fill.id, 'path');
+  const scene = exportScene(doc);
+  assert.ok(scene[0].value.contours.every((c) => c.repeaterOpacity === 1));
+  assert.equal(passes(scene, doc).length, 4);
+  scene[0].value.contours[0].repeaterOpacity = 0.5;
+  assert.throws(() => passes(scene, doc), /plain solid/);
+});
+
+test('grouped angular gradients and excessive grouped passes remain unavailable', () => {
+  const { doc, scene } = fixture();
+  const original = scene[0].value;
+  const grouped = {
+    ...original,
+    contours: Array.from({ length: 129 }, (_, index) => ({
+      ...original.contours[0],
+      group: `group_${index}`,
+    })),
+  };
+  assert.throws(() => passes([{ ...scene[0], value: grouped }], doc), /budget/);
+  grouped.contours.length = 1;
+  grouped.fill = { kind: 'angular-gradient' };
+  assert.throws(() => passes([{ ...scene[0], value: grouped }], doc), /plain solid/);
+});
+
 test('repeater appearance is never flattened into independent child alpha', () => {
   const { doc, scene } = fixture();
   for (const field of ['repeaterOpacity', 'repeaterFill', 'repeaterStroke']) {
@@ -153,6 +218,37 @@ function gradientFixture(type = 'Linear Gradient Fill') {
   gradient.params.startColor.colorSlotId = 'first';
   gradient.params.endColor.colorSlotId = 'second';
   return { doc, layer, gradient };
+}
+
+for (const type of ['Linear Gradient Fill', 'Radial Gradient Fill']) {
+  test(`${type}: grouped fills preserve stop identity and per-group paint order`, () => {
+    const { doc, layer, gradient } = gradientFixture(type);
+    const shape = layer.nodes.find((n) => n.type === 'Rectangle');
+    const second = node('Rectangle');
+    const join = node('Join Geometry');
+    second.params.center.value = [340, 250];
+    layer.nodes.push(second, join);
+    connect(layer, shape.id, join.id, 'a');
+    connect(layer, second.id, join.id, 'b');
+    connect(layer, join.id, gradient.id, 'path');
+    const scene = exportScene(doc),
+      before = JSON.stringify(scene);
+    const result = passes(scene, doc);
+    assert.deepEqual(
+      result.map((p) => p.paint),
+      ['fill', 'stroke', 'fill', 'stroke'],
+    );
+    for (const fill of [result[0], result[2]]) {
+      assert.deepEqual([fill.split.startSlotId, fill.split.endSlotId], ['first', 'second']);
+      assert.match(fill.svg, /gradientUnits="userSpaceOnUse"/);
+    }
+    assert.equal(JSON.stringify(scene), before);
+    gradient.params.endColor.colorSlotId = 'first';
+    const same = passes(exportScene(doc), doc);
+    assert.equal(same[0].slotId, 'first');
+    assert.equal(same[2].slotId, 'first');
+    assert.equal(same[0].split, undefined);
+  });
 }
 
 test('two-stop linear gradients preserve stable stop IDs, production alpha and one paint order', () => {

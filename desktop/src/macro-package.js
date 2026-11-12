@@ -2,8 +2,9 @@ import { snapshotNodeDeclaration } from './node-foundation.js';
 import { isVector2 } from './node-value-validation.js';
 import { transformValues } from './transform-affine.js';
 
-// Internal prototype only: this is not yet a persisted Document or library schema.
-// The first supported graph is a single Path through two literal Transforms.
+// Project admission can retain a pinned definition using this validator. A
+// product Macro node, application workflow and external library are not yet
+// implemented. The first definition is one Path through two literal Transforms.
 const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,180}$/;
 const scalarKeys = new Set(['scale', 'rotation']);
 const hasId = (value) => typeof value === 'string' && idPattern.test(value);

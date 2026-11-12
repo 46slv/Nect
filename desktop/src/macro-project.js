@@ -160,9 +160,8 @@ export function mergeMacroDefinitions(existing, incoming) {
   return Object.freeze(snapshots);
 }
 
-// Candidate-only representation. The normal Project codec does not call this
-// until the Macro node, versioned persistence and Session have a common owner.
-// Its caller must first validate the whole Project as data-only JSON.
+// Schema 66 validates every stored instance pin against the Project's
+// definitions. Its caller first validates the whole Project as data-only JSON.
 function assertMacroLayerReferences(layers, registry) {
   for (const layer of layers)
     for (const node of layer.nodes) {

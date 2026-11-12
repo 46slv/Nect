@@ -116,7 +116,6 @@ import {
   assertCompositionAcyclic,
   isPaintedGroup,
   paintedGroup,
-  groupGeometry,
 } from './composition-reference.js';
 export { compositionReferenceTargets } from './composition-reference.js';
 import { splitPathSegment } from './path-point-insertion.js';
@@ -127,9 +126,12 @@ import { PRIVATE_FONT_SCHEMA_VERSION } from './private-font-source.js';
 import {
   createVariableDocumentPreparer as createVariableBridge,
   assertVariableDocumentReady,
+  captureVariablePreparationOptions,
+  createVariablePreparationChild,
   validateVariableText,
   VARIABLE_KIND,
 } from './variable-font/document-bridge.js';
+export { createVariablePreparationController } from './variable-font/document-bridge.js';
 import { canonicalAxes, requireThat as variableCheck } from './variable-font/contract.js';
 import { validateCharacterArrangement } from './character-arrangement.js';
 import {
@@ -199,6 +201,13 @@ import {
 import { removeArtworkLayer, removeArtworkLayers } from './artwork-deletion.js';
 import { moveArtworkLayer, moveArtworkLayerBefore } from './artwork-ordering.js';
 import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-multi-move.js';
+import { resolveArtworkMoveTarget } from './artwork-move-target.js';
+import {
+  planTransformEffect,
+  sameTransformEffectTarget,
+  transformEffectPosition,
+  TRANSFORM_EFFECT_ID,
+} from './effect-insert-plan.js';
 import { alignArtworkSelection } from './artwork-alignment.js';
 import { planNodeOutputAlignment } from './node-output-alignment.js';
 import { planPointAlignment } from './point-alignment.js';
@@ -244,9 +253,7 @@ export {
   layoutGridLines,
   setLayoutGrid,
 } from './guides.js';
-// The full build initializes PaperScript with new Function, which native CSP blocks.
-// Geometry needs only the core build; keep script-src free of unsafe-eval.
-import paper from 'paper/dist/paper-core.js';
+import { fromPaper, getPaperScope, toPaper } from './paper-runtime.js';
 import {
   validateFontAssets,
   resolveFonts,
@@ -258,9 +265,10 @@ import {
 import { layoutText, validateLeading } from './text-layout.js';
 import { validateTextWrap, withWrapExtent } from './text-wrap.js';
 import { validateTextPathAttachment, validateTextPathMode, projectTextPath } from './text-path.js';
-import { offsetClosedPath, OFFSET_EDITOR_LIMITS, OffsetError } from './closed-offset.js';
-import { offsetGroupedClosedPathDetailed } from './grouped-closed-offset.js';
+import { OffsetError } from './closed-offset.js';
+import { closedOffsetSettings } from './closed-offset-node-settings.js';
 export { OFFSET_EDITOR_LIMITS } from './closed-offset.js';
+export { closedOffsetSettings } from './closed-offset-node-settings.js';
 import { fingerprint } from './fingerprint.js';
 import {
   createCharacterPositions,
@@ -293,11 +301,12 @@ export {
   anchorFromOutputDelta,
 } from './transform-affine.js';
 import { identityMatrix, characterTransform, routeCharacters } from './character-geometry.js';
+import { radialSettings } from './radial-geometry.js';
+export { radialSettings } from './radial-geometry.js';
 export * from './character-identity.js';
 export * from './character-geometry.js';
 export * from './transform-handles.js';
-const scope = new paper.PaperScope();
-scope.setup(new scope.Size(1200, 800));
+const scope = getPaperScope();
 export const clone = (x) => structuredClone(x);
 // Font assets are immutable and shared across snapshots; copying large base64 strings
 // for every keystroke would turn a 20 MB font into gigabytes of undo history.
@@ -526,31 +535,9 @@ const legacyDefinitions = {
     softness: p('Scalar', 0.05),
   },
   Mask: { path: p('PaintedPath', null), mask: p('Path', null), invert: p('Boolean', false) },
-  Circle: { center: p('Vector2', [350, 250]), radius: p('Scalar', 120) },
-  Ellipse: { center: p('Vector2', [350, 250]), size: p('Vector2', [240, 160]) },
-  Rectangle: { center: p('Vector2', [460, 250]), size: p('Vector2', [180, 220]) },
-  Polygon: {
-    center: p('Vector2', [350, 250]),
-    sides: p('Scalar', 6),
-    radius: p('Scalar', 120),
-    rotation: p('Scalar', 0),
-  },
-  Star: {
-    center: p('Vector2', [350, 250]),
-    points: p('Scalar', 5),
-    outerRadius: p('Scalar', 120),
-    innerRadius: p('Scalar', 60),
-    rotation: p('Scalar', 0),
-  },
   Curve: { closed: p('Boolean', true) },
   'Multi Path': {},
   Boolean: { a: p('Path', null), b: p('Path', null) },
-  'Convert to Path': { path: p('Path', null) },
-  'Closed Path Offset': {
-    path: p('Path', null),
-    amount: p('Scalar', 10),
-    miterLimit: p('Scalar', 4),
-  },
   'Path Remap': { path: p('Path', null), offset: p('Vector2', [0, 0]) },
   Transform: {
     path: p('Path', null),
@@ -558,27 +545,6 @@ const legacyDefinitions = {
     offset: p('Vector2', [0, 0]),
     scale: p('Scalar', 1),
     rotation: p('Scalar', 0),
-  },
-  'Dash Path': {
-    path: p('Path', null),
-    dashLength: p('Scalar', 12),
-    gapLength: p('Scalar', 6),
-    offset: p('Scalar', 0),
-  },
-  'Trim Path': {
-    path: p('Path', null),
-    start: p('Scalar', 0),
-    end: p('Scalar', 1),
-  },
-  'Set Path Start': {
-    path: p('Path', null),
-    start: p('Scalar', 0),
-  },
-  'Subdivide Path': { path: p('Path', null), segments: p('Scalar', 2) },
-  'Resample Path': {
-    path: p('Path', null),
-    count: p('Scalar', 32),
-    spacing: p('Scalar', 24),
   },
   'Geometry Repeater': {
     path: p('Path', null),
@@ -729,18 +695,6 @@ for (const type of imageDitherTypes) {
   const shapeType = type.replace(/ Image$/, '');
   definitions[type] = { ...structuredClone(definitions[shapeType]), path: p('Image', null) };
 }
-export function closedOffsetSettings(read) {
-  const amount = read('amount'),
-    miterLimit = read('miterLimit');
-  if (!Number.isFinite(amount) || (amount !== 0 && Math.abs(amount) < 0.0001))
-    throw new OffsetError(
-      'OFFSET_AMOUNT',
-      'Offset amount must be zero or at least 0.0001 px in magnitude',
-    );
-  if (!Number.isFinite(miterLimit) || miterLimit < 1 || miterLimit > 100)
-    throw new OffsetError('OFFSET_OPTIONS', 'Offset miter limit must be between 1 and 100');
-  return { amount, miterLimit };
-}
 export function linearGradientSettings(read) {
   return createLinearGradientFill(
     Object.fromEntries(['start', 'end', 'startColor', 'endColor'].map((key) => [key, read(key)])),
@@ -771,41 +725,6 @@ export function luminanceModifierSettings(read) {
   )
     throw Error('Luminance grid origin components must be finite and within ±100000 px');
   return { pitch, invert, gridOrigin, tonePower };
-}
-// Keep count validation shared by JSON/direct input and resolved expression/socket input.
-export function radialSettings(type, read) {
-  const key = type === 'Polygon' ? 'sides' : 'points',
-    count = read(key);
-  if (!Number.isInteger(count) || count < 3 || count > 256)
-    throw Error(`${type} ${key} must be an integer from 3 to 256`);
-  const outer = read(type === 'Polygon' ? 'radius' : 'outerRadius'),
-    inner = type === 'Star' ? read('innerRadius') : outer;
-  if (![outer, inner].every((v) => Number.isFinite(v) && v > 0 && v <= 100000))
-    throw Error('Radii must be positive and at most 100000 px');
-  if (inner > outer) throw Error('Star innerRadius must not exceed outerRadius');
-  return { count, outer, inner };
-}
-function radialPath(n, read) {
-  const { count, outer, inner } = radialSettings(n.type, read),
-    center = read('center'),
-    rotation = read('rotation') % 360,
-    total = n.type === 'Star' ? count * 2 : count,
-    identity = `${n.id}:${n.type}:${count}`;
-  return {
-    contours: [
-      {
-        id: identity,
-        closed: true,
-        points: Array.from({ length: total }, (_, i) => {
-          const angle = ((rotation - 90 + (i * 360) / total) * Math.PI) / 180,
-            radius = n.type === 'Star' && i % 2 ? inner : outer,
-            position = [center[0] + radius * Math.cos(angle), center[1] + radius * Math.sin(angle)];
-          assertValue('Vector2', position);
-          return { id: `${identity}:${i}`, position, handleA: [0, 0], handleB: [0, 0] };
-        }),
-      },
-    ],
-  };
 }
 export function parseStrokeDash(value) {
   const raw = value.trim();
@@ -858,17 +777,13 @@ export function node(type, x = 40, y = 40) {
     points: type === 'Curve' ? [point(250, 150), point(450, 150), point(350, 350)] : [],
     operation: isDither(type)
       ? 'square'
-      : type === 'Resample Path'
-        ? 'count'
-        : type === 'Line Screen'
-          ? 'horizontal'
-          : type === 'Closed Path Offset'
-            ? 'miter'
-            : type === 'Geometry Repeater'
-              ? 'linear'
-              : builtinNodeRegistry.get(type)?.declaration.defaultOperation
-                ? builtinNodeRegistry.get(type).declaration.defaultOperation
-                : 'subtract',
+      : type === 'Line Screen'
+        ? 'horizontal'
+        : type === 'Geometry Repeater'
+          ? 'linear'
+          : builtinNodeRegistry.get(type)?.declaration.defaultOperation
+            ? builtinNodeRegistry.get(type).declaration.defaultOperation
+            : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -1020,17 +935,10 @@ const bypassInputs = Object.freeze({
   Mask: 'path',
   Boolean: 'a',
   Transform: 'path',
-  'Resample Path': 'path',
-  'Trim Path': 'path',
-  'Set Path Start': 'path',
-  'Subdivide Path': 'path',
-  'Dash Path': 'path',
   'Path Remap': 'path',
-  'Closed Path Offset': 'path',
   'Geometry Repeater': 'path',
   'Instance on Points': 'path',
   'Luminance Instances': 'motif',
-  'Convert to Path': 'path',
   Fill: 'path',
   'Linear Gradient Fill': 'path',
   'Radial Gradient Fill': 'path',
@@ -1716,9 +1624,7 @@ export const operationOptions = {
   'Error Diffusion Dither': ['square', 'circle', 'polygon', 'star'],
   'Ordered Dither Image': ['square', 'circle', 'polygon', 'star'],
   'Error Diffusion Dither Image': ['square', 'circle', 'polygon', 'star'],
-  'Closed Path Offset': ['miter', 'bevel', 'round'],
   'Geometry Repeater': ['linear', 'radial-fit', 'radial-step', 'ae-2d'],
-  'Resample Path': ['count', 'spacing'],
   'Line Screen': ['horizontal', 'vertical'],
   Boolean: ['union', 'subtract', 'intersect', 'difference'],
   ...Object.fromEntries(
@@ -1743,11 +1649,6 @@ export function activeParameters(n) {
           : ['path', 'count', 'center', 'startAngle', 'angle']
       ).includes(key),
     );
-  if (n.type === 'Resample Path')
-    return entries.filter(
-      ([key]) => key === 'path' || key === (n.operation === 'spacing' ? 'spacing' : 'count'),
-    );
-
   if (
     isTransform(n) &&
     (!n.params.uniformScale ||
@@ -2564,16 +2465,6 @@ function assertValue(type, value) {
   if (type === 'Vector2' && !isVector2(value)) throw Error('Expected Vector2');
   if (type === 'Boolean' && typeof value !== 'boolean') throw Error('Expected Boolean');
 }
-function toPaper(path) {
-  let compound = new scope.CompoundPath({ insert: false });
-  for (const contour of path.contours) {
-    let child = new scope.Path({ insert: false, closed: contour.closed });
-    for (const pt of contour.points)
-      child.add(new scope.Segment(pt.position, pt.handleA, pt.handleB));
-    compound.addChild(child);
-  }
-  return compound;
-}
 function booleanOperand(path) {
   if (!path.contours.some((c) => c.group !== undefined)) return toPaper(path);
   let result = null;
@@ -2589,575 +2480,6 @@ function booleanOperand(path) {
     result = union;
   }
   return result || toPaper({ contours: [] });
-}
-function fromPaper(item, prefix) {
-  let children = item.children || [item];
-  return {
-    contours: children.map((c, ci) => ({
-      id: `${prefix}:c${ci}`,
-      closed: c.closed,
-      points: c.segments.map((s, si) => ({
-        id: `${prefix}:c${ci}:p${si}`,
-        position: [s.point.x, s.point.y],
-        handleA: [s.handleIn.x, s.handleIn.y],
-        handleB: [s.handleOut.x, s.handleOut.y],
-      })),
-    })),
-  };
-}
-
-// Paper's getTimeAt() uses an absolute 1e-12 length tolerance. Normalize very
-// small curves around their first control point before finding t, then use that
-// same t to take the exact subcurve from the original curve.
-function curveTimeAtDistance(curve, distance, length) {
-  if (distance <= 0) return 0;
-  if (distance >= length) return 1;
-  if (length >= 1e-6) return curve.getTimeAt(distance);
-  const values = curve.values,
-    scale = 1 / length,
-    originX = values[0],
-    originY = values[1],
-    normalized = values.map((value, index) => (value - (index % 2 ? originY : originX)) * scale),
-    scaledCurve = new scope.Curve(normalized),
-    time = scaledCurve.getTimeAt(distance * scale);
-  return Number.isFinite(time) ? Math.min(1, Math.max(0, time)) : time;
-}
-
-function trimPathGeometry(source, { start, end, prefix }) {
-  if (!source || !Array.isArray(source.contours)) throw Error('Connect a Path input');
-  if (!Number.isFinite(start) || start < 0 || start > 1)
-    throw Error('Trim Path start must be from 0 to 1');
-  if (!Number.isFinite(end) || end < 0 || end > 1) throw Error('Trim Path end must be from 0 to 1');
-  if (start > end) throw Error('Trim Path start must not exceed end');
-  if (typeof prefix !== 'string' || !prefix) throw Error('Trim Path needs a nonempty ID prefix');
-
-  let inputPoints = 0;
-  for (const contour of source.contours) {
-    if (!Array.isArray(contour?.points)) throw Error('Trim Path needs valid contours');
-    inputPoints += contour.points.length;
-    if (inputPoints > 100000) throw Error('Trim Path exceeds geometry budget');
-  }
-  if (source.contours.length > 10000) throw Error('Trim Path exceeds geometry budget');
-
-  const copyPoint = (point, contourIndex, pointIndex) => {
-    const position = [...point.position],
-      handleA = [...point.handleA],
-      handleB = [...point.handleB];
-    assertValue('Vector2', position);
-    assertValue('Vector2', handleA);
-    assertValue('Vector2', handleB);
-    return {
-      ...point,
-      id: `${prefix}:c${contourIndex}:p${pointIndex}`,
-      position,
-      handleA,
-      handleB,
-    };
-  };
-  const copyContour = (contour, contourIndex, closed = contour.closed) => ({
-    ...contour,
-    id: `${prefix}:c${contourIndex}`,
-    closed,
-    points: contour.points.map((point, pointIndex) => copyPoint(point, contourIndex, pointIndex)),
-  });
-
-  if (start === end) return { ...source, contours: [] };
-  if (start === 0 && end === 1)
-    return {
-      ...source,
-      contours: source.contours.map((contour, index) => copyContour(contour, index)),
-    };
-
-  const item = toPaper(source);
-  try {
-    let outputPointCount = 0;
-    const contours = source.contours.map((contour, contourIndex) => {
-      const path = item.children[contourIndex],
-        length = path.length;
-      if (!Number.isFinite(length) || length < 0)
-        throw Error('Trim Path exceeds finite path length');
-
-      // Arc length cannot distinguish positions on a degenerate contour. Keep
-      // its finite points as an open contour for any non-empty partial range.
-      if (length === 0) {
-        outputPointCount += contour.points.length;
-        if (outputPointCount > 100000) throw Error('Trim Path exceeds geometry budget');
-        return copyContour(contour, contourIndex, false);
-      }
-
-      const from = length * start,
-        to = length * end,
-        output = [];
-      if (![from, to].every(Number.isFinite)) throw Error('Trim Path exceeds finite path length');
-      const append = (values) => {
-        if (!Array.isArray(values) || values.length !== 8 || !values.every(Number.isFinite))
-          throw Error('Trim Path exceeds finite coordinates');
-        const addedPoints = output.length ? 1 : 2;
-        if (outputPointCount + addedPoints > 100000)
-          throw Error('Trim Path exceeds geometry budget');
-        const startPoint = [values[0], values[1]],
-          control1 = [values[2], values[3]],
-          control2 = [values[4], values[5]],
-          endPoint = [values[6], values[7]];
-        if (!output.length) {
-          output.push({
-            id: `${prefix}:c${contourIndex}:p0`,
-            position: startPoint,
-            handleA: [0, 0],
-            handleB: [control1[0] - startPoint[0], control1[1] - startPoint[1]],
-          });
-        } else {
-          const previous = output[output.length - 1];
-          previous.handleB = [
-            control1[0] - previous.position[0],
-            control1[1] - previous.position[1],
-          ];
-        }
-        const index = output.length;
-        output.push({
-          id: `${prefix}:c${contourIndex}:p${index}`,
-          position: endPoint,
-          handleA: [control2[0] - endPoint[0], control2[1] - endPoint[1]],
-          handleB: [0, 0],
-        });
-        outputPointCount += addedPoints;
-      };
-      let cursor = 0;
-      for (const curve of path.curves) {
-        const curveLength = curve.length,
-          next = cursor + curveLength;
-        if (!Number.isFinite(curveLength) || !Number.isFinite(next))
-          throw Error('Trim Path exceeds finite path length');
-        if (curveLength > 0) {
-          const localStart = Math.max(0, from - cursor),
-            localEnd = Math.min(curveLength, to - cursor);
-          if (localEnd > localStart) {
-            const t0 = curveTimeAtDistance(curve, localStart, curveLength),
-              t1 = curveTimeAtDistance(curve, localEnd, curveLength);
-            if (!Number.isFinite(t0) || !Number.isFinite(t1) || t0 < 0 || t1 > 1 || t0 > t1)
-              throw Error('Trim Path could not locate a finite curve segment');
-            if (t1 > t0) append(curve.getPart(t0, t1).values);
-          }
-        }
-        cursor = next;
-      }
-      if (output.length > 100000) throw Error('Trim Path exceeds geometry budget');
-      for (const point of output) {
-        assertValue('Vector2', point.position);
-        assertValue('Vector2', point.handleA);
-        assertValue('Vector2', point.handleB);
-      }
-      return {
-        ...contour,
-        id: `${prefix}:c${contourIndex}`,
-        closed: false,
-        points: output,
-      };
-    });
-    if (contours.reduce((sum, contour) => sum + contour.points.length, 0) > 100000)
-      throw Error('Trim Path exceeds geometry budget');
-    return { ...source, contours };
-  } finally {
-    item.remove();
-  }
-}
-
-function setPathStartGeometry(source, { start, prefix }) {
-  if (!source || !Array.isArray(source.contours)) throw Error('Connect a Path input');
-  if (!Number.isFinite(start) || start < 0 || start > 1)
-    throw Error('Set Path Start start must be from 0 to 1');
-  if (typeof prefix !== 'string' || !prefix)
-    throw Error('Set Path Start needs a nonempty ID prefix');
-  if (source.contours.length > 10000) throw Error('Set Path Start exceeds geometry budget');
-
-  let inputPointCount = 0;
-  for (const contour of source.contours) {
-    if (!Array.isArray(contour?.points) || typeof contour.closed !== 'boolean')
-      throw Error('Set Path Start needs valid contours');
-    inputPointCount += contour.points.length;
-    if (inputPointCount > 100000) throw Error('Set Path Start exceeds geometry budget');
-    for (const point of contour.points) {
-      if (!point) throw Error('Set Path Start needs valid points');
-      assertValue('Vector2', point.position);
-      assertValue('Vector2', point.handleA);
-      assertValue('Vector2', point.handleB);
-    }
-  }
-
-  const copyPoint = (point, contourIndex, pointIndex) => ({
-      ...point,
-      id: `${prefix}:c${contourIndex}:p${pointIndex}`,
-      position: [...point.position],
-      handleA: [...point.handleA],
-      handleB: [...point.handleB],
-    }),
-    copyContour = (contour, contourIndex, points = contour.points) => ({
-      ...contour,
-      id: `${prefix}:c${contourIndex}`,
-      // Open paths have no seam to move. They intentionally pass through with
-      // their point order, curve shape, groups and arbitrary source metadata intact.
-      points: points.map((point, pointIndex) => copyPoint(point, contourIndex, pointIndex)),
-    });
-
-  // Both ends are geometry identities. Still give the modifier's result its
-  // own deterministic IDs, like the other derived-path modifiers.
-  if (start === 0 || start === 1)
-    return {
-      ...source,
-      contours: source.contours.map((contour, contourIndex) => copyContour(contour, contourIndex)),
-    };
-
-  if (!source.contours.some((contour) => contour.closed && contour.points.length))
-    return {
-      ...source,
-      contours: source.contours.map((contour, contourIndex) => copyContour(contour, contourIndex)),
-    };
-
-  const item = toPaper(source);
-  try {
-    if (!Array.isArray(item.children) || item.children.length !== source.contours.length)
-      throw Error('Set Path Start could not resolve contour geometry');
-    let outputPointCount = 0;
-    const contours = source.contours.map((contour, contourIndex) => {
-      const count = contour.points.length,
-        path = item.children[contourIndex];
-      if (!contour.closed || count === 0) {
-        outputPointCount += count;
-        if (outputPointCount > 100000) throw Error('Set Path Start exceeds geometry budget');
-        return copyContour(contour, contourIndex);
-      }
-
-      const length = path.length;
-      if (!Number.isFinite(length) || length < 0)
-        throw Error('Set Path Start exceeds finite path length');
-      // No arc-length position can distinguish a zero-length closed contour.
-      // Keep its original closure and finite points for every seam value.
-      if (length === 0) {
-        outputPointCount += count;
-        if (outputPointCount > 100000) throw Error('Set Path Start exceeds geometry budget');
-        return copyContour(contour, contourIndex);
-      }
-      if (!path.curves || path.curves.length !== count)
-        throw Error('Set Path Start could not resolve closed contour edges');
-
-      const distance = start * length,
-        tolerance = length * Number.EPSILON * 16;
-      if (!Number.isFinite(distance)) throw Error('Set Path Start exceeds finite path length');
-
-      // An exact source-vertex seam needs no split and must not acquire a
-      // duplicate knot. Resolve a boundary before looking for an interior edge.
-      let cursor = 0,
-        vertexIndex = null,
-        split = null;
-      for (let edgeIndex = 0; edgeIndex < path.curves.length; edgeIndex++) {
-        const curve = path.curves[edgeIndex],
-          curveLength = curve.length,
-          next = cursor + curveLength;
-        if (!Number.isFinite(curveLength) || curveLength < 0 || !Number.isFinite(next))
-          throw Error('Set Path Start exceeds finite path length');
-        if (Math.abs(distance - cursor) <= tolerance) {
-          vertexIndex = edgeIndex;
-          break;
-        }
-        if (Math.abs(distance - next) <= tolerance) {
-          vertexIndex = (edgeIndex + 1) % count;
-          break;
-        }
-        if (curveLength > 0 && distance > cursor && distance < next) {
-          const time = curveTimeAtDistance(curve, distance - cursor, curveLength);
-          if (!Number.isFinite(time) || time <= 0 || time >= 1)
-            throw Error('Set Path Start could not represent an interior seam');
-          const tail = curve.getPart(time, 1)?.values,
-            head = curve.getPart(0, time)?.values;
-          if (
-            !Array.isArray(tail) ||
-            tail.length !== 8 ||
-            !tail.every(Number.isFinite) ||
-            !Array.isArray(head) ||
-            head.length !== 8 ||
-            !head.every(Number.isFinite)
-          )
-            throw Error('Set Path Start could not represent an interior seam');
-          const position = tail.slice(0, 2),
-            handleB = [tail[2] - position[0], tail[3] - position[1]],
-            handleA = [head[4] - position[0], head[5] - position[1]];
-          if (![...position, ...handleA, ...handleB].every(Number.isFinite))
-            throw Error('Set Path Start could not represent an interior seam');
-          split = { position, handleA, handleB, edgeIndex, tail, head };
-          break;
-        }
-        cursor = next;
-      }
-
-      let points;
-      if (vertexIndex !== null) {
-        points = Array.from(
-          { length: count },
-          (_, offset) => contour.points[(vertexIndex + offset) % count],
-        );
-      } else if (split) {
-        const seamSource = contour.points[split.edgeIndex];
-        const tailEndIndex = (split.edgeIndex + 1) % count,
-          tailEnd = contour.points[tailEndIndex],
-          headStart = seamSource,
-          tailEndHandleA = [split.tail[4] - split.tail[6], split.tail[5] - split.tail[7]],
-          headStartHandleB = [split.head[2] - split.head[0], split.head[3] - split.head[1]];
-        points =
-          count === 1
-            ? [
-                {
-                  ...seamSource,
-                  position: split.position,
-                  handleA: split.handleA,
-                  handleB: split.handleB,
-                },
-                {
-                  ...tailEnd,
-                  handleA: tailEndHandleA,
-                  handleB: headStartHandleB,
-                },
-              ]
-            : [
-                {
-                  ...seamSource,
-                  position: split.position,
-                  handleA: split.handleA,
-                  handleB: split.handleB,
-                },
-                {
-                  ...tailEnd,
-                  handleA: tailEndHandleA,
-                },
-                ...Array.from(
-                  { length: count - 2 },
-                  (_, offset) => contour.points[(split.edgeIndex + 2 + offset) % count],
-                ),
-                {
-                  ...headStart,
-                  handleB: headStartHandleB,
-                },
-              ];
-      } else {
-        throw Error('Set Path Start could not locate a finite seam');
-      }
-
-      outputPointCount += points.length;
-      if (outputPointCount > 100000) throw Error('Set Path Start exceeds geometry budget');
-      const remapped = copyContour(contour, contourIndex, points);
-      for (const point of remapped.points) {
-        assertValue('Vector2', point.position);
-        assertValue('Vector2', point.handleA);
-        assertValue('Vector2', point.handleB);
-      }
-      return remapped;
-    });
-    if (contours.reduce((sum, contour) => sum + contour.points.length, 0) > 100000)
-      throw Error('Set Path Start exceeds geometry budget');
-    return { ...source, contours };
-  } finally {
-    item.remove();
-  }
-}
-
-function subdividePathGeometry(source, { segments, prefix }) {
-  if (!source || !Array.isArray(source.contours)) throw Error('Connect a Path input');
-  if (!Number.isInteger(segments) || segments < 1 || segments > 32)
-    throw Error('Subdivide segments must be an integer from 1 to 32');
-  if (typeof prefix !== 'string' || !prefix)
-    throw Error('Subdivide Path needs a nonempty ID prefix');
-  if (source.contours.length > 10000) throw Error('Subdivide Path exceeds geometry budget');
-
-  let inputPoints = 0,
-    outputPoints = 0;
-  for (const contour of source.contours) {
-    if (!Array.isArray(contour?.points) || typeof contour.closed !== 'boolean')
-      throw Error('Subdivide Path needs valid contours');
-    inputPoints += contour.points.length;
-    if (inputPoints > 100000) throw Error('Subdivide Path exceeds geometry budget');
-    const count = contour.points.length;
-    outputPoints +=
-      count === 0 ? 0 : contour.closed ? count * segments : 1 + (count - 1) * segments;
-    if (outputPoints > 100000) throw Error('Subdivide Path exceeds geometry budget');
-    for (const point of contour.points) {
-      if (
-        !point ||
-        !Array.isArray(point.position) ||
-        !Array.isArray(point.handleA) ||
-        !Array.isArray(point.handleB)
-      )
-        throw Error('Subdivide Path needs valid points');
-      assertValue('Vector2', point.position);
-      assertValue('Vector2', point.handleA);
-      assertValue('Vector2', point.handleB);
-    }
-  }
-
-  const copy = () => ({
-    ...source,
-    contours: source.contours.map((contour, contourIndex) => ({
-      ...contour,
-      id: `${prefix}:c${contourIndex}`,
-      points: contour.points.map((point, pointIndex) => ({
-        ...point,
-        id: `${prefix}:c${contourIndex}:p${pointIndex}`,
-        position: [...point.position],
-        handleA: [...point.handleA],
-        handleB: [...point.handleB],
-      })),
-    })),
-  });
-  if (segments === 1) return copy();
-
-  const item = toPaper(source);
-  try {
-    const contours = source.contours.map((contour, contourIndex) => {
-      const sourceCount = contour.points.length,
-        path = item.children[contourIndex],
-        edgeCount = contour.closed ? sourceCount : Math.max(0, sourceCount - 1);
-      if (edgeCount === 0) {
-        const points = contour.points.map((point, pointIndex) => ({
-          ...point,
-          id: `${prefix}:c${contourIndex}:p${pointIndex}`,
-          position: [...point.position],
-          handleA: [...point.handleA],
-          handleB: [...point.handleB],
-        }));
-        return { ...contour, id: `${prefix}:c${contourIndex}`, points };
-      }
-      if (path.curves.length !== edgeCount)
-        throw Error('Subdivide Path could not resolve curve edges');
-      const points = [];
-      for (let edgeIndex = 0; edgeIndex < edgeCount; edgeIndex++) {
-        const curve = path.curves[edgeIndex],
-          sourceStart = contour.points[edgeIndex],
-          sourceEnd = contour.points[(edgeIndex + 1) % sourceCount],
-          keepLineHandles =
-            sourceStart.handleB[0] === 0 &&
-            sourceStart.handleB[1] === 0 &&
-            sourceEnd.handleA[0] === 0 &&
-            sourceEnd.handleA[1] === 0;
-        for (let partIndex = 0; partIndex < segments; partIndex++) {
-          const values = curve.getPart(partIndex / segments, (partIndex + 1) / segments).values;
-          if (!Array.isArray(values) || values.length !== 8 || !values.every(Number.isFinite))
-            throw Error('Subdivide Path exceeds finite coordinates');
-          const start = [values[0], values[1]],
-            control1 = [values[2], values[3]],
-            control2 = [values[4], values[5]],
-            end = [values[6], values[7]],
-            startHandle = keepLineHandles
-              ? [0, 0]
-              : [control1[0] - start[0], control1[1] - start[1]],
-            endHandle = keepLineHandles ? [0, 0] : [control2[0] - end[0], control2[1] - end[1]];
-          let startPoint;
-          if (points.length === 0) {
-            startPoint = {
-              ...sourceStart,
-              id: `${prefix}:c${contourIndex}:p0`,
-              position: start,
-              handleA: [...sourceStart.handleA],
-              handleB: startHandle,
-            };
-            points.push(startPoint);
-          } else {
-            startPoint = points[points.length - 1];
-            startPoint.handleB = startHandle;
-          }
-
-          const isClosedSeam =
-            contour.closed && edgeIndex === edgeCount - 1 && partIndex === segments - 1;
-          if (isClosedSeam) {
-            points[0].handleA = endHandle;
-          } else {
-            const pointIndex = points.length;
-            points.push({
-              ...(partIndex === segments - 1 ? sourceEnd : {}),
-              id: `${prefix}:c${contourIndex}:p${pointIndex}`,
-              position: end,
-              handleA: endHandle,
-              handleB:
-                !contour.closed && edgeIndex === edgeCount - 1 && partIndex === segments - 1
-                  ? [...sourceEnd.handleB]
-                  : [0, 0],
-            });
-          }
-        }
-      }
-      for (const point of points) {
-        assertValue('Vector2', point.position);
-        assertValue('Vector2', point.handleA);
-        assertValue('Vector2', point.handleB);
-      }
-      return { ...contour, id: `${prefix}:c${contourIndex}`, points };
-    });
-    if (contours.reduce((sum, contour) => sum + contour.points.length, 0) !== outputPoints)
-      throw Error('Subdivide Path exceeded its geometry estimate');
-    return { ...source, contours };
-  } finally {
-    item.remove();
-  }
-}
-
-function dashPathGeometry(source, options) {
-  dashIntervals(0, options);
-  if (!source?.contours) throw Error('Connect a Path input');
-  if (
-    source.contours.length > 128 ||
-    source.contours.reduce((sum, c) => sum + c.points.length, 0) > 2048
-  )
-    throw Error('Dash Path exceeds input geometry budget');
-  if (options.gapLength === 0) return clone(source);
-  const item = toPaper(source),
-    contours = [];
-  let segments = 0,
-    work = 0,
-    points = 0;
-  try {
-    for (const [ci, c] of source.contours.entries()) {
-      const length = item.children[ci].length;
-      const intervals = dashIntervals(length, options);
-      segments += intervals.length;
-      work += intervals.length * c.points.length;
-      if (segments > 512 || work > 200000) throw Error('Dash Path exceeds segment/work budget');
-      let pieces = intervals.map(([a, b], i) => {
-        const piece = trimPathGeometry(
-          { contours: [c] },
-          {
-            start: a / length,
-            end: b / length,
-            prefix: `${options.prefix}:c${ci}:d${i}`,
-          },
-        ).contours[0];
-        if (!piece?.points.length)
-          throw Error('Dash Path interval is too small at this coordinate scale');
-        return piece;
-      });
-      // A dash crossing a closed contour's stored seam remains one open segment.
-      if (
-        c.closed &&
-        pieces.length > 1 &&
-        intervals[0][0] === 0 &&
-        intervals.at(-1)[1] === length
-      ) {
-        const first = pieces[0],
-          last = pieces.at(-1);
-        last.points.at(-1).handleB = [...first.points[0].handleB];
-        last.points.push(...first.points.slice(1));
-        pieces = [last, ...pieces.slice(1, -1)];
-      }
-      for (const [di, piece] of pieces.entries()) {
-        points += piece.points.length;
-        if (points > 100000) throw Error('Dash Path exceeds output geometry budget');
-        piece.id = `${options.prefix}:c${ci}:d${di}`;
-        piece.points.forEach((p, pi) => {
-          p.id = `${piece.id}:p${pi}`;
-        });
-        contours.push(piece);
-      }
-    }
-    return { contours };
-  } finally {
-    item.remove();
-  }
 }
 
 export function parsePath(data, prefix = 'imported') {
@@ -3686,6 +3008,11 @@ export function evaluate(
         const nodeId = n.id;
         const warn = (message) => warnings.push(`${n.name}: ${message}`);
         const hasParameter = (key) => !!n.params[key];
+        const sourceOutputType = (key) => {
+          const input = n.params[key],
+            source = input?.source ? byId.get(input.source) : undefined;
+          return source ? outputType(source, input.sourcePort) : undefined;
+        };
         const nodeHasEmptyOutput = () => hasEmptyOutput(layer, n);
         const identity = Object.freeze({
           provenance: (currentEra) => provenance(nodeId, undefined, currentEra),
@@ -3701,6 +3028,7 @@ export function evaluate(
               cloneEvaluated,
               identity,
               hasParameter,
+              sourceOutputType,
               hasEmptyOutput: nodeHasEmptyOutput,
               paintedGroup: (inputs) => {
                 const painted = evaluatedPaintedGroup(inputs, { prefix: nodeId });
@@ -3714,35 +3042,11 @@ export function evaluate(
               cloneEvaluated,
               identity,
               hasParameter,
+              sourceOutputType,
               hasEmptyOutput: nodeHasEmptyOutput,
             });
         result = registered.evaluate(n.operation, read, context);
         assertValue(registered.interface(n.operation, shape).resultType, result);
-      } else if (n.type === 'Polygon' || n.type === 'Star') {
-        result = radialPath(n, read);
-      } else if (n.type === 'Circle' || n.type === 'Ellipse' || n.type === 'Rectangle') {
-        const center = read('center');
-        let item;
-        if (n.type === 'Circle')
-          item = new scope.Path.Circle({
-            center,
-            radius: Math.max(0, read('radius')),
-            insert: false,
-          });
-        else {
-          let size = read('size').map(Math.abs),
-            rectangle = new scope.Rectangle(
-              center[0] - size[0] / 2,
-              center[1] - size[1] / 2,
-              ...size,
-            );
-          item =
-            n.type === 'Ellipse'
-              ? new scope.Path.Ellipse({ rectangle, insert: false })
-              : new scope.Path.Rectangle({ rectangle, insert: false });
-        }
-        result = fromPaper(item, n.id);
-        item.remove();
       } else if (n.type === 'Image') {
         if (!Object.hasOwn(imageAssets, n.asset)) throw Error('Missing image asset');
         const size = read('size');
@@ -3953,151 +3257,6 @@ export function evaluate(
           prefix: n.id,
         });
         setEvaluationFingerprint(result, (currentEra) => [n.id, source, result.matrix]);
-      } else if (n.type === 'Dash Path') {
-        const source = read('path');
-        result = dashPathGeometry(source, {
-          dashLength: read('dashLength'),
-          gapLength: read('gapLength'),
-          offset: read('offset'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Dash Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Trim Path') {
-        const source = read('path'),
-          start = read('start'),
-          end = read('end');
-        result = trimPathGeometry(source, { start, end, prefix: fingerprint(n.id) });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Trim Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Set Path Start') {
-        const source = read('path'),
-          start = read('start');
-        result = setPathStartGeometry(source, { start, prefix: fingerprint(n.id) });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Set Path Start; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Subdivide Path') {
-        const source = read('path');
-        result = subdividePathGeometry(source, {
-          segments: read('segments'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Subdivide Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Resample Path') {
-        const source = read('path');
-        if (!source) throw Error('Connect a Path input');
-        if (!operationOptions['Resample Path'].includes(n.operation))
-          throw Error('Invalid Resample operation');
-        const count = n.operation === 'count' ? read('count') : null,
-          spacing = n.operation === 'spacing' ? read('spacing') : null,
-          sourcePoints = source.contours.reduce((sum, c) => sum + c.points.length, 0);
-        if (n.operation === 'count') {
-          if (!Number.isInteger(count) || count < 2 || count > 1024)
-            throw Error('Resample count must be an integer from 2 to 1024');
-          if (count < 3 && source.contours.some((c) => c.closed))
-            throw Error('Closed contours require at least 3 samples');
-        } else if (!Number.isFinite(spacing) || spacing < 0.0001 || spacing > 100000)
-          throw Error('Resample spacing must be from 0.0001 to 100000 px');
-        if (
-          source.contours.length > 10000 ||
-          sourcePoints > 100000 ||
-          (n.operation === 'count' &&
-            (source.contours.length * count > 100000 || sourcePoints * count > 2000000))
-        )
-          throw Error('Resample exceeds geometry budget');
-        const item = toPaper(source),
-          prefix = fingerprint(n.id);
-        try {
-          const plans = source.contours.map((c, ci) => {
-            const path = item.children[ci],
-              length = path.length;
-            if (!Number.isFinite(length)) throw Error('Resample exceeds finite path length');
-            const samples =
-              n.operation === 'count'
-                ? count
-                : c.points.length === 0
-                  ? 0
-                  : c.closed
-                    ? Math.max(3, Math.ceil(length / spacing))
-                    : Math.max(2, Math.ceil(length / spacing) + 1);
-            if (
-              c.points.length > 0 &&
-              (!Number.isInteger(samples) || samples < (c.closed ? 3 : 2) || samples > 1024)
-            )
-              throw Error('Resample spacing requires more than 1024 samples for a contour');
-            return { path, length, samples };
-          });
-          const outputPoints = plans.reduce((sum, plan) => sum + plan.samples, 0),
-            work = plans.reduce(
-              (sum, plan, index) => sum + source.contours[index].points.length * plan.samples,
-              0,
-            );
-          if (outputPoints > 100000 || work > 2000000)
-            throw Error('Resample exceeds geometry budget');
-          result = {
-            contours: source.contours.map((c, ci) => {
-              const { path, length, samples } = plans[ci];
-              return {
-                id: `${prefix}:c${ci}`,
-                closed: c.closed,
-                ...(c.group !== undefined ? { group: c.group } : {}),
-                points: c.points.length
-                  ? Array.from({ length: samples }, (_, pi) => {
-                      const distance = length * (pi / (c.closed ? samples : samples - 1));
-                      const sampled = path.getPointAt(distance);
-                      const position = sampled
-                        ? [sampled.x, sampled.y]
-                        : length === 0
-                          ? [...c.points[0].position]
-                          : null;
-                      assertValue('Vector2', position);
-                      return {
-                        id: `${prefix}:c${ci}:p${pi}`,
-                        position,
-                        handleA: [0, 0],
-                        handleB: [0, 0],
-                      };
-                    })
-                  : [],
-              };
-            }),
-          };
-        } finally {
-          item.remove();
-        }
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Resample Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Geometry Repeater') {
         const source = read('path');
         if (!source) throw Error('Connect a Path input');
@@ -4455,51 +3614,6 @@ export function evaluate(
           null,
           `Canvas character editing is unavailable through ${n.type}; edit upstream Text`,
         );
-      } else if (n.type === 'Convert to Path') {
-        const source = read('path');
-        if (!source) throw Error('Connect a Path or PaintedPath input');
-        result = isPaintedGroup(source) ? groupGeometry(source) : cloneEvaluated(source);
-        if (
-          outputType(byId.get(n.params.path.source), n.params.path.sourcePort) === 'PaintedPath'
-        ) {
-          delete result.fill;
-          delete result.stroke;
-          setEvaluationFingerprint(result, (currentEra) => [
-            'painted-path-geometry',
-            provenance(n.id, undefined, currentEra),
-            signature(result),
-            result.contours.map((contour) => [contour.id, contour.points.map((point) => point.id)]),
-          ]);
-        }
-      } else if (n.type === 'Closed Path Offset') {
-        const source = read('path');
-        if (!source) throw Error('Connect a Path input');
-        const { amount, miterLimit } = closedOffsetSettings(read);
-        if (!operationOptions[n.type].includes(n.operation))
-          throw new OffsetError('OFFSET_OPTIONS', 'Invalid Offset join');
-        if (amount === 0) result = source;
-        else {
-          const options = { join: n.operation, miterLimit, prefix: n.id };
-          result = source.contours.some((contour) => contour.group !== undefined)
-            ? offsetGroupedClosedPathDetailed(source, amount, options, OFFSET_EDITOR_LIMITS).path
-            : offsetClosedPath(source, amount, options, OFFSET_EDITOR_LIMITS);
-          result.unstable = true;
-          setEvaluationFingerprint(result, (currentEra) => [
-            provenance(n.id, undefined, currentEra),
-            amount,
-            n.operation,
-            miterLimit,
-            evaluatedFingerprint(source, currentEra),
-            source.contours,
-            signature(result),
-          ]);
-          result.characterOccurrences = routeCharacters(
-            source,
-            n.id,
-            null,
-            'Canvas character editing is unavailable through Closed Path Offset',
-          );
-        }
       } else if (n.type === 'Imported Path') {
         result = parsePath(n.rawPath, n.id);
         result.unstable = true;
@@ -6834,6 +5948,7 @@ export class CommandSession {
   #textDrafts = new Map();
   #gesture = null;
   #prepared = null;
+  #preparing = null;
   #prepareSequence = 0;
   #nodeClipboard = null;
   #nodeClipboardOwner;
@@ -7810,11 +6925,30 @@ export class CommandSession {
     return cloneDocument(this.#history.doc);
   }
   async prepareCommand(envelope, bridge, options = {}) {
+    const beforeOptions = {
+      document: this.#history.doc,
+      revision: this.#history.revision,
+      sequence: this.#prepareSequence,
+      prepared: this.#prepared,
+      clipboard: this.#nodeClipboard,
+      bridgeEpoch: bridge.preparationEpoch?.(),
+    };
+    options = captureVariablePreparationOptions(options);
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+    if (
+      this.#history.doc !== beforeOptions.document ||
+      this.#history.revision !== beforeOptions.revision ||
+      this.#prepareSequence !== beforeOptions.sequence ||
+      this.#prepared !== beforeOptions.prepared ||
+      this.#nodeClipboard !== beforeOptions.clipboard
+    )
+      throw Error('STALE_REVISION: document changed');
     const { sessionId, expectedRevision, type, payload = {} } = envelope;
     if (sessionId !== this.id || expectedRevision !== this.#history.revision)
       throw Error('STALE_REVISION: document changed');
     if (this.#busy() || this.#gesture || this.hasTextComposition || this.#textDrafts.size)
       throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
     if (
       ![
         'set-text-content',
@@ -7830,8 +6964,21 @@ export class CommandSession {
       .find((l) => l.id === payload.layerId)
       ?.nodes.find((n) => n.id === payload.nodeId);
     if (target?.locked) throw Error('Text node is locked');
-    const sequence = ++this.#prepareSequence;
-    this.#prepared = null;
+    // Busy checks and payload access can call user code. Reject an aborted
+    // replacement before invalidating any preparation already in flight.
+    captureVariablePreparationOptions(options);
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+    if (
+      this.#history.doc !== beforeOptions.document ||
+      this.#history.revision !== beforeOptions.revision ||
+      this.#prepareSequence !== beforeOptions.sequence ||
+      this.#prepared !== beforeOptions.prepared ||
+      this.#nodeClipboard !== beforeOptions.clipboard
+    )
+      throw Error('STALE_REVISION: document changed');
+    const previous = this.#prepared,
+      previousRequest = this.#preparing;
+    let sequence = this.#prepareSequence;
     const snapshotPaste = type === 'paste-layer-snapshot';
     const entry = {
       document: this.#history.doc,
@@ -7883,9 +7030,32 @@ export class CommandSession {
       ? layerSnapshotPreparationDocument(entry.document, captured)
       : candidate;
     if (snapshotPaste) assertCurrent();
-    const ticket = await bridge.prepareDocument(input, options);
-    try {
+    captureVariablePreparationOptions(options);
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+    assertLocal();
+    if (this.#prepared !== previous || this.#preparing !== previousRequest)
+      throw Error('STALE_REVISION: document changed');
+    const child = createVariablePreparationChild(options.signal),
+      request = { bridge, child, ticket: null };
+    sequence = ++this.#prepareSequence;
+    this.#prepared = null;
+    this.#preparing = request;
+    const assertPreparing = () => {
       assertLocal();
+      if (this.#preparing !== request) throw Error('STALE_REVISION: document changed');
+    };
+    try {
+      previous?.child?.unlink();
+      if (previous && previous.bridge !== bridge)
+        previous.bridge.discardActivation(previous.ticket);
+      previousRequest?.child.unlink();
+      if (previousRequest && previousRequest.bridge !== bridge)
+        previousRequest.child.controller.abort();
+      assertLocal();
+      bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+      const ticket = await bridge.prepareDocument(input, { signal: child.controller.signal });
+      request.ticket = ticket;
+      assertPreparing();
       if (snapshotPaste) assertCurrent();
       const fonts = { ...this.#fonts(), ...bridge.preparedFonts(ticket) };
       if (snapshotPaste) {
@@ -7912,11 +7082,15 @@ export class CommandSession {
           this.#history.doc,
         );
       if (snapshotPaste) assertCurrent();
+      bridge.assertFresh(ticket);
+      assertPreparing();
       const token = Object.freeze({});
+      this.#preparing = null;
       this.#prepared = {
         token,
         ticket,
         bridge,
+        child,
         candidate,
         expectedRevision,
         type,
@@ -7927,13 +7101,36 @@ export class CommandSession {
       };
       return token;
     } catch (error) {
-      // Do not cancel a newer request that replaced this ticket.
-      try {
-        bridge.assertFresh(ticket);
-        bridge.cancel();
-      } catch {}
+      if (this.#preparing === request) this.#preparing = null;
+      child.unlink();
+      child.controller.abort();
+      if (request.ticket) bridge.discardActivation(request.ticket);
+      previous?.child?.unlink();
+      if (previous) {
+        previous.bridge.discardActivation(previous.ticket);
+        previous.child.controller.abort();
+      }
+      previousRequest?.child.unlink();
+      previousRequest?.child.controller.abort();
       throw error;
     }
+  }
+  assertPrepared(token) {
+    const p = this.#prepared;
+    if (
+      !p ||
+      p.token !== token ||
+      p.expectedRevision !== this.#history.revision ||
+      p.sequence !== this.#prepareSequence
+    )
+      throw Error('STALE_REVISION: document changed');
+    p.bridge.assertFresh(p.ticket);
+    if (
+      this.#prepared !== p ||
+      p.expectedRevision !== this.#history.revision ||
+      p.sequence !== this.#prepareSequence
+    )
+      throw Error('STALE_REVISION: document changed');
   }
   preparedSnapshot(token) {
     const p = this.#prepared;
@@ -8065,27 +7262,41 @@ export class CommandSession {
       this.#trackProjectContextRoots();
       if (p.type === 'import-svg') this.#nodeClipboard = null;
       this.#prepared = null;
+      p.child.unlink();
       return { ...this.state, ...p.result, changed: revision !== this.#history.revision };
     } catch (error) {
       if (staging) {
         p.bridge.discardActivation(p.ticket);
         if (this.#prepared === p) this.#prepared = null;
+        p.child.unlink();
       }
       throw error;
     }
   }
   cancelPrepared(bridge, token = null) {
-    if (token && this.#prepared?.token !== token) return;
-    this.#prepared = null;
-    this.#prepareSequence++;
-    bridge.cancel();
+    if (token) {
+      if (this.#prepared?.bridge === bridge) this.discardPrepared(token);
+      return;
+    }
+    const prepared = this.#prepared,
+      request = this.#preparing;
+    if (prepared?.bridge === bridge) this.discardPrepared(prepared.token);
+    if (request?.bridge === bridge) {
+      this.#preparing = null;
+      this.#prepareSequence++;
+      request.child.unlink();
+      request.child.controller.abort();
+      if (request.ticket) bridge.discardActivation(request.ticket);
+    }
   }
   discardPrepared(token) {
     const pending = this.#prepared;
     if (!pending || pending.token !== token) return false;
     this.#prepared = null;
     this.#prepareSequence++;
+    pending.child.unlink();
     pending.bridge.discardActivation(pending.ticket);
+    pending.child.controller.abort();
     return true;
   }
   dispatch(command) {
@@ -8106,6 +7317,7 @@ export class CommandSession {
     const guardedEdit = [
       'paste-nodes',
       'paste-layer-snapshot',
+      'apply-effect',
       'move-layers-to-folder',
       'order-layer-folder',
       'remove-layers-from-folder',
@@ -8133,6 +7345,7 @@ export class CommandSession {
     const guardedEdit = [
       'paste-nodes',
       'paste-layer-snapshot',
+      'apply-effect',
       'move-layers-to-folder',
       'order-layer-folder',
       'remove-layers-from-folder',
@@ -8677,6 +7890,41 @@ export class CommandSession {
     return { ...this.state, ...result, changed: revision !== this.#history.revision };
   }
   #commandCandidate(type, payload, before, deferVariable = false, preparedFonts = null) {
+    if (type === 'apply-effect') {
+      if (payload.effectId !== TRANSFORM_EFFECT_ID) throw Error('Unknown effect');
+      const options = {
+        fonts: resolveFonts(before, this.#fonts()),
+        imageAssets: before.imageAssets,
+      };
+      const plan = planTransformEffect(before, payload.layerId, options);
+      if (!plan.supported) throw Error(plan.reason);
+      if (!sameTransformEffectTarget(plan.target, payload.expectedTarget))
+        throw Error('STALE_REVISION: artwork target changed');
+
+      const candidate = cloneDocument(before),
+        layer = candidate.layers.find((item) => item.id === plan.target.layerId),
+        position = transformEffectPosition(layer, plan.target.producerNodeId),
+        transform = node('Transform', ...position);
+      layer.nodes.push(transform);
+      connect(layer, plan.target.producerNodeId, transform.id, 'path');
+      connect(layer, transform.id, plan.target.consumerNodeId, plan.target.inputKey);
+      validate(candidate);
+      const after = resolveArtworkMoveTarget(candidate, payload.layerId, options),
+        route = after.target?.route;
+      if (
+        !after.supported ||
+        after.target.kind !== 'terminal-transform-offset' ||
+        after.target.nodeId !== transform.id ||
+        after.target.outputNodeId !== plan.target.outputNodeId ||
+        route?.length !== 4 ||
+        route[0].nodeId !== plan.target.producerNodeId ||
+        route[1].nodeId !== transform.id ||
+        route[2].nodeId !== plan.target.consumerNodeId ||
+        route[3].nodeId !== plan.target.outputNodeId
+      )
+        throw Error('The effect could not be applied to this artwork');
+      return { candidate, result: { effectId: TRANSFORM_EFFECT_ID, nodeId: transform.id } };
+    }
     if (
       [
         'create-layer-folder',

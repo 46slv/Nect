@@ -3,6 +3,7 @@
 import { renderElement } from './core.js';
 import { renderLinearGradientFill } from './linear-gradient.js';
 import { renderRadialGradientFill } from './radial-gradient.js';
+import { contourGroups } from './path-groups.js';
 
 const angularStops = ['startColor', 'color1', 'color2', 'endColor'];
 const gradientRenderers = {
@@ -43,38 +44,49 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
       value.contours.some(
         (c) =>
           !c ||
-          c.group !== undefined ||
-          c.repeaterOpacity !== undefined ||
+          (c.group !== undefined && typeof c.group !== 'string') ||
+          (c.repeaterOpacity !== undefined && c.repeaterOpacity !== 1) ||
           c.repeaterFill !== undefined ||
           c.repeaterStroke !== undefined,
-      )
+      ) ||
+      (value.fill?.kind === 'angular-gradient' && value.contours.some((c) => c.group !== undefined))
     )
       throw Error(
         'Coverage attribution requires plain solid, two-stop linear/radial-gradient or four-stop angular-gradient paths',
       );
     const provenance = entry.paintProvenance ?? bindings.get(layer.id) ?? {};
-    for (const paint of ['fill', 'stroke']) {
-      if (!value[paint]) continue;
-      const identity = provenance[paint];
-      const angular = paint === 'fill' && value.fill.kind === 'angular-gradient';
-      const split =
-        paint === 'fill' && (angular || Object.hasOwn(gradientRenderers, value.fill.kind));
-      if (split && identity != null && (typeof identity !== 'object' || Array.isArray(identity)))
-        throw Error('Gradient coverage needs explicit stop provenance');
-      let slotId = split ? null : slot(identity ?? null);
-      let stopIds = split
-        ? (angular ? angularStops : ['startColor', 'endColor']).map((key) =>
-            slot(identity?.[key] ?? null),
-          )
-        : null;
-      // Identical explicit IDs own the entire paint exactly, including Other.
-      // Validate every stop above before collapsing; equal HEX is irrelevant.
-      if (stopIds && stopIds.every((id) => id === stopIds[0])) {
-        slotId = stopIds[0];
-        stopIds = null;
+    // The production renderer paints each independent group in order, with
+    // that group's fill followed by its stroke. Splitting all fills from all
+    // strokes would change occlusion when groups overlap.
+    const grouped = value.contours.some((contour) => contour.group !== undefined);
+    const groups = grouped ? contourGroups(value) : [value.contours];
+    for (const contours of groups) {
+      const groupValue = grouped
+        ? { ...value, contours: contours.map(({ group: _group, ...contour }) => contour) }
+        : value;
+      for (const paint of ['fill', 'stroke']) {
+        if (!value[paint]) continue;
+        const identity = provenance[paint];
+        const angular = paint === 'fill' && value.fill.kind === 'angular-gradient';
+        const split =
+          paint === 'fill' && (angular || Object.hasOwn(gradientRenderers, value.fill.kind));
+        if (split && identity != null && (typeof identity !== 'object' || Array.isArray(identity)))
+          throw Error('Gradient coverage needs explicit stop provenance');
+        let slotId = split ? null : slot(identity ?? null);
+        let stopIds = split
+          ? (angular ? angularStops : ['startColor', 'endColor']).map((key) =>
+              slot(identity?.[key] ?? null),
+            )
+          : null;
+        // Identical explicit IDs own the entire paint exactly, including Other.
+        // Validate every stop above before collapsing; equal HEX is irrelevant.
+        if (stopIds && stopIds.every((id) => id === stopIds[0])) {
+          slotId = stopIds[0];
+          stopIds = null;
+        }
+        paints.push({ layer, value: groupValue, paint, slotId, stopIds, angular });
+        if (paints.length > 256) throw Error('Coverage paint pass budget exceeded');
       }
-      paints.push({ layer, value, paint, slotId, stopIds, angular });
-      if (paints.length > 256) throw Error('Coverage paint pass budget exceeded');
     }
   }
   let svgBytes = 0;
