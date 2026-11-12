@@ -52,6 +52,27 @@ const read = (session) => {
 };
 const ref = 'ref(composition, "comp-b", "art-b", "driver", "value")';
 
+test('Layer Folders preserve cross-Composition references and project History', () => {
+  const owner = createCompositionSessionOwner(fixture(), { activeCompositionId: 'comp-a' });
+  apply(owner, ref);
+  owner.switchComposition('comp-b');
+  send(owner, 'create-layer-folder', { name: 'Source', layerIds: ['art-b'] });
+  send(owner, 'set-parameter', { layerId: 'art-b', nodeId: 'driver', key: 'value', value: 12 });
+  owner.switchComposition('comp-a');
+  send(owner, 'create-layer-folder', { name: 'Consumer', layerIds: ['art-a'] });
+  assert.equal(read(owner), 12);
+  const project = owner.projectSnapshot();
+  const reopened = createCompositionSessionOwner(
+    deserializeCompositionProject(serializeCompositionProject(project)),
+    { activeCompositionId: 'comp-a' },
+  );
+  assert.equal(read(reopened), 12);
+  send(owner, 'undo');
+  assert.equal(read(owner), 12);
+  send(owner, 'redo');
+  assert.equal(read(owner), 12);
+});
+
 test('live Composition Scalar reference follows edits and project history across save and reopen', () => {
   const owner = createCompositionSessionOwner(fixture(), { activeCompositionId: 'comp-a' });
   apply(owner, ref);
