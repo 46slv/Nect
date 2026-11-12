@@ -154,7 +154,6 @@ import {
   selectLuminanceCenters,
 } from './luminance-instances.js';
 import { validateInstancePath } from './instance-points-geometry.js';
-import { autoHandlesGeometry } from './auto-handles-geometry.js';
 import { polarSettings, polarTransformGeometry } from './polar-transform.js';
 import { dashIntervals } from './dash-intervals.js';
 import { smoothGeometry } from './smooth-geometry.js';
@@ -602,7 +601,6 @@ const legacyDefinitions = {
     angle: p('Scalar', -90),
     inverse: p('Boolean', false),
   },
-  'Auto Handles': { path: p('Path', null), strength: p('Scalar', 1) },
   'Subdivide Path': { path: p('Path', null), segments: p('Scalar', 2) },
   Roughen: {
     path: p('Path', null),
@@ -1077,7 +1075,6 @@ const bypassInputs = Object.freeze({
   'Set Closure': 'path',
   'Subdivide Path': 'path',
   'Polar Transform': 'path',
-  'Auto Handles': 'path',
   'Dash Path': 'path',
   'Vector Transform': 'vector',
   'Path Remap': 'path',
@@ -4052,20 +4049,6 @@ export function evaluate(
           evaluatedFingerprint(source, currentEra) || signature(source),
           signature(result),
         ]);
-      } else if (n.type === 'Auto Handles') {
-        const source = read('path');
-        result = autoHandlesGeometry(source, {
-          strength: read('strength'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Auto Handles; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Polar Transform') {
         const source = read('path');
         result = polarTransformGeometry(
