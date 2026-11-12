@@ -1,5 +1,6 @@
 import { samePrivateFontSource } from './private-font-source.js';
 import { fontPickerCapability, sameFontFace } from './font-choice-ui.js';
+import { createVariablePreparationController } from './variable-font/document-bridge.js';
 
 /**
  * One picker, one fixed Session/revision/target. Discovery and preparation are
@@ -50,7 +51,7 @@ export function createFontChoiceController({
   function select(row) {
     const request = ++serial;
     abort?.abort();
-    abort = new AbortController();
+    abort = createVariablePreparationController();
     ready = null;
     activeKey = row?.key;
     cancelGesture();

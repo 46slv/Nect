@@ -135,6 +135,7 @@ export function resolveArtworkMoveTarget(
 
   let generator,
     transform,
+    macro,
     target,
     parameter,
     kind,
@@ -188,6 +189,12 @@ export function resolveArtworkMoveTarget(
     if (generator.type === 'Transform') {
       transform = generator;
       generator = pathSource(transform, 'Path');
+      if (generator?.type === 'Macro') {
+        macro = generator;
+        generator = pathSource(macro, 'Path');
+        if (generator?.type !== 'Rectangle')
+          return unsupported('unsupported-graph', 'Macro artwork needs a direct Rectangle source.');
+      }
     }
     if (allowBooleanTransform && transform && generator?.type === 'Boolean') {
       const a = pathSource(generator, 'Path', 'a'),
@@ -231,7 +238,11 @@ export function resolveArtworkMoveTarget(
           : ['Curve', 'Multi Path'].includes(generator.type)
             ? 'curve-point-positions'
             : 'shape-center';
-      route = transform ? [generator, transform, last, output] : [generator, last, output];
+      route = transform
+        ? macro
+          ? [generator, macro, transform, last, output]
+          : [generator, transform, last, output]
+        : [generator, last, output];
     }
   }
 
@@ -378,6 +389,25 @@ export function resolveArtworkMoveTarget(
       )
     )
       return unsupported('shared-route', 'The Boolean artwork route has other consumers.');
+  }
+
+  if (macro) {
+    const [source, instance, moving, fill, out] = route,
+      allowed = [
+        { source: source.id, nodeId: instance.id, key: 'path' },
+        { source: instance.id, nodeId: moving.id, key: 'path' },
+        { source: moving.id, nodeId: fill.id, key: 'path' },
+        { source: fill.id, nodeId: out.id, key: 'path' },
+      ];
+    if (
+      hasExternalArtworkMoveConsumer(
+        doc,
+        layerId,
+        route.map((n) => n.id),
+        allowed,
+      )
+    )
+      return unsupported('shared-route', 'The Macro artwork route has other consumers.');
   }
 
   // Core evaluation diagnoses unavailable fonts/assets, invalid dimensions,

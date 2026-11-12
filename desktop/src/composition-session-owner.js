@@ -9,22 +9,62 @@ import {
   assertNoLegacyCompositionPropertyReferencePromotion,
   assertNoLegacyCompositionPropertyDocumentPromotion,
   assertNoLegacyHandleReferencePromotion,
+  validateMacroProjectAdmission,
+  validateMacroProjectCandidate,
+  validateMacroProjectTransition,
 } from './composition-project-model.js';
 import { keyColorRecipeInitializationSlotIds } from './key-color-recipe-document.js';
 import { assertColorSlotUnused } from './color-slots.js';
 import { prepareProjectCompositionsImport } from './composition-project-import.js';
 import { resolveLayerClipboardToken } from './layer-clipboard-owner.js';
+import { mergeMacroDefinitions } from './macro-project.js';
+import { assertCompatibleMacroDefinition } from './macro-package.js';
+import {
+  captureVariablePreparationOptions,
+  createVariablePreparationChild,
+} from './variable-font/document-bridge.js';
 import {
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
   QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
   COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION,
+  MACRO_SCHEMA_VERSION,
   CURVE_HANDLE_REFERENCE_SCHEMA_VERSION,
   CURVE_POINT_COMPOSITION_SCHEMA_VERSION,
   CURVE_POINT_REFERENCE_SCHEMA_VERSION,
   reserveDanglingArtworkReferenceIds,
 } from './curve-point-reference.js';
 const PROJECT_HISTORY_TOKEN = Symbol('project history token');
+
+function macroVersionAdmitted(classify, project) {
+  const version =
+    project && typeof project === 'object'
+      ? Object.getOwnPropertyDescriptor(project, 'schemaVersion')
+      : null;
+  if (!version || !version.enumerable || !Object.hasOwn(version, 'value'))
+    throw Error('Invalid Macro schema version');
+  const admitted = classify(version.value);
+  if (typeof admitted !== 'boolean') throw Error('Invalid Macro admission classifier');
+  return admitted;
+}
+const macroSchemaAdmitted = (schemaVersion) => schemaVersion >= MACRO_SCHEMA_VERSION;
+
+function capturePreparedCommand(command, type) {
+  const captured = Object.assign(Object.create(null), { type });
+  for (const key of ['sessionId', 'expectedRevision']) {
+    const descriptor = Object.getOwnPropertyDescriptor(command, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value'))
+      throw Error('Invalid prepared command envelope');
+    captured[key] = descriptor.value;
+  }
+  const payload = Object.getOwnPropertyDescriptor(command, 'payload');
+  if (payload) {
+    if (!payload.enumerable || !Object.hasOwn(payload, 'value'))
+      throw Error('Invalid prepared command payload');
+    captured.payload = payload.value;
+  }
+  return Object.freeze(captured);
+}
 
 // A Project cannot retain a reference to a removed Layer. Explain the affected
 // source and consumer before either the inner Session or Project commits.
@@ -183,7 +223,13 @@ function preparedCompositionFonts(fonts, bridge, ticket) {
 
 function replaceRecord(target, source) {
   for (const key of Object.keys(target)) delete target[key];
-  Object.assign(target, source);
+  for (const key of Object.keys(source))
+    Object.defineProperty(target, key, {
+      value: source[key],
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
 }
 
 function freezeDocument(value) {
@@ -225,7 +271,10 @@ export class CompositionSessionOwner {
   #historyViewCache = new WeakMap();
   #historyView = null;
   #prepared = null;
+  #preparingHistory = null;
+  #prepareSequence = 0;
   #preparedCompositionSwitch = null;
+  #macroProjectAdmission;
 
   constructor(
     project,
@@ -245,6 +294,8 @@ export class CompositionSessionOwner {
       fonts = () => ({}),
       busy = () => false,
       onCommitted,
+      // Candidate-only classifier. Normal product construction does not pass it.
+      macroProjectAdmission = null,
     } = {},
   ) {
     if (
@@ -258,7 +309,15 @@ export class CompositionSessionOwner {
       typeof validateDocument !== 'function'
     )
       throw Error('Composition Session runtime adapters are required');
+    if (macroProjectAdmission !== null && typeof macroProjectAdmission !== 'function')
+      throw Error('Invalid Macro admission classifier');
     validateCompositionProject(project);
+    // Project History mutates its root in place. Do not retain a caller-owned
+    // object or share/freeze its asset records across the ownership boundary.
+    const ownedProject = structuredClone(project);
+    validateCompositionProject(ownedProject);
+    if (macroProjectAdmission && macroVersionAdmitted(macroProjectAdmission, ownedProject))
+      validateMacroProjectCandidate(ownedProject);
     this.#History = History;
     this.#CommandSession = CommandSession;
     this.#blankDocument = blankDocument;
@@ -270,11 +329,12 @@ export class CompositionSessionOwner {
     this.#assertProjectReferenceTransition = assertProjectReferenceTransition;
     this.#hasClipboardArtworkTargets = hasClipboardArtworkTargets;
     this.#normalizedProjectSourceForDocument = normalizedProjectSourceForDocument;
-    this.#assertProjectReferenceTransition(project, project, fonts());
-    this.#history = new this.#History(project);
+    this.#assertProjectReferenceTransition(ownedProject, ownedProject, fonts());
+    this.#history = new this.#History(ownedProject);
     this.#fonts = fonts;
     this.#busy = busy;
     this.#onCommitted = onCommitted;
+    this.#macroProjectAdmission = macroProjectAdmission;
     this.#activeCompositionId = activeCompositionId ?? this.#history.doc.compositions[0].id;
     this.#session = this.#makeSession(this.#history.doc, this.#activeCompositionId);
     // Validate inactive Documents too; a broken tab must not remain hidden until
@@ -342,6 +402,48 @@ export class CompositionSessionOwner {
     }
   }
 
+  #assertMacroOwnerCurrent(session, compositionId, revision, before) {
+    if (
+      this.#session !== session ||
+      this.#activeCompositionId !== compositionId ||
+      this.#history.revision !== revision ||
+      this.#history.doc !== before
+    )
+      throw Error('STALE_REVISION: document changed');
+  }
+
+  #assertMacroProjectTransition(before, candidate, session, compositionId, revision) {
+    const classify = this.#macroProjectAdmission;
+    if (!classify) return;
+    const assertCurrent = () =>
+      this.#assertMacroOwnerCurrent(session, compositionId, revision, before);
+    const admitted = (project) => {
+      const result = macroVersionAdmitted(classify, project);
+      assertCurrent();
+      return result;
+    };
+    assertCurrent();
+    const previousAdmitted = admitted(before),
+      candidateAdmitted = admitted(candidate);
+    if (!previousAdmitted && !candidateAdmitted) return;
+    if (previousAdmitted && !candidateAdmitted) throw Error('Cannot remove Macro admission');
+    if (!previousAdmitted && Object.hasOwn(before, 'macroDefinitions'))
+      throw Error('Cannot replace opaque Macro definitions');
+    const retainedDefinitionSets = [];
+    for (const project of [...this.#history.past, ...this.#history.future])
+      if (admitted(project)) {
+        const definitions = Object.getOwnPropertyDescriptor(project, 'macroDefinitions');
+        if (definitions && (!definitions.enumerable || !Object.hasOwn(definitions, 'value')))
+          throw Error('Invalid retained Macro definitions');
+        retainedDefinitionSets.push(definitions ? definitions.value : []);
+        assertCurrent();
+      }
+    if (previousAdmitted)
+      validateMacroProjectTransition(before, candidate, { retainedDefinitionSets });
+    else validateMacroProjectAdmission(candidate, { retainedDefinitionSets });
+    assertCurrent();
+  }
+
   #compositionFor(project) {
     return project.compositions.some((entry) => entry.id === this.#activeCompositionId)
       ? this.#activeCompositionId
@@ -401,13 +503,23 @@ export class CompositionSessionOwner {
       beforeCandidateCommit: (before, candidate, preparedFonts = {}) => {
         assertNoRemovedLayerConsumers(before, candidate);
         assertProjectIdentityChangeSafe(this.#history.doc, compositionId, before, candidate);
+        const project = this.#history.doc,
+          revision = this.#history.revision;
         // Validate the whole projection before the inner Session commits;
         // a new identity or reference can affect an inactive Composition.
-        const next = this.#projectWithDocument(this.#history.doc, compositionId, candidate);
-        this.#assertProjectReferenceTransition(this.#history.doc, next, {
-          ...this.#fonts(),
-          ...preparedFonts,
-        });
+        const next = this.#projectWithDocument(project, compositionId, candidate);
+        this.#assertMacroProjectTransition(project, next, session, compositionId, revision);
+        this.#assertProjectReferenceTransition(
+          this.#macroProjectAdmission ? project : this.#history.doc,
+          next,
+          {
+            ...this.#fonts(),
+            ...preparedFonts,
+          },
+        );
+        if (this.#macroProjectAdmission)
+          this.#assertMacroOwnerCurrent(session, compositionId, revision, project);
+        return next;
       },
     });
     return session;
@@ -457,19 +569,26 @@ export class CompositionSessionOwner {
     const session = this.#session,
       revision = this.#history.revision,
       compositionId = this.#activeCompositionId,
+      before = this.#history.doc,
       assertClipboard = retainClipboard ? session.captureNodeClipboardFreshness?.() : null;
     const assertCurrent = () => {
-      if (!retainClipboard) return;
+      if (!retainClipboard && !this.#macroProjectAdmission) return;
       if (
         this.#session !== session ||
         this.#history.revision !== revision ||
-        this.#activeCompositionId !== compositionId
+        this.#activeCompositionId !== compositionId ||
+        (this.#macroProjectAdmission && this.#history.doc !== before)
       )
         throw Error('STALE_REVISION: document changed');
       assertClipboard?.();
     };
     validateCompositionProject(candidate);
-    this.#assertProjectReferenceTransition(this.#history.doc, candidate, this.#fonts());
+    this.#assertMacroProjectTransition(before, candidate, session, compositionId, revision);
+    this.#assertProjectReferenceTransition(
+      this.#macroProjectAdmission ? before : this.#history.doc,
+      candidate,
+      this.#fonts(),
+    );
     assertCurrent();
     if (!candidate.compositions.some((entry) => entry.id === activeCompositionId))
       throw Error('Unknown active Composition ID');
@@ -509,7 +628,7 @@ export class CompositionSessionOwner {
     return true;
   }
 
-  #stepHistory(direction, command) {
+  #stepHistory(direction, command, prepared = null) {
     this.#assertCurrentCommand(command);
     const session = this.#session,
       revision = this.#history.revision,
@@ -518,6 +637,7 @@ export class CompositionSessionOwner {
     const assertCurrent = () => {
       this.#assertCurrentCommand(command);
       if (
+        (prepared && this.#prepared !== prepared) ||
         this.#session !== session ||
         this.#history.revision !== revision ||
         this.#activeCompositionId !== compositionId
@@ -528,20 +648,63 @@ export class CompositionSessionOwner {
     this.#assertQuiescent();
     assertCurrent();
     const candidate = (direction === 'undo' ? this.#history.past : this.#history.future).at(-1);
-    if (!candidate)
+    if (!candidate) {
+      if (prepared) {
+        prepared.bridge.assertFresh(prepared.ticket);
+        assertCurrent();
+        prepared.bridge.discardActivation(prepared.ticket);
+        assertCurrent();
+        this.#prepared = null;
+        prepared.child.unlink();
+      }
       return { ...this.state, changed: false, projectRevision: this.#history.revision };
+    }
     validateCompositionProject(candidate);
+    if (this.#macroProjectAdmission) {
+      const admitted = macroVersionAdmitted(this.#macroProjectAdmission, candidate);
+      assertCurrent();
+      if (admitted) validateMacroProjectCandidate(candidate);
+      assertCurrent();
+    }
     const activeCompositionId = candidate.compositions.some(
       (entry) => entry.id === this.#activeCompositionId,
     )
       ? this.#activeCompositionId
       : candidate.compositions[0].id;
-    const nextSession = this.#makeSession(candidate, activeCompositionId, this.#fonts, session);
+    const preparedFonts = prepared
+      ? preparedCompositionFonts(this.#fonts, prepared.bridge, prepared.ticket)
+      : null;
+    const nextSession = this.#makeSession(
+      candidate,
+      activeCompositionId,
+      preparedFonts ? preparedFonts.read : this.#fonts,
+      session,
+    );
     assertCurrent();
+    if (prepared) {
+      prepared.bridge.stageActivation(prepared.ticket);
+      assertCurrent();
+      prepared.bridge.assertFresh(prepared.ticket);
+      assertCurrent();
+      this.#assertQuiescent();
+      assertCurrent();
+      prepared.bridge.assertFresh(prepared.ticket);
+      assertCurrent();
+      this.#assertQuiescent();
+      assertCurrent();
+      prepared.bridge.assertFreshForPublication(prepared.ticket);
+      assertCurrent();
+      // The new Session already binds the target Project and inherits clipboard
+      // authority. Publish the prepared bank only after all fallible preflight.
+      prepared.bridge.publishActivation(prepared.ticket);
+      preparedFonts.useLive();
+      this.#prepared = null;
+      prepared.child.unlink();
+    }
     this.#history[direction]();
     this.#activeCompositionId = activeCompositionId;
     this.#session = nextSession;
-    this.#session.setProjectContext?.(this.#history.doc, activeCompositionId);
+    if (!prepared) this.#session.setProjectContext?.(this.#history.doc, activeCompositionId);
     this.#notifyCommitted(direction);
     return { ...this.state, changed: true, projectRevision: this.#history.revision };
   }
@@ -646,6 +809,16 @@ export class CompositionSessionOwner {
     const project = this.#history.doc,
       composition = project.compositions.find((item) => item.id === compositionId);
     if (!composition) return false;
+    for (const definition of resources.macroDefinitions || []) {
+      const current = project.macroDefinitions?.find(
+        (item) => item.id === definition.id && item.revision === definition.revision,
+      );
+      try {
+        if (!current || !assertCompatibleMacroDefinition(definition, current)) return false;
+      } catch {
+        return false;
+      }
+    }
     if (resources.layerIds.some((id) => !composition.layers.some((layer) => layer.id === id)))
       return false;
     if (resources.slotIds.some((id) => !project.colorSlots?.some((slot) => slot.id === id)))
@@ -682,8 +855,41 @@ export class CompositionSessionOwner {
   }
 
   async prepareCommand(command, bridge, options = {}) {
+    const beforeOptions = {
+      session: this.#session,
+      project: this.#history.doc,
+      revision: this.#history.revision,
+      compositionId: this.#activeCompositionId,
+      prepared: this.#prepared,
+      preparedSwitch: this.#preparedCompositionSwitch,
+      sequence: this.#prepareSequence,
+      bridgeEpoch: bridge.preparationEpoch?.(),
+    };
+    options = captureVariablePreparationOptions(options);
+    const assertBeforePrepare = () => {
+      bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+      if (
+        this.#session !== beforeOptions.session ||
+        this.#history.doc !== beforeOptions.project ||
+        this.#history.revision !== beforeOptions.revision ||
+        this.#activeCompositionId !== beforeOptions.compositionId ||
+        this.#prepared !== beforeOptions.prepared ||
+        this.#preparedCompositionSwitch !== beforeOptions.preparedSwitch ||
+        this.#prepareSequence !== beforeOptions.sequence
+      )
+        throw Error('STALE_REVISION: document changed');
+    };
+    assertBeforePrepare();
+    const typeDescriptor =
+      command && typeof command === 'object'
+        ? Object.getOwnPropertyDescriptor(command, 'type')
+        : null;
+    if (!typeDescriptor || !typeDescriptor.enumerable || !Object.hasOwn(typeDescriptor, 'value'))
+      throw Error('Invalid prepared command type');
+    command = capturePreparedCommand(command, typeDescriptor.value);
     this.#assertCurrentCommand(command);
     this.#assertQuiescent();
+    assertBeforePrepare();
     if (command.type === 'delete-color-slot')
       assertColorSlotUnused(this.#history.doc, command.payload?.slotId);
     const session = this.#session,
@@ -693,43 +899,94 @@ export class CompositionSessionOwner {
       command.type === 'paste-layer-snapshot'
         ? resolveLayerClipboardToken(command.payload?.token, this, compositionId)
         : null;
+    // Quiescence and clipboard callbacks may have aborted this replacement.
+    // Keep the old request owned and cancellable until the new one is valid.
+    captureVariablePreparationOptions(options);
+    assertBeforePrepare();
+    const previousHistory = this.#preparingHistory;
+    this.#preparingHistory = null;
+    if (previousHistory) {
+      previousHistory.child.unlink();
+      if (previousHistory.bridge !== bridge) previousHistory.child.controller.abort();
+    }
+    try {
+      assertBeforePrepare();
+    } catch (error) {
+      previousHistory?.child.controller.abort();
+      throw error;
+    }
     if (command.type === 'undo' || command.type === 'redo') {
-      const project =
-        (command.type === 'undo' ? this.#history.past : this.#history.future).at(-1) ||
-        this.#history.doc;
-      const targetCompositionId = this.#compositionFor(project);
-      const document = this.#documentFor(project, targetCompositionId);
-      const ticket = await bridge.prepareDocument(document, options);
-      if (
-        this.#session !== session ||
-        this.#activeCompositionId !== compositionId ||
-        this.#history.revision !== projectRevision
-      ) {
-        bridge.cancel();
-        throw Error('STALE_REVISION: document changed');
+      let document;
+      try {
+        const project =
+          (command.type === 'undo' ? this.#history.past : this.#history.future).at(-1) ||
+          this.#history.doc;
+        const targetCompositionId = this.#compositionFor(project);
+        document = this.#documentFor(project, targetCompositionId);
+        captureVariablePreparationOptions(options);
+        assertBeforePrepare();
+      } catch (error) {
+        previousHistory?.child.controller.abort();
+        throw error;
       }
-      const token = Object.freeze({});
-      this.#prepared = {
-        token,
-        projectRevision,
-        session,
-        compositionId,
-        type: command.type,
-        command,
-        bridge,
-        ticket,
-        document,
-      };
-      return token;
+      const sequence = ++this.#prepareSequence;
+      const child = createVariablePreparationChild(options.signal),
+        request = { bridge, child, ticket: null };
+      this.#preparingHistory = request;
+      try {
+        request.ticket = await bridge.prepareDocument(document, {
+          signal: child.controller.signal,
+        });
+        if (
+          this.#preparingHistory !== request ||
+          this.#prepareSequence !== sequence ||
+          this.#session !== session ||
+          this.#activeCompositionId !== compositionId ||
+          this.#history.revision !== projectRevision
+        )
+          throw Error('STALE_REVISION: document changed');
+        bridge.assertFresh(request.ticket);
+        const token = Object.freeze({});
+        this.#preparingHistory = null;
+        this.#prepared?.child?.unlink();
+        this.#prepared = {
+          token,
+          projectRevision,
+          session,
+          compositionId,
+          type: command.type,
+          command,
+          bridge,
+          ticket: request.ticket,
+          child,
+          document,
+        };
+        return token;
+      } catch (error) {
+        if (this.#preparingHistory === request) this.#preparingHistory = null;
+        child.unlink();
+        child.controller.abort();
+        if (request.ticket) bridge.discardActivation(request.ticket);
+        throw error;
+      }
     }
 
-    const innerToken = await session.prepareCommand(command, bridge, options);
+    assertBeforePrepare();
+    const sequence = ++this.#prepareSequence;
+    let innerToken;
+    try {
+      innerToken = await session.prepareCommand(command, bridge, options);
+    } catch (error) {
+      previousHistory?.child.controller.abort();
+      throw error;
+    }
     if (
       this.#session !== session ||
       this.#activeCompositionId !== compositionId ||
-      this.#history.revision !== projectRevision
+      this.#history.revision !== projectRevision ||
+      this.#prepareSequence !== sequence
     ) {
-      session.cancelPrepared(bridge, innerToken);
+      session.discardPrepared?.(innerToken);
       throw Error('STALE_REVISION: document changed');
     }
     try {
@@ -742,14 +999,17 @@ export class CompositionSessionOwner {
       if (
         this.#session !== session ||
         this.#activeCompositionId !== compositionId ||
-        this.#history.revision !== projectRevision
+        this.#history.revision !== projectRevision ||
+        this.#prepareSequence !== sequence
       )
         throw Error('STALE_REVISION: document changed');
+      session.assertPrepared?.(innerToken);
     } catch (error) {
-      session.cancelPrepared(bridge, innerToken);
+      session.discardPrepared?.(innerToken);
       throw error;
     }
     const token = Object.freeze({});
+    this.#prepared?.child?.unlink();
     this.#prepared = {
       token,
       projectRevision,
@@ -776,57 +1036,125 @@ export class CompositionSessionOwner {
   }
 
   commitPrepared(token) {
-    const prepared = this.#assertPrepared(token);
-    this.#assertQuiescent();
-    this.#assertPrepared(token);
+    const pending = this.#prepared;
+    let prepared;
+    try {
+      prepared = this.#assertPrepared(token);
+      this.#assertQuiescent();
+      this.#assertPrepared(token);
+    } catch (error) {
+      if (
+        pending?.token === token &&
+        (this.#prepared !== pending ||
+          this.#session !== pending.session ||
+          this.#activeCompositionId !== pending.compositionId ||
+          this.#history.revision !== pending.projectRevision)
+      ) {
+        if (this.#prepared === pending) this.#prepared = null;
+        if (pending.ticket) {
+          pending.child.unlink();
+          pending.bridge.discardActivation(pending.ticket);
+          pending.child.controller.abort();
+        } else pending.session.discardPrepared?.(pending.innerToken);
+      }
+      throw error;
+    }
     if (prepared.ticket) {
-      prepared.bridge.assertFresh(prepared.ticket);
-      prepared.bridge.activate(prepared.ticket);
-      this.#prepared = null;
-      return this.#stepHistory(prepared.type, prepared.command);
+      try {
+        return this.#stepHistory(prepared.type, prepared.command, prepared);
+      } catch (error) {
+        if (this.#prepared === prepared) this.#prepared = null;
+        prepared.child.unlink();
+        prepared.bridge.discardActivation(prepared.ticket);
+        prepared.child.controller.abort();
+        throw error;
+      }
     }
 
     const revision = prepared.session.state.expectedRevision;
     try {
+      if (typeof prepared.session.commitPreparedCoordinated === 'function') {
+        const project = this.#history.doc;
+        let changed = false;
+        const result = prepared.session.commitPreparedCoordinated(
+          prepared.innerToken,
+          (candidate, candidateChanged) => {
+            // All callback-bearing preflight, including ticket teardown, has
+            // finished. Check the owner without invoking adapters again.
+            if (
+              this.#prepared !== prepared ||
+              this.#session !== prepared.session ||
+              this.#activeCompositionId !== prepared.compositionId ||
+              this.#history.doc !== project ||
+              this.#history.revision !== prepared.projectRevision
+            )
+              throw Error('STALE_REVISION: document changed');
+            if (!candidateChanged) return;
+            if (!candidate) throw Error('Missing prepared Project candidate');
+            this.#applyProjectEdit((history) => {
+              replaceRecord(history, candidate);
+            });
+            changed = true;
+          },
+        );
+        if (changed) {
+          this.#session.setProjectContext?.(this.#history.doc, prepared.compositionId);
+          this.#notifyCommitted('edit');
+        }
+        if (this.#prepared === prepared) this.#prepared = null;
+        return { ...result, projectRevision: this.#history.revision };
+      }
       const result = prepared.session.commitPrepared(prepared.innerToken);
-      if (prepared.layerClipboardSnapshot) this.#assertPrepared(token);
+      if (prepared.layerClipboardSnapshot || this.#macroProjectAdmission)
+        this.#assertPrepared(token);
       if (prepared.session.state.expectedRevision !== revision) {
         const candidate = this.#projectWithDocument(
           this.#history.doc,
           prepared.compositionId,
           prepared.session.snapshot(),
         );
-        if (prepared.layerClipboardSnapshot) this.#assertPrepared(token);
+        if (prepared.layerClipboardSnapshot || this.#macroProjectAdmission)
+          this.#assertPrepared(token);
         this.#applyProjectEdit((history) => {
           replaceRecord(history, candidate);
         });
         this.#session.setProjectContext?.(this.#history.doc, prepared.compositionId);
         this.#notifyCommitted('edit');
       }
-      this.#prepared = null;
+      if (this.#prepared === prepared) this.#prepared = null;
       return { ...result, projectRevision: this.#history.revision };
     } catch (error) {
       if (
         prepared.session.state.expectedRevision !== revision &&
-        (!prepared.layerClipboardSnapshot ||
+        ((!prepared.layerClipboardSnapshot && !this.#macroProjectAdmission) ||
           (prepared.session === this.#session &&
             prepared.compositionId === this.#activeCompositionId &&
             prepared.projectRevision === this.#history.revision))
       ) {
         this.#session = this.#makeSession(this.#history.doc, prepared.compositionId);
       }
-      this.#prepared = null;
+      if (this.#prepared === prepared) this.#prepared = null;
+      prepared.session.discardPrepared?.(prepared.innerToken);
       throw error;
     }
   }
 
   cancelPrepared(bridge) {
-    const prepared = this.#prepared;
-    this.#prepared = null;
+    const prepared = this.#prepared,
+      request = this.#preparingHistory;
     if (prepared?.bridge === bridge) {
-      if (prepared.ticket) bridge.cancel();
-      else prepared.session.cancelPrepared(bridge);
-      return;
+      this.#prepared = null;
+      if (prepared.ticket) {
+        prepared.child.unlink();
+        bridge.discardActivation(prepared.ticket);
+        prepared.child.controller.abort();
+      } else prepared.session.discardPrepared?.(prepared.innerToken);
+    }
+    if (request?.bridge === bridge) {
+      this.#preparingHistory = null;
+      request.child.unlink();
+      request.child.controller.abort();
+      if (request.ticket) bridge.discardActivation(request.ticket);
     }
     this.#session.cancelPrepared?.(bridge);
   }
@@ -876,9 +1204,29 @@ export class CompositionSessionOwner {
   }
 
   async prepareCompositionSwitch(compositionId, bridge, options = {}) {
+    const beforeOptions = {
+      session: this.#session,
+      project: this.#history.doc,
+      revision: this.#history.revision,
+      compositionId: this.#activeCompositionId,
+      preparedSwitch: this.#preparedCompositionSwitch,
+      bridgeEpoch: bridge.preparationEpoch?.(),
+    };
+    options = captureVariablePreparationOptions(options);
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+    if (
+      this.#session !== beforeOptions.session ||
+      this.#history.doc !== beforeOptions.project ||
+      this.#history.revision !== beforeOptions.revision ||
+      this.#activeCompositionId !== beforeOptions.compositionId ||
+      this.#preparedCompositionSwitch !== beforeOptions.preparedSwitch
+    )
+      throw Error('STALE_REVISION: document changed');
     if (!this.#history.doc.compositions.some((entry) => entry.id === compositionId))
       throw Error('Unknown active Composition ID');
     if (compositionId === this.#activeCompositionId) return null;
+    const child = createVariablePreparationChild(options.signal),
+      previous = this.#preparedCompositionSwitch;
     const request = {
       session: this.#session,
       sourceId: this.#activeCompositionId,
@@ -886,11 +1234,17 @@ export class CompositionSessionOwner {
       projectRevision: this.#history.revision,
       bridge,
       ticket: null,
+      child,
     };
     this.#preparedCompositionSwitch = request;
     try {
+      if (previous) {
+        previous.child.unlink();
+        previous.child.controller.abort();
+      }
+      if (this.#preparedCompositionSwitch !== request) throw Error('STALE_OPERATION');
       const document = this.#documentFor(this.#history.doc, compositionId);
-      request.ticket = await bridge.prepareDocument(document, options);
+      request.ticket = await bridge.prepareDocument(document, { signal: child.controller.signal });
       if (this.#preparedCompositionSwitch !== request) throw Error('STALE_OPERATION');
       this.#assertCompositionSwitchCurrent(request);
       bridge.assertFresh(request.ticket);
@@ -898,15 +1252,9 @@ export class CompositionSessionOwner {
       return request.token;
     } catch (error) {
       if (this.#preparedCompositionSwitch === request) this.#preparedCompositionSwitch = null;
-      // Never invalidate a newer operation's ticket on the same bridge.
-      if (request.ticket) {
-        try {
-          bridge.assertFresh(request.ticket);
-          bridge.cancel();
-        } catch {
-          // The ticket has already been canceled or superseded.
-        }
-      }
+      child.unlink();
+      child.controller.abort();
+      if (request.ticket) bridge.discardActivation(request.ticket);
       throw error;
     }
   }
@@ -915,52 +1263,133 @@ export class CompositionSessionOwner {
     const request = this.#preparedCompositionSwitch;
     if (!request || request.bridge !== bridge) return;
     this.#preparedCompositionSwitch = null;
-    if (request.ticket) {
-      try {
-        bridge.assertFresh(request.ticket);
-        bridge.cancel();
-      } catch {
-        // The ticket has already been canceled or superseded.
-      }
-    }
+    request.child.unlink();
+    request.child.controller.abort();
+    if (request.ticket) bridge.discardActivation(request.ticket);
   }
 
   commitPreparedCompositionSwitch(token, { beforeCommit = () => {} } = {}) {
     const request = this.#preparedCompositionSwitch;
     if (!request || request.token !== token) throw Error('STALE_OPERATION');
     const { bridge, ticket, targetId } = request;
-    this.#assertCompositionSwitchCurrent(request);
-    const assertClipboard = request.session.captureNodeClipboardFreshness?.();
-    const assertCurrent = () => {
-      if (this.#preparedCompositionSwitch !== request) throw Error('STALE_OPERATION');
+    try {
       this.#assertCompositionSwitchCurrent(request);
-      assertClipboard?.();
-    };
-    bridge.assertFresh(ticket);
-    assertCurrent();
-    const fonts = preparedCompositionFonts(this.#fonts, bridge, ticket);
-    const nextSession = this.#makeSession(this.#history.doc, targetId, fonts.read, request.session);
-    assertCurrent();
-    bridge.assertFresh(ticket);
-    assertCurrent();
-    this.#assertQuiescent({ allowTextDrafts: true });
-    assertCurrent();
-    beforeCommit();
-    assertCurrent();
-    this.#assertQuiescent();
-    assertCurrent();
-    bridge.assertFresh(ticket);
-    assertCurrent();
-    // No fallible work follows activation; publish the bank and tab together.
-    bridge.activate(ticket);
-    fonts.useLive();
-    this.#activeCompositionId = targetId;
-    this.#session = nextSession;
-    this.#preparedCompositionSwitch = null;
-    return true;
+      const assertClipboard = request.session.captureNodeClipboardFreshness?.();
+      const assertCurrent = () => {
+        if (this.#preparedCompositionSwitch !== request) throw Error('STALE_OPERATION');
+        this.#assertCompositionSwitchCurrent(request);
+        assertClipboard?.();
+      };
+      bridge.assertFresh(ticket);
+      assertCurrent();
+      const fonts = preparedCompositionFonts(this.#fonts, bridge, ticket);
+      const nextSession = this.#makeSession(
+        this.#history.doc,
+        targetId,
+        fonts.read,
+        request.session,
+      );
+      assertCurrent();
+      bridge.assertFresh(ticket);
+      assertCurrent();
+      this.#assertQuiescent({ allowTextDrafts: true });
+      assertCurrent();
+      beforeCommit();
+      assertCurrent();
+      this.#assertQuiescent();
+      assertCurrent();
+      bridge.stageActivation(ticket);
+      assertCurrent();
+      this.#assertQuiescent();
+      assertCurrent();
+      bridge.assertFresh(ticket);
+      assertCurrent();
+      this.#assertQuiescent();
+      assertCurrent();
+      bridge.assertFreshForPublication(ticket);
+      assertCurrent();
+      // Publish only after callback-bearing teardown and the last fresh check.
+      bridge.publishActivation(ticket);
+      fonts.useLive();
+      this.#activeCompositionId = targetId;
+      this.#session = nextSession;
+      this.#preparedCompositionSwitch = null;
+      request.child.unlink();
+      return true;
+    } catch (error) {
+      if (this.#preparedCompositionSwitch === request) this.#preparedCompositionSwitch = null;
+      request.child.unlink();
+      request.child.controller.abort();
+      bridge.discardActivation(ticket);
+      throw error;
+    }
   }
 
   dispatch(command) {
+    if (command?.type === 'register-macro-definition') {
+      this.#assertCurrentCommand(command);
+      const session = this.#session,
+        before = this.#history.doc,
+        revision = this.#history.revision,
+        sessionRevision = session.state.expectedRevision,
+        compositionId = this.#activeCompositionId;
+      const assertCurrent = () => {
+        const check = () => {
+          if (
+            this.#session !== session ||
+            this.#history.doc !== before ||
+            this.#history.revision !== revision ||
+            this.#activeCompositionId !== compositionId ||
+            session.state.expectedRevision !== sessionRevision
+          )
+            throw Error('STALE_REVISION: document changed');
+        };
+        check();
+        this.#assertQuiescent();
+        check();
+      };
+      assertCurrent();
+      if (before.schemaVersion < MACRO_SCHEMA_VERSION && Object.hasOwn(before, 'macroDefinitions'))
+        throw Error('Cannot replace opaque Macro definitions');
+      const definitionDescriptor =
+        command.payload && Object.getOwnPropertyDescriptor(command.payload, 'definition');
+      if (
+        !definitionDescriptor ||
+        !definitionDescriptor.enumerable ||
+        !Object.hasOwn(definitionDescriptor, 'value')
+      )
+        throw Error('Invalid Macro definition');
+      const previous =
+          before.schemaVersion >= MACRO_SCHEMA_VERSION ? (before.macroDefinitions ?? []) : [],
+        definitions = mergeMacroDefinitions(previous, [definitionDescriptor.value]);
+      assertCurrent();
+      if (
+        before.schemaVersion >= MACRO_SCHEMA_VERSION &&
+        JSON.stringify(previous) === JSON.stringify(definitions)
+      )
+        return { ...this.state, changed: false, projectRevision: revision };
+      const document = this.#documentFor(before, compositionId);
+      document.schemaVersion = Math.max(document.schemaVersion, MACRO_SCHEMA_VERSION);
+      document.macroDefinitions = definitions;
+      const candidate = this.#projectWithDocument(before, compositionId, document);
+      assertCurrent();
+      const previousAdmission = this.#macroProjectAdmission;
+      if (!previousAdmission) this.#macroProjectAdmission = macroSchemaAdmitted;
+      try {
+        const changed = this.#commitProject(candidate, compositionId, command.type, assertCurrent);
+        return { ...this.state, changed, projectRevision: this.#history.revision };
+      } catch (error) {
+        if (
+          !previousAdmission &&
+          this.#session === session &&
+          this.#history.doc === before &&
+          this.#history.revision === revision &&
+          this.#activeCompositionId === compositionId
+        )
+          this.#macroProjectAdmission = null;
+        throw error;
+      }
+    }
     if (command?.type === 'delete-composition') {
       const session = this.#session,
         activeId = this.#activeCompositionId,
@@ -1066,6 +1495,12 @@ export class CompositionSessionOwner {
     }
     if (command?.type === 'undo' || command?.type === 'redo')
       return this.#stepHistory(command.type, command);
+    if (command?.type === 'insert-macro') {
+      const revision = this.#history.revision,
+        expected = command.payload?.expectedProjectRevision;
+      if (expected !== revision || this.#history.revision !== revision)
+        throw Error('STALE_REVISION: Project changed');
+    }
     const session = this.#session;
     const compositionId = this.#activeCompositionId;
     const revision = session.state.expectedRevision;
@@ -1078,10 +1513,14 @@ export class CompositionSessionOwner {
         session.gestureState?.kind === 'artwork-translate');
     const guardedTransfer =
       artworkMove ||
+      this.#macroProjectAdmission !== null ||
       [
         'paste-nodes',
         'paste-layer-snapshot',
         'apply-effect',
+        'insert-macro',
+        'set-macro-override',
+        'reset-macro-override',
         'move-layers-to-folder',
         'order-layer-folder',
         'remove-layers-from-folder',

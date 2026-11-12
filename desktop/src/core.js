@@ -11,6 +11,7 @@ import {
   assertNoLegacyArtworkDocumentPromotion,
   assertNoLegacyHandleReferencePromotion,
   assertNoLegacyHandleDocumentPromotion,
+  validateMacroDocumentCandidate,
 } from './composition-project-model.js';
 export { expression } from './expression-parser.js';
 import { JOIN_SLOT_LIMIT, validJoinSlotOrder } from './join-slots-protocol.js';
@@ -21,6 +22,7 @@ import {
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
   QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
   COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION,
+  MACRO_SCHEMA_VERSION,
   hasComponentCompositionReferenceSyntax,
   nodesHaveComponentCompositionReferenceSyntax,
   componentCompositionReferences,
@@ -124,9 +126,12 @@ import { PRIVATE_FONT_SCHEMA_VERSION } from './private-font-source.js';
 import {
   createVariableDocumentPreparer as createVariableBridge,
   assertVariableDocumentReady,
+  captureVariablePreparationOptions,
+  createVariablePreparationChild,
   validateVariableText,
   VARIABLE_KIND,
 } from './variable-font/document-bridge.js';
+export { createVariablePreparationController } from './variable-font/document-bridge.js';
 import { canonicalAxes, requireThat as variableCheck } from './variable-font/contract.js';
 import { validateCharacterArrangement } from './character-arrangement.js';
 import {
@@ -203,6 +208,9 @@ import {
   transformEffectPosition,
   TRANSFORM_EFFECT_ID,
 } from './effect-insert-plan.js';
+import { assertMacroPathStep, macroTransformSteps } from './macro-transform-steps.js';
+import { planMacroInsertion, sameMacroInsertionTarget } from './macro-insert-plan.js';
+import { resetMacroOverride, setMacroOverride } from './macro-package.js';
 import { alignArtworkSelection } from './artwork-alignment.js';
 import { planNodeOutputAlignment } from './node-output-alignment.js';
 import { planPointAlignment } from './point-alignment.js';
@@ -685,6 +693,9 @@ export const definitions = Object.fromEntries(
     ),
   ),
 );
+// A Macro needs a registered definition pin, so an unbound instance is not an
+// Add-node picker entry. The insertion command creates it with a valid pin.
+Object.defineProperty(definitions, 'Macro', { value: { path: p('Path', null) } });
 for (const type of imageDitherTypes) {
   if (Object.hasOwn(definitions, type)) throw Error(`Duplicate projected type: ${type}`);
   const shapeType = type.replace(/ Image$/, '');
@@ -930,6 +941,7 @@ const bypassInputs = Object.freeze({
   Mask: 'path',
   Boolean: 'a',
   Transform: 'path',
+  Macro: 'path',
   'Path Remap': 'path',
   'Geometry Repeater': 'path',
   'Instance on Points': 'path',
@@ -1714,6 +1726,80 @@ function copyEvaluationIdentity(source, result) {
   return result;
 }
 const cloneEvaluated = (value) => copyEvaluationIdentity(value, clone(value));
+function macroPathIndex(nodes) {
+  const cache = new Map(),
+    active = new Set();
+  function inspect(n) {
+    if (!n) return false;
+    if (cache.has(n.id)) return cache.get(n.id);
+    if (active.has(n.id)) return false;
+    active.add(n.id);
+    let found;
+    if (n.type === 'Macro' && !n.bypassed && n.params.path.source) {
+      found = true;
+    } else {
+      found = evaluatedParameters(n).some(
+        ([, input]) =>
+          ['Path', 'PaintedPath'].includes(input?.type) &&
+          input.source &&
+          inspect(nodes.get(input.source)),
+      );
+    }
+    active.delete(n.id);
+    cache.set(n.id, found);
+    return found;
+  }
+  return inspect;
+}
+function macroPathSignature(nodes, start, hasMacro) {
+  const seen = new Set(),
+    trace = [];
+  function visit(n) {
+    if (!n || seen.has(n.id) || !hasMacro(n)) return;
+    seen.add(n.id);
+    trace.push(n);
+    if (n.type === 'Macro' && !n.bypassed && n.params.path.source) return;
+    for (const [, input] of evaluatedParameters(n))
+      if (['Path', 'PaintedPath'].includes(input?.type) && input.source)
+        visit(nodes.get(input.source));
+  }
+  visit(start);
+  return JSON.stringify(trace);
+}
+function assertMacroDownstreamPath(path, matrix) {
+  try {
+    assertMacroPathStep(path, matrix);
+  } catch (error) {
+    throw Object.assign(Error(`Macro downstream Path: ${error.message}`), {
+      code: 'MACRO_DOWNSTREAM_PATH_INVALID',
+    });
+  }
+}
+function transformEvaluatedPath(source, matrix, nodeId) {
+  const object = toPaper(source);
+  try {
+    object.transform(new scope.Matrix(...matrix));
+    const transformed = fromPaper(object, nodeId);
+    transformed.contours.forEach((contour, contourIndex) => {
+      const original = source.contours[contourIndex];
+      contour.id = original.id;
+      if (original.group !== undefined) contour.group = original.group;
+      if (original.repeaterOpacity !== undefined)
+        contour.repeaterOpacity = original.repeaterOpacity;
+      if (original.repeaterFill !== undefined) contour.repeaterFill = clone(original.repeaterFill);
+      if (original.repeaterStroke !== undefined)
+        contour.repeaterStroke = clone(original.repeaterStroke);
+      contour.points.forEach((point, pointIndex) => (point.id = original.points[pointIndex].id));
+    });
+    transformed.characterOccurrences = routeCharacters(source, nodeId, matrix);
+    transformed.unstable = source.unstable;
+    transformed.remapSuspended = source.remapSuspended;
+    transformed.fingerprint = source.fingerprint;
+    return copyEvaluationIdentity(source, transformed);
+  } finally {
+    object.remove();
+  }
+}
 function evaluatedPaintedGroup(values, options) {
   const result = paintedGroup(values, options);
   values.forEach((value, i) => copyEvaluationIdentity(value, result.children[i]));
@@ -2599,6 +2685,7 @@ export function evaluate(
   let computed = 0,
     reused = 0;
   const byId = new Map(layer.nodes.map((n) => [n.id, n]));
+  const macroPath = layer.nodes.some((n) => n.type === 'Macro') ? macroPathIndex(byId) : () => null;
   let storedGraphError = null;
   if (layer.nodes.some((n) => n.bypassed)) {
     try {
@@ -2955,6 +3042,7 @@ export function evaluate(
       }
       const existing = cache.get(key);
       if (
+        n.type !== 'Macro' &&
         existing &&
         existing.key === cacheKey &&
         existing.font === cacheFont &&
@@ -3247,8 +3335,10 @@ export function evaluate(
       } else if (n.type === 'Transform' && n.paintMode) {
         const source = read('path');
         if (!source) throw Error('Connect a PaintedPath input');
+        const matrix = transformValues(n, read).matrix;
+        if (macroPath(n)) assertMacroDownstreamPath(source, matrix);
         result = evaluatedPaintedGroup([source], {
-          matrix: transformValues(n, read).matrix,
+          matrix,
           prefix: n.id,
         });
         setEvaluationFingerprint(result, (currentEra) => [n.id, source, result.matrix]);
@@ -3735,28 +3825,25 @@ export function evaluate(
             }
           }
         } else if (n.type === 'Transform') {
-          let obj = toPaper(result);
-          const state = transformValues(n, read);
-          obj.transform(new scope.Matrix(...state.matrix));
-          let transformed = fromPaper(obj, n.id);
-          transformed.contours.forEach((c, ci) => {
-            c.id = result.contours[ci].id;
-            if (result.contours[ci].group !== undefined) c.group = result.contours[ci].group;
-            if (result.contours[ci].repeaterOpacity !== undefined)
-              c.repeaterOpacity = result.contours[ci].repeaterOpacity;
-            if (result.contours[ci].repeaterFill !== undefined)
-              c.repeaterFill = clone(result.contours[ci].repeaterFill);
-            if (result.contours[ci].repeaterStroke !== undefined)
-              c.repeaterStroke = clone(result.contours[ci].repeaterStroke);
-            c.points.forEach((p, pi) => (p.id = result.contours[ci].points[pi].id));
-          });
-          transformed.characterOccurrences = routeCharacters(result, n.id, state.matrix);
-          transformed.unstable = result.unstable;
-          transformed.remapSuspended = result.remapSuspended;
-          transformed.fingerprint = result.fingerprint;
-          copyEvaluationIdentity(result, transformed);
-          result = transformed;
-          obj.remove();
+          const matrix = transformValues(n, read).matrix,
+            fromMacro = macroPath(n);
+          if (fromMacro) assertMacroDownstreamPath(result, matrix);
+          result = transformEvaluatedPath(result, matrix, n.id);
+          if (fromMacro) assertMacroDownstreamPath(result, [1, 0, 0, 1, 0, 0]);
+        } else if (n.type === 'Macro') {
+          if (byId.get(n.params.path.source)?.type !== 'Rectangle')
+            throw Error('Macro requires a direct Rectangle source');
+          const pin = n.macro,
+            definition = documentContext?.macroDefinitions?.find(
+              (item) => item.id === pin?.definitionId && item.revision === pin.definitionRevision,
+            );
+          if (!definition) throw Error('Macro definition for instance pin is missing');
+          const steps = macroTransformSteps(definition, { id: n.id, ...pin });
+          for (const step of steps) {
+            assertMacroPathStep(result, step.matrix);
+            result = transformEvaluatedPath(result, step.matrix, n.id);
+            assertMacroPathStep(result, [1, 0, 0, 1, 0, 0]);
+          }
         }
       }
       if (
@@ -3782,6 +3869,12 @@ export function evaluate(
             for (const point of contour.points)
               point.position = point.position.map((v, axis) => v + delta[axis]);
       }
+      if (
+        n.type !== 'Macro' &&
+        ['Path', 'PaintedPath'].includes(outputType(n, port)) &&
+        macroPath(n)
+      )
+        assertMacroDownstreamPath(result, [1, 0, 0, 1, 0, 0]);
       if (result?.characterOccurrences?.length > 256)
         result.characterOccurrences = [
           ...new Map(
@@ -3794,16 +3887,18 @@ export function evaluate(
       values.set(key, result);
       const version = ++revision;
       versions.set(key, version);
-      cache.set(key, {
-        key: cacheKey,
-        font: cacheFont,
-        styleFonts,
-        imageAsset,
-        value: cloneEvaluated(result),
-        version,
-        warnings: warnings.slice(warningStart),
-        textLayout: !positionOutput && textLayouts.has(id) ? clone(textLayouts.get(id)) : undefined,
-      });
+      if (n.type !== 'Macro')
+        cache.set(key, {
+          key: cacheKey,
+          font: cacheFont,
+          styleFonts,
+          imageAsset,
+          value: cloneEvaluated(result),
+          version,
+          warnings: warnings.slice(warningStart),
+          textLayout:
+            !positionOutput && textLayouts.has(id) ? clone(textLayouts.get(id)) : undefined,
+        });
       return result;
     } finally {
       active.delete(activeKey);
@@ -3895,7 +3990,7 @@ export function evaluate(
 // Session commits and previews are the common boundary for source edits,
 // including gestures and prepared commands. A dangling identity cannot be
 // revived by an allocator, and affected cross-layer controls remain valid.
-function foreignAffectedVertices(before, candidate, fonts) {
+function foreignAffectedVertices(before, candidate, fonts, collectMacro = false) {
   const nodeKey = (layerId, nodeId) => `${layerId}\0${nodeId}`;
   const entries = (doc) =>
     new Map(doc.layers.flatMap((layer) => layer.nodes.map((n) => [nodeKey(layer.id, n.id), n])));
@@ -4097,11 +4192,29 @@ function foreignAffectedVertices(before, candidate, fonts) {
       }
     }
   }
+  const affectedMacroNodes = new Map(),
+    macroIndexes = new Map();
   for (let i = 0; i < queue.length; i++) {
     const item = queue[i],
       marker = `${item.key}\0${item.foreign ? 1 : 0}`;
     if (seen.has(marker)) continue;
     seen.add(marker);
+    if (collectMacro) {
+      const vertex = vertices.get(item.key),
+        node = vertex && candidateGraph.nodes.get(vertex.layerId)?.get(vertex.nodeId);
+      const nodes = candidateGraph.nodes.get(vertex?.layerId);
+      if (nodes && !macroIndexes.has(vertex.layerId))
+        macroIndexes.set(vertex.layerId, macroPathIndex(nodes));
+      const isAffectedPath =
+        node &&
+        ['Path', 'PaintedPath'].includes(outputType(node, vertex?.port)) &&
+        macroIndexes.get(vertex.layerId)?.(node);
+      if (vertex?.key === undefined && isAffectedPath) {
+        if (!affectedMacroNodes.has(vertex.layerId))
+          affectedMacroNodes.set(vertex.layerId, new Set());
+        affectedMacroNodes.get(vertex.layerId).add(vertex.nodeId);
+      }
+    }
     for (const edge of reverse.get(item.key) || []) {
       const foreign = item.foreign || edge.foreign;
       if (foreign) affected.set(edge.consumer, vertices.get(edge.consumer));
@@ -4110,6 +4223,7 @@ function foreignAffectedVertices(before, candidate, fonts) {
   }
   return {
     affected: [...affected.values()].filter((v) => current.has(nodeKey(v.layerId, v.nodeId))),
+    affectedMacroNodes,
     candidateGraph,
     activatedVertices,
   };
@@ -4137,8 +4251,9 @@ function assertArtworkReferenceTransition(
     return refs;
   };
   const previous = allRefs(before),
-    next = allRefs(candidate);
-  if (!previous.length && !next.length) return;
+    next = allRefs(candidate),
+    hasMacro = candidate.layers.some((layer) => layer.nodes.some((node) => node.type === 'Macro'));
+  if (!previous.length && !next.length && !hasMacro) return;
   const refKey = (ref) =>
     `${ref.qualifier || ''}\0${ref.compositionId || ''}\0${ref.layerId}\0${ref.nodeId}\0${ref.key}\0${ref.component || ''}`;
   const remaining = new Set(next.map(refKey));
@@ -4157,11 +4272,56 @@ function assertArtworkReferenceTransition(
     )
       throw Error('New identity would retarget a missing Artwork reference');
 
-  const { affected, candidateGraph, activatedVertices } = foreignAffectedVertices(
-    before,
-    candidate,
-    fonts,
-  );
+  const { affected, affectedMacroNodes, candidateGraph, activatedVertices } =
+    foreignAffectedVertices(before, candidate, fonts, hasMacro);
+  if (hasMacro) {
+    const currentFonts = resolveFonts(candidate, fonts),
+      oldFonts = resolveFonts(before, fonts);
+    for (const layer of candidate.layers) {
+      const ids = affectedMacroNodes.get(layer.id);
+      if (!ids) continue;
+      const instances = layer.nodes.filter((item) => ids.has(item.id));
+      if (!instances.length) continue;
+      const current = evaluate(layer, currentFonts, candidate.imageAssets, candidate, null, true),
+        oldLayer = before.layers.find((item) => item.id === layer.id),
+        currentNodes = candidateGraph.nodes.get(layer.id),
+        oldNodes = new Map((oldLayer?.nodes || []).map((item) => [item.id, item])),
+        currentPath = macroPathIndex(currentNodes),
+        oldPath = macroPathIndex(oldNodes);
+      let prior;
+      for (const instance of instances) {
+        try {
+          current.run(instance.id);
+        } catch (error) {
+          if (
+            isMissingReferenceTarget(error) ||
+            ['COMPOSITION_TARGET_UNSET', 'COMPOSITION_TARGET_MISSING'].includes(error.code)
+          )
+            continue;
+          const old = oldLayer?.nodes.find(
+              (item) => item.id === instance.id && item.type === instance.type,
+            ),
+            oldInfo = oldPath(old),
+            currentInfo = currentPath(instance);
+          if (
+            old &&
+            oldInfo &&
+            currentInfo &&
+            macroPathSignature(oldNodes, old, oldPath) ===
+              macroPathSignature(currentNodes, instance, currentPath)
+          ) {
+            prior ||= evaluate(oldLayer, oldFonts, before.imageAssets, before, null, true);
+            try {
+              prior.run(old.id);
+            } catch (earlier) {
+              if (earlier.code === error.code && earlier.message === error.message) continue;
+            }
+          }
+          throw error;
+        }
+      }
+    }
+  }
   if (!affected.length) return;
   const currentFonts = resolveFonts(candidate, fonts),
     oldFonts = resolveFonts(before, fonts),
@@ -4780,6 +4940,11 @@ export function migratePaint(doc) {
   return doc;
 }
 export function validate(doc) {
+  const versionDescriptor =
+    doc && typeof doc === 'object' ? Object.getOwnPropertyDescriptor(doc, 'schemaVersion') : null;
+  if (versionDescriptor && !Object.hasOwn(versionDescriptor, 'value'))
+    throw Error('Invalid schema version descriptor');
+  if (versionDescriptor?.value >= MACRO_SCHEMA_VERSION) validateMacroDocumentCandidate(doc);
   let activeKeyers = 0;
   let activeImageDithers = 0;
   const idPattern = nodeIdPattern;
@@ -4856,7 +5021,8 @@ export function validate(doc) {
       doc.schemaVersion !== ARTWORK_REFERENCE_SCHEMA_VERSION &&
       doc.schemaVersion !== COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION &&
       doc.schemaVersion !== QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION &&
-      doc.schemaVersion !== COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION)
+      doc.schemaVersion !== COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION &&
+      doc.schemaVersion !== MACRO_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   const colorSlots = validateColorSlots(doc);
@@ -4914,6 +5080,8 @@ export function validate(doc) {
     validateNodeGroups(l, sourceSchemaVersion, id);
     for (const n of l.nodes) {
       id(n.id);
+      if (n.type === 'Macro' && sourceSchemaVersion < MACRO_SCHEMA_VERSION)
+        throw Error(`Macro requires schemaVersion ${MACRO_SCHEMA_VERSION}`);
       if (['Keyer', 'Mask'].includes(n.type) && sourceSchemaVersion < 35)
         throw Error('Keyer and Mask require schemaVersion 35');
       if (n.type === 'Keyer' && !n.bypassed && ++activeKeyers > MAX_ACTIVE_KEYERS)
@@ -5606,6 +5774,11 @@ export function validate(doc) {
   return doc;
 }
 export function serialize(doc) {
+  const versionDescriptor =
+    doc && typeof doc === 'object' ? Object.getOwnPropertyDescriptor(doc, 'schemaVersion') : null;
+  if (versionDescriptor && !Object.hasOwn(versionDescriptor, 'value'))
+    throw Error('Invalid schema version descriptor');
+  if (versionDescriptor?.value >= MACRO_SCHEMA_VERSION) validateMacroDocumentCandidate(doc);
   // This optional historical receipt must never lose non-JSON data in a direct
   // codec call, even when the caller did not construct a Session first.
   if (doc && Object.hasOwn(doc, 'keyColorRecipe')) validateColorSlots(doc);
@@ -5932,6 +6105,7 @@ export class CommandSession {
   #textDrafts = new Map();
   #gesture = null;
   #prepared = null;
+  #preparing = null;
   #prepareSequence = 0;
   #nodeClipboard = null;
   #nodeClipboardOwner;
@@ -6908,11 +7082,30 @@ export class CommandSession {
     return cloneDocument(this.#history.doc);
   }
   async prepareCommand(envelope, bridge, options = {}) {
+    const beforeOptions = {
+      document: this.#history.doc,
+      revision: this.#history.revision,
+      sequence: this.#prepareSequence,
+      prepared: this.#prepared,
+      clipboard: this.#nodeClipboard,
+      bridgeEpoch: bridge.preparationEpoch?.(),
+    };
+    options = captureVariablePreparationOptions(options);
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+    if (
+      this.#history.doc !== beforeOptions.document ||
+      this.#history.revision !== beforeOptions.revision ||
+      this.#prepareSequence !== beforeOptions.sequence ||
+      this.#prepared !== beforeOptions.prepared ||
+      this.#nodeClipboard !== beforeOptions.clipboard
+    )
+      throw Error('STALE_REVISION: document changed');
     const { sessionId, expectedRevision, type, payload = {} } = envelope;
     if (sessionId !== this.id || expectedRevision !== this.#history.revision)
       throw Error('STALE_REVISION: document changed');
     if (this.#busy() || this.#gesture || this.hasTextComposition || this.#textDrafts.size)
       throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
     if (
       ![
         'set-text-content',
@@ -6928,38 +7121,49 @@ export class CommandSession {
       .find((l) => l.id === payload.layerId)
       ?.nodes.find((n) => n.id === payload.nodeId);
     if (target?.locked) throw Error('Text node is locked');
-    const sequence = ++this.#prepareSequence;
-    this.#prepared = null;
+    // Busy checks and payload access can call user code. Reject an aborted
+    // replacement before invalidating any preparation already in flight.
+    captureVariablePreparationOptions(options);
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+    if (
+      this.#history.doc !== beforeOptions.document ||
+      this.#history.revision !== beforeOptions.revision ||
+      this.#prepareSequence !== beforeOptions.sequence ||
+      this.#prepared !== beforeOptions.prepared ||
+      this.#nodeClipboard !== beforeOptions.clipboard
+    )
+      throw Error('STALE_REVISION: document changed');
+    const previous = this.#prepared,
+      previousRequest = this.#preparing;
+    let sequence = this.#prepareSequence;
     const snapshotPaste = type === 'paste-layer-snapshot';
-    const entry = snapshotPaste
-      ? {
-          document: this.#history.doc,
-          revision: this.#history.revision,
-          binding: projectDocumentContexts.get(this.#history.doc),
-          contextEpoch: this.#projectContextOwner.epoch,
-          clipboard: this.#nodeClipboard,
-        }
-      : null;
+    const entry = {
+      document: this.#history.doc,
+      revision: this.#history.revision,
+      binding: projectDocumentContexts.get(this.#history.doc),
+      contextEpoch: this.#projectContextOwner.epoch,
+      clipboard: this.#nodeClipboard,
+    };
     const captured = snapshotPaste ? this.#resolveLayerClipboardSnapshot(payload.token) : null;
     const assertLocal = () => {
       if (
         sequence !== this.#prepareSequence ||
         sessionId !== this.id ||
         expectedRevision !== this.#history.revision ||
-        (entry &&
-          (this.#history.doc !== entry.document ||
-            this.#history.revision !== entry.revision ||
-            projectDocumentContexts.get(this.#history.doc) !== entry.binding ||
-            this.#projectContextOwner.epoch !== entry.contextEpoch ||
-            this.#nodeClipboard !== entry.clipboard))
+        this.#history.doc !== entry.document ||
+        this.#history.revision !== entry.revision ||
+        projectDocumentContexts.get(this.#history.doc) !== entry.binding ||
+        this.#projectContextOwner.epoch !== entry.contextEpoch ||
+        (snapshotPaste && this.#nodeClipboard !== entry.clipboard)
       )
         throw Error('STALE_REVISION: document changed');
-      if (captured && this.#resolveLayerClipboardSnapshot(payload.token) !== captured)
-        throw Error('STALE_SESSION: copied Layer changed');
     };
     assertLocal();
-    const authority = snapshotPaste ? this.#captureArtworkMoveAuthority() : null;
+    const authority = this.#captureArtworkMoveAuthority();
     const assertCurrent = () => {
+      assertLocal();
+      if (captured && this.#resolveLayerClipboardSnapshot(payload.token) !== captured)
+        throw Error('STALE_SESSION: copied Layer changed');
       assertLocal();
       authority?.();
       assertLocal();
@@ -6983,9 +7187,32 @@ export class CommandSession {
       ? layerSnapshotPreparationDocument(entry.document, captured)
       : candidate;
     if (snapshotPaste) assertCurrent();
-    const ticket = await bridge.prepareDocument(input, options);
-    try {
+    captureVariablePreparationOptions(options);
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+    assertLocal();
+    if (this.#prepared !== previous || this.#preparing !== previousRequest)
+      throw Error('STALE_REVISION: document changed');
+    const child = createVariablePreparationChild(options.signal),
+      request = { bridge, child, ticket: null };
+    sequence = ++this.#prepareSequence;
+    this.#prepared = null;
+    this.#preparing = request;
+    const assertPreparing = () => {
       assertLocal();
+      if (this.#preparing !== request) throw Error('STALE_REVISION: document changed');
+    };
+    try {
+      previous?.child?.unlink();
+      if (previous && previous.bridge !== bridge)
+        previous.bridge.discardActivation(previous.ticket);
+      previousRequest?.child.unlink();
+      if (previousRequest && previousRequest.bridge !== bridge)
+        previousRequest.child.controller.abort();
+      assertLocal();
+      bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+      const ticket = await bridge.prepareDocument(input, { signal: child.controller.signal });
+      request.ticket = ticket;
+      assertPreparing();
       if (snapshotPaste) assertCurrent();
       const fonts = { ...this.#fonts(), ...bridge.preparedFonts(ticket) };
       if (snapshotPaste) {
@@ -7012,27 +7239,55 @@ export class CommandSession {
           this.#history.doc,
         );
       if (snapshotPaste) assertCurrent();
+      bridge.assertFresh(ticket);
+      assertPreparing();
       const token = Object.freeze({});
+      this.#preparing = null;
       this.#prepared = {
         token,
         ticket,
         bridge,
+        child,
         candidate,
         expectedRevision,
         type,
         sequence,
         result,
-        assertCurrent: snapshotPaste ? assertCurrent : null,
+        assertCurrent,
+        assertLocal,
       };
       return token;
     } catch (error) {
-      // Do not cancel a newer request that replaced this ticket.
-      try {
-        bridge.assertFresh(ticket);
-        bridge.cancel();
-      } catch {}
+      if (this.#preparing === request) this.#preparing = null;
+      child.unlink();
+      child.controller.abort();
+      if (request.ticket) bridge.discardActivation(request.ticket);
+      previous?.child?.unlink();
+      if (previous) {
+        previous.bridge.discardActivation(previous.ticket);
+        previous.child.controller.abort();
+      }
+      previousRequest?.child.unlink();
+      previousRequest?.child.controller.abort();
       throw error;
     }
+  }
+  assertPrepared(token) {
+    const p = this.#prepared;
+    if (
+      !p ||
+      p.token !== token ||
+      p.expectedRevision !== this.#history.revision ||
+      p.sequence !== this.#prepareSequence
+    )
+      throw Error('STALE_REVISION: document changed');
+    p.bridge.assertFresh(p.ticket);
+    if (
+      this.#prepared !== p ||
+      p.expectedRevision !== this.#history.revision ||
+      p.sequence !== this.#prepareSequence
+    )
+      throw Error('STALE_REVISION: document changed');
   }
   preparedSnapshot(token) {
     const p = this.#prepared;
@@ -7084,10 +7339,16 @@ export class CommandSession {
   }
   commitPrepared(token) {
     return this.#observeCommit(() => this.#commitPrepared(token), {
-      skipFailed: this.#prepared?.type === 'paste-layer-snapshot',
+      skipFailed: true,
     });
   }
-  #commitPrepared(token) {
+  commitPreparedCoordinated(token, publishProject) {
+    if (typeof publishProject !== 'function') throw Error('Invalid prepared Project publisher');
+    return this.#observeCommit(() => this.#commitPrepared(token, publishProject), {
+      skipFailed: true,
+    });
+  }
+  #commitPrepared(token, publishProject = null) {
     const p = this.#prepared;
     if (
       !p ||
@@ -7098,43 +7359,102 @@ export class CommandSession {
       throw Error('STALE_REVISION: document changed');
     if (this.#busy() || this.#gesture || this.hasTextComposition || this.#textDrafts.size)
       throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
-    p.assertCurrent?.();
-    p.bridge.assertFresh(p.ticket);
-    assertVariableDocumentReady(
-      p.candidate,
-      resolveFonts(p.candidate, p.bridge.preparedFonts(p.ticket)),
-    );
-    p.assertCurrent?.();
-    const revision = this.#history.revision;
-    if (p.type === 'undo' || p.type === 'redo') this.#history[p.type]();
-    else if (!sameDocument(this.#history.doc, p.candidate)) {
-      assertNoAccidentalCurvePointRebind(this.#history.doc, p.candidate, this.#nodeClipboard);
-      assertArtworkReferenceTransition(this.#history.doc, p.candidate, {
-        ...this.#fonts(),
-        ...p.bridge.preparedFonts(p.ticket),
-      });
-      p.assertCurrent?.();
-      this.#beforeCandidateCommit?.(
-        this.#history.doc,
+    let staging = false;
+    try {
+      const assertClipboard = this.captureNodeClipboardFreshness();
+      p.assertCurrent();
+      p.bridge.assertFresh(p.ticket);
+      assertVariableDocumentReady(
         p.candidate,
-        p.bridge.preparedFonts(p.ticket),
+        resolveFonts(p.candidate, p.bridge.preparedFonts(p.ticket)),
       );
-      p.assertCurrent?.();
-      this.#history.apply(() => {
+      p.assertCurrent();
+      const revision = this.#history.revision,
+        historyStep = p.type === 'undo' || p.type === 'redo',
+        changed = historyStep
+          ? (p.type === 'undo' ? this.#history.past : this.#history.future).length > 0
+          : !sameDocument(this.#history.doc, p.candidate);
+      let projectCandidate = null,
+        before = null;
+      if (changed && !historyStep) {
+        assertNoAccidentalCurvePointRebind(this.#history.doc, p.candidate, this.#nodeClipboard);
+        assertArtworkReferenceTransition(this.#history.doc, p.candidate, {
+          ...this.#fonts(),
+          ...p.bridge.preparedFonts(p.ticket),
+        });
+        p.assertCurrent();
+        projectCandidate = this.#beforeCandidateCommit?.(
+          this.#history.doc,
+          p.candidate,
+          p.bridge.preparedFonts(p.ticket),
+        );
+        p.assertCurrent();
+        before = cloneDocument(this.#history.doc);
+      }
+      // Teardown may call caller code. Nothing is published until it returns
+      // and every Session, Project and ticket boundary is checked again.
+      staging = true;
+      p.bridge.stageActivation(p.ticket);
+      p.assertCurrent();
+      p.bridge.assertFresh(p.ticket);
+      // The signal getter above may itself start a gesture or set busy. The
+      // final native signal read after this callback cannot call user code.
+      p.assertCurrent();
+      p.bridge.assertFreshForPublication(p.ticket);
+      p.assertLocal();
+      assertClipboard();
+      if (this.#gesture || this.hasTextComposition || this.#textDrafts.size)
+        throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+      if (this.#prepared !== p) throw Error('STALE_REVISION: document changed');
+      // The coordinated publisher checks owner identity without callbacks and
+      // publishes its already validated Project candidate. From here to both
+      // Session and font-bank publication there are no external callbacks.
+      publishProject?.(projectCandidate, changed);
+      p.bridge.publishActivation(p.ticket);
+      if (historyStep) this.#history[p.type]();
+      else if (changed) {
         this.#history.doc = p.candidate;
-      });
+        this.#history.record(before);
+      }
+      this.#trackProjectContextRoots();
+      if (p.type === 'import-svg') this.#nodeClipboard = null;
+      this.#prepared = null;
+      p.child.unlink();
+      return { ...this.state, ...p.result, changed: revision !== this.#history.revision };
+    } catch (error) {
+      if (staging) {
+        p.bridge.discardActivation(p.ticket);
+        if (this.#prepared === p) this.#prepared = null;
+        p.child.unlink();
+      }
+      throw error;
     }
-    this.#trackProjectContextRoots();
-    p.bridge.activate(p.ticket);
-    if (p.type === 'import-svg') this.#nodeClipboard = null;
-    this.#prepared = null;
-    return { ...this.state, ...p.result, changed: revision !== this.#history.revision };
   }
   cancelPrepared(bridge, token = null) {
-    if (token && this.#prepared?.token !== token) return;
+    if (token) {
+      if (this.#prepared?.bridge === bridge) this.discardPrepared(token);
+      return;
+    }
+    const prepared = this.#prepared,
+      request = this.#preparing;
+    if (prepared?.bridge === bridge) this.discardPrepared(prepared.token);
+    if (request?.bridge === bridge) {
+      this.#preparing = null;
+      this.#prepareSequence++;
+      request.child.unlink();
+      request.child.controller.abort();
+      if (request.ticket) bridge.discardActivation(request.ticket);
+    }
+  }
+  discardPrepared(token) {
+    const pending = this.#prepared;
+    if (!pending || pending.token !== token) return false;
     this.#prepared = null;
     this.#prepareSequence++;
-    bridge.cancel();
+    pending.child.unlink();
+    pending.bridge.discardActivation(pending.ticket);
+    pending.child.controller.abort();
+    return true;
   }
   dispatch(command) {
     const entry = {
@@ -7155,6 +7475,9 @@ export class CommandSession {
       'paste-nodes',
       'paste-layer-snapshot',
       'apply-effect',
+      'insert-macro',
+      'set-macro-override',
+      'reset-macro-override',
       'move-layers-to-folder',
       'order-layer-folder',
       'remove-layers-from-folder',
@@ -7183,6 +7506,9 @@ export class CommandSession {
       'paste-nodes',
       'paste-layer-snapshot',
       'apply-effect',
+      'insert-macro',
+      'set-macro-override',
+      'reset-macro-override',
       'move-layers-to-folder',
       'order-layer-folder',
       'remove-layers-from-folder',
@@ -7564,6 +7890,8 @@ export class CommandSession {
         nodes = selected.filter((n) => !['Output', 'Image Output'].includes(n.type));
       if (!nodes.length)
         throw Error('Copy source/effect nodes; each Composition keeps its own Output');
+      if (nodes.some((item) => item.type === 'Macro'))
+        throw Error('Copying Macro nodes needs definition closure');
       if (
         doc.schemaVersion >= COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION &&
         nodesHaveComponentCompositionReferenceSyntax(nodes)
@@ -7727,6 +8055,60 @@ export class CommandSession {
     return { ...this.state, ...result, changed: revision !== this.#history.revision };
   }
   #commandCandidate(type, payload, before, deferVariable = false, preparedFonts = null) {
+    if (type === 'insert-macro') {
+      const expected = payload.target,
+        options = { fonts: resolveFonts(before, this.#fonts()), imageAssets: before.imageAssets },
+        plan = planMacroInsertion(
+          before,
+          expected?.layerId,
+          { definitionId: expected?.definitionId, revision: expected?.definitionRevision },
+          options,
+        );
+      if (!plan.supported) throw Error(plan.reason);
+      if (!sameMacroInsertionTarget(plan.target, expected))
+        throw Error('STALE_REVISION: artwork target changed');
+      const candidate = cloneDocument(before),
+        layer = candidate.layers.find((item) => item.id === plan.target.layerId),
+        definition = candidate.macroDefinitions.find(
+          (item) =>
+            item.id === plan.target.definitionId &&
+            item.revision === plan.target.definitionRevision,
+        ),
+        instance = node('Macro', ...transformEffectPosition(layer, plan.target.producerNodeId));
+      instance.name = definition.name;
+      instance.macro = {
+        definitionId: definition.id,
+        definitionRevision: definition.revision,
+        overrides: {},
+      };
+      layer.nodes.push(instance);
+      connect(layer, plan.target.producerNodeId, instance.id, 'path');
+      connect(layer, instance.id, plan.target.consumerNodeId, plan.target.inputKey);
+      validate(candidate);
+      const output = evaluate(layer, options.fonts, options.imageAssets, candidate);
+      if (output.error) throw Error(output.error);
+      return { candidate, result: { nodeId: instance.id } };
+    }
+    if (type === 'set-macro-override' || type === 'reset-macro-override') {
+      const candidate = cloneDocument(before),
+        layer = candidate.layers.find((item) => item.id === payload.layerId),
+        instance = layer?.nodes.find((item) => item.id === payload.nodeId && item.type === 'Macro');
+      if (!instance) throw Error('Select a Macro instance');
+      if (layer.locked || instance.locked) throw Error('Unlock the Macro before editing it');
+      const pin = instance.macro,
+        definition = candidate.macroDefinitions?.find(
+          (item) => item.id === pin?.definitionId && item.revision === pin.definitionRevision,
+        );
+      if (!definition) throw Error('Macro definition for instance pin is missing');
+      const authored = { id: instance.id, ...pin },
+        updated =
+          type === 'set-macro-override'
+            ? setMacroOverride(definition, authored, payload.parameterId, payload.value)
+            : resetMacroOverride(definition, authored, payload.parameterId);
+      instance.macro.overrides = updated.overrides;
+      validate(candidate);
+      return { candidate, result: { nodeId: instance.id } };
+    }
     if (type === 'apply-effect') {
       if (payload.effectId !== TRANSFORM_EFFECT_ID) throw Error('Unknown effect');
       const options = {
@@ -8790,6 +9172,11 @@ export class CommandSession {
       candidate.schemaVersion = Math.max(candidate.schemaVersion, 11);
     }
     if (type === 'save-node-preset' || type === 'update-node-preset') {
+      if (
+        Array.isArray(payload.nodeIds) &&
+        target.nodes.some((item) => item.type === 'Macro' && payload.nodeIds.includes(item.id))
+      )
+        throw Error('Macro node presets need definition closure');
       const presets = candidate.nodePresets ?? [];
       const index = presets.findIndex((p) => p.id === payload.presetId);
       if (type === 'save-node-preset' && index !== -1) throw Error('Preset ID already exists');
@@ -8997,6 +9384,8 @@ export class CommandSession {
           throw Error('Invalid duplicate offset');
       }
       const originals = target.nodes.filter((n) => payload.nodeIds.includes(n.id));
+      if (originals.some((item) => item.type === 'Macro'))
+        throw Error('Duplicating Macro nodes needs definition closure');
       if (
         candidate.schemaVersion >= COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION &&
         nodesHaveComponentCompositionReferenceSyntax(originals)
