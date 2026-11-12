@@ -333,6 +333,19 @@ try {
     await moveDialog.locator('[data-cancel]').click();
   }
   assert.deepEqual(await project(), beforeMove);
+  // Seed a different selection on the exact prior History entry before moving.
+  await select(movedIds[1]);
+  await page.evaluate(() =>
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'rename-layer-folder',
+      payload: { folderId: 'source', name: 'Temporary history' },
+    }),
+  );
+  await page.locator('[data-action="undo"]').click();
+  await page.locator('[data-action="redo"]').click();
+  await page.locator('[data-action="undo"]').click();
+  assert.deepEqual(await project(), beforeMove);
   await selectMoveLayers();
   await page.locator('[data-folder-add="target"]').click();
   moveDialog = page.locator('.layer-folder-move-dialog');
@@ -348,11 +361,27 @@ try {
   ]);
   assert.notDeepEqual(await pixel(), beforeMovePixel);
   assert.equal(await page.locator('.layer.selected').count(), selectedBefore);
-  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'undo' }));
+  await page.locator('[data-action="undo"]').click();
   assert.deepEqual(await project(), beforeMove);
+  assert.deepEqual(
+    (
+      await page
+        .locator('.layer.selected')
+        .evaluateAll((rows) => rows.map((row) => row.dataset.layer))
+    ).sort(),
+    [movedIds[0], movedIds[2], movedIds[3]].sort(),
+  );
   assert.deepEqual(await pixel(), beforeMovePixel);
-  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'redo' }));
+  await page.locator('[data-action="redo"]').click();
   assert.deepEqual(await project(), moved);
+  assert.deepEqual(
+    (
+      await page
+        .locator('.layer.selected')
+        .evaluateAll((rows) => rows.map((row) => row.dataset.layer))
+    ).sort(),
+    [movedIds[0], movedIds[2], movedIds[3]].sort(),
+  );
   const movingDownload = page.waitForEvent('download');
   await activateCommand(page, 'save-as');
   const movedFile = resolve('test-results/layer-folder-move-project.json');

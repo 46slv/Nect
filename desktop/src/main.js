@@ -10088,11 +10088,14 @@ function moveSelectionToFolder(folderId) {
     )
       throw Error('Layer order changed. Start the move again.');
     assertCurrent();
-    return owner.dispatch({
+    const before = history.entryToken;
+    const result = owner.dispatch({
       ...envelope,
       type: 'move-layers-to-folder',
       payload: { ...payload, expectedPaintOrder: initial.paintOrder },
     });
+    if (result.changed) rememberViewNeutralHistory(before, history.entryToken);
+    return result;
   };
   if (!initial.orderChanged) {
     const result = commit();
