@@ -1321,7 +1321,7 @@ async function preparedChange(
     if (variableAction !== action || session !== action.owner) return null;
     if (!isCurrent()) {
       cancelVariableAction();
-      notify('Document or selection changed; operation cancelled', true);
+      notify('Edit or selection changed; operation cancelled', true);
       if (
         documents.hasDraft() ||
         editingControl(document.activeElement) ||
@@ -1784,6 +1784,9 @@ function stepHistory(redo = false) {
     let restoreRecordedSelection = false,
       latestSelection = null;
     const capturePendingDeletion = () => {
+      // A draft can start after asynchronous History preparation begins.
+      // Do not let the prepared document replace that newer input.
+      if (documents.hasDraft() || nameEdit) return false;
       latestSelection = selectionSnapshot(true);
       restoreRecordedSelection =
         !viewNeutral && selectionSignature(latestSelection) === pendingSelection;

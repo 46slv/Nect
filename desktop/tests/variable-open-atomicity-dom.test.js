@@ -331,7 +331,57 @@ test('rejected variable Open retains live fonts and retires only abandoned/old d
       shortcut(document.layers[0].id, 'v');
       await waitFor(() => !win.variableBusyForTest() && win.nect.document.layers.length === 3);
       const afterPaste = JSON.stringify(win.nect.projectSnapshot()),
-        pastedId = win.nect.document.layers[1].id;
+        pastedId = win.nect.document.layers[1].id,
+        pastedName = win.nect.document.layers[1].name;
+      const startName = () => {
+        const button = root.querySelector(`[data-select-layer="${pastedId}"]`);
+        button.focus();
+        button.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'F2', bubbles: true }));
+        const input = root.querySelector('[data-rename-name]');
+        assert.ok(input);
+        return input;
+      };
+      for (const mode of ['dirty', 'IME', 'clean']) {
+        const beforeHistory = win.openStateForTest().historyState;
+        const pending = gateNextPreparation();
+        click('[data-action="undo"]');
+        await pending.ready;
+        const input = startName();
+        if (mode === 'IME')
+          input.dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
+        else if (mode === 'dirty') {
+          input.value = 'Pending name';
+          input.dispatchEvent(new win.Event('input', { bubbles: true }));
+        }
+        pending.release();
+        await waitFor(() => !win.variableBusyForTest());
+        assert.equal(
+          JSON.stringify(win.nect.projectSnapshot()),
+          afterPaste,
+          `${mode} draft blocks Undo`,
+        );
+        assert.deepEqual(win.openStateForTest().historyState, beforeHistory);
+        assert.equal(root.querySelector('[data-rename-name]'), input);
+        assert.equal(input.value, mode === 'dirty' ? 'Pending name' : pastedName);
+        if (mode === 'IME')
+          input.dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true }));
+        input.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await waitFor(() => !root.querySelector('[data-rename-name]'));
+      }
+      const clean = gateNextPreparation();
+      click('[data-action="undo"]');
+      await clean.ready;
+      root.querySelector(`[data-select-layer="${pastedId}"]`).focus();
+      clean.release();
+      await waitFor(
+        () =>
+          !win.variableBusyForTest() && JSON.stringify(win.nect.projectSnapshot()) === beforePaste,
+      );
+      click('[data-action="redo"]');
+      await waitFor(
+        () =>
+          !win.variableBusyForTest() && JSON.stringify(win.nect.projectSnapshot()) === afterPaste,
+      );
       let gate = gateNextPreparation();
       click('[data-action="undo"]');
       await gate.ready;

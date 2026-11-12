@@ -518,6 +518,26 @@ try {
   const afterSnapshotPaste = await page.evaluate(() =>
     JSON.stringify(window.nect.projectSnapshot()),
   );
+  const beforeDraftUndo = await page.evaluate(() => window.nect.projectRevision);
+  await page.evaluate((id) => {
+    document.querySelector('[data-action="undo"]').click();
+    const row = document.querySelector(`[data-select-layer="${id}"]`);
+    row.focus();
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2', bubbles: true }));
+    const name = document.querySelector('[data-rename-name]');
+    name.value = 'Uncommitted name';
+    name.dispatchEvent(new Event('input', { bubbles: true }));
+  }, pastedVariable.id);
+  await page.waitForFunction(() =>
+    document.querySelector('.status .message')?.textContent.includes('operation cancelled'),
+  );
+  assert.equal(await page.locator('[data-rename-name]').inputValue(), 'Uncommitted name');
+  assert.equal(
+    await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot())),
+    afterSnapshotPaste,
+  );
+  assert.equal(await page.evaluate(() => window.nect.projectRevision), beforeDraftUndo);
+  await page.locator('[data-rename-name]').press('Escape');
   await page.locator('[data-action="undo"]').click();
   await page.waitForFunction(
     (expected) => JSON.stringify(window.nect.projectSnapshot()) === expected,
