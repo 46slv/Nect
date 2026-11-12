@@ -202,6 +202,7 @@ import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 import {
   planTransformEffect,
   sameTransformEffectTarget,
+  transformEffectPosition,
   TRANSFORM_EFFECT_ID,
 } from './effect-insert-plan.js';
 import { alignArtworkSelection } from './artwork-alignment.js';
@@ -8650,7 +8651,8 @@ export class CommandSession {
 
       const candidate = cloneDocument(before),
         layer = candidate.layers.find((item) => item.id === plan.target.layerId),
-        transform = node('Transform');
+        position = transformEffectPosition(layer, plan.target.producerNodeId),
+        transform = node('Transform', ...position);
       layer.nodes.push(transform);
       connect(layer, plan.target.producerNodeId, transform.id, 'path');
       connect(layer, transform.id, plan.target.consumerNodeId, plan.target.inputKey);
