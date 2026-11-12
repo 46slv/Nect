@@ -52,6 +52,11 @@ export function installLayerReorder({ app, getState, commit, onError }) {
     if (index < 0) return false;
     pending.beforeLayerId =
       edge === 'below' ? remaining[index].id : (remaining[index + 1]?.id ?? null);
+    const destination =
+      pending.beforeLayerId === null
+        ? remaining.length
+        : remaining.findIndex((layer) => layer.id === pending.beforeLayerId);
+    if (!canReorderLayerInFolders(pending.document, pending.layerId, destination)) return false;
     pending.target = target;
     target.dataset.layerDrop = edge;
     event.preventDefault();
@@ -129,3 +134,4 @@ export function installLayerReorder({ app, getState, commit, onError }) {
     true,
   );
 }
+import { canReorderLayerInFolders } from './layer-folders.js';

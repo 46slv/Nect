@@ -219,6 +219,15 @@ import { distributeArtworkGaps } from './artwork-gap-distribution.js';
 import { importSVGTree } from './svg-import.js';
 import { prepareCompositionImport } from './project-composition-import.js';
 import {
+  validateLayerFolders,
+  createLayerFolder,
+  renameLayerFolder,
+  addLayersToFolder,
+  moveLayersToFolder,
+  removeLayersFromFolder,
+  dissolveLayerFolder,
+} from './layer-folders.js';
+import {
   GRID_ORIGIN_SCHEMA_VERSION,
   GRID_ANGLE_SCHEMA_VERSION,
   validateGuides,
@@ -2402,7 +2411,7 @@ function colorArtworkClipboardReferences(nodes, schemaVersion) {
 // Clipboard references preserve their original foreign targets only while each
 // target remains present. Once absent, a later reuse of the same ID is not proof
 // that it is the object copied by the user.
-function artworkClipboardTargetsIntact(doc, clipboard) {
+export function artworkClipboardTargetsIntact(doc, clipboard) {
   if (!doc.layers.some((layer) => layer.id === clipboard.sourceLayerId)) return false;
   const layers = new Map(doc.layers.map((layer) => [layer.id, layer])),
     indexes = new Map();
@@ -6099,6 +6108,7 @@ export function validate(doc) {
     throw Error(`Nine-point grid origin requires schemaVersion ${GRID_ORIGIN_SCHEMA_VERSION}`);
   if (!Array.isArray(doc.layers) || doc.layers.length < 1 || doc.layers.length > 100)
     throw Error('Invalid layers');
+  validateLayerFolders(doc, id);
   for (const key of ['width', 'height'])
     if (!Number.isFinite(doc[key]) || doc[key] <= 0 || doc[key] > 100000)
       throw Error('Invalid artboard size');
@@ -7086,6 +7096,48 @@ export function createVariableDocumentPreparer(options = {}) {
   });
 }
 
+// Shape every current and captured variable Text request without first applying
+// the captured graph to the authored document. The temporary nodes contain
+// only the fields that determine a variable-font run.
+function layerSnapshotPreparationDocument(doc, captured) {
+  const requests = new Map();
+  for (const layer of [...doc.layers, captured.snapshot])
+    for (const item of layer.nodes)
+      if (item.type === 'Text' && doc.fontAssets?.[item.font]?.kind === VARIABLE_KIND) {
+        const key = JSON.stringify([item.font, item.text, item.variation?.axes]);
+        if (!requests.has(key)) requests.set(key, item);
+      }
+  const projection = blankDocument();
+  projection.schemaVersion = Math.max(doc.schemaVersion, captured.schemaVersion);
+  projection.fontAssets = Object.fromEntries(
+    [...new Set([...requests.values()].map((item) => item.font))].map((id) => [
+      id,
+      doc.fontAssets[id],
+    ]),
+  );
+  projection.layers = [];
+  let layer;
+  for (const [index, item] of [...requests.values()].entries()) {
+    if (!layer || layer.nodes.length >= 2000) {
+      layer = blankLayer('Variable text preparation');
+      layer.id = `variable-snapshot-layer-${projection.layers.length}`;
+      layer.nodes[0].id = `variable-snapshot-output-${projection.layers.length}`;
+      layer.output = layer.nodes[0].id;
+      projection.layers.push(layer);
+    }
+    const text = node('Text');
+    text.id = `variable-snapshot-text-${index}`;
+    text.text = item.text;
+    text.font = item.font;
+    text.variation = clone(item.variation);
+    if (item.writingMode !== undefined) text.writingMode = item.writingMode;
+    if (item.kerning !== undefined) text.kerning = item.kerning;
+    layer.nodes.push(text);
+  }
+  if (!projection.layers.length) projection.layers.push(blankLayer('Variable text preparation'));
+  return projection;
+}
+
 export class CommandSession {
   #history;
   #fonts;
@@ -7099,6 +7151,7 @@ export class CommandSession {
   #nodeClipboardOwner;
   #beforeCandidateCommit;
   #captureArtworkMoveAuthority;
+  #resolveLayerClipboardSnapshot;
   #retainColorClipboardForProjectContext;
   #projectContextOwner = { epoch: 0, members: new WeakSet() };
   constructor(
@@ -7110,6 +7163,9 @@ export class CommandSession {
       retainHistory = true,
       beforeCandidateCommit = null,
       captureArtworkMoveAuthority = () => () => {},
+      resolveLayerClipboardSnapshot = () => {
+        throw Error('Layer clipboard is unavailable');
+      },
       retainColorClipboardForProjectContext = null,
       nodeClipboardOwner = null,
       nodeClipboardFrom = null,
@@ -7127,6 +7183,8 @@ export class CommandSession {
     if (beforeCandidateCommit !== null && typeof beforeCandidateCommit !== 'function')
       throw Error('Invalid candidate preflight');
     if (typeof captureArtworkMoveAuthority !== 'function') throw Error('Invalid artwork authority');
+    if (typeof resolveLayerClipboardSnapshot !== 'function')
+      throw Error('Invalid Layer clipboard authority');
     if (
       retainColorClipboardForProjectContext !== null &&
       typeof retainColorClipboardForProjectContext !== 'function'
@@ -7142,6 +7200,7 @@ export class CommandSession {
     this.#onCommitted = onCommitted;
     this.#beforeCandidateCommit = beforeCandidateCommit;
     this.#captureArtworkMoveAuthority = captureArtworkMoveAuthority;
+    this.#resolveLayerClipboardSnapshot = resolveLayerClipboardSnapshot;
     this.#retainColorClipboardForProjectContext = retainColorClipboardForProjectContext;
     this.id = uid('session');
     if (nodeClipboardFrom) this.#inheritNodeClipboard(nodeClipboardFrom);
@@ -8051,7 +8110,14 @@ export class CommandSession {
     if (this.#busy() || this.#gesture || this.hasTextComposition || this.#textDrafts.size)
       throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
     if (
-      !['set-text-content', 'set-text-settings', 'set-variable-font', 'undo', 'redo'].includes(type)
+      ![
+        'set-text-content',
+        'set-text-settings',
+        'set-variable-font',
+        'paste-layer-snapshot',
+        'undo',
+        'redo',
+      ].includes(type)
     )
       throw Error('VARIABLE_COMMAND_UNSUPPORTED');
     const target = this.#history.doc.layers
@@ -8060,35 +8126,109 @@ export class CommandSession {
     if (target?.locked) throw Error('Text node is locked');
     const sequence = ++this.#prepareSequence;
     this.#prepared = null;
-    let candidate;
+    const snapshotPaste = type === 'paste-layer-snapshot';
+    const entry = snapshotPaste
+      ? {
+          document: this.#history.doc,
+          revision: this.#history.revision,
+          binding: projectDocumentContexts.get(this.#history.doc),
+          contextEpoch: this.#projectContextOwner.epoch,
+          clipboard: this.#nodeClipboard,
+        }
+      : null;
+    const captured = snapshotPaste ? this.#resolveLayerClipboardSnapshot(payload.token) : null;
+    const assertLocal = () => {
+      if (
+        sequence !== this.#prepareSequence ||
+        sessionId !== this.id ||
+        expectedRevision !== this.#history.revision ||
+        (entry &&
+          (this.#history.doc !== entry.document ||
+            this.#history.revision !== entry.revision ||
+            projectDocumentContexts.get(this.#history.doc) !== entry.binding ||
+            this.#projectContextOwner.epoch !== entry.contextEpoch ||
+            this.#nodeClipboard !== entry.clipboard))
+      )
+        throw Error('STALE_REVISION: document changed');
+      if (captured && this.#resolveLayerClipboardSnapshot(payload.token) !== captured)
+        throw Error('STALE_SESSION: copied Layer changed');
+    };
+    assertLocal();
+    const authority = snapshotPaste ? this.#captureArtworkMoveAuthority() : null;
+    const assertCurrent = () => {
+      assertLocal();
+      authority?.();
+      assertLocal();
+      const busy = this.#busy();
+      assertLocal();
+      if (busy || this.#gesture || this.hasTextComposition || this.#textDrafts.size)
+        throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+      assertLocal();
+      if (this.#gesture || this.hasTextComposition || this.#textDrafts.size)
+        throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+    };
+    if (snapshotPaste) assertCurrent();
+    let candidate, result;
     if (type === 'undo' || type === 'redo')
       candidate = cloneDocument(
         (type === 'undo' ? this.#history.past : this.#history.future).at(-1) || this.#history.doc,
       );
-    else candidate = this.#commandCandidate(type, payload, this.#history.doc, true).candidate;
-    const ticket = await bridge.prepareDocument(candidate, options);
-    if (
-      sequence !== this.#prepareSequence ||
-      sessionId !== this.id ||
-      expectedRevision !== this.#history.revision
-    )
-      throw Error('STALE_REVISION: document changed');
-    const fonts = { ...this.#fonts(), ...bridge.preparedFonts(ticket) };
-    assertVariableDocumentReady(candidate, resolveFonts(candidate, fonts));
-    // Validate downstream bounded geometry against the prepared candidate, before changing history.
-    for (const layer of candidate.layers)
-      assertClosedOffsetChange(
-        layer,
-        this.#history.doc.layers.find((l) => l.id === layer.id),
-        resolveFonts(candidate, fonts),
-        candidate.imageAssets,
-        resolveFonts(this.#history.doc, this.#fonts()),
+    else if (!snapshotPaste)
+      candidate = this.#commandCandidate(type, payload, this.#history.doc, true).candidate;
+    const input = snapshotPaste
+      ? layerSnapshotPreparationDocument(entry.document, captured)
+      : candidate;
+    if (snapshotPaste) assertCurrent();
+    const ticket = await bridge.prepareDocument(input, options);
+    try {
+      assertLocal();
+      if (snapshotPaste) assertCurrent();
+      const fonts = { ...this.#fonts(), ...bridge.preparedFonts(ticket) };
+      if (snapshotPaste) {
+        assertCurrent();
+        ({ candidate, result } = this.#commandCandidate(
+          type,
+          payload,
+          entry.document,
+          true,
+          fonts,
+        ));
+        assertCurrent();
+      }
+      assertVariableDocumentReady(candidate, resolveFonts(candidate, fonts));
+      // Validate downstream bounded geometry against the prepared candidate, before changing history.
+      for (const layer of candidate.layers)
+        assertClosedOffsetChange(
+          layer,
+          this.#history.doc.layers.find((l) => l.id === layer.id),
+          resolveFonts(candidate, fonts),
+          candidate.imageAssets,
+          resolveFonts(this.#history.doc, snapshotPaste ? fonts : this.#fonts()),
+          candidate,
+          this.#history.doc,
+        );
+      if (snapshotPaste) assertCurrent();
+      const token = Object.freeze({});
+      this.#prepared = {
+        token,
+        ticket,
+        bridge,
         candidate,
-        this.#history.doc,
-      );
-    const token = Object.freeze({});
-    this.#prepared = { token, ticket, bridge, candidate, expectedRevision, type, sequence };
-    return token;
+        expectedRevision,
+        type,
+        sequence,
+        result,
+        assertCurrent: snapshotPaste ? assertCurrent : null,
+      };
+      return token;
+    } catch (error) {
+      // Do not cancel a newer request that replaced this ticket.
+      try {
+        bridge.assertFresh(ticket);
+        bridge.cancel();
+      } catch {}
+      throw error;
+    }
   }
   preparedSnapshot(token) {
     const p = this.#prepared;
@@ -8100,6 +8240,7 @@ export class CommandSession {
     )
       throw Error('STALE_REVISION: document changed');
     p.bridge.assertFresh(p.ticket);
+    p.assertCurrent?.();
     return {
       document: cloneDocument(p.candidate),
       fonts: { ...this.#fonts(), ...p.bridge.preparedFonts(p.ticket) },
@@ -8138,7 +8279,9 @@ export class CommandSession {
     }
   }
   commitPrepared(token) {
-    return this.#observeCommit(() => this.#commitPrepared(token));
+    return this.#observeCommit(() => this.#commitPrepared(token), {
+      skipFailed: this.#prepared?.type === 'paste-layer-snapshot',
+    });
   }
   #commitPrepared(token) {
     const p = this.#prepared;
@@ -8151,11 +8294,13 @@ export class CommandSession {
       throw Error('STALE_REVISION: document changed');
     if (this.#busy() || this.#gesture || this.hasTextComposition || this.#textDrafts.size)
       throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+    p.assertCurrent?.();
     p.bridge.assertFresh(p.ticket);
     assertVariableDocumentReady(
       p.candidate,
       resolveFonts(p.candidate, p.bridge.preparedFonts(p.ticket)),
     );
+    p.assertCurrent?.();
     const revision = this.#history.revision;
     if (p.type === 'undo' || p.type === 'redo') this.#history[p.type]();
     else if (!sameDocument(this.#history.doc, p.candidate)) {
@@ -8164,7 +8309,13 @@ export class CommandSession {
         ...this.#fonts(),
         ...p.bridge.preparedFonts(p.ticket),
       });
-      this.#beforeCandidateCommit?.(this.#history.doc, p.candidate);
+      p.assertCurrent?.();
+      this.#beforeCandidateCommit?.(
+        this.#history.doc,
+        p.candidate,
+        p.bridge.preparedFonts(p.ticket),
+      );
+      p.assertCurrent?.();
       this.#history.apply(() => {
         this.#history.doc = p.candidate;
       });
@@ -8173,9 +8324,10 @@ export class CommandSession {
     p.bridge.activate(p.ticket);
     if (p.type === 'import-svg') this.#nodeClipboard = null;
     this.#prepared = null;
-    return { ...this.state, changed: revision !== this.#history.revision };
+    return { ...this.state, ...p.result, changed: revision !== this.#history.revision };
   }
-  cancelPrepared(bridge) {
+  cancelPrepared(bridge, token = null) {
+    if (token && this.#prepared?.token !== token) return;
     this.#prepared = null;
     this.#prepareSequence++;
     bridge.cancel();
@@ -8195,9 +8347,14 @@ export class CommandSession {
       (commandType === 'begin-gesture' && command.payload?.target?.kind === 'artwork-translate') ||
       (['update-gesture', 'commit-gesture'].includes(commandType) &&
         this.#gesture?.target.kind === 'artwork-translate');
-    const paste = commandType === 'paste-nodes';
+    const guardedEdit = [
+      'paste-nodes',
+      'paste-layer-snapshot',
+      'move-layers-to-folder',
+      'remove-layers-from-folder',
+    ].includes(commandType);
     return this.#observeCommit(() => this.#dispatch(command, entry, copyAttempt), {
-      skipFailed: artworkMove || paste,
+      skipFailed: artworkMove || guardedEdit,
       suppressNotification: () => copyAttempt.isCopy,
     });
   }
@@ -8216,10 +8373,17 @@ export class CommandSession {
       throw Error('STALE_REVISION: document changed');
     if (!payload || typeof payload !== 'object' || Array.isArray(payload))
       throw Error('Invalid command payload');
-    const paste = type === 'paste-nodes';
-    const assertPasteLocal = () => {
+    const guardedEdit = [
+      'paste-nodes',
+      'paste-layer-snapshot',
+      'move-layers-to-folder',
+      'remove-layers-from-folder',
+    ].includes(type);
+    const layerClipboardSnapshot =
+      type === 'paste-layer-snapshot' ? this.#resolveLayerClipboardSnapshot(payload.token) : null;
+    const assertGuardedLocal = () => {
       if (
-        paste &&
+        guardedEdit &&
         (this.#history.doc !== entry.document ||
           this.#history.revision !== entry.revision ||
           projectDocumentContexts.get(this.#history.doc) !== entry.binding ||
@@ -8227,39 +8391,44 @@ export class CommandSession {
           this.#nodeClipboard !== entry.clipboard)
       )
         throw Error('STALE_REVISION: document changed');
+      if (
+        layerClipboardSnapshot &&
+        this.#resolveLayerClipboardSnapshot(payload.token) !== layerClipboardSnapshot
+      )
+        throw Error('STALE_SESSION: copied Layer changed');
     };
-    assertPasteLocal();
-    // Paste and artwork movement both invoke external font and precommit hooks
-    // before writing History; both require the same owner/session authority.
-    const pasteAuthority = paste ? this.#captureArtworkMoveAuthority() : null;
-    const assertPasteCurrent = () => {
-      assertPasteLocal();
-      pasteAuthority?.();
-      assertPasteLocal();
+    assertGuardedLocal();
+    // These edits invoke external font and precommit hooks before History.
+    const guardedAuthority = guardedEdit ? this.#captureArtworkMoveAuthority() : null;
+    const assertGuardedCurrent = () => {
+      assertGuardedLocal();
+      guardedAuthority?.();
+      assertGuardedLocal();
     };
-    const assertPasteDraftsClear = () => {
+    const assertGuardedDraftsClear = () => {
       if (
         this.#gesture ||
         this.hasTextComposition ||
+        (type !== 'paste-nodes' && this.#textDrafts.size > 0) ||
         [...this.#textDrafts.values()].some(
           (draft) => draft.revision === this.#history.revision && draft.state.changed,
         )
       )
         throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
     };
-    const assertPasteReady = () => {
-      if (!paste) return;
-      assertPasteCurrent();
+    const assertGuardedReady = () => {
+      if (!guardedEdit) return;
+      assertGuardedCurrent();
       const busy = this.#busy();
-      assertPasteCurrent();
+      assertGuardedCurrent();
       if (busy) throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
-      assertPasteDraftsClear();
-      assertPasteCurrent();
+      assertGuardedDraftsClear();
+      assertGuardedCurrent();
       // Authority is a callback too: it can start a draft without a revision.
       // This final check reads only Session-private state before History writes.
-      assertPasteDraftsClear();
+      assertGuardedDraftsClear();
     };
-    assertPasteCurrent();
+    assertGuardedCurrent();
     const artworkMove =
       type === 'translate-artworks' ||
       (type === 'begin-gesture' && payload.target?.kind === 'artwork-translate') ||
@@ -8717,17 +8886,17 @@ export class CommandSession {
       payload,
       commandBase,
     );
-    assertPasteReady();
+    assertGuardedReady();
     assertVariableDocumentReady(candidate, resolveFonts(candidate, this.#fonts()));
-    assertPasteReady();
+    assertGuardedReady();
     assertNoAccidentalCurvePointRebind(this.#history.doc, candidate, this.#nodeClipboard);
     assertArtworkReferenceTransition(this.#history.doc, candidate, this.#fonts());
-    assertPasteReady();
+    assertGuardedReady();
     assertArtworkMoveCurrent();
     const revision = this.#history.revision;
     if (!sameDocument(this.#history.doc, candidate)) {
       this.#beforeCandidateCommit?.(this.#history.doc, candidate);
-      assertPasteReady();
+      assertGuardedReady();
       assertArtworkMoveCurrent();
       if (this.#history.retainHistory) {
         this.#history.apply(() => {
@@ -8749,7 +8918,36 @@ export class CommandSession {
     if (committingDraft) this.#textDrafts.delete(payload.draftId);
     return { ...this.state, ...result, changed: revision !== this.#history.revision };
   }
-  #commandCandidate(type, payload, before, deferVariable = false) {
+  #commandCandidate(type, payload, before, deferVariable = false, preparedFonts = null) {
+    if (
+      [
+        'create-layer-folder',
+        'rename-layer-folder',
+        'add-layers-to-folder',
+        'move-layers-to-folder',
+        'remove-layers-from-folder',
+        'dissolve-layer-folder',
+      ].includes(type)
+    ) {
+      const candidate = cloneDocument(before);
+      const result =
+        type === 'create-layer-folder'
+          ? createLayerFolder(candidate, {
+              ...payload,
+              folderId: payload.folderId ?? uid('folder'),
+            })
+          : type === 'rename-layer-folder'
+            ? renameLayerFolder(candidate, payload)
+            : type === 'add-layers-to-folder'
+              ? addLayersToFolder(candidate, payload)
+              : type === 'move-layers-to-folder'
+                ? moveLayersToFolder(candidate, payload)
+                : type === 'remove-layers-from-folder'
+                  ? removeLayersFromFolder(candidate, payload)
+                  : dissolveLayerFolder(candidate, payload);
+      validate(candidate);
+      return { candidate, result };
+    }
     if (colorSlotCommands.has(type)) {
       const candidate = cloneDocument(before);
       const result = applyColorSlotCommand(candidate, type, payload, () => uid('color'));
@@ -9375,6 +9573,7 @@ export class CommandSession {
         'reorder-layer',
         'duplicate-artworks',
         'duplicate-layer',
+        'paste-layer-snapshot',
         'adopt-image',
         'translate-artworks',
         'align-artworks',
@@ -9424,6 +9623,14 @@ export class CommandSession {
       } else if (type === 'duplicate-layer') {
         const fonts = resolveFonts(candidate, this.#fonts());
         result = duplicateLayerGeneric(candidate, payload.layerId, { fonts });
+      } else if (type === 'paste-layer-snapshot') {
+        const captured = this.#resolveLayerClipboardSnapshot(payload.token),
+          fonts = resolveFonts(candidate, { ...this.#fonts(), ...preparedFonts });
+        result = duplicateLayerGeneric(candidate, captured.layerId, {
+          fonts,
+          snapshot: captured.snapshot,
+          snapshotSchemaVersion: captured.schemaVersion,
+        });
       } else if (
         [
           'translate-artworks',
