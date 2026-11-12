@@ -5,19 +5,6 @@ function assertArtworkDocument(doc) {
     throw Error('Invalid artwork document');
 }
 
-function assertNoSurvivingCompositionConsumers(doc, deletingIds) {
-  for (const consumer of doc.layers) {
-    if (deletingIds.has(consumer.id)) continue;
-    for (const node of consumer.nodes) {
-      const targetId = node.compositionReference?.compositionId;
-      if (!['Composition Reference', 'SVG'].includes(node.type) || !deletingIds.has(targetId))
-        continue;
-      const target = doc.layers.find((layer) => layer.id === targetId);
-      throw Error(`Cannot delete "${target.name}": used by "${consumer.name}"`);
-    }
-  }
-}
-
 function removeValidatedArtworkLayer(doc, layerId) {
   const target = doc.layers.find((layer) => layer.id === layerId),
     index = doc.layers.indexOf(target),
@@ -39,7 +26,6 @@ export function removeArtworkLayer(doc, layerId) {
   if (matches.length !== 1) throw Error('Layer is unavailable; select it again');
   const target = matches[0];
   if (target.locked) throw Error('Composition is locked');
-  assertNoSurvivingCompositionConsumers(doc, new Set([layerId]));
   return removeValidatedArtworkLayer(doc, layerId);
 }
 
@@ -55,7 +41,6 @@ export function removeArtworkLayers(doc, layerIds) {
       throw Error('Layer is unavailable; select it again');
     if (matches[0].locked) throw Error('Composition is locked');
   }
-  assertNoSurvivingCompositionConsumers(doc, new Set(layerIds));
   const ids = doc.layers.filter((layer) => layerIds.includes(layer.id)).map((layer) => layer.id);
   let result;
   for (const id of ids) result = removeValidatedArtworkLayer(doc, id);
