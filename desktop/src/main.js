@@ -8819,6 +8819,10 @@ function pickKeyerInputColor(nodeId) {
 function deleteArtwork(layerId) {
   // Reject before taking a history snapshot or touching any detached draft.
   if (deletionBusy()) return;
+  if (variableAction) {
+    notify('Finish or cancel variable font preparation before deleting a layer', true);
+    return;
+  }
   try {
     const target = history.doc.layers.find((layer) => layer.id === layerId);
     if (!target) throw Error('Layer is unavailable; select it again');

@@ -5,7 +5,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Worker as NodeWorker } from 'node:worker_threads';
 import { Window } from 'happy-dom';
-import { document as newDocument, node, serialize, createCharacterPositions } from '../src/core.js';
+import {
+  document as newDocument,
+  node,
+  layer,
+  serialize,
+  createCharacterPositions,
+} from '../src/core.js';
 import { parseFont, makeFontAsset } from '../src/fonts.js';
 const buffer = async (path) => {
   const b = await fs.readFile(new URL(path, import.meta.url));
@@ -98,11 +104,13 @@ window.installedPreparationTest = {
   await new Promise((r) => setTimeout(r, 50));
   const doc = newDocument(),
     text = node('Text'),
-    out = node('Output');
+    out = node('Output'),
+    other = layer('Other layer');
   text.text = 'AV';
   out.params.path.source = text.id;
   doc.layers[0].nodes = [text, out];
   doc.layers[0].output = out.id;
+  doc.layers.push(other);
   win.nect.load(serialize(doc));
   openDOMPanel(document, 'inspector');
   const snapshot = () => JSON.stringify(win.nect.document);
@@ -164,6 +172,17 @@ window.installedPreparationTest = {
   axis.dispatchEvent(new win.Event('input', { bubbles: true }));
   await wait(() => !!win.finishInstalledPreparation, 'held axis preview');
   await blockedFileActions();
+  const beforeDelete = snapshot(),
+    beforeDeleteRevision = win.nect.projectRevision;
+  document.querySelector(`[data-delete-layer="${other.id}"]`).click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    snapshot() === beforeDelete,
+    true,
+    'single-row Delete must not discard a pending axis edit',
+  );
+  assert.equal(win.nect.projectRevision, beforeDeleteRevision);
+  assert.equal(preparation.busy(), true);
   finishOpen({ binding: { token: 'late-open' }, contents: serialize(doc) });
   await wait(() => released.includes('late-open'), 'reject and release stale open');
   assert.equal(snapshot(), imported, 'a late Open cannot replace the pending edit');
@@ -172,6 +191,13 @@ window.installedPreparationTest = {
   await wait(() => status().includes('axis preview'), 'held preview completes');
   document.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   assert.equal(snapshot(), imported);
+  document.querySelector(`[data-delete-layer="${other.id}"]`).click();
+  await wait(() => !win.nect.document.layers.some((item) => item.id === other.id), 'idle delete');
+  document.querySelector('[data-action="undo"]').click();
+  await wait(() => snapshot() === imported, 'idle delete is one Undo');
+  await win.nect.load(imported);
+  await save();
+  openDOMPanel(document, 'inspector');
   delete win.finishInstalledPreparation;
   preparation.delayNext();
   axis = document.querySelector('.inspector-body [data-variable-axis="wght"]');
