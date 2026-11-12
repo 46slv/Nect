@@ -156,7 +156,7 @@ import {
 import { validateInstancePath } from './instance-points-geometry.js';
 import { polarSettings } from './polar-transform.js';
 import { dashIntervals } from './dash-intervals.js';
-import { dashPathGeometry, setPathStartGeometry } from './path-edit-geometry.js';
+import { dashPathGeometry } from './path-edit-geometry.js';
 import {
   repeatGeometry,
   repeaterSettings,
@@ -556,10 +556,6 @@ const legacyDefinitions = {
     dashLength: p('Scalar', 12),
     gapLength: p('Scalar', 6),
     offset: p('Scalar', 0),
-  },
-  'Set Path Start': {
-    path: p('Path', null),
-    start: p('Scalar', 0),
   },
   'Resample Path': {
     path: p('Path', null),
@@ -1009,7 +1005,6 @@ const bypassInputs = Object.freeze({
   Boolean: 'a',
   Transform: 'path',
   'Resample Path': 'path',
-  'Set Path Start': 'path',
   'Dash Path': 'path',
   'Path Remap': 'path',
   'Closed Path Offset': 'path',
@@ -3341,18 +3336,6 @@ export function evaluate(
           n.id,
           null,
           'Canvas character editing is unavailable through Dash Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Set Path Start') {
-        const source = read('path'),
-          start = read('start');
-        result = setPathStartGeometry(source, { start, prefix: fingerprint(n.id) });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Set Path Start; edit the source Text',
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
