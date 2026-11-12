@@ -88,7 +88,7 @@ const attributes = new Set([
 const localReference = /^url\(#([A-Za-z_][A-Za-z0-9_.-]*)\)$/;
 const solidColor =
   /^(?:#(?:[A-Fa-f0-9]{3}|[A-Fa-f0-9]{4}|[A-Fa-f0-9]{6}|[A-Fa-f0-9]{8})|white|black|transparent)$/;
-const numberSource = '[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?';
+const numberSource = '[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:[eE][+-]?\\d+)?';
 const numberPattern = new RegExp(`^${numberSource}$`);
 const trianglePattern = new RegExp(
   `^M(${numberSource}) (${numberSource})L(${numberSource}) (${numberSource})L(${numberSource}) (${numberSource})Z$`,
@@ -128,11 +128,7 @@ function validateAngularPattern(element) {
     values[3] > 2e9
   )
     throw Error('Invalid angular gradient pattern bounds');
-  const viewBox = element.getAttribute('viewBox').trim().split(/\s+/);
-  if (
-    viewBox.length !== 4 ||
-    !viewBox.every((value, index) => numberPattern.test(value) && Number(value) === values[index])
-  )
+  if (element.getAttribute('viewBox') !== raw.join(' '))
     throw Error('Invalid angular gradient pattern viewBox');
   const groups = [...element.children];
   if (groups.length !== 1 || groups[0].localName !== 'g')
@@ -151,7 +147,10 @@ function validateAngularPattern(element) {
       path.localName !== 'path' ||
       path.attributes.length !== 3 ||
       !triangle ||
-      !triangle.slice(1).every((value) => Number.isFinite(Number(value))) ||
+      !triangle.slice(1).every((value) => {
+        const coordinate = Number(value);
+        return Number.isFinite(coordinate) && Math.abs(coordinate) <= 2e9;
+      }) ||
       !/^#[A-Fa-f0-9]{6}$/.test(path.getAttribute('fill') || '') ||
       opacity === null ||
       !numberPattern.test(opacity) ||

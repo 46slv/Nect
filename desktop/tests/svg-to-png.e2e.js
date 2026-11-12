@@ -217,6 +217,10 @@ try {
     /fill="#[0-9a-f]{6}"/,
     'fill="url(#nect-gradient-0)"',
   );
+  const oversizedSector = angularSource.replace(
+    /(<path d="M[^"]*?L)([-+0-9.eE]+)/,
+    (_, prefix) => `${prefix}1e100`,
+  );
   for (const [name, svg] of [
     [
       'pattern-external-href',
@@ -234,12 +238,17 @@ try {
       'pattern-viewBox',
       angularSource.replace('viewBox="280 70 400 400"', 'viewBox="280 70 399 400"'),
     ],
+    [
+      'pattern-non-svg-space',
+      angularSource.replace('viewBox="280 70 400 400"', 'viewBox="280\u00a070 400 400"'),
+    ],
     ['pattern-missing-id', angularSource.replace('id="nect-gradient-0"', '')],
     [
       'pattern-duplicate-id',
       angularSource.replace('</defs><path', '</defs><path id="nect-gradient-0"'),
     ],
     ['pattern-recursion', recursivePattern],
+    ['pattern-oversized-sector', oversizedSector],
     [
       'pattern-stroke',
       angularSource.replace(
@@ -256,6 +265,7 @@ try {
       ),
     ],
     ['pattern-bad-sector-alpha', angularSource.replace('fill-opacity="1"', 'fill-opacity="2"')],
+    ['pattern-bad-alpha-syntax', angularSource.replace('fill-opacity="1"', 'fill-opacity="0."')],
     [
       'pattern-outside-defs',
       angularSource
