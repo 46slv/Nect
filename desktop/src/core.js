@@ -162,7 +162,6 @@ import { polarSettings, polarTransformGeometry } from './polar-transform.js';
 import { waveGeometry } from './wave-geometry.js';
 import { puckerBloatGeometry } from './pucker-bloat-geometry.js';
 import { dashIntervals } from './dash-intervals.js';
-import { simplifyGeometry } from './simplify-geometry.js';
 import { expandStrokeGeometry } from './expand-stroke-geometry.js';
 import { smoothGeometry } from './smooth-geometry.js';
 import { roughenGeometry } from './roughen-geometry.js';
@@ -580,7 +579,6 @@ const legacyDefinitions = {
     gapLength: p('Scalar', 6),
     offset: p('Scalar', 0),
   },
-  'Simplify Path': { path: p('Path', null), tolerance: p('Scalar', 1) },
   'Expand Stroke': {
     path: p('PaintedPath', null),
     startWidthMultiplier: p('Scalar', 1),
@@ -1107,7 +1105,6 @@ const bypassInputs = Object.freeze({
   'Polar Transform': 'path',
   'Auto Handles': 'path',
   'Wave Points': 'path',
-  'Simplify Path': 'path',
   'Dash Path': 'path',
   'Vector Transform': 'vector',
   'Path Remap': 'path',
@@ -4040,20 +4037,6 @@ export function evaluate(
           n.id,
           null,
           'Canvas character editing is unavailable through Dash Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Simplify Path') {
-        const source = read('path');
-        result = simplifyGeometry(source, {
-          tolerance: read('tolerance'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Simplify Path; edit the source Text',
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));

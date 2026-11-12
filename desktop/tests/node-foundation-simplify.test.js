@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import {
   activeParameters,
   blankDocument,
@@ -15,10 +17,13 @@ import {
   serialize,
 } from '../src/core.js';
 import { createNodeRegistry, parseNodeDeclaration } from '../src/node-foundation.js';
+import { builtinManifest } from '../src/builtin-node-manifest.js';
+import { builtinNodeRegistry } from '../src/builtin-node-registry.js';
 import { nectNodeHost } from '../src/nect-node-host.js';
 import { nodeCatalog } from '../src/node-catalog.js';
 import { simplifyPathDeclaration } from '../src/simplify-path-declaration.js';
 import { evaluateSimplifyPath } from '../src/simplify-path-binding.js';
+import { parseFont } from '../src/fonts.js';
 import {
   activeCompositionDocument,
   deserializeCompositionProject,
@@ -28,6 +33,15 @@ import {
 import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
 
 const bindings = () => new Map([['builtin.simplify-path.v1', { evaluate: evaluateSimplifyPath }]]);
+
+test('production Simplify Path resolves through the trusted registered binding', () => {
+  const registered = builtinNodeRegistry.get('Simplify Path'),
+    manifest = builtinManifest.find((row) => row.declaration.typeId === 'Simplify Path');
+  assert.ok(registered && manifest);
+  assert.equal(manifest.binding.evaluate, evaluateSimplifyPath);
+  assert.deepEqual(registered.declaration, simplifyPathDeclaration);
+  assert.ok(Object.isFrozen(registered.declaration));
+});
 
 function scene(rawPath) {
   const doc = blankDocument(),
@@ -75,14 +89,35 @@ test('Simplify factory and catalog preserve current defaults and order', () => {
   assert.deepEqual(metadata, simplifyPathDeclaration.catalog);
 });
 
-test('Simplify trusted binding matches the existing evaluator for paths and tolerance boundaries', () => {
-  for (const rawPath of ['M0 0 L25 1 L50 0 L75 -1 L100 0', 'M0 0 L50 0 L100 0 L100 100 L0 100 Z']) {
-    for (const tolerance of [0, 1, 10, 100000]) {
+test('Simplify paths and tolerance boundaries retain the pre-migration geometry and identities', () => {
+  // Frozen from the production evaluator before this migration, including point IDs and fingerprint.
+  const cases = [
+    [
+      'M0 0 L25 1 L50 0 L75 -1 L100 0',
+      [
+        '40e0ff11cf069f4651ce6d96975932df9a568a98bd4e15b30c5ffc1c00f37791',
+        '45e248c1757c067177383b7039bd6c4d1da5034e7836e38ebe69b2eddd8732a3',
+        '45e248c1757c067177383b7039bd6c4d1da5034e7836e38ebe69b2eddd8732a3',
+        '45e248c1757c067177383b7039bd6c4d1da5034e7836e38ebe69b2eddd8732a3',
+      ],
+    ],
+    [
+      'M0 0 L50 0 L100 0 L100 100 L0 100 Z',
+      [
+        '70a7819c019dd541ba40c0bd33a6f5c3248d2ccd8e63727f4fba7eb32ce9c13a',
+        'ea247ed5cec4424082693307836dda5b8e0f2c66904ddfdc4c6a65032e693254',
+        'ea247ed5cec4424082693307836dda5b8e0f2c66904ddfdc4c6a65032e693254',
+        '34df8fa3787ebd18c4933d97514705501ec9a3081b27bf5b543bf02d001eb8ad',
+      ],
+    ],
+  ];
+  const hash = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  for (const [rawPath, expected] of cases) {
+    for (const [index, tolerance] of [0, 1, 10, 100000].entries()) {
       const { layer, source, simplify } = scene(rawPath);
       simplify.params.tolerance.value = tolerance;
       const engine = evaluate(layer),
         input = engine.run(source.id),
-        expected = engine.run(simplify.id),
         reads = [];
       const actual = evaluateSimplifyPath(
         'subtract',
@@ -93,7 +128,8 @@ test('Simplify trusted binding matches the existing evaluator for paths and tole
         { nodeId: simplify.id },
       );
       assert.deepEqual(reads, ['path', 'tolerance']);
-      assert.deepEqual(actual, expected);
+      assert.equal(hash(actual), expected[index]);
+      assert.equal(hash(engine.run(simplify.id)), expected[index]);
     }
   }
   assert.throws(
@@ -151,4 +187,32 @@ test('Simplify Session retains failed-edit atomicity, bypass, history and curren
     evaluate(restored.layers[0]).run(source.id),
   );
   assert.doesNotMatch(saved, /implementationId|capabilities|legacyDefault/);
+});
+
+test('Simplify retains actual Text character routing, point IDs and fingerprints across reload', () => {
+  const bytes = fs.readFileSync(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url));
+  const fonts = {
+    default: parseFont(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)),
+  };
+  const doc = blankDocument(),
+    layer = doc.layers[0],
+    text = node('Text'),
+    simplify = node('Simplify Path');
+  text.id = 'text-source';
+  text.text = 'I';
+  simplify.id = 'simplify-text';
+  layer.nodes.push(text, simplify);
+  connect(layer, text.id, simplify.id, 'path');
+  const sourceBefore = JSON.stringify(text),
+    result = evaluate(layer, fonts).run(simplify.id);
+  assert.equal(result.characterOccurrences.length, 1);
+  assert.equal(result.characterOccurrences[0].source, text.id);
+  assert.equal(result.characterOccurrences[0].route, `${text.id}/${simplify.id}`);
+  assert.match(result.characterOccurrences[0].reason, /unavailable through Simplify Path/);
+  assert.ok(result.fingerprint);
+  assert.ok(result.contours.flatMap((contour) => contour.points).every((point) => point.id));
+  assert.equal(JSON.stringify(text), sourceBefore);
+  assert.deepEqual(evaluate(layer, fonts).run(simplify.id), result);
+  const reopened = deserialize(serialize(doc));
+  assert.deepEqual(evaluate(reopened.layers[0], fonts).run(simplify.id), result);
 });
