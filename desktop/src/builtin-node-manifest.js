@@ -67,6 +67,8 @@ import { rectangleDeclaration } from './rectangle-node-declaration.js';
 import { evaluateRectangle } from './rectangle-node-binding.js';
 import { closedOffsetDeclaration } from './closed-offset-node-declaration.js';
 import { evaluateClosedOffset } from './closed-offset-node-binding.js';
+import { subdividePathDeclaration } from './subdivide-path-declaration.js';
+import { evaluateSubdividePath } from './subdivide-path-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -166,5 +168,11 @@ export const builtinManifest = Object.freeze([
     { evaluate: evaluateClosedOffset },
     'Convert to Path',
     'Expand Stroke',
+  ),
+  entry(
+    subdividePathDeclaration,
+    { evaluate: evaluateSubdividePath },
+    'Pucker & Bloat',
+    'Reverse Path',
   ),
 ]);
