@@ -104,9 +104,12 @@ paint are measured in the renderer's per-group fill-then-stroke order, including
 fully opaque 2D Repeater copies. A group's contours stay together so holes keep
 their original fill rule. Each isolated angular pass reuses a pattern built from
 the whole evaluated path, matching the production pattern bounds and radius.
-Partial Repeater opacity or alternate paint, focal/elliptical/extra-stop paints,
-gradient strokes, authored masks, filters and blend modes remain unsupported;
-the whole scene becomes unavailable rather than partly measured.
+Partial Repeater opacity is measured only when every paint in the scene is a
+solid fill and there are no strokes. Each group keeps its original SVG opacity,
+including zero and fractional copies, and occludes the backdrop once. Partial
+opacity with a stroke or gradient, alternate paint, focal/elliptical/extra-stop
+paints, gradient strokes, authored masks, filters and blend modes remain
+unsupported; the whole scene becomes unavailable rather than partly measured.
 
 The longest sample edge is at most 256 pixels;
 aggregate alpha storage is capped at 4,194,304 samples, counting the full angular
