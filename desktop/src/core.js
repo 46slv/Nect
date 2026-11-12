@@ -241,9 +241,7 @@ export {
   layoutGridLines,
   setLayoutGrid,
 } from './guides.js';
-// The full build initializes PaperScript with new Function, which native CSP blocks.
-// Geometry needs only the core build; keep script-src free of unsafe-eval.
-import paper from 'paper/dist/paper-core.js';
+import { fromPaper, getPaperScope } from './paper-runtime.js';
 import {
   validateFontAssets,
   resolveFonts,
@@ -295,8 +293,7 @@ export { radialSettings } from './radial-geometry.js';
 export * from './character-identity.js';
 export * from './character-geometry.js';
 export * from './transform-handles.js';
-const scope = new paper.PaperScope();
-scope.setup(new scope.Size(1200, 800));
+const scope = getPaperScope();
 export const clone = (x) => structuredClone(x);
 // Font assets are immutable and shared across snapshots; copying large base64 strings
 // for every keystroke would turn a 20 MB font into gigabytes of undo history.
@@ -525,7 +522,6 @@ const legacyDefinitions = {
     softness: p('Scalar', 0.05),
   },
   Mask: { path: p('PaintedPath', null), mask: p('Path', null), invert: p('Boolean', false) },
-  Circle: { center: p('Vector2', [350, 250]), radius: p('Scalar', 120) },
   Ellipse: { center: p('Vector2', [350, 250]), size: p('Vector2', [240, 160]) },
   Rectangle: { center: p('Vector2', [460, 250]), size: p('Vector2', [180, 220]) },
   Curve: { closed: p('Boolean', true) },
@@ -2540,21 +2536,6 @@ function booleanOperand(path) {
     result = union;
   }
   return result || toPaper({ contours: [] });
-}
-function fromPaper(item, prefix) {
-  let children = item.children || [item];
-  return {
-    contours: children.map((c, ci) => ({
-      id: `${prefix}:c${ci}`,
-      closed: c.closed,
-      points: c.segments.map((s, si) => ({
-        id: `${prefix}:c${ci}:p${si}`,
-        position: [s.point.x, s.point.y],
-        handleA: [s.handleIn.x, s.handleIn.y],
-        handleB: [s.handleOut.x, s.handleOut.y],
-      })),
-    })),
-  };
 }
 
 // Paper's getTimeAt() uses an absolute 1e-12 length tolerance. Normalize very
