@@ -986,3 +986,201 @@ for (const result of [null, undefined, false])
     assert.equal(s.notices[0][1], true);
     assert.deepEqual(s.captured(), before);
   });
+
+function savedColorFixture() {
+  const doc = retainedRecipeFixture();
+  Object.assign(
+    doc.colorSlots.find((slot) => slot.id === 'other'),
+    {
+      name: 'Same name',
+      value: { hex: '#DeAd09', alpha: 0 },
+    },
+  );
+  Object.assign(
+    doc.colorSlots.find((slot) => slot.id === 'dormant'),
+    {
+      name: 'Same name',
+      value: { hex: '#00Ff00', alpha: 0.5 },
+    },
+  );
+  return doc;
+}
+
+function copySaved(s, id) {
+  const select = s.query('[data-key-color-copy-saved]');
+  select.value = id;
+  s.fire(select, 'change');
+}
+
+for (const kind of ['document', 'project'])
+  test(`${kind}: saved color copies by ID into the detached C1 draft and Apply is one Undo`, (t) => {
+    const s = setup(t, kind, savedColorFixture());
+    s.send('set-document-settings', { key: 'width', value: 1001 });
+    s.send('undo');
+    const before = s.captured();
+    assert.equal(before.future.length, 1);
+    s.open();
+    const select = s.query('[data-key-color-copy-saved]');
+    const options = [...select.options];
+    assert.deepEqual(
+      options.map((option) => option.value),
+      ['', 'dormant', 'other'],
+    );
+    assert.notEqual(options[1].textContent, options[2].textContent, 'duplicate names are distinct');
+    assert.match(options[1].textContent, /^…mant · Same name/);
+    assert.match(options[2].textContent, /^…ther · Same name/);
+    s.click('[data-key-color-preview]');
+    assert.equal(s.query('[data-key-color-apply]').disabled, false);
+    copySaved(s, 'dormant');
+    assert.equal(s.query('[data-key-color-apply]').disabled, true);
+    assert.equal(s.query('[data-key-color-comparison]').textContent, '');
+    assert.equal(s.query('[data-key-color-input="hex"]').value, '#00Ff00');
+    assert.equal(s.query('[data-key-color-input="alpha"]').value, '0.5');
+    assert.equal(s.query('[data-key-color-input="hsl-h"]').value, '120');
+    assert.equal(s.query('[data-key-color-input="hsl-s"]').value, '100');
+    assert.equal(s.query('[data-key-color-input="hsl-l"]').value, '50');
+    copySaved(s, 'other');
+    assert.equal(select.value, '', 'the same source may be copied again');
+    assert.equal(s.query('[data-key-color-input="hex"]').value, '#DeAd09');
+    assert.equal(s.query('[data-key-color-input="alpha"]').value, '0');
+    assert.deepEqual(s.captured(), before);
+    s.click('[data-key-color-cancel]');
+    assert.deepEqual(s.captured(), before, 'Cancel preserves the pending Redo');
+    assert.deepEqual(s.calls, []);
+
+    s.open();
+    copySaved(s, 'other');
+    s.click('[data-key-color-preview]');
+    assert.equal(
+      s.query('[data-key-color-compare="key"] [data-key-color-after] code').textContent,
+      '#DeAd09',
+    );
+    s.query('[data-key-color-input="hex"]').value = '#DeAd08'; // No input event.
+    s.click('[data-key-color-apply]');
+    assert.equal(s.query('[data-key-color-apply]').disabled, true);
+    assert.deepEqual(s.captured(), before);
+    assert.deepEqual(s.calls, []);
+    copySaved(s, 'other');
+    s.click('[data-key-color-preview]');
+    s.click('[data-key-color-apply]');
+    const after = s.captured();
+    assert.deepEqual(after.doc.colorSlots.find((slot) => slot.id === 'key').value, {
+      hex: '#DeAd09',
+      alpha: 0,
+    });
+    assert.deepEqual(
+      after.doc.colorSlots.find((slot) => slot.id === 'other'),
+      before.doc.colorSlots.find((slot) => slot.id === 'other'),
+    );
+    assert.equal(after.past.length, before.past.length + 1);
+    const reopened =
+      kind === 'project'
+        ? createCompositionSessionOwner(
+            deserializeCompositionProject(serializeCompositionProject(s.session.projectSnapshot())),
+          ).snapshot()
+        : new CommandSession(deserialize(serialize(s.snapshot()))).snapshot();
+    assert.deepEqual(reopened.colorSlots.find((slot) => slot.id === 'other').value, {
+      hex: '#DeAd09',
+      alpha: 0,
+    });
+    s.send('undo');
+    assert.deepEqual(s.snapshot(), before.doc);
+    s.send('redo');
+    assert.deepEqual(s.snapshot(), after.doc);
+    s.send('set-color-slot', { slotId: 'other', value: { hex: '#112233', alpha: 1 } });
+    assert.deepEqual(s.snapshot().colorSlots.find((slot) => slot.id === 'key').value, {
+      hex: '#DeAd09',
+      alpha: 0,
+    });
+  });
+
+test('saved color selection rejects active targets and active IME or scrub without changing the draft', (t) => {
+  const s = setup(t, 'document', savedColorFixture()),
+    before = s.captured();
+  s.open();
+  const select = s.query('[data-key-color-copy-saved]');
+  for (const id of ['key', 'derived']) {
+    const option = s.document.createElement('option');
+    option.value = id;
+    select.append(option); // Even a forged choice must not become a source.
+    copySaved(s, id);
+    assert.equal(s.query('[data-key-color-input="hex"]').value, '#aBcD09');
+    assert.match(s.query('[data-key-color-status]').textContent, /unavailable/);
+  }
+  const hex = s.query('[data-key-color-input="hex"]');
+  s.fire(hex, 'compositionstart');
+  copySaved(s, 'other');
+  assert.equal(hex.value, '#aBcD09');
+  assert.match(s.query('[data-key-color-status]').textContent, /Finish the active input/);
+  s.fire(hex, 'compositionend');
+  const hue = s.query('[data-key-color-hue]');
+  hue.dispatchEvent(
+    new s.win.PointerEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+      pointerId: 9,
+      isPrimary: true,
+    }),
+  );
+  copySaved(s, 'other');
+  assert.equal(hex.value, '#aBcD09');
+  assert.match(s.query('[data-key-color-status]').textContent, /Finish the active input/);
+  s.document.dispatchEvent(new s.win.PointerEvent('pointerup', { bubbles: true, pointerId: 9 }));
+  const delta = s.query('[data-key-color-input="deltaL"]');
+  delta.dispatchEvent(
+    new s.win.PointerEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+      pointerId: 10,
+      isPrimary: true,
+    }),
+  );
+  select.value = 'other';
+  s.fire(select, 'input');
+  s.fire(select, 'change');
+  assert.equal(s.query('[data-key-color-input="hex"]').value, '#aBcD09');
+  assert.match(s.query('[data-key-color-status]').textContent, /Finish the active input/);
+  s.document.dispatchEvent(new s.win.PointerEvent('pointerup', { bubbles: true, pointerId: 10 }));
+  copySaved(s, 'other');
+  assert.equal(s.query('[data-key-color-input="hex"]').value, '#DeAd09');
+  assert.deepEqual(s.captured(), before);
+});
+
+for (const kind of ['edit', 'replace-owner', 'composition'])
+  test(`saved color selection rejects stale ${kind} without changing C1`, (t) => {
+    const s = setup(t, 'project', savedColorFixture());
+    const first = s.session.activeCompositionId,
+      other = s.session.createComposition();
+    s.session.switchComposition(first);
+    s.open();
+    s.click('[data-key-color-preview]');
+    if (kind === 'edit') s.send('set-document-settings', { key: 'width', value: 1001 });
+    if (kind === 'replace-owner')
+      s.session = createCompositionSessionOwner(s.session.projectSnapshot());
+    if (kind === 'composition') s.session.switchComposition(other);
+    const before = s.captured();
+    copySaved(s, 'other');
+    assert.equal(s.query('[data-key-color-input="hex"]').value, '#aBcD09');
+    assert.equal(s.query('[data-key-color-apply]').disabled, true);
+    assert.match(s.query('[data-key-color-status]').textContent, /stale/);
+    assert.deepEqual(s.captured(), before);
+    assert.deepEqual(s.calls, []);
+  });
+
+test('research can copy a saved color without choosing or creating a candidate', (t) => {
+  const doc = blankDocument();
+  doc.schemaVersion = 58;
+  doc.colorSlots = [{ id: 'source', name: 'Source', value: { hex: '#DeAd09', alpha: 0 } }];
+  const s = setup(t, 'document', doc),
+    before = s.captured();
+  s.open();
+  copySaved(s, 'source');
+  assert.equal(s.query('[data-research-hex]').value, '#DeAd09');
+  assert.equal(s.query('[data-research-alpha]').value, '0');
+  assert.equal(s.query('[data-research-plan]').value, '');
+  assert.equal(s.query('[data-research-preview]').disabled, true);
+  assert.equal(s.query('[data-research-create]').disabled, true);
+  s.click('[data-key-color-cancel]');
+  assert.deepEqual(s.captured(), before);
+  assert.deepEqual(s.calls, []);
+});

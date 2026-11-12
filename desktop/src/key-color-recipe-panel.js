@@ -861,6 +861,97 @@ export function createKeyColorRecipePanel({
     updateUnlink();
   }
 
+  function savedColorCandidates() {
+    const slots = getDocument().colorSlots;
+    if (!Array.isArray(slots)) return [];
+    const targets = new Set(
+      base ? base.resolved.filter((row) => row.active).map((row) => row.id) : [],
+    );
+    const counts = new Map();
+    for (const slot of slots) counts.set(slot.id, (counts.get(slot.id) || 0) + 1);
+    return slots.filter(
+      (slot) =>
+        typeof slot.id === 'string' &&
+        slot.id &&
+        counts.get(slot.id) === 1 &&
+        !targets.has(slot.id) &&
+        typeof slot.name === 'string' &&
+        /^#[0-9a-f]{6}$/i.test(slot.value?.hex) &&
+        typeof slot.value?.alpha === 'number' &&
+        Number.isFinite(slot.value.alpha) &&
+        slot.value.alpha >= 0 &&
+        slot.value.alpha <= 1,
+    );
+  }
+
+  function savedColorControl() {
+    const slots = savedColorCandidates();
+    if (!slots.length) return '';
+    const labels = displayColorLabels(
+      slots.map(({ id, name }) => ({ id, label: name || id })),
+      ['Choose a color'],
+    );
+    const options = slots
+      .map(({ id, name, value }) => {
+        const original = name || id;
+        const label = labels.get(id);
+        const prefix = `${original} · `;
+        const visible = label.startsWith(prefix)
+          ? `${label.slice(prefix.length)} · ${original}`
+          : label;
+        return `<option value="${esc(id)}">${esc(visible)} · ${esc(value.hex)} · α ${value.alpha}</option>`;
+      })
+      .join('');
+    return `<label style="display:flex;min-width:0;max-width:100%">Copy saved color <select data-key-color-copy-saved style="width:240px;min-width:0;max-width:100%"><option value="">Choose a color</option>${options}</select></label>`;
+  }
+
+  function mountC1(value) {
+    const compositionId = artworkComposition;
+    c1Draft = createKeyColorC1Draft(dialog.querySelector('[data-key-color-c1]'), value, {
+      allowEmpty: research,
+      onActivityChange: updateUnlink,
+      blocked: () => composing.size > 0 || !!deltaScrub?.active,
+      valid: () => {
+        try {
+          current();
+          return owner.activeCompositionId === compositionId && !composing.size;
+        } catch {
+          return false;
+        }
+      },
+    });
+    if (research) {
+      dialog.querySelector('[data-key-color-input="hex"]').dataset.researchHex = '';
+      dialog.querySelector('[data-key-color-input="alpha"]').dataset.researchAlpha = '';
+    }
+  }
+
+  function copySavedColor(select) {
+    const id = select.value;
+    select.value = ''; // Allow copying the same source again after editing the draft.
+    if (!id) return;
+    try {
+      current();
+      if (owner.activeCompositionId !== artworkComposition) {
+        stale = true;
+        current();
+      }
+      if (composing.size || c1Draft?.active || deltaScrub?.active)
+        throw Error('Finish the active input before copying a saved color.');
+      const source = savedColorCandidates().find((slot) => slot.id === id);
+      if (!source) throw Error('This saved color is unavailable. Cancel and reopen the draft.');
+      const oldHost = dialog.querySelector('[data-key-color-c1]');
+      const newHost = oldHost.cloneNode(false);
+      c1Draft.dispose();
+      oldHost.replaceWith(newHost);
+      mountC1({ hex: source.value.hex, alpha: source.value.alpha });
+      invalidate();
+    } catch (error) {
+      invalidate();
+      status(error.message, true);
+    }
+  }
+
   function retainedControls() {
     const key = base.intent.keyColor;
     const active = new Set(base.intent.preset.slots.map((slot) => slot.id));
@@ -905,7 +996,7 @@ export function createKeyColorRecipePanel({
           settings: base.intent.settings,
         }
       : { preset: base.intent.preset, settings: base.intent.settings };
-    return `${saved}<fieldset><legend>C1 · ${esc(isB ? label(key) : `${key.role} · ${key.id}`)}</legend><div data-key-color-c1></div></fieldset><h3>Active derived intent</h3><p>ΔL and Δr are finite stored offsets, not clamped slider positions. Derived alpha must be 1.</p>${fields}<details><summary>Read-only preset, coefficients and versions</summary><p>Recipe v${base.version} · solver ${esc(base.solverVersion)} · ${esc(base.colorSemanticsVersion)}</p><pre>${esc(JSON.stringify(details, null, 2))}</pre></details><p data-key-color-status role="status" aria-live="polite">Draft only. Preview these inputs before Apply.</p><section class="key-color-comparison" data-key-color-comparison aria-label="Key color preview"></section>`;
+    return `${saved}<fieldset style="min-width:0"><legend>C1 · ${esc(isB ? label(key) : `${key.role} · ${key.id}`)}</legend><div data-key-color-c1></div>${savedColorControl()}</fieldset><h3>Active derived intent</h3><p>ΔL and Δr are finite stored offsets, not clamped slider positions. Derived alpha must be 1.</p>${fields}<details><summary>Read-only preset, coefficients and versions</summary><p>Recipe v${base.version} · solver ${esc(base.solverVersion)} · ${esc(base.colorSemanticsVersion)}</p><pre>${esc(JSON.stringify(details, null, 2))}</pre></details><p data-key-color-status role="status" aria-live="polite">Draft only. Preview these inputs before Apply.</p><section class="key-color-comparison" data-key-color-comparison aria-label="Key color preview"></section>`;
   }
 
   function open(anchor = null) {
@@ -932,7 +1023,7 @@ export function createKeyColorRecipePanel({
     const controls = base
       ? retainedControls()
       : research
-        ? `<p data-key-color-empty>Research candidates. B adds five trial colors without changing existing colors, in one Undo. Coverage and readability are not evaluated; colors may coincide.</p><fieldset><legend>C1</legend><div data-key-color-c1></div></fieldset><label>Research candidate <select data-research-plan><option value="">Choose a candidate</option><option value="research-triadic-offset">A · chromatic comparison</option><option value="research-neutral-start">B · neutral start</option></select></label><label data-research-live-option hidden><input type="checkbox" data-research-live>Link trial colors to C1</label><p data-research-live-warning role="status" aria-live="polite" hidden>Older Nect versions cannot open this project after linking.</p><details><summary>Candidate roles and coefficients</summary><pre data-research-details></pre></details><p data-key-color-status role="status" aria-live="polite">Enter C1 and choose a candidate.</p><section data-research-results aria-label="Research color preview"></section>`
+        ? `<p data-key-color-empty>Research candidates. B adds five trial colors without changing existing colors, in one Undo. Coverage and readability are not evaluated; colors may coincide.</p><fieldset style="min-width:0"><legend>C1</legend><div data-key-color-c1></div>${savedColorControl()}</fieldset><label>Research candidate <select data-research-plan><option value="">Choose a candidate</option><option value="research-triadic-offset">A · chromatic comparison</option><option value="research-neutral-start">B · neutral start</option></select></label><label data-research-live-option hidden><input type="checkbox" data-research-live>Link trial colors to C1</label><p data-research-live-warning role="status" aria-live="polite" hidden>Older Nect versions cannot open this project after linking.</p><details><summary>Candidate roles and coefficients</summary><pre data-research-details></pre></details><p data-key-color-status role="status" aria-live="polite">Enter C1 and choose a candidate.</p><section data-research-results aria-label="Research color preview"></section>`
         : `<p data-key-color-empty>${esc(error || 'The retained recipe is unavailable.')}</p>`;
     const isB =
       base &&
@@ -963,27 +1054,7 @@ export function createKeyColorRecipePanel({
     }
     if (base || research) {
       const compositionId = owner.activeCompositionId;
-      c1Draft = createKeyColorC1Draft(
-        dialog.querySelector('[data-key-color-c1]'),
-        base ? base.intent.keyColor.value : null,
-        {
-          allowEmpty: research,
-          onActivityChange: updateUnlink,
-          blocked: () => composing.size > 0 || !!deltaScrub?.active,
-          valid: () => {
-            try {
-              current();
-              return owner.activeCompositionId === compositionId && !composing.size;
-            } catch {
-              return false;
-            }
-          },
-        },
-      );
-      if (research) {
-        dialog.querySelector('[data-key-color-input="hex"]').dataset.researchHex = '';
-        dialog.querySelector('[data-key-color-input="alpha"]').dataset.researchAlpha = '';
-      }
+      mountC1(base ? base.intent.keyColor.value : null);
       if (base)
         deltaScrub = createKeyColorDeltaScrub(dialog, {
           onActivityChange: updateUnlink,
@@ -1001,8 +1072,15 @@ export function createKeyColorRecipePanel({
     document.body.append(dialog);
     if (base) initialInputKey = inputKey();
     updateUnlink();
+    // A select input must not cancel an in-progress delta scrub before its
+    // change handler can reject the copy.
+    dialog.querySelector('[data-key-color-copy-saved]')?.addEventListener('input', (event) => {
+      event.stopPropagation();
+    });
     const onInput = (event) => {
-      if (event.target.matches?.('[data-pair-foreground], [data-pair-background]'))
+      if (event.target.matches?.('[data-key-color-copy-saved]')) {
+        if (event.type === 'change') copySavedColor(event.target);
+      } else if (event.target.matches?.('[data-pair-foreground], [data-pair-background]'))
         clearPairResult();
       else invalidate();
     };
