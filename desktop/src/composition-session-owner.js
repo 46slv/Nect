@@ -610,6 +610,14 @@ export class CompositionSessionOwner {
     return this.#session.snapshot();
   }
 
+  hasLayer(compositionId, layerId) {
+    return this.#history.doc.compositions.some(
+      (composition) =>
+        composition.id === compositionId &&
+        composition.layers.some((layer) => layer.id === layerId),
+    );
+  }
+
   projectSnapshot() {
     return this.#cloneDocument(this.#history.doc);
   }
