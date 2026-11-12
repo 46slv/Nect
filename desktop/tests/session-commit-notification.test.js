@@ -92,9 +92,12 @@ test('prepared history commits notify once after activation and an observer erro
     prepareDocument: async () => ({}),
     preparedFonts: () => ({}),
     assertFresh: () => {},
-    activate: () => {
+    stageActivation: () => {},
+    assertFreshForPublication: () => {},
+    publishActivation: () => {
       activated = true;
     },
+    discardActivation: () => {},
   };
   const token = await s.prepareCommand({ ...s.state, type: 'undo' }, bridge);
   assert.equal(events.length, 1);
