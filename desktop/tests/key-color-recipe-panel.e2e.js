@@ -236,6 +236,20 @@ try {
   );
   await open();
   assert.match(await page.locator('dialog').textContent(), /Linked trial palette/);
+  const liveSources = await page
+    .locator('[data-key-color-copy-saved] option')
+    .evaluateAll((options) => options.map((option) => option.value));
+  assert.ok(liveSources.includes(legacyId));
+  for (const row of liveDoc.keyColorRecipe.committedSnapshot.resolved.filter((row) => row.active))
+    assert.equal(liveSources.includes(row.id), false, `active ${row.id} is not a source`);
+  await preview();
+  await page.locator('[data-key-color-copy-saved]').selectOption(legacyId);
+  assert.equal(await page.locator('[data-key-color-apply]').isDisabled(), true);
+  assert.equal(
+    await field('hex').inputValue(),
+    afterHarmonyEdit.colorSlots.find((slot) => slot.id === legacyId).value.hex,
+  );
+  assert.deepEqual(await snapshot(), boundLive);
   await field('hex').fill('#e43f74');
   await preview();
   const proposedHex = await page
@@ -723,14 +737,19 @@ try {
     assert.equal(await input.inputValue(), raw, `${channel} cancel restores the value`);
     assert.equal(await field('hex').inputValue(), literal, `${channel} cancel restores HEX`);
   }
-  const hueInput = field('hsl-h'),
-    hueBox = await hueInput.boundingBox(),
-    hueX = hueBox.x + 12,
-    hueY = hueBox.y + hueBox.height / 2;
+  const hueInput = field('hsl-h');
+  let hueX, hueY;
+  const refreshHuePosition = async () => {
+    await hueInput.scrollIntoViewIfNeeded();
+    const box = await hueInput.boundingBox();
+    hueX = box.x + 12;
+    hueY = box.y + box.height / 2;
+  };
   const preciseSibling = '0.12345678901234566';
   await field('hsl-s').fill(preciseSibling);
   await preview();
   assert.equal(await page.locator('[data-key-color-apply]').isEnabled(), true);
+  await refreshHuePosition();
   await page.mouse.move(hueX, hueY);
   await page.mouse.down();
   await page.mouse.move(hueX + 4, hueY);
@@ -745,6 +764,7 @@ try {
     true,
     'no-op keeps Preview',
   );
+  await refreshHuePosition();
   await page.mouse.move(hueX, hueY);
   await page.mouse.down();
   await page.mouse.move(hueX + 24, hueY, { steps: 6 });
@@ -761,8 +781,9 @@ try {
     'cancel restores sibling precision',
   );
   await preview();
-  const thresholdAlpha = field('alpha'),
-    thresholdBox = await thresholdAlpha.boundingBox(),
+  const thresholdAlpha = field('alpha');
+  await thresholdAlpha.scrollIntoViewIfNeeded();
+  const thresholdBox = await thresholdAlpha.boundingBox(),
     thresholdX = thresholdBox.x + 12,
     thresholdY = thresholdBox.y + thresholdBox.height / 2;
   await page.mouse.move(thresholdX, thresholdY);
@@ -776,6 +797,7 @@ try {
   );
   await field('hsl-s').fill('50');
   const originHex = await field('hex').inputValue();
+  await refreshHuePosition();
   await page.mouse.move(hueX, hueY);
   await page.mouse.down();
   await page.mouse.move(hueX + 24, hueY, { steps: 6 });
@@ -784,6 +806,7 @@ try {
   assert.equal(await hueInput.inputValue(), '0');
   assert.equal(await field('hex').inputValue(), originHex, 'origin restores the exact HEX draft');
   await hueInput.fill('350');
+  await refreshHuePosition();
   await page.mouse.move(hueX, hueY);
   await page.mouse.down();
   await page.mouse.move(hueX + 24, hueY, { steps: 6 });
@@ -806,6 +829,7 @@ try {
   assert.equal(await saturation.inputValue(), '0.12345678901234566');
   await saturation.fill('50');
   await field('alpha').fill('0.25');
+  await refreshHuePosition();
   await page.mouse.move(hueX, hueY);
   await page.mouse.down();
   await page.mouse.move(hueX + 24, hueY, { steps: 6 });
@@ -816,6 +840,7 @@ try {
   assert.equal(await field('alpha').inputValue(), '0.25');
   await field('alpha').fill('0');
   const beforeBlurHex = await field('hex').inputValue();
+  await refreshHuePosition();
   await page.mouse.move(hueX, hueY);
   await page.mouse.down();
   await page.mouse.move(hueX + 24, hueY, { steps: 6 });
@@ -823,6 +848,7 @@ try {
   await page.mouse.up();
   assert.equal(await hueInput.inputValue(), '0', 'window blur cancels HSL preview');
   assert.equal(await field('hex').inputValue(), beforeBlurHex);
+  await refreshHuePosition();
   await page.mouse.move(hueX, hueY);
   await page.mouse.down();
   await page.mouse.move(hueX + 24, hueY, { steps: 6 });
@@ -830,6 +856,7 @@ try {
   await page.mouse.up();
   assert.equal(await hueInput.inputValue(), '15', 'typing cancels the old HSL drag');
   await hueInput.fill('0');
+  await refreshHuePosition();
   await page.mouse.move(hueX, hueY);
   await page.mouse.down();
   await page.mouse.move(hueX + 24, hueY, { steps: 6 });
@@ -1472,7 +1499,243 @@ try {
     'gray hue stays local without literal/case/alpha change; increasing saturation uses the selected hue; Cancel unchanged',
   );
 
+  const copyFixture = retainedRecipeFixture();
+  Object.assign(
+    copyFixture.colorSlots.find((slot) => slot.id === 'dormant'),
+    {
+      name: 'Same name',
+      value: { hex: '#00Ff00', alpha: 0.5 },
+    },
+  );
+  Object.assign(
+    copyFixture.colorSlots.find((slot) => slot.id === 'other'),
+    {
+      name: 'Same name',
+      value: { hex: '#DeAd09', alpha: 0 },
+    },
+  );
+  copyFixture.colorSlots.push({
+    id: 'third',
+    name: '…mant  · Same name',
+    value: { hex: '#00Ff00', alpha: 0.5 },
+  });
+  copyFixture.colorSlots.push({
+    id: 'fourth',
+    name: '…mant\u0000 · Same name',
+    value: { hex: '#00Ff00', alpha: 0.5 },
+  });
+  await load(copyFixture);
+  await page.evaluate(() => {
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: window.nect.document.width + 1 },
+    });
+    window.nect.dispatch({ ...window.nect.commandState, type: 'undo', payload: {} });
+  });
+  const copyBefore = await snapshot(),
+    copyState = await command();
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+  await open();
+  const savedSelect = page.locator('[data-key-color-copy-saved]');
+  const savedOptions = await savedSelect
+    .locator('option')
+    .evaluateAll((options) => options.map(({ value, label }) => ({ value, text: label })));
+  assert.deepEqual(
+    savedOptions.map(({ value }) => value),
+    ['', 'dormant', 'other', 'third', 'fourth'],
+  );
+  assert.equal(
+    new Set(savedOptions.map(({ text }) => text.normalize('NFC'))).size,
+    savedOptions.length,
+  );
+  assert.notEqual(savedOptions[1].text.split(' · ')[0], savedOptions[3].text.split(' · ')[0]);
+  await preview();
+  await savedSelect.selectOption('dormant');
+  assert.equal(await page.locator('[data-key-color-apply]').isDisabled(), true);
+  assert.equal(await page.locator('[data-key-color-compare]').count(), 0);
+  assert.equal(await field('hex').inputValue(), '#00Ff00');
+  assert.equal(await field('hsl-h').inputValue(), '120');
+  assert.equal(await field('hsl-s').inputValue(), '100');
+  assert.equal(await field('hsl-l').inputValue(), '50');
+  const copyDelta = field('deltaL');
+  const copyDeltaBox = await copyDelta.boundingBox();
+  await copyDelta.dispatchEvent('pointerdown', {
+    bubbles: true,
+    button: 0,
+    pointerId: 57,
+    isPrimary: true,
+    clientX: copyDeltaBox.x + 8,
+  });
+  await savedSelect.selectOption('other');
+  assert.equal(await field('hex').inputValue(), '#00Ff00');
+  assert.match(
+    await page.locator('[data-key-color-status]').textContent(),
+    /Finish the active input/,
+  );
+  await page.evaluate(() =>
+    document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 57 })),
+  );
+  await field('hex').dispatchEvent('compositionstart');
+  await savedSelect.selectOption('other');
+  assert.equal(await field('hex').inputValue(), '#00Ff00');
+  assert.match(
+    await page.locator('[data-key-color-status]').textContent(),
+    /Finish the active input/,
+  );
+  await field('hex').dispatchEvent('compositionend');
+  await savedSelect.selectOption('other');
+  assert.equal(await field('hex').inputValue(), '#DeAd09');
+  assert.equal(await field('alpha').inputValue(), '0');
+  await field('hsl-h').fill('120');
+  assert.notEqual(await field('hex').inputValue(), '#DeAd09');
+  await savedSelect.selectOption('other');
+  assert.equal(await field('hex').inputValue(), '#DeAd09');
+  await page.screenshot({ path: resolve(output, 'saved-color-copy-desktop.png'), fullPage: true });
+  await unchanged(copyBefore, copyState);
+  await cancel();
+  await unchanged(copyBefore, copyState);
+  assert.equal(await page.locator('[data-action="redo"]').isEnabled(), true);
+
+  await open();
+  await savedSelect.selectOption('other');
+  await preview();
+  assert.equal(
+    await page.locator('[data-key-color-compare="key"] [data-key-color-after] code').textContent(),
+    '#DeAd09',
+  );
+  await field('hex').evaluate((input) => (input.value = '#DeAd08'));
+  await page.locator('[data-key-color-apply]').click();
+  await unchanged(copyBefore, copyState);
+  assert.equal(await page.locator('[data-key-color-apply]').isDisabled(), true);
+  await savedSelect.selectOption('other');
+  await preview();
+  await page.locator('[data-key-color-apply]').click();
+  const copyAfter = await snapshot();
+  assert.equal((await command()).expectedRevision, copyState.expectedRevision + 1);
+  assert.deepEqual(copyAfter.colorSlots.find((slot) => slot.id === 'key').value, {
+    hex: '#DeAd09',
+    alpha: 0,
+  });
+  assert.deepEqual(
+    copyAfter.colorSlots.find((slot) => slot.id === 'other'),
+    copyBefore.colorSlots.find((slot) => slot.id === 'other'),
+  );
+  await activateCommand(page, 'undo');
+  assert.deepEqual(await snapshot(), copyBefore);
+  assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await snapshot(), copyAfter);
+  const copyDownload = page.waitForEvent('download');
+  await activateCommand(page, 'save');
+  const copyFile = resolve(output, 'saved-color-copy.json');
+  await (await copyDownload).saveAs(copyFile);
+  assert.deepEqual(JSON.parse(await readFile(copyFile, 'utf8')), copyAfter);
+  await page.waitForFunction(() => !window.nect.fileState.saving && !window.nect.fileState.dirty);
+  await page.reload();
+  await page.waitForFunction(() => window.nect);
+  const dirtyAfterCopyRestart = await page.evaluate(() => window.nect.fileState.dirty);
+  const copyChooser = page.waitForEvent('filechooser');
+  await activateCommand(page, 'open');
+  if (dirtyAfterCopyRestart) await page.locator('dialog[open] button[value="discard"]').click();
+  await (await copyChooser).setFiles(copyFile);
+  await page.waitForFunction(() => !!window.nect.document.keyColorRecipe);
+  assert.deepEqual(await snapshot(), copyAfter);
+  assert.deepEqual((await snapshot()).colorSlots.find((slot) => slot.id === 'other').value, {
+    hex: '#DeAd09',
+    alpha: 0,
+  });
+  results.push(
+    'saved color by stable ID: active destinations excluded, duplicate names distinct, HSL projected, IME and silent edit guarded, Cancel/Redo unchanged, one-Undo Apply and source survives save/reopen',
+  );
+
+  await load(copyFixture);
+  await open();
+  await preview();
+  await page.evaluate(() =>
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: window.nect.document.width + 1 },
+    }),
+  );
+  const staleCopy = await snapshot();
+  await savedSelect.selectOption('other');
+  assert.equal(await field('hex').inputValue(), '#aBcD09');
+  assert.equal(await page.locator('[data-key-color-apply]').isDisabled(), true);
+  assert.match(await page.locator('[data-key-color-status]').textContent(), /stale/);
+  assert.deepEqual(await snapshot(), staleCopy);
+  await cancel();
+  results.push('saved color selection refuses a stale captured Session revision');
+
+  const researchCopy = blankDocument();
+  researchCopy.schemaVersion = 58;
+  researchCopy.colorSlots = [{ id: 'source', name: 'Source', value: { hex: '#DeAd09', alpha: 0 } }];
+  await load(researchCopy);
+  const researchBefore = await snapshot(),
+    researchState = await command();
+  await open();
+  await savedSelect.selectOption('source');
+  assert.equal(await field('hex').inputValue(), '#DeAd09');
+  assert.equal(await field('alpha').inputValue(), '0');
+  assert.equal(await page.locator('[data-research-plan]').inputValue(), '');
+  assert.equal(await page.locator('[data-research-create]').isDisabled(), true);
+  await cancel();
+  await unchanged(researchBefore, researchState);
+  results.push('research draft copies a saved color without selecting or creating a candidate');
+
   await page.setViewportSize({ width: 420, height: 760 });
+  const longNames = structuredClone(copyFixture);
+  for (const slot of longNames.colorSlots.filter(({ id }) => ['dormant', 'other'].includes(id)))
+    slot.name = 'Long saved color '.repeat(7);
+  longNames.colorSlots.find((slot) => slot.id === 'third').name =
+    `…mant · ${'Long saved color '.repeat(7)}`;
+  await load(longNames);
+  await open();
+  const narrowCopy = await savedSelect.evaluate((select) => {
+    const fieldset = select.closest('fieldset').getBoundingClientRect();
+    const box = select.getBoundingClientRect();
+    const body = select.closest('.key-color-recipe-body');
+    const bodyBox = body.getBoundingClientRect();
+    return (
+      box.left >= fieldset.left &&
+      box.right <= fieldset.right &&
+      fieldset.left >= bodyBox.left &&
+      fieldset.right <= bodyBox.right &&
+      body.scrollWidth <= body.clientWidth + 1
+    );
+  });
+  assert.equal(narrowCopy, true, 'long source names do not overflow the C1 fieldset');
+  const narrowLabels = await savedSelect
+    .locator('option')
+    .evaluateAll((options) => options.map(({ value, label }) => ({ value, text: label })));
+  assert.notEqual(
+    narrowLabels.find(({ value }) => value === 'dormant').text.split(' · ')[0],
+    narrowLabels.find(({ value }) => value === 'third').text.split(' · ')[0],
+    'colliding long names remain distinct at the beginning',
+  );
+  await savedSelect.selectOption('other');
+  assert.equal(await field('hex').inputValue(), '#DeAd09');
+  await page.screenshot({ path: resolve(output, 'saved-color-copy-narrow.png'), fullPage: true });
+  await cancel();
+  const longId = (a, b) => 'W'.repeat(4) + a + 'W'.repeat(61) + b + 'W'.repeat(61);
+  const longIds = [longId('W', 'B'), longId('W', 'W'), longId('C', 'B')];
+  const longIdFixture = blankDocument();
+  longIdFixture.schemaVersion = 58;
+  longIdFixture.colorSlots = longIds.map((id, index) => ({
+    id,
+    name: 'Same name',
+    value: { hex: ['#112233', '#445566', '#778899'][index], alpha: 1 },
+  }));
+  await load(longIdFixture);
+  await open();
+  const idLabels = await savedSelect
+    .locator('option')
+    .evaluateAll((options) => options.slice(1).map(({ label }) => label.slice(0, 8)));
+  assert.equal(new Set(idLabels).size, 3, 'long IDs are distinct at the start of each option');
+  await savedSelect.selectOption(longIds[2]);
+  assert.equal(await field('hex').inputValue(), '#778899', 'selection uses the full stable ID');
+  await cancel();
   await load(fixture);
   await open();
   await page.screenshot({ path: resolve(output, 'hsl-narrow.png'), fullPage: true });
