@@ -35,6 +35,7 @@ export const browserTestFiles = Object.freeze([
   'tests/closed-offset.e2e.js',
   'tests/text-path.e2e.js',
   'tests/math.e2e.js',
+  'tests/node-foundation-toggle.e2e.js',
   'tests/wiring.e2e.js',
   'tests/creation.e2e.js',
   'tests/join-stroke.e2e.js',

@@ -11,6 +11,13 @@ export const nectNodeHost = Object.freeze({
   types: new Map([
     ['Scalar', scalar],
     [
+      'Boolean',
+      Object.freeze({
+        validateDefault: (value) => typeof value === 'boolean',
+        validateOutput: () => true,
+      }),
+    ],
+    [
       'PaintedPath',
       Object.freeze({ validateDefault: (value) => value === null, validateOutput: () => true }),
     ],
