@@ -122,6 +122,7 @@ export const browserTestFiles = Object.freeze([
   'tests/composition-viewer-state.e2e.js',
   'tests/node-foundation-toggle.e2e.js',
   'tests/node-foundation-simplify.e2e.js',
+  'tests/node-foundation-expand-stroke.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };

@@ -162,7 +162,6 @@ import { polarSettings, polarTransformGeometry } from './polar-transform.js';
 import { waveGeometry } from './wave-geometry.js';
 import { puckerBloatGeometry } from './pucker-bloat-geometry.js';
 import { dashIntervals } from './dash-intervals.js';
-import { expandStrokeGeometry } from './expand-stroke-geometry.js';
 import { smoothGeometry } from './smooth-geometry.js';
 import { roughenGeometry } from './roughen-geometry.js';
 import { roundCorners } from './corner-round-geometry.js';
@@ -578,11 +577,6 @@ const legacyDefinitions = {
     dashLength: p('Scalar', 12),
     gapLength: p('Scalar', 6),
     offset: p('Scalar', 0),
-  },
-  'Expand Stroke': {
-    path: p('PaintedPath', null),
-    startWidthMultiplier: p('Scalar', 1),
-    endWidthMultiplier: p('Scalar', 1),
   },
   'Trim Path': {
     path: p('Path', null),
@@ -4037,21 +4031,6 @@ export function evaluate(
           n.id,
           null,
           'Canvas character editing is unavailable through Dash Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Expand Stroke') {
-        const source = read('path');
-        result = expandStrokeGeometry(source, {
-          prefix: fingerprint(n.id),
-          startWidthMultiplier: read('startWidthMultiplier'),
-          endWidthMultiplier: read('endWidthMultiplier'),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Expand Stroke; edit the source Text',
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
