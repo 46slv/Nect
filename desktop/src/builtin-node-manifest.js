@@ -17,6 +17,32 @@ import {
   expressionDeclaration,
 } from './value-source-declarations.js';
 import { evaluateValueSource } from './value-source-binding.js';
+import { toggleDeclaration } from './toggle-node-declaration.js';
+import { nullPositionDeclaration } from './null-position-declaration.js';
+import { evaluateNullPosition } from './null-position-binding.js';
+import { colorDeclaration } from './color-node-declaration.js';
+import { simplifyPathDeclaration } from './simplify-path-declaration.js';
+import { evaluateSimplifyPath } from './simplify-path-binding.js';
+import { expandStrokeDeclaration } from './expand-stroke-declaration.js';
+import { evaluateExpandStroke } from './expand-stroke-binding.js';
+import { puckerBloatDeclaration } from './pucker-bloat-declaration.js';
+import { evaluatePuckerBloat } from './pucker-bloat-binding.js';
+import { wavePointsDeclaration } from './wave-points-declaration.js';
+import { evaluateWavePoints } from './wave-points-binding.js';
+import { twistPointsDeclaration } from './twist-points-declaration.js';
+import { evaluateTwistPoints } from './twist-points-binding.js';
+import { bendPointsDeclaration } from './bend-points-declaration.js';
+import { evaluateBendPoints } from './bend-points-binding.js';
+import { taperDeclaration } from './taper-node-declaration.js';
+import { evaluateTaper } from './taper-node-binding.js';
+import { autoHandlesDeclaration } from './auto-handles-declaration.js';
+import { evaluateAutoHandles } from './auto-handles-binding.js';
+import { polarTransformDeclaration } from './polar-transform-declaration.js';
+import { evaluatePolarTransform } from './polar-transform-binding.js';
+import { smoothPathDeclaration } from './smooth-path-declaration.js';
+import { evaluateSmoothPath } from './smooth-path-binding.js';
+import { roughenDeclaration } from './roughen-node-declaration.js';
+import { evaluateRoughen } from './roughen-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -51,4 +77,38 @@ export const builtinManifest = Object.freeze([
     'Composition Reference',
     'Reference',
   ),
+  entry(toggleDeclaration, { evaluate: evaluateValueSource }, 'Combine Vector', 'Combine Vector'),
+  entry(nullPositionDeclaration, { evaluate: evaluateNullPosition }, 'Vector', 'Toggle'),
+  entry(colorDeclaration, { evaluate: evaluateValueSource }, 'Toggle', 'Luminance Instances'),
+  entry(simplifyPathDeclaration, { evaluate: evaluateSimplifyPath }, 'Dash Path', 'Smooth Path'),
+  entry(
+    expandStrokeDeclaration,
+    { evaluate: evaluateExpandStroke },
+    'Simplify Path',
+    'Text to Path',
+  ),
+  entry(puckerBloatDeclaration, { evaluate: evaluatePuckerBloat }, 'Wave Points', 'Wave Points'),
+  entry(wavePointsDeclaration, { evaluate: evaluateWavePoints }, 'Reverse Path', 'Twist Points'),
+  entry(twistPointsDeclaration, { evaluate: evaluateTwistPoints }, 'Bend Points', 'Bend Points'),
+  entry(bendPointsDeclaration, { evaluate: evaluateBendPoints }, 'Taper', 'Taper'),
+  entry(taperDeclaration, { evaluate: evaluateTaper }, 'Set Closure', 'Mirror'),
+  entry(
+    autoHandlesDeclaration,
+    { evaluate: evaluateAutoHandles },
+    'Polar Transform',
+    'Resample Path',
+  ),
+  entry(
+    polarTransformDeclaration,
+    { evaluate: evaluatePolarTransform },
+    'Twist Points',
+    'Angular Gradient Fill',
+  ),
+  entry(
+    smoothPathDeclaration,
+    { evaluate: evaluateSmoothPath },
+    'Vector Transform',
+    'Corner Round',
+  ),
+  entry(roughenDeclaration, { evaluate: evaluateRoughen }, 'Subdivide Path', 'Pucker & Bloat'),
 ]);

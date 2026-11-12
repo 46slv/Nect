@@ -55,7 +55,7 @@ import { signature } from './path-signature.js';
 export { signature } from './path-signature.js';
 import { builtinNodeRegistry, registeredNodes } from './builtin-node-registry.js';
 import { placeRegistered } from './registered-node-projections.js';
-import { isVector2 } from './node-value-validation.js';
+import { isColor, isVector2 } from './node-value-validation.js';
 import { nectOutputPort } from './nect-node-host.js';
 import {
   KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION,
@@ -154,18 +154,8 @@ import {
   selectLuminanceCenters,
 } from './luminance-instances.js';
 import { validateInstancePath } from './instance-points-geometry.js';
-import { autoHandlesGeometry } from './auto-handles-geometry.js';
-import { taperGeometry } from './taper-geometry.js';
-import { bendGeometry } from './bend-geometry.js';
-import { twistGeometry } from './twist-geometry.js';
-import { polarSettings, polarTransformGeometry } from './polar-transform.js';
-import { waveGeometry } from './wave-geometry.js';
-import { puckerBloatGeometry } from './pucker-bloat-geometry.js';
+import { polarSettings } from './polar-transform.js';
 import { dashIntervals } from './dash-intervals.js';
-import { simplifyGeometry } from './simplify-geometry.js';
-import { expandStrokeGeometry } from './expand-stroke-geometry.js';
-import { smoothGeometry } from './smooth-geometry.js';
-import { roughenGeometry } from './roughen-geometry.js';
 import { roundCorners } from './corner-round-geometry.js';
 import { mirrorGeometry } from './mirror-geometry.js';
 import {
@@ -577,23 +567,11 @@ const legacyDefinitions = {
     scale: p('Scalar', 1),
     rotation: p('Scalar', 0),
   },
-  'Smooth Path': {
-    path: p('Path', null),
-    factor: p('Scalar', 0.5),
-    iterations: p('Scalar', 3),
-    keepEndpoints: p('Boolean', true),
-  },
   'Dash Path': {
     path: p('Path', null),
     dashLength: p('Scalar', 12),
     gapLength: p('Scalar', 6),
     offset: p('Scalar', 0),
-  },
-  'Simplify Path': { path: p('Path', null), tolerance: p('Scalar', 1) },
-  'Expand Stroke': {
-    path: p('PaintedPath', null),
-    startWidthMultiplier: p('Scalar', 1),
-    endWidthMultiplier: p('Scalar', 1),
   },
   'Trim Path': {
     path: p('Path', null),
@@ -605,40 +583,7 @@ const legacyDefinitions = {
     start: p('Scalar', 0),
   },
   'Set Closure': { path: p('Path', null), closed: p('Boolean', true) },
-  Taper: { path: p('Path', null), amount: p('Scalar', 0) },
-  'Bend Points': { path: p('Path', null), angle: p('Scalar', 0) },
-  'Twist Points': { path: p('Path', null), angle: p('Scalar', 0) },
-  'Polar Transform': {
-    path: p('Path', null),
-    origin: p('Vector2', [0, 0]),
-    center: p('Vector2', [480, 270]),
-    width: p('Scalar', 960),
-    height: p('Scalar', 540),
-    radius: p('Scalar', 270),
-    angle: p('Scalar', -90),
-    inverse: p('Boolean', false),
-  },
-  'Auto Handles': { path: p('Path', null), strength: p('Scalar', 1) },
-  'Wave Points': {
-    path: p('Path', null),
-    amplitude: p('Scalar', 20),
-    wavelength: p('Scalar', 150),
-    phase: p('Scalar', 0),
-    keepEndpoints: p('Boolean', false),
-  },
-  'Pucker & Bloat': {
-    path: p('Path', null),
-    amount: p('Scalar', 0),
-    autoCenter: p('Boolean', true),
-    center: p('Vector2', [0, 0]),
-  },
   'Subdivide Path': { path: p('Path', null), segments: p('Scalar', 2) },
-  Roughen: {
-    path: p('Path', null),
-    amount: p('Scalar', 3),
-    seed: p('Scalar', 1),
-    keepEndpoints: p('Boolean', true),
-  },
   'Resample Path': {
     path: p('Path', null),
     count: p('Scalar', 32),
@@ -700,9 +645,6 @@ const legacyDefinitions = {
     points: p('Path', null),
     alignTangent: p('Boolean', false),
   },
-  Toggle: { value: p('Boolean', true) },
-  Color: { value: p('Color', { hex: '#36434e', alpha: 1 }) },
-  Null: { position: p('Vector2', [300, 250]) },
   Reference: {},
   SVG: { position: p('Vector2', [0, 0]) },
   'Composition Reference': { position: p('Vector2', [0, 0]) },
@@ -936,21 +878,17 @@ export function node(type, x = 40, y = 40) {
       ? 'square'
       : type === 'Resample Path'
         ? 'count'
-        : type === 'Taper' || type === 'Bend Points'
+        : type === 'Line Screen'
           ? 'horizontal'
-          : type === 'Line Screen'
-            ? 'horizontal'
-            : type === 'Wave Points'
-              ? 'vertical'
-              : type === 'Mirror'
-                ? 'left-right'
-                : type === 'Closed Path Offset'
-                  ? 'miter'
-                  : type === 'Geometry Repeater'
-                    ? 'linear'
-                    : builtinNodeRegistry.get(type)?.declaration.defaultOperation
-                      ? builtinNodeRegistry.get(type).declaration.defaultOperation
-                      : 'subtract',
+          : type === 'Mirror'
+            ? 'left-right'
+            : type === 'Closed Path Offset'
+              ? 'miter'
+              : type === 'Geometry Repeater'
+                ? 'linear'
+                : builtinNodeRegistry.get(type)?.declaration.defaultOperation
+                  ? builtinNodeRegistry.get(type).declaration.defaultOperation
+                  : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -1053,7 +991,7 @@ export function outputPorts(n) {
         { id: undefined, label: 'Path', type: 'Path' },
         { id: 'position', label: 'Position', type: 'Vector2' },
       ]
-    : [{ id: undefined, label: n.type === 'Null' ? 'Position' : '', type: outputType(n) }];
+    : [{ id: undefined, label: '', type: outputType(n) }];
 }
 export function outputType(n, port) {
   if (['Composition Reference', 'SVG'].includes(n.type) || n.paintMode)
@@ -1080,7 +1018,6 @@ export function outputType(n, port) {
     ].includes(n.type)
   )
     return 'PaintedPath';
-  if (n.type === 'Color') return 'Color';
   if (
     n.type === 'Image' ||
     n.type === 'Image Output' ||
@@ -1089,11 +1026,7 @@ export function outputType(n, port) {
   )
     return 'Image';
   if (n.type === 'Mask') return 'PaintedPath';
-  return ['Null', 'Reference', 'Vector Transform'].includes(n.type)
-    ? 'Vector2'
-    : n.type === 'Toggle'
-      ? 'Boolean'
-      : 'Path';
+  return ['Reference', 'Vector Transform'].includes(n.type) ? 'Vector2' : 'Path';
 }
 // Deliberate identity contracts. Never guess the first socket of a new node type.
 const bypassInputs = Object.freeze({
@@ -1111,20 +1044,10 @@ const bypassInputs = Object.freeze({
   Mirror: 'path',
   'Corner Round': 'path',
   'Resample Path': 'path',
-  Roughen: 'path',
-  'Smooth Path': 'path',
   'Trim Path': 'path',
   'Set Path Start': 'path',
   'Set Closure': 'path',
   'Subdivide Path': 'path',
-  'Pucker & Bloat': 'path',
-  Taper: 'path',
-  'Bend Points': 'path',
-  'Twist Points': 'path',
-  'Polar Transform': 'path',
-  'Auto Handles': 'path',
-  'Wave Points': 'path',
-  'Simplify Path': 'path',
   'Dash Path': 'path',
   'Vector Transform': 'vector',
   'Path Remap': 'path',
@@ -1819,9 +1742,6 @@ export const operationOptions = {
   'Error Diffusion Dither': ['square', 'circle', 'polygon', 'star'],
   'Ordered Dither Image': ['square', 'circle', 'polygon', 'star'],
   'Error Diffusion Dither Image': ['square', 'circle', 'polygon', 'star'],
-  Taper: ['horizontal', 'vertical'],
-  'Bend Points': ['horizontal', 'vertical'],
-  'Wave Points': ['vertical', 'horizontal'],
   Mirror: ['left-right', 'up-down', 'angle'],
   'Closed Path Offset': ['miter', 'bevel', 'round'],
   'Geometry Repeater': ['linear', 'radial-fit', 'radial-step', 'ae-2d'],
@@ -2667,18 +2587,7 @@ export function expressionReferenceTargetsForProject(
 }
 
 function assertValue(type, value) {
-  if (
-    type === 'Color' &&
-    (!value ||
-      typeof value !== 'object' ||
-      Array.isArray(value) ||
-      Object.keys(value).length !== 2 ||
-      typeof value.hex !== 'string' ||
-      !/^#[0-9a-fA-F]{6}$/.test(value.hex) ||
-      !Number.isFinite(value.alpha) ||
-      value.alpha < 0 ||
-      value.alpha > 1)
-  )
+  if (type === 'Color' && !isColor(value))
     throw Error('Expected Color with hex #RRGGBB and alpha from 0 to 1');
   if (type === 'Scalar' && !Number.isFinite(value)) throw Error('Expected finite Scalar');
   if (type === 'Vector2' && !isVector2(value)) throw Error('Expected Vector2');
@@ -3800,8 +3709,7 @@ export function evaluate(
       } else if (n.type === 'Reference') {
         result = clone(run(n.reference.nodeId, referencePort(n.reference)));
         assertValue('Vector2', result);
-      } else if (positionOutput || n.type === 'Null') result = read('position');
-      else if (['Toggle', 'Color'].includes(n.type)) result = read('value');
+      } else if (positionOutput) result = read('position');
       else if (n.type === 'Vector Transform')
         result = transformVector(transformValues(n, read), read('vector'));
       else if (builtinNodeRegistry.get(n.type)) {
@@ -4072,35 +3980,6 @@ export function evaluate(
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Simplify Path') {
-        const source = read('path');
-        result = simplifyGeometry(source, {
-          tolerance: read('tolerance'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Simplify Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Expand Stroke') {
-        const source = read('path');
-        result = expandStrokeGeometry(source, {
-          prefix: fingerprint(n.id),
-          startWidthMultiplier: read('startWidthMultiplier'),
-          endWidthMultiplier: read('endWidthMultiplier'),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Expand Stroke; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Trim Path') {
         const source = read('path'),
           start = read('start'),
@@ -4143,118 +4022,6 @@ export function evaluate(
           evaluatedFingerprint(source, currentEra) || signature(source),
           signature(result),
         ]);
-      } else if (n.type === 'Taper') {
-        const source = read('path');
-        result = taperGeometry(source, {
-          amount: read('amount'),
-          axis: n.operation,
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Taper; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Bend Points') {
-        const source = read('path');
-        result = bendGeometry(source, {
-          angle: read('angle'),
-          axis: n.operation,
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Bend Points; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Auto Handles') {
-        const source = read('path');
-        result = autoHandlesGeometry(source, {
-          strength: read('strength'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Auto Handles; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Polar Transform') {
-        const source = read('path');
-        result = polarTransformGeometry(
-          source,
-          Object.fromEntries(
-            ['origin', 'center', 'width', 'height', 'radius', 'angle', 'inverse'].map((key) => [
-              key,
-              read(key),
-            ]),
-          ),
-        );
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Polar Transform; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Twist Points') {
-        const source = read('path');
-        result = twistGeometry(source, {
-          angle: read('angle'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Twist Points; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Wave Points') {
-        const source = read('path');
-        result = waveGeometry(source, {
-          amplitude: read('amplitude'),
-          wavelength: read('wavelength'),
-          phase: read('phase'),
-          direction: n.operation,
-          keepEndpoints: read('keepEndpoints'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Wave Points; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Pucker & Bloat') {
-        const source = read('path'),
-          autoCenter = read('autoCenter');
-        result = puckerBloatGeometry(source, {
-          amount: read('amount'),
-          autoCenter,
-          ...(autoCenter ? {} : { center: read('center') }),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Pucker & Bloat; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Subdivide Path') {
         const source = read('path');
         result = subdividePathGeometry(source, {
@@ -4266,38 +4033,6 @@ export function evaluate(
           n.id,
           null,
           'Canvas character editing is unavailable through Subdivide Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Smooth Path') {
-        const source = read('path');
-        result = smoothGeometry(source, {
-          factor: read('factor'),
-          iterations: read('iterations'),
-          keepEndpoints: read('keepEndpoints'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Smooth Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Roughen') {
-        const source = read('path');
-        result = roughenGeometry(source, {
-          amount: read('amount'),
-          seed: read('seed'),
-          keepEndpoints: read('keepEndpoints'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Roughen; edit the source Text',
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
