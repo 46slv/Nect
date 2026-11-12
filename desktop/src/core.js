@@ -528,13 +528,6 @@ const legacyDefinitions = {
   Circle: { center: p('Vector2', [350, 250]), radius: p('Scalar', 120) },
   Ellipse: { center: p('Vector2', [350, 250]), size: p('Vector2', [240, 160]) },
   Rectangle: { center: p('Vector2', [460, 250]), size: p('Vector2', [180, 220]) },
-  Star: {
-    center: p('Vector2', [350, 250]),
-    points: p('Scalar', 5),
-    outerRadius: p('Scalar', 120),
-    innerRadius: p('Scalar', 60),
-    rotation: p('Scalar', 0),
-  },
   Curve: { closed: p('Boolean', true) },
   'Multi Path': {},
   Boolean: { a: p('Path', null), b: p('Path', null) },
@@ -764,28 +757,6 @@ export function luminanceModifierSettings(read) {
   )
     throw Error('Luminance grid origin components must be finite and within ±100000 px');
   return { pitch, invert, gridOrigin, tonePower };
-}
-function radialPath(n, read) {
-  const { count, outer, inner } = radialSettings(n.type, read),
-    center = read('center'),
-    rotation = read('rotation') % 360,
-    total = n.type === 'Star' ? count * 2 : count,
-    identity = `${n.id}:${n.type}:${count}`;
-  return {
-    contours: [
-      {
-        id: identity,
-        closed: true,
-        points: Array.from({ length: total }, (_, i) => {
-          const angle = ((rotation - 90 + (i * 360) / total) * Math.PI) / 180,
-            radius = n.type === 'Star' && i % 2 ? inner : outer,
-            position = [center[0] + radius * Math.cos(angle), center[1] + radius * Math.sin(angle)];
-          assertValue('Vector2', position);
-          return { id: `${identity}:${i}`, position, handleA: [0, 0], handleB: [0, 0] };
-        }),
-      },
-    ],
-  };
 }
 export function parseStrokeDash(value) {
   const raw = value.trim();
@@ -3698,8 +3669,6 @@ export function evaluate(
             });
         result = registered.evaluate(n.operation, read, context);
         assertValue(registered.interface(n.operation, shape).resultType, result);
-      } else if (n.type === 'Polygon' || n.type === 'Star') {
-        result = radialPath(n, read);
       } else if (n.type === 'Circle' || n.type === 'Ellipse' || n.type === 'Rectangle') {
         const center = read('center');
         let item;
