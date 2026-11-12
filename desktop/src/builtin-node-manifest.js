@@ -59,6 +59,8 @@ import { ellipseDeclaration } from './ellipse-node-declaration.js';
 import { evaluateEllipse } from './ellipse-node-binding.js';
 import { rectangleDeclaration } from './rectangle-node-declaration.js';
 import { evaluateRectangle } from './rectangle-node-binding.js';
+import { subdividePathDeclaration } from './subdivide-path-declaration.js';
+import { evaluateSubdividePath } from './subdivide-path-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -150,4 +152,10 @@ export const builtinManifest = Object.freeze([
   entry(circleDeclaration, { evaluate: evaluateCircle }, 'Mask', 'Mask'),
   entry(ellipseDeclaration, { evaluate: evaluateEllipse }, 'Circle', 'Circle'),
   entry(rectangleDeclaration, { evaluate: evaluateRectangle }, 'Ellipse', 'Ellipse'),
+  entry(
+    subdividePathDeclaration,
+    { evaluate: evaluateSubdividePath },
+    'Pucker & Bloat',
+    'Reverse Path',
+  ),
 ]);

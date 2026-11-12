@@ -150,14 +150,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Subdivide Path',
-    categoryId: 'path',
-    labelJa: '分割',
-    aliases: ['分割'],
-    description: '分割',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Resample Path',
     categoryId: 'path',
     labelJa: '再サンプル',
