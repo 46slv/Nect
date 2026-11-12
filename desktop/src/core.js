@@ -198,6 +198,12 @@ import {
 import { removeArtworkLayer, removeArtworkLayers } from './artwork-deletion.js';
 import { moveArtworkLayer, moveArtworkLayerBefore } from './artwork-ordering.js';
 import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-multi-move.js';
+import { resolveArtworkMoveTarget } from './artwork-move-target.js';
+import {
+  planTransformEffect,
+  sameTransformEffectTarget,
+  TRANSFORM_EFFECT_ID,
+} from './effect-insert-plan.js';
 import { alignArtworkSelection } from './artwork-alignment.js';
 import { planNodeOutputAlignment } from './node-output-alignment.js';
 import { planPointAlignment } from './point-alignment.js';
@@ -8060,6 +8066,7 @@ export class CommandSession {
     const guardedEdit = [
       'paste-nodes',
       'paste-layer-snapshot',
+      'apply-effect',
       'move-layers-to-folder',
       'remove-layers-from-folder',
     ].includes(commandType);
@@ -8086,6 +8093,7 @@ export class CommandSession {
     const guardedEdit = [
       'paste-nodes',
       'paste-layer-snapshot',
+      'apply-effect',
       'move-layers-to-folder',
       'remove-layers-from-folder',
     ].includes(type);
@@ -8629,6 +8637,40 @@ export class CommandSession {
     return { ...this.state, ...result, changed: revision !== this.#history.revision };
   }
   #commandCandidate(type, payload, before, deferVariable = false, preparedFonts = null) {
+    if (type === 'apply-effect') {
+      if (payload.effectId !== TRANSFORM_EFFECT_ID) throw Error('Unknown effect');
+      const options = {
+        fonts: resolveFonts(before, this.#fonts()),
+        imageAssets: before.imageAssets,
+      };
+      const plan = planTransformEffect(before, payload.layerId, options);
+      if (!plan.supported) throw Error(plan.reason);
+      if (!sameTransformEffectTarget(plan.target, payload.expectedTarget))
+        throw Error('STALE_REVISION: artwork target changed');
+
+      const candidate = cloneDocument(before),
+        layer = candidate.layers.find((item) => item.id === plan.target.layerId),
+        transform = node('Transform');
+      layer.nodes.push(transform);
+      connect(layer, plan.target.producerNodeId, transform.id, 'path');
+      connect(layer, transform.id, plan.target.consumerNodeId, plan.target.inputKey);
+      validate(candidate);
+      const after = resolveArtworkMoveTarget(candidate, payload.layerId, options),
+        route = after.target?.route;
+      if (
+        !after.supported ||
+        after.target.kind !== 'terminal-transform-offset' ||
+        after.target.nodeId !== transform.id ||
+        after.target.outputNodeId !== plan.target.outputNodeId ||
+        route?.length !== 4 ||
+        route[0].nodeId !== plan.target.producerNodeId ||
+        route[1].nodeId !== transform.id ||
+        route[2].nodeId !== plan.target.consumerNodeId ||
+        route[3].nodeId !== plan.target.outputNodeId
+      )
+        throw Error('The effect could not be applied to this artwork');
+      return { candidate, result: { effectId: TRANSFORM_EFFECT_ID, nodeId: transform.id } };
+    }
     if (
       [
         'create-layer-folder',

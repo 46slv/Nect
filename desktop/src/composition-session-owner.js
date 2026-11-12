@@ -1081,6 +1081,7 @@ export class CompositionSessionOwner {
       [
         'paste-nodes',
         'paste-layer-snapshot',
+        'apply-effect',
         'move-layers-to-folder',
         'remove-layers-from-folder',
       ].includes(command?.type);
