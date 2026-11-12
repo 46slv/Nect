@@ -29,6 +29,8 @@ export function planTransformEffect(doc, layerId, options = {}) {
     move.target.outputNodeId !== layer.output
   )
     return unsupported('unsupported-route', 'Apply Transform to a simple filled artwork.');
+  if (layer.nodes.length >= 2000)
+    return unsupported('node-limit', 'This artwork already has the maximum number of nodes.');
 
   const byId = new Map(layer.nodes.map((item) => [item.id, item])),
     source = byId.get(route[0].nodeId),
@@ -79,6 +81,26 @@ export function planTransformEffect(doc, layerId, options = {}) {
       producerPort: null,
     },
   };
+}
+
+// Reserve a whole graph column rather than estimating card heights. Text and
+// other expanded cards can be taller than their unmeasured model representation.
+export function transformEffectPosition(layer, sourceId) {
+  const source = layer.nodes.find((item) => item.id === sourceId);
+  if (!source) throw Error('The artwork path source is unavailable');
+  const width = 264,
+    gap = 24,
+    boxes = layer.nodes
+      .map((item) => ({ x: item.position[0], width: item.width ?? width }))
+      .sort((a, b) => a.x - b.x);
+  let x = 40;
+  for (const box of boxes) {
+    if (x + width + gap <= box.x) break;
+    if (x >= box.x + box.width + gap) continue;
+    x = box.x + box.width + gap;
+  }
+  if (!Number.isFinite(x)) throw Error('No graph position is available for this effect');
+  return [x, Math.max(40, source.position[1])];
 }
 
 export function sameTransformEffectTarget(a, b) {

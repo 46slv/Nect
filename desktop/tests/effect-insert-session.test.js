@@ -76,6 +76,12 @@ test('Apply Transform preserves appearance and IDs, and is one undoable project 
     transform = actualLayer.nodes.find((item) => item.id === result.nodeId),
     changedFill = actualLayer.nodes.find((item) => item.id === f.fill.id);
   assert.equal(transform.type, 'Transform');
+  for (const existing of before.layers[0].nodes)
+    assert.ok(
+      transform.position[0] + transform.width + 24 <= existing.position[0] ||
+        existing.position[0] + existing.width + 24 <= transform.position[0],
+      `Transform overlaps ${existing.type}`,
+    );
   assert.equal(transform.params.path.source, f.source.id);
   assert.equal(changedFill.params.path.source, transform.id);
   const originalFill = before.layers[0].nodes.find((item) => item.id === f.fill.id);
@@ -131,6 +137,66 @@ test('Identity Transform retains the output geometry of each supported artwork a
     f.apply(plan.target);
     equalGeometry(before, painted(f.owner.snapshot(), fonts));
   }
+});
+
+test('Apply finds an unused column in a crowded graph without moving existing nodes', () => {
+  const f = fixture(),
+    project = f.owner.projectSnapshot(),
+    layer = project.compositions[0].layers[0];
+  for (let i = 0; i < 80; i++) {
+    const extra = node('Value', 40 + i * 300, 50 + (i % 3) * 25);
+    extra.width = i % 2 ? 550 : 220;
+    layer.nodes.push(extra);
+  }
+  const owner = createCompositionSessionOwner(project),
+    before = owner.projectSnapshot(),
+    target = planTransformEffect(owner.historyView.doc, f.layer.id).target,
+    result = owner.dispatch({
+      ...owner.state,
+      type: 'apply-effect',
+      payload: { layerId: f.layer.id, effectId: TRANSFORM_EFFECT_ID, expectedTarget: target },
+    }),
+    nodes = owner.snapshot().layers[0].nodes,
+    transform = nodes.find((item) => item.id === result.nodeId);
+  for (const existing of layer.nodes) {
+    assert.ok(
+      transform.position[0] + transform.width + 24 <= existing.position[0] ||
+        existing.position[0] + existing.width + 24 <= transform.position[0],
+      `Transform overlaps ${existing.id}`,
+    );
+    assert.deepEqual(nodes.find((item) => item.id === existing.id).position, existing.position);
+  }
+  owner.dispatch({ ...owner.state, type: 'undo' });
+  assert.deepEqual(owner.projectSnapshot(), before);
+});
+
+test('The node limit rejects Apply without changing the Project or Redo', () => {
+  const f = fixture(),
+    target = f.plan().target,
+    project = f.owner.projectSnapshot(),
+    layer = project.compositions[0].layers[0];
+  while (layer.nodes.length < 2000) layer.nodes.push(node('Value'));
+  const owner = createCompositionSessionOwner(project),
+    send = (type, payload = {}) => owner.dispatch({ ...owner.state, type, payload });
+  send('set-document-settings', { key: 'width', value: 1024 });
+  send('undo');
+  const before = owner.projectSnapshot(),
+    history = owner.historyState;
+  const plan = planTransformEffect(owner.historyView.doc, f.layer.id);
+  assert.equal(plan.supported, false);
+  assert.equal(plan.code, 'node-limit');
+  assert.throws(
+    () =>
+      send('apply-effect', {
+        layerId: f.layer.id,
+        effectId: TRANSFORM_EFFECT_ID,
+        expectedTarget: target,
+      }),
+    /maximum number of nodes/,
+  );
+  assert.deepEqual(owner.projectSnapshot(), before);
+  assert.deepEqual(owner.historyState, history);
+  assert.equal(owner.historyState.canRedo, true);
 });
 
 test('Invalid, stale and unsupported Apply requests preserve Project, History and Redo', () => {
