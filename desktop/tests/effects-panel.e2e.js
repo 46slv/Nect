@@ -38,6 +38,15 @@ try {
 
   await page.getByRole('button', { name: 'Toggle Effects panel', exact: true }).click();
   assert.equal(await page.locator('[data-effects-target]').innerText(), 'Circle');
+  const favorite = page.locator('[data-effects-favorite]');
+  await favorite.focus();
+  await page.keyboard.press('Space');
+  assert.equal(await favorite.getAttribute('aria-pressed'), 'true');
+  assert.deepEqual(
+    await page.evaluate(() => JSON.parse(localStorage.getItem('nect.effect-favorites.v1'))),
+    ['builtin.transform.v1'],
+  );
+  assert.equal(await project(), before);
   const search = page.getByRole('searchbox', { name: 'Search effects' });
   const circleId = await page.evaluate(
     () =>
@@ -164,6 +173,7 @@ try {
   // Detached old controls cannot apply to a newly selected artwork.
   await page.locator('[data-tool="Rectangle"]').click();
   await page.getByRole('button', { name: 'Toggle Effects panel', exact: true }).click();
+  assert.equal(await page.locator('[data-effects-favorite]').getAttribute('aria-pressed'), 'true');
   await page.evaluate(
     () => (window.oldEffectApply = document.querySelector('[data-effects-apply]')),
   );
