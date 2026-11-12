@@ -1,6 +1,10 @@
 import { validateColorSlots, validateColorSlotBinding } from './color-slots.js';
 import { validateLayerFolders } from './layer-folders.js';
 import {
+  assertMacroProjectDefinitionTransition,
+  assertMacroProjectReferences,
+} from './macro-project.js';
+import {
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
   QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
@@ -553,6 +557,21 @@ export function validateCompositionProject(project) {
   assertJsonTree(project);
   assertCompositionProjectFields(project);
   return project;
+}
+
+// Prototype admission for a prospective Macro-enabled Project. The existing
+// codec deliberately does not infer this contract from an unknown root field.
+export function validateMacroProjectCandidate(project) {
+  validateCompositionProject(project);
+  assertMacroProjectReferences(project);
+  return project;
+}
+
+export function validateMacroProjectTransition(before, candidate) {
+  validateMacroProjectCandidate(before);
+  validateMacroProjectCandidate(candidate);
+  assertMacroProjectDefinitionTransition(before, candidate);
+  return candidate;
 }
 
 export function serializeCompositionProject(project) {
