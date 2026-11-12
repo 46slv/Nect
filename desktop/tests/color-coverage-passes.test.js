@@ -5,6 +5,7 @@ import {
   node,
   connect,
   exportScene,
+  renderElement,
   CommandSession,
   serialize,
   deserialize,
@@ -134,7 +135,7 @@ test('fully opaque repeater copies remain measurable but partial opacity is reje
   assert.throws(() => passes(scene, doc), /plain solid/);
 });
 
-test('grouped angular gradients and excessive grouped passes remain unavailable', () => {
+test('excessive grouped passes remain unavailable', () => {
   const { doc, scene } = fixture();
   const original = scene[0].value;
   const grouped = {
@@ -145,9 +146,6 @@ test('grouped angular gradients and excessive grouped passes remain unavailable'
     })),
   };
   assert.throws(() => passes([{ ...scene[0], value: grouped }], doc), /budget/);
-  grouped.contours.length = 1;
-  grouped.fill = { kind: 'angular-gradient' };
-  assert.throws(() => passes([{ ...scene[0], value: grouped }], doc), /plain solid/);
 });
 
 test('repeater appearance is never flattened into independent child alpha', () => {
@@ -452,6 +450,128 @@ function angularFixture() {
   });
   return { doc, layer, gradient };
 }
+
+test('grouped angular passes retain the full production pattern for every stop', () => {
+  const { doc, layer, gradient } = angularFixture();
+  const first = layer.nodes.find((n) => n.type === 'Rectangle');
+  const second = node('Rectangle');
+  const join = node('Join Geometry');
+  first.params.center.value = [60, 55];
+  second.params.center.value = [230, 145];
+  gradient.params.center.value = [-20, 40];
+  layer.name = 'Escaped & " fill="#000000" fill-opacity="1" fill-rule="nonzero"';
+  layer.nodes.push(second, join);
+  connect(layer, first.id, join.id, 'a');
+  connect(layer, second.id, join.id, 'b');
+  connect(layer, join.id, gradient.id, 'path');
+  const scene = exportScene(doc),
+    before = JSON.stringify(scene),
+    result = passes(scene, doc),
+    production = renderElement(scene[0].value, scene[0].layer),
+    definition = (svg) => svg.match(/<defs>([\s\S]*?)<\/defs>/)?.[1],
+    paths = (svg) => [...svg.matchAll(/<path d="([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(
+    result.map((pass) => pass.paint),
+    ['fill', 'stroke', 'fill', 'stroke'],
+  );
+  const original = definition(production);
+  assert.ok(original);
+  const firstGroup = scene[0].value.contours[0].group;
+  const local = renderElement(
+    {
+      ...scene[0].value,
+      stroke: undefined,
+      contours: scene[0].value.contours
+        .filter((contour) => contour.group === firstGroup)
+        .map(({ group: _group, ...contour }) => contour),
+    },
+    scene[0].layer,
+  );
+  assert.notEqual(
+    definition(local).match(/<pattern[^>]*>/)[0],
+    original.match(/<pattern[^>]*>/)[0],
+    'a locally rebuilt pattern must not accidentally make this fixture pass',
+  );
+  const expectedShape = `<defs>${original}</defs>${local.slice(local.indexOf('</defs>') + '</defs>'.length)}`;
+  assert.equal(
+    result[0].svg,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${doc.width}" height="${doc.height}" viewBox="0 0 ${doc.width} ${doc.height}" overflow="hidden">${expectedShape}</svg>`,
+    'the isolated path and its escaped attributes must match the production renderer',
+  );
+  for (const fill of [result[0], result[2]]) {
+    assert.equal(definition(fill.svg), original);
+    assert.deepEqual(
+      fill.contributions.map((stop) => stop.slotId),
+      angularKeys,
+    );
+    for (const contribution of fill.contributions) {
+      assert.deepEqual(paths(definition(contribution.svg)), paths(original));
+      assert.equal(
+        definition(contribution.svg).match(/<pattern[^>]*>/)[0],
+        original.match(/<pattern[^>]*>/)[0],
+      );
+    }
+  }
+  const emptyGroup = structuredClone(scene[0]);
+  emptyGroup.value.contours.push({
+    ...emptyGroup.value.contours[0],
+    group: 'empty',
+    points: [],
+  });
+  assert.doesNotThrow(() => renderElement(emptyGroup.value, emptyGroup.layer));
+  const withEmpty = passes([emptyGroup], doc);
+  assert.equal(withEmpty.length, 6);
+  assert.doesNotMatch(withEmpty[4].svg, /<path/);
+  assert.ok(withEmpty[4].contributions.every((stop) => !stop.svg.includes('<path')));
+  for (const patch of [
+    { repeaterOpacity: 0.5 },
+    { repeaterFill: { hex: '#ffffff', alpha: 1 } },
+    { repeaterStroke: { hex: '#ffffff', alpha: 1 } },
+  ]) {
+    const unsupported = structuredClone(scene[0]);
+    Object.assign(unsupported.value.contours[0], patch);
+    assert.throws(() => passes([...scene, unsupported], doc), /plain solid/);
+  }
+  assert.equal(JSON.stringify(scene), before);
+  angularKeys.forEach((key) => (gradient.params[key].colorSlotId = angularKeys[0]));
+  const same = passes(exportScene(doc), doc);
+  for (const fill of [same[0], same[2]]) {
+    assert.equal(fill.slotId, angularKeys[0]);
+    assert.equal(fill.contributions, undefined);
+  }
+});
+
+test('grouped angular stop identities survive Undo, Redo and save/reopen', () => {
+  const { doc, layer, gradient } = angularFixture();
+  const first = layer.nodes.find((n) => n.type === 'Rectangle'),
+    second = node('Rectangle'),
+    join = node('Join Geometry');
+  layer.nodes.push(second, join);
+  connect(layer, first.id, join.id, 'a');
+  connect(layer, second.id, join.id, 'b');
+  connect(layer, join.id, gradient.id, 'path');
+  const session = new CommandSession(doc),
+    dispatch = (type, payload = {}) => session.dispatch({ ...session.state, type, payload }),
+    stopIds = (snapshot) =>
+      passes(exportScene(snapshot), snapshot)
+        .filter((pass) => pass.paint === 'fill')
+        .map((pass) => pass.contributions.map((stop) => stop.slotId));
+  dispatch('bind-color-slot', {
+    layerId: layer.id,
+    nodeId: gradient.id,
+    key: 'color2',
+    slotId: 'color1',
+  });
+  const changed = ['startColor', 'color1', 'color1', 'endColor'];
+  assert.deepEqual(stopIds(session.snapshot()), [changed, changed]);
+  dispatch('undo');
+  assert.deepEqual(stopIds(session.snapshot()), [angularKeys, angularKeys]);
+  dispatch('redo');
+  const saved = serialize(session.snapshot()),
+    reopened = deserialize(saved);
+  assert.deepEqual(stopIds(reopened), [changed, changed]);
+  assert.equal(serialize(reopened), saved);
+});
 
 test('angular four-stop provenance uses evaluated identities and production wedges without mutation', () => {
   const { doc, gradient } = angularFixture();
