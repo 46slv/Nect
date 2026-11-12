@@ -1484,6 +1484,12 @@ export class CompositionSessionOwner {
     }
     if (command?.type === 'undo' || command?.type === 'redo')
       return this.#stepHistory(command.type, command);
+    if (command?.type === 'insert-macro') {
+      const revision = this.#history.revision,
+        expected = command.payload?.expectedProjectRevision;
+      if (expected !== revision || this.#history.revision !== revision)
+        throw Error('STALE_REVISION: Project changed');
+    }
     const session = this.#session;
     const compositionId = this.#activeCompositionId;
     const revision = session.state.expectedRevision;
@@ -1501,6 +1507,9 @@ export class CompositionSessionOwner {
         'paste-nodes',
         'paste-layer-snapshot',
         'apply-effect',
+        'insert-macro',
+        'set-macro-override',
+        'reset-macro-override',
         'move-layers-to-folder',
         'order-layer-folder',
         'remove-layers-from-folder',

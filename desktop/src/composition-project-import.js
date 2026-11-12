@@ -65,6 +65,8 @@ export function prepareProjectCompositionsImport(
       code: 'COMPOSITION_SOURCE_MISSING',
     });
   const sourceLayers = sourceCompositions.flatMap((composition) => composition.layers);
+  if (sourceLayers.some((layer) => layer.nodes.some((item) => item.type === 'Macro')))
+    throw Error('Importing Macro instances needs definition closure');
   const destinationLayers = current.compositions.flatMap((composition) => composition.layers);
   const hasComponentSyntax = sourceLayers.some((layer) =>
     nodesHaveComponentCompositionReferenceSyntax(layer.nodes),

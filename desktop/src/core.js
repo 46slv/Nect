@@ -208,6 +208,9 @@ import {
   transformEffectPosition,
   TRANSFORM_EFFECT_ID,
 } from './effect-insert-plan.js';
+import { assertMacroPathStep, macroTransformSteps } from './macro-transform-steps.js';
+import { planMacroInsertion, sameMacroInsertionTarget } from './macro-insert-plan.js';
+import { resetMacroOverride, setMacroOverride } from './macro-package.js';
 import { alignArtworkSelection } from './artwork-alignment.js';
 import { planNodeOutputAlignment } from './node-output-alignment.js';
 import { planPointAlignment } from './point-alignment.js';
@@ -690,6 +693,9 @@ export const definitions = Object.fromEntries(
     ),
   ),
 );
+// A Macro needs a registered definition pin, so an unbound instance is not an
+// Add-node picker entry. The insertion command creates it with a valid pin.
+Object.defineProperty(definitions, 'Macro', { value: { path: p('Path', null) } });
 for (const type of imageDitherTypes) {
   if (Object.hasOwn(definitions, type)) throw Error(`Duplicate projected type: ${type}`);
   const shapeType = type.replace(/ Image$/, '');
@@ -935,6 +941,7 @@ const bypassInputs = Object.freeze({
   Mask: 'path',
   Boolean: 'a',
   Transform: 'path',
+  Macro: 'path',
   'Path Remap': 'path',
   'Geometry Repeater': 'path',
   'Instance on Points': 'path',
@@ -1719,6 +1726,31 @@ function copyEvaluationIdentity(source, result) {
   return result;
 }
 const cloneEvaluated = (value) => copyEvaluationIdentity(value, clone(value));
+function transformEvaluatedPath(source, matrix, nodeId) {
+  const object = toPaper(source);
+  try {
+    object.transform(new scope.Matrix(...matrix));
+    const transformed = fromPaper(object, nodeId);
+    transformed.contours.forEach((contour, contourIndex) => {
+      const original = source.contours[contourIndex];
+      contour.id = original.id;
+      if (original.group !== undefined) contour.group = original.group;
+      if (original.repeaterOpacity !== undefined)
+        contour.repeaterOpacity = original.repeaterOpacity;
+      if (original.repeaterFill !== undefined) contour.repeaterFill = clone(original.repeaterFill);
+      if (original.repeaterStroke !== undefined)
+        contour.repeaterStroke = clone(original.repeaterStroke);
+      contour.points.forEach((point, pointIndex) => (point.id = original.points[pointIndex].id));
+    });
+    transformed.characterOccurrences = routeCharacters(source, nodeId, matrix);
+    transformed.unstable = source.unstable;
+    transformed.remapSuspended = source.remapSuspended;
+    transformed.fingerprint = source.fingerprint;
+    return copyEvaluationIdentity(source, transformed);
+  } finally {
+    object.remove();
+  }
+}
 function evaluatedPaintedGroup(values, options) {
   const result = paintedGroup(values, options);
   values.forEach((value, i) => copyEvaluationIdentity(value, result.children[i]));
@@ -2960,6 +2992,7 @@ export function evaluate(
       }
       const existing = cache.get(key);
       if (
+        n.type !== 'Macro' &&
         existing &&
         existing.key === cacheKey &&
         existing.font === cacheFont &&
@@ -3740,28 +3773,21 @@ export function evaluate(
             }
           }
         } else if (n.type === 'Transform') {
-          let obj = toPaper(result);
-          const state = transformValues(n, read);
-          obj.transform(new scope.Matrix(...state.matrix));
-          let transformed = fromPaper(obj, n.id);
-          transformed.contours.forEach((c, ci) => {
-            c.id = result.contours[ci].id;
-            if (result.contours[ci].group !== undefined) c.group = result.contours[ci].group;
-            if (result.contours[ci].repeaterOpacity !== undefined)
-              c.repeaterOpacity = result.contours[ci].repeaterOpacity;
-            if (result.contours[ci].repeaterFill !== undefined)
-              c.repeaterFill = clone(result.contours[ci].repeaterFill);
-            if (result.contours[ci].repeaterStroke !== undefined)
-              c.repeaterStroke = clone(result.contours[ci].repeaterStroke);
-            c.points.forEach((p, pi) => (p.id = result.contours[ci].points[pi].id));
-          });
-          transformed.characterOccurrences = routeCharacters(result, n.id, state.matrix);
-          transformed.unstable = result.unstable;
-          transformed.remapSuspended = result.remapSuspended;
-          transformed.fingerprint = result.fingerprint;
-          copyEvaluationIdentity(result, transformed);
-          result = transformed;
-          obj.remove();
+          result = transformEvaluatedPath(result, transformValues(n, read).matrix, n.id);
+        } else if (n.type === 'Macro') {
+          if (byId.get(n.params.path.source)?.type !== 'Rectangle')
+            throw Error('Macro requires a direct Rectangle source');
+          const pin = n.macro,
+            definition = documentContext?.macroDefinitions?.find(
+              (item) => item.id === pin?.definitionId && item.revision === pin.definitionRevision,
+            );
+          if (!definition) throw Error('Macro definition for instance pin is missing');
+          const steps = macroTransformSteps(definition, { id: n.id, ...pin });
+          for (const step of steps) {
+            assertMacroPathStep(result, step.matrix);
+            result = transformEvaluatedPath(result, step.matrix, n.id);
+            assertMacroPathStep(result, [1, 0, 0, 1, 0, 0]);
+          }
         }
       }
       if (
@@ -3799,16 +3825,18 @@ export function evaluate(
       values.set(key, result);
       const version = ++revision;
       versions.set(key, version);
-      cache.set(key, {
-        key: cacheKey,
-        font: cacheFont,
-        styleFonts,
-        imageAsset,
-        value: cloneEvaluated(result),
-        version,
-        warnings: warnings.slice(warningStart),
-        textLayout: !positionOutput && textLayouts.has(id) ? clone(textLayouts.get(id)) : undefined,
-      });
+      if (n.type !== 'Macro')
+        cache.set(key, {
+          key: cacheKey,
+          font: cacheFont,
+          styleFonts,
+          imageAsset,
+          value: cloneEvaluated(result),
+          version,
+          warnings: warnings.slice(warningStart),
+          textLayout:
+            !positionOutput && textLayouts.has(id) ? clone(textLayouts.get(id)) : undefined,
+        });
       return result;
     } finally {
       active.delete(activeKey);
@@ -3900,7 +3928,7 @@ export function evaluate(
 // Session commits and previews are the common boundary for source edits,
 // including gestures and prepared commands. A dangling identity cannot be
 // revived by an allocator, and affected cross-layer controls remain valid.
-function foreignAffectedVertices(before, candidate, fonts) {
+function foreignAffectedVertices(before, candidate, fonts, collectMacro = false) {
   const nodeKey = (layerId, nodeId) => `${layerId}\0${nodeId}`;
   const entries = (doc) =>
     new Map(doc.layers.flatMap((layer) => layer.nodes.map((n) => [nodeKey(layer.id, n.id), n])));
@@ -4102,11 +4130,25 @@ function foreignAffectedVertices(before, candidate, fonts) {
       }
     }
   }
+  const affectedMacros = new Map();
   for (let i = 0; i < queue.length; i++) {
     const item = queue[i],
       marker = `${item.key}\0${item.foreign ? 1 : 0}`;
     if (seen.has(marker)) continue;
     seen.add(marker);
+    if (collectMacro) {
+      const vertex = vertices.get(item.key),
+        node = vertex && candidateGraph.nodes.get(vertex.layerId)?.get(vertex.nodeId);
+      if (
+        vertex?.key === undefined &&
+        node?.type === 'Macro' &&
+        !node.bypassed &&
+        node.params.path.source
+      ) {
+        if (!affectedMacros.has(vertex.layerId)) affectedMacros.set(vertex.layerId, new Set());
+        affectedMacros.get(vertex.layerId).add(vertex.nodeId);
+      }
+    }
     for (const edge of reverse.get(item.key) || []) {
       const foreign = item.foreign || edge.foreign;
       if (foreign) affected.set(edge.consumer, vertices.get(edge.consumer));
@@ -4115,6 +4157,7 @@ function foreignAffectedVertices(before, candidate, fonts) {
   }
   return {
     affected: [...affected.values()].filter((v) => current.has(nodeKey(v.layerId, v.nodeId))),
+    affectedMacros,
     candidateGraph,
     activatedVertices,
   };
@@ -4142,8 +4185,9 @@ function assertArtworkReferenceTransition(
     return refs;
   };
   const previous = allRefs(before),
-    next = allRefs(candidate);
-  if (!previous.length && !next.length) return;
+    next = allRefs(candidate),
+    hasMacro = candidate.layers.some((layer) => layer.nodes.some((node) => node.type === 'Macro'));
+  if (!previous.length && !next.length && !hasMacro) return;
   const refKey = (ref) =>
     `${ref.qualifier || ''}\0${ref.compositionId || ''}\0${ref.layerId}\0${ref.nodeId}\0${ref.key}\0${ref.component || ''}`;
   const remaining = new Set(next.map(refKey));
@@ -4162,11 +4206,57 @@ function assertArtworkReferenceTransition(
     )
       throw Error('New identity would retarget a missing Artwork reference');
 
-  const { affected, candidateGraph, activatedVertices } = foreignAffectedVertices(
+  const { affected, affectedMacros, candidateGraph, activatedVertices } = foreignAffectedVertices(
     before,
     candidate,
     fonts,
+    hasMacro,
   );
+  if (hasMacro) {
+    const currentFonts = resolveFonts(candidate, fonts),
+      oldFonts = resolveFonts(before, fonts);
+    for (const layer of candidate.layers) {
+      const ids = affectedMacros.get(layer.id);
+      if (!ids) continue;
+      const instances = layer.nodes.filter(
+        (item) =>
+          item.type === 'Macro' && ids.has(item.id) && !item.bypassed && item.params.path.source,
+      );
+      if (!instances.length) continue;
+      const current = evaluate(layer, currentFonts, candidate.imageAssets, candidate, null, true),
+        oldLayer = before.layers.find((item) => item.id === layer.id);
+      let prior;
+      for (const instance of instances) {
+        try {
+          current.run(instance.id);
+        } catch (error) {
+          if (
+            isMissingReferenceTarget(error) ||
+            ['COMPOSITION_TARGET_UNSET', 'COMPOSITION_TARGET_MISSING'].includes(error.code)
+          )
+            continue;
+          const old = oldLayer?.nodes.find(
+            (item) => item.id === instance.id && item.type === 'Macro',
+          );
+          if (
+            old &&
+            !old.bypassed &&
+            old.params.path.source &&
+            JSON.stringify(old.params.path) === JSON.stringify(instance.params.path) &&
+            JSON.stringify(old.macro) === JSON.stringify(instance.macro)
+          ) {
+            prior ||= evaluate(oldLayer, oldFonts, before.imageAssets, before, null, true);
+            try {
+              prior.run(old.id);
+            } catch (earlier) {
+              if (earlier.code === error.code && earlier.message === error.message) continue;
+            }
+          }
+          throw error;
+        }
+      }
+    }
+  }
   if (!affected.length) return;
   const currentFonts = resolveFonts(candidate, fonts),
     oldFonts = resolveFonts(before, fonts),
@@ -4925,6 +5015,8 @@ export function validate(doc) {
     validateNodeGroups(l, sourceSchemaVersion, id);
     for (const n of l.nodes) {
       id(n.id);
+      if (n.type === 'Macro' && sourceSchemaVersion < MACRO_SCHEMA_VERSION)
+        throw Error(`Macro requires schemaVersion ${MACRO_SCHEMA_VERSION}`);
       if (['Keyer', 'Mask'].includes(n.type) && sourceSchemaVersion < 35)
         throw Error('Keyer and Mask require schemaVersion 35');
       if (n.type === 'Keyer' && !n.bypassed && ++activeKeyers > MAX_ACTIVE_KEYERS)
@@ -7318,6 +7410,9 @@ export class CommandSession {
       'paste-nodes',
       'paste-layer-snapshot',
       'apply-effect',
+      'insert-macro',
+      'set-macro-override',
+      'reset-macro-override',
       'move-layers-to-folder',
       'order-layer-folder',
       'remove-layers-from-folder',
@@ -7727,6 +7822,8 @@ export class CommandSession {
         nodes = selected.filter((n) => !['Output', 'Image Output'].includes(n.type));
       if (!nodes.length)
         throw Error('Copy source/effect nodes; each Composition keeps its own Output');
+      if (nodes.some((item) => item.type === 'Macro'))
+        throw Error('Copying Macro nodes needs definition closure');
       if (
         doc.schemaVersion >= COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION &&
         nodesHaveComponentCompositionReferenceSyntax(nodes)
@@ -7890,6 +7987,60 @@ export class CommandSession {
     return { ...this.state, ...result, changed: revision !== this.#history.revision };
   }
   #commandCandidate(type, payload, before, deferVariable = false, preparedFonts = null) {
+    if (type === 'insert-macro') {
+      const expected = payload.target,
+        options = { fonts: resolveFonts(before, this.#fonts()), imageAssets: before.imageAssets },
+        plan = planMacroInsertion(
+          before,
+          expected?.layerId,
+          { definitionId: expected?.definitionId, revision: expected?.definitionRevision },
+          options,
+        );
+      if (!plan.supported) throw Error(plan.reason);
+      if (!sameMacroInsertionTarget(plan.target, expected))
+        throw Error('STALE_REVISION: artwork target changed');
+      const candidate = cloneDocument(before),
+        layer = candidate.layers.find((item) => item.id === plan.target.layerId),
+        definition = candidate.macroDefinitions.find(
+          (item) =>
+            item.id === plan.target.definitionId &&
+            item.revision === plan.target.definitionRevision,
+        ),
+        instance = node('Macro', ...transformEffectPosition(layer, plan.target.producerNodeId));
+      instance.name = definition.name;
+      instance.macro = {
+        definitionId: definition.id,
+        definitionRevision: definition.revision,
+        overrides: {},
+      };
+      layer.nodes.push(instance);
+      connect(layer, plan.target.producerNodeId, instance.id, 'path');
+      connect(layer, instance.id, plan.target.consumerNodeId, plan.target.inputKey);
+      validate(candidate);
+      const output = evaluate(layer, options.fonts, options.imageAssets, candidate);
+      if (output.error) throw Error(output.error);
+      return { candidate, result: { nodeId: instance.id } };
+    }
+    if (type === 'set-macro-override' || type === 'reset-macro-override') {
+      const candidate = cloneDocument(before),
+        layer = candidate.layers.find((item) => item.id === payload.layerId),
+        instance = layer?.nodes.find((item) => item.id === payload.nodeId && item.type === 'Macro');
+      if (!instance) throw Error('Select a Macro instance');
+      if (layer.locked || instance.locked) throw Error('Unlock the Macro before editing it');
+      const pin = instance.macro,
+        definition = candidate.macroDefinitions?.find(
+          (item) => item.id === pin?.definitionId && item.revision === pin.definitionRevision,
+        );
+      if (!definition) throw Error('Macro definition for instance pin is missing');
+      const authored = { id: instance.id, ...pin },
+        updated =
+          type === 'set-macro-override'
+            ? setMacroOverride(definition, authored, payload.parameterId, payload.value)
+            : resetMacroOverride(definition, authored, payload.parameterId);
+      instance.macro.overrides = updated.overrides;
+      validate(candidate);
+      return { candidate, result: { nodeId: instance.id } };
+    }
     if (type === 'apply-effect') {
       if (payload.effectId !== TRANSFORM_EFFECT_ID) throw Error('Unknown effect');
       const options = {
@@ -8953,6 +9104,11 @@ export class CommandSession {
       candidate.schemaVersion = Math.max(candidate.schemaVersion, 11);
     }
     if (type === 'save-node-preset' || type === 'update-node-preset') {
+      if (
+        Array.isArray(payload.nodeIds) &&
+        target.nodes.some((item) => item.type === 'Macro' && payload.nodeIds.includes(item.id))
+      )
+        throw Error('Macro node presets need definition closure');
       const presets = candidate.nodePresets ?? [];
       const index = presets.findIndex((p) => p.id === payload.presetId);
       if (type === 'save-node-preset' && index !== -1) throw Error('Preset ID already exists');
@@ -9160,6 +9316,8 @@ export class CommandSession {
           throw Error('Invalid duplicate offset');
       }
       const originals = target.nodes.filter((n) => payload.nodeIds.includes(n.id));
+      if (originals.some((item) => item.type === 'Macro'))
+        throw Error('Duplicating Macro nodes needs definition closure');
       if (
         candidate.schemaVersion >= COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION &&
         nodesHaveComponentCompositionReferenceSyntax(originals)
