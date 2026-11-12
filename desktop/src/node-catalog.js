@@ -46,14 +46,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Polar Transform',
-    categoryId: 'transform',
-    labelJa: '極座標変換',
-    aliases: ['Polar Transform', 'Polar Coordinates', '極座標', '円形変形'],
-    description: 'パスの横位置を角度、縦位置を半径へ変換。Inverseで逆変換。',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Luminance to Points',
     categoryId: 'image',
     labelJa: '輝度をポイントへ',
