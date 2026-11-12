@@ -150,14 +150,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Closed Path Offset',
-    categoryId: 'path',
-    labelJa: '閉じた輪郭',
-    aliases: ['閉じた輪郭', 'オフセット'],
-    description: '閉じた輪郭 オフセット',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Trim Path',
     categoryId: 'path',
     labelJa: '切り取り',

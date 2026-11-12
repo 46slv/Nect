@@ -6,12 +6,20 @@ import { closedOffsetSettings } from '../src/closed-offset-node-settings.js';
 import { signature } from '../src/path-signature.js';
 import { createNodeRegistry } from '../src/node-foundation.js';
 import { nectNodeHost } from '../src/nect-node-host.js';
+import { builtinManifest } from '../src/builtin-node-manifest.js';
+import { builtinNodeRegistry } from '../src/builtin-node-registry.js';
+import { nodeCatalog } from '../src/node-catalog.js';
 import {
+  activeParameters,
+  bypassContract,
   closedOffsetSettings as currentCoreSettings,
   connect,
+  definitions,
   document,
   evaluate,
   node,
+  operationOptions,
+  outputPorts,
 } from '../src/core.js';
 
 const resolved = createNodeRegistry(
@@ -19,6 +27,31 @@ const resolved = createNodeRegistry(
   new Map([[closedOffsetDeclaration.implementationId, { evaluate: evaluateClosedOffset }]]),
   nectNodeHost,
 ).get(closedOffsetDeclaration.typeId);
+
+test('Closed Path Offset is registered without changing its current interface or order', () => {
+  const n = node('Closed Path Offset'),
+    registered = builtinNodeRegistry.get(n.type),
+    manifest = builtinManifest.find((row) => row.declaration.typeId === n.type),
+    defs = Object.keys(definitions),
+    catalog = nodeCatalog.map(({ typeId }) => typeId);
+  assert.deepEqual(registered.declaration, closedOffsetDeclaration);
+  assert.equal(manifest.binding.evaluate, evaluateClosedOffset);
+  assert.equal(n.operation, 'miter');
+  assert.equal(bypassContract(n).input, 'path');
+  assert.deepEqual(outputPorts(n), [{ id: undefined, label: '', type: 'Path' }]);
+  assert.deepEqual(operationOptions[n.type], ['miter', 'bevel', 'round']);
+  for (const operation of operationOptions[n.type]) {
+    n.operation = operation;
+    assert.deepEqual(
+      activeParameters(n).map(([key]) => key),
+      ['path', 'amount', 'miterLimit'],
+    );
+  }
+  assert.equal(defs[defs.indexOf(n.type) - 1], 'Convert to Path');
+  assert.equal(defs[defs.indexOf(n.type) + 1], 'Path Remap');
+  assert.equal(catalog[catalog.indexOf(n.type) - 1], 'Expand Stroke');
+  assert.equal(catalog[catalog.indexOf(n.type) + 1], 'Corner Round');
+});
 
 function rectangle(id, x, y, width, height, group) {
   return {

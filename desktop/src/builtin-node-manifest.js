@@ -53,6 +53,8 @@ import { setClosureDeclaration } from './set-closure-declaration.js';
 import { evaluateSetClosure } from './set-closure-binding.js';
 import { vectorTransformDeclaration } from './vector-transform-declaration.js';
 import { evaluateVectorTransform } from './vector-transform-binding.js';
+import { closedOffsetDeclaration } from './closed-offset-node-declaration.js';
+import { evaluateClosedOffset } from './closed-offset-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -140,5 +142,11 @@ export const builtinManifest = Object.freeze([
     { evaluate: evaluateVectorTransform },
     'Transform',
     'Vector Math',
+  ),
+  entry(
+    closedOffsetDeclaration,
+    { evaluate: evaluateClosedOffset },
+    'Convert to Path',
+    'Expand Stroke',
   ),
 ]);
