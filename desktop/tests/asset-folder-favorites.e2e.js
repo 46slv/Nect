@@ -59,6 +59,9 @@ try {
   await addFolder(first);
   const firstId = await select().inputValue();
   await panel.getByRole('button', { name: 'alpha.svg', exact: true }).waitFor();
+  await panel.getByRole('button', { name: 'alpha.svg', exact: true }).click();
+  await panel.getByRole('button', { name: 'Pin asset', exact: true }).click({ timeout: 3000 });
+  assert.equal(await panel.locator('[data-quick-asset]').count(), 1);
   await panel.getByRole('button', { name: 'Pin folder', exact: true }).focus();
   await page.keyboard.press('Enter');
   assert.equal(await panel.locator('[data-quick-open]').count(), 1);
@@ -66,6 +69,25 @@ try {
   const secondId = await select().inputValue();
   assert.notEqual(firstId, secondId);
   await panel.getByRole('button', { name: 'beta.svg', exact: true }).waitFor();
+  await panel.getByRole('button', { name: 'beta.svg', exact: true }).click();
+  await panel.getByRole('button', { name: 'Pin asset', exact: true }).click();
+  assert.equal(await panel.locator('[data-quick-asset]').count(), 2);
+  await panel.getByRole('button', { name: 'Unpin asset', exact: true }).click();
+  assert.equal(await panel.locator('[data-quick-asset]').count(), 1);
+  await panel.getByRole('button', { name: 'Pin asset', exact: true }).click();
+  await panel.getByLabel('Search assets').fill('no matching file');
+  await panel.locator('[data-quick-asset]').nth(0).focus();
+  await page.keyboard.press('Enter');
+  await ready(panel);
+  assert.equal(await select().inputValue(), firstId);
+  await panel.locator('[data-asset-place-layer]:enabled').waitFor();
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.hasAttribute('data-quick-asset')),
+    true,
+  );
+  assert.equal(await panel.getByRole('button', { name: 'Unpin asset', exact: true }).count(), 1);
+  await select().selectOption(secondId);
+  await ready(panel);
   await panel.getByRole('button', { name: 'Pin folder', exact: true }).click();
   assert.equal(await panel.locator('[data-quick-open]').count(), 2);
   await panel.getByRole('button', { name: 'Unpin folder', exact: true }).click();
@@ -90,6 +112,7 @@ try {
   await panel.getByRole('button', { name: 'Refresh', exact: true }).click();
   const refreshChooser = await pendingRefresh;
   assert.equal(await panel.locator('[data-quick-open]').nth(1).isDisabled(), true);
+  assert.equal(await panel.locator('[data-quick-asset]').nth(1).isDisabled(), true);
   assert.equal(
     await panel.getByRole('button', { name: 'Unpin folder', exact: true }).isDisabled(),
     true,
@@ -99,6 +122,10 @@ try {
     .locator('[data-quick-open]')
     .nth(1)
     .evaluate((button) => button.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  await panel
+    .locator('[data-quick-asset]')
+    .nth(1)
+    .evaluate((button) => button.click());
   assert.equal(await select().inputValue(), firstId, 'pending picker cannot switch folders');
   await select().evaluate((element, id) => {
     element.value = id;
@@ -149,6 +176,7 @@ try {
   panel = await openPanel(page);
   await ready(panel);
   assert.equal(await panel.locator('[data-quick-open]').count(), 2);
+  assert.equal(await panel.locator('[data-quick-asset]').count(), 2);
   await panel.locator('[data-quick-open]').nth(1).click();
   await ready(panel);
   assert.equal(await select().inputValue(), secondId);
@@ -165,6 +193,7 @@ try {
     element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })),
   );
   await panel.locator('[data-quick-open]').nth(0).click();
+  await panel.locator('[data-quick-asset]').nth(0).click();
   await panel
     .locator('[data-quick-open]')
     .nth(0)
@@ -217,6 +246,7 @@ try {
   panel = page.locator('[data-asset-library]');
   if (!(await panel.isVisible().catch(() => false))) panel = await openPanel(page);
   assert.equal(await panel.locator('[data-quick-open]').count(), 0);
+  assert.equal(await panel.locator('[data-quick-asset]').count(), 0);
   await addFolder(first);
   assert.notEqual(await select().inputValue(), firstId);
   assert.equal(await panel.locator('[data-quick-open]').count(), 0);
@@ -385,6 +415,207 @@ try {
   };
   assert.deepEqual(errors, []);
   await nativeContext.close();
+
+  const itemContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const itemPage = await itemContext.newPage();
+  listen(itemPage);
+  await itemPage.addInitScript(() => {
+    window.isTauri = true;
+    const originalSet = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (window.failItemFavoriteSave && key === 'nect.asset-item-favorites.v1')
+        throw new DOMException('denied', 'QuotaExceededError');
+      return originalSet.call(this, key, value);
+    };
+    const roots = sessionStorage.getItem('replace-a')
+      ? [
+          { id: 'root-new', name: 'assets', path: 'C:\\A\\assets' },
+          { id: 'root-b', name: 'assets', path: 'C:\\B\\assets' },
+        ]
+      : [
+          { id: 'root-a', name: 'assets', path: 'C:\\A\\assets' },
+          { id: 'root-b', name: 'assets', path: 'C:\\B\\assets' },
+        ];
+    window.__TAURI_INTERNALS__ = {
+      transformCallback: () => 1,
+      unregisterCallback: () => {},
+      invoke: async (command, args) => {
+        if (command === 'list_asset_folders') return roots;
+        if (command === 'refresh_asset_folder') {
+          if (args.rootId === 'root-b' && window.failRootB) throw Error('Folder unavailable');
+          const response = {
+            root: roots.find((root) => root.id === args.rootId),
+            generation: 'test',
+            items:
+              args.rootId === 'root-b' && sessionStorage.getItem('missing-b')
+                ? []
+                : [{ relativePath: 'same.svg', bytes: 75 }],
+            warnings: [],
+          };
+          if (window.deferItemRefresh) {
+            window.deferItemRefresh = false;
+            return new Promise((resolve) => {
+              window.finishItemRefresh = () => resolve(response);
+            });
+          }
+          return response;
+        }
+        if (command === 'open_asset_source') {
+          const color = args.rootId === 'root-b' ? '#203fbf' : '#bf2020';
+          const source =
+            args.rootId === 'root-b' && window.badAssetB
+              ? 'not an SVG'
+              : `<svg width="20" height="20"><rect width="20" height="20" fill="${color}"/></svg>`;
+          return {
+            bytes: [...new TextEncoder().encode(source)],
+            sourceLocation: `${args.rootId}/same.svg`,
+          };
+        }
+        if (command.startsWith('list_')) return [];
+        if (command === 'enable_close_guard' || command === 'release_project') return null;
+        if (command === 'choose_unsaved') return 'discard';
+        throw Error('Unexpected IPC ' + command);
+      },
+    };
+  });
+  await itemPage.goto(base);
+  await itemPage.waitForFunction(() => window.nect);
+  let itemPanel = await openPanel(itemPage);
+  await ready(itemPanel);
+  await itemPanel.getByRole('button', { name: 'same.svg', exact: true }).click();
+  await itemPage.evaluate(() => {
+    window.failItemFavoriteSave = true;
+  });
+  await itemPanel.getByRole('button', { name: 'Pin asset', exact: true }).click();
+  assert.equal(await itemPanel.locator('[data-quick-asset]').count(), 0);
+  assert.match(await itemPanel.locator('[data-asset-status]').textContent(), /could not be saved/);
+  await itemPage.evaluate(() => {
+    window.failItemFavoriteSave = false;
+  });
+  await itemPanel.getByRole('button', { name: 'Pin asset', exact: true }).click();
+  await itemPanel.getByLabel('Asset folder', { exact: true }).selectOption('root-b');
+  await ready(itemPanel);
+  await itemPanel.getByRole('button', { name: 'same.svg', exact: true }).click();
+  await itemPanel.getByRole('button', { name: 'Pin asset', exact: true }).click();
+  assert.deepEqual(
+    await itemPage.evaluate(() => JSON.parse(localStorage.getItem('nect.asset-item-favorites.v1'))),
+    [
+      { rootId: 'root-a', relativePath: 'same.svg' },
+      { rootId: 'root-b', relativePath: 'same.svg' },
+    ],
+  );
+  const itemLabels = await itemPanel.locator('[data-quick-asset]').allTextContents();
+  assert.match(itemLabels[0], /^1 · same\.svg/);
+  assert.match(itemLabels[1], /^2 · same\.svg/);
+  await itemPage.evaluate(() => {
+    window.deferItemRefresh = true;
+    window.finishItemRefresh = null;
+  });
+  await itemPanel.locator('[data-quick-asset]').first().focus();
+  await itemPage.keyboard.press('Enter');
+  await itemPage.waitForFunction(() => typeof window.finishItemRefresh === 'function');
+  await itemPage.evaluate(() => window.finishItemRefresh());
+  await itemPanel.locator('[data-asset-place-layer]:enabled').waitFor();
+  await itemPage.waitForFunction(
+    () => document.activeElement?.hasAttribute('data-quick-asset'),
+    null,
+    { timeout: 3000 },
+  );
+  await itemPage.evaluate(() => {
+    window.deferItemRefresh = true;
+    window.finishItemRefresh = null;
+  });
+  await itemPage.keyboard.press('Enter');
+  await itemPage.waitForFunction(() => typeof window.finishItemRefresh === 'function');
+  await itemPage.evaluate(() =>
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })),
+  );
+  await itemPage.evaluate(() => window.finishItemRefresh());
+  await itemPanel.locator('[data-asset-place-layer]:enabled').waitFor();
+  assert.equal(await itemPage.evaluate(() => document.activeElement === document.body), true);
+  await itemPage.evaluate(() => {
+    window.deferItemRefresh = true;
+    window.finishItemRefresh = null;
+  });
+  await itemPanel.locator('[data-quick-asset]').first().click();
+  await itemPage.waitForFunction(() => typeof window.finishItemRefresh === 'function');
+  await itemPanel.getByRole('button', { name: 'Close assets' }).click();
+  itemPanel = await openPanel(itemPage);
+  await ready(itemPanel);
+  await itemPage.evaluate(() => window.finishItemRefresh());
+  await itemPage.waitForTimeout(50);
+  assert.equal(await itemPanel.locator('[data-asset-place-layer]').isVisible(), false);
+  assert.equal(await itemPanel.locator('[data-quick-asset]').count(), 2);
+  await itemPanel.locator('[data-quick-asset]').first().click();
+  await ready(itemPanel);
+  assert.equal(await itemPanel.getByLabel('Asset folder', { exact: true }).inputValue(), 'root-a');
+  await itemPanel.locator('[data-asset-place-layer]:enabled').click();
+  await itemPage.waitForFunction(() =>
+    window.nect.document.layers.some((layer) => layer.nodes.some((node) => node.type === 'SVG')),
+  );
+  assert.equal(
+    await itemPage.evaluate(
+      () =>
+        window.nect.document.layers
+          .flatMap((layer) => layer.nodes)
+          .find((node) => node.type === 'SVG').svgAsset.rootId,
+    ),
+    'root-a',
+  );
+  await itemPage.evaluate(() => {
+    window.badAssetB = true;
+  });
+  await itemPanel.locator('[data-quick-asset]').last().click();
+  const unpinBadAsset = itemPanel.getByRole('button', { name: 'Unpin asset', exact: true });
+  await unpinBadAsset.waitFor();
+  assert.equal(await unpinBadAsset.isDisabled(), false);
+  await unpinBadAsset.click();
+  await itemPage.evaluate(() => {
+    window.badAssetB = false;
+  });
+  await itemPanel.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await ready(itemPanel);
+  await itemPanel.getByRole('button', { name: 'same.svg', exact: true }).click();
+  await itemPanel.getByRole('button', { name: 'Pin asset', exact: true }).click();
+  await itemPage.evaluate(() => {
+    window.failRootB = true;
+  });
+  await itemPanel.locator('[data-quick-asset]').last().click();
+  await itemPanel.locator('[data-quick-remove-asset]').waitFor({ timeout: 3000 });
+  await itemPanel.locator('[data-quick-remove-asset]').click();
+  await itemPage.evaluate(() => {
+    window.failRootB = false;
+  });
+  await itemPanel.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await ready(itemPanel);
+  await itemPanel.getByRole('button', { name: 'same.svg', exact: true }).click();
+  await itemPanel.getByRole('button', { name: 'Pin asset', exact: true }).click();
+  await itemPage.evaluate(() => sessionStorage.setItem('replace-a', '1'));
+  await itemPage.reload();
+  await itemPage.waitForFunction(() => window.nect);
+  itemPanel = itemPage.locator('[data-asset-library]');
+  if (!(await itemPanel.isVisible().catch(() => false))) itemPanel = await openPanel(itemPage);
+  await ready(itemPanel);
+  assert.equal(await itemPanel.locator('[data-quick-remove-asset]').count(), 1);
+  assert.equal(await itemPanel.locator('[data-quick-asset]').count(), 1);
+  await itemPanel.locator('[data-quick-remove-asset]').click();
+  assert.deepEqual(
+    await itemPage.evaluate(() => JSON.parse(localStorage.getItem('nect.asset-item-favorites.v1'))),
+    [{ rootId: 'root-b', relativePath: 'same.svg' }],
+  );
+  await itemPage.evaluate(() => sessionStorage.setItem('missing-b', '1'));
+  await itemPanel.locator('[data-quick-asset]').click();
+  await itemPanel.locator('[data-quick-remove-asset]').waitFor();
+  await itemPage.evaluate(() => sessionStorage.removeItem('missing-b'));
+  await itemPanel.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await itemPanel.locator('[data-quick-asset]').waitFor();
+  assert.deepEqual(errors, []);
+  await itemContext.close();
+  results.itemFavorites = {
+    nativeStubPersistence: true,
+    exactRootAndPath: true,
+    missingAndRecovery: true,
+  };
   console.log(JSON.stringify(results, null, 2));
 } finally {
   await browser.close();

@@ -8,7 +8,9 @@ import { exportSVG } from './core.js';
 const browserRoots = new Map();
 // Browser directory access and its opaque IDs last only for this page session.
 const browserFavorites = new Set();
+const browserAssetFavorites = new Map();
 export const ASSET_FOLDER_FAVORITES_KEY = 'nect.asset-folder-favorites.v1';
+export const ASSET_ITEM_FAVORITES_KEY = 'nect.asset-item-favorites.v1';
 const MAX_FAVORITES = 128;
 // Presentation only: root IDs still own registration, refresh and placement.
 const rootDisplayNumbers = new Map();
@@ -34,6 +36,27 @@ function relativePath(path) {
   )
     throw Error('Invalid library relative path');
   return path;
+}
+function assetFavoriteKey(rootId, path) {
+  return JSON.stringify([rootId, path]);
+}
+function validAssetFavorite(value) {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    typeof value.rootId !== 'string' ||
+    !value.rootId ||
+    value.rootId.length > 256 ||
+    /[\u0000-\u001f]/.test(value.rootId)
+  )
+    return false;
+  try {
+    relativePath(value.relativePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 export async function svgAssetContent(contents) {
   if (typeof contents !== 'string' || new TextEncoder().encode(contents).length > MAX_FILE)
@@ -106,12 +129,16 @@ export function mountAssetLibrary({
     refreshSequence = 0,
     checkingRoots = true,
     favorites = [],
+    assetFavorites = [],
     favoriteStorage = null,
     favoriteStorageError = null,
     favoriteReadFailed = false,
+    assetFavoriteStorageError = null,
+    assetFavoriteReadFailed = false,
     shown = 48,
     choiceSequence = 0;
   const failedRoots = new Set();
+  const failedAssets = new Set();
   if (desktop) {
     try {
       favoriteStorage = panel.ownerDocument.defaultView.localStorage;
@@ -131,14 +158,39 @@ export function mountAssetLibrary({
       favoriteReadFailed = true;
       favoriteStorageError = 'Quick access could not be loaded';
     }
-  } else favorites = [...browserFavorites];
+    try {
+      favoriteStorage ||= panel.ownerDocument.defaultView.localStorage;
+      const stored = favoriteStorage.getItem(ASSET_ITEM_FAVORITES_KEY);
+      const saved = stored === null ? [] : JSON.parse(stored);
+      if (
+        !Array.isArray(saved) ||
+        saved.length > MAX_FAVORITES ||
+        saved.some((entry) => !validAssetFavorite(entry)) ||
+        new Set(saved.map((entry) => assetFavoriteKey(entry.rootId, entry.relativePath))).size !==
+          saved.length
+      )
+        throw Error('Invalid asset Quick access settings');
+      assetFavorites = saved.map(({ rootId, relativePath: path }) => ({
+        rootId,
+        relativePath: path,
+      }));
+    } catch {
+      assetFavoriteReadFailed = true;
+      assetFavoriteStorageError = 'Asset Quick access could not be loaded';
+    }
+  } else {
+    favorites = [...browserFavorites];
+    assetFavorites = [...browserAssetFavorites.values()].map((entry) => ({ ...entry }));
+  }
   const prepared = new Map();
   let dragTicket = null;
   const dragType = 'application/x-nect-library-ticket';
   let folderPickIntent = null;
+  let pointerSequence = 0;
   panel.addEventListener('compositionstart', (event) => composingInputs.add(event.target), true);
   panel.addEventListener('compositionend', (event) => composingInputs.delete(event.target), true);
   function guardComposingTransition(event) {
+    if (event.type === 'pointerdown') pointerSequence++;
     if (canDeactivateAssetLibrary()) return;
     const target = event.target;
     if (
@@ -213,10 +265,11 @@ export function mountAssetLibrary({
   const joinLabel = element('label', undefined, { class: 'asset-library-join' });
   const join = element('input', undefined, { type: 'checkbox' });
   joinLabel.append(join, document.createTextNode('Join before Out'));
+  const pinAsset = element('button', 'Pin asset', { 'aria-pressed': 'false' });
   const place = element('button', 'Place in new layer', { 'data-asset-place-layer': '' });
   const graph = element('button', 'Add to this graph', { 'data-asset-place-graph': '' });
   const actions = element('div', undefined, { class: 'asset-library-actions' });
-  actions.append(place, graph, joinLabel);
+  actions.append(pinAsset, place, graph, joinLabel);
   detail.append(actions, metadata);
   detail.hidden = true;
   const picker = element('input', undefined, {
@@ -232,7 +285,11 @@ export function mountAssetLibrary({
   function message(text, error = false) {
     // Automatic bootstrap/refresh must not erase a failed registration. A
     // subsequent explicit interaction clears it and can report its own state.
-    const persistent = [folderRegistrationError, favoriteStorageError].filter(Boolean);
+    const persistent = [
+      folderRegistrationError,
+      favoriteStorageError,
+      assetFavoriteStorageError,
+    ].filter(Boolean);
     if (persistent.length) {
       if (error && !persistent.includes(text)) persistent.push(text);
       text = persistent.join(' · ');
@@ -259,14 +316,39 @@ export function mountAssetLibrary({
     pin.disabled = blocked || favoriteReadFailed || !roots.some((root) => root.id === rootId);
     pin.textContent = favorites.includes(rootId) ? 'Unpin folder' : 'Pin folder';
     pin.setAttribute('aria-pressed', String(favorites.includes(rootId)));
+    const selectedRef =
+      selected && listing?.root?.id === rootId
+        ? { rootId, relativePath: selected.relativePath }
+        : null;
+    const assetKey = validAssetFavorite(selectedRef)
+      ? assetFavoriteKey(rootId, selected.relativePath)
+      : null;
+    const assetPinned =
+      assetKey !== null &&
+      assetFavorites.some(
+        (entry) => assetFavoriteKey(entry.rootId, entry.relativePath) === assetKey,
+      );
+    pinAsset.disabled =
+      blocked || assetFavoriteReadFailed || !assetKey || (!!selected?.error && !assetPinned);
+    pinAsset.textContent = assetPinned ? 'Unpin asset' : 'Pin asset';
+    pinAsset.setAttribute('aria-pressed', String(assetPinned));
     for (const button of quick.querySelectorAll('button')) {
-      button.disabled = blocked || (button.hasAttribute('data-quick-remove') && favoriteReadFailed);
+      button.disabled =
+        blocked ||
+        (button.hasAttribute('data-quick-remove') && favoriteReadFailed) ||
+        (button.hasAttribute('data-quick-remove-asset') && assetFavoriteReadFailed);
       if (button.hasAttribute('data-quick-open')) {
         const active = button.dataset.quickOpen === rootId;
         button.setAttribute('aria-pressed', String(active));
         button.style.borderColor = active ? '#326aa2' : '';
         button.style.backgroundColor = active ? '#e8f1fa' : '';
         button.style.boxShadow = active ? 'inset 0 0 0 1px #326aa2' : '';
+      }
+      if (button.hasAttribute('data-quick-asset')) {
+        const active = button.dataset.quickAsset === assetKey;
+        button.setAttribute('aria-pressed', String(active));
+        button.style.borderColor = active ? '#326aa2' : '';
+        button.style.backgroundColor = active ? '#e8f1fa' : '';
       }
     }
   }
@@ -314,11 +396,13 @@ export function mountAssetLibrary({
   function drawFavorites() {
     if (!alive) return;
     const focused = panel.ownerDocument.activeElement;
-    const focusedId = focused?.dataset?.quickOpen || focused?.dataset?.quickRemove;
-    const focusedAction = focused?.hasAttribute?.('data-quick-open') ? 'quickOpen' : 'quickRemove';
+    const focusedAction = ['quickOpen', 'quickRemove', 'quickAsset', 'quickRemoveAsset'].find(
+      (action) => focused?.dataset?.[action] !== undefined,
+    );
+    const focusedId = focusedAction && focused.dataset[focusedAction];
     quick.replaceChildren();
-    quick.style.display = favorites.length ? 'flex' : 'none';
-    if (favorites.length) {
+    quick.style.display = favorites.length || assetFavorites.length ? 'flex' : 'none';
+    if (favorites.length || assetFavorites.length) {
       const label = element('span', 'Pinned');
       label.style.whiteSpace = 'nowrap';
       quick.append(label);
@@ -380,6 +464,48 @@ export function mountAssetLibrary({
       };
       quick.append(openButton);
     }
+    for (const [index, entry] of assetFavorites.entries()) {
+      const key = assetFavoriteKey(entry.rootId, entry.relativePath);
+      const root = roots.find((item) => item.id === entry.rootId);
+      const option = [...rootSelect.options].find((item) => item.value === entry.rootId);
+      const context = `${root ? option?.textContent || root.name : entry.rootId} / ${entry.relativePath}`;
+      const filename = entry.relativePath.split('/').at(-1);
+      const label = `${assetFavorites.length > 1 ? `${index + 1} · ` : ''}${filename}`;
+      if (!root || failedRoots.has(entry.rootId) || failedAssets.has(key)) {
+        const state = !root && checkingRoots ? 'Checking' : 'Unavailable';
+        const unpin = element('button', `${state} ${label} ×`, {
+          'data-quick-remove-asset': key,
+          'aria-label': `Remove ${state} ${context} from Quick access`,
+          title: `Remove ${state} ${context} from Quick access`,
+        });
+        Object.assign(unpin.style, {
+          flex: '0 0 auto',
+          maxWidth: 'min(13rem, calc(100% - 50px))',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        });
+        unpin.onclick = () => changeAssetFavorites(assetFavorites.filter((item) => item !== entry));
+        quick.append(unpin);
+        continue;
+      }
+      const openButton = element('button', label, {
+        'data-quick-asset': key,
+        'aria-label': `Open ${context}`,
+        'aria-pressed': 'false',
+        title: context,
+      });
+      Object.assign(openButton.style, {
+        flex: '0 0 auto',
+        maxWidth: '13rem',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      });
+      openButton.onclick = () =>
+        void openAssetFavorite(entry, panel.ownerDocument.activeElement === openButton);
+      quick.append(openButton);
+    }
     buttons();
     if (focusedId) {
       const replacement = [...quick.querySelectorAll('button')].find(
@@ -412,6 +538,50 @@ export function mountAssetLibrary({
     drawFavorites();
     message('Quick access updated');
   }
+  function changeAssetFavorites(next) {
+    if (!alive || busy || folderPickIntent || assetFavoriteReadFailed) return;
+    if (next.length > MAX_FAVORITES) {
+      message('Asset Quick access is full', true);
+      return;
+    }
+    if (next.some((entry) => !validAssetFavorite(entry))) {
+      message('Asset cannot be pinned', true);
+      return;
+    }
+    try {
+      if (desktop) favoriteStorage.setItem(ASSET_ITEM_FAVORITES_KEY, JSON.stringify(next));
+      else {
+        browserAssetFavorites.clear();
+        for (const entry of next)
+          browserAssetFavorites.set(assetFavoriteKey(entry.rootId, entry.relativePath), {
+            ...entry,
+          });
+      }
+    } catch {
+      assetFavoriteStorageError = 'Asset Quick access could not be saved';
+      message(assetFavoriteStorageError, true);
+      return;
+    }
+    assetFavorites = next;
+    assetFavoriteStorageError = null;
+    drawFavorites();
+    message('Quick access updated');
+  }
+  pinAsset.onclick = () => {
+    if (!alive || busy || folderPickIntent || !selected || !listing) return;
+    const entry = { rootId: listing.root.id, relativePath: selected.relativePath };
+    if (!validAssetFavorite(entry) || rootSelect.value !== entry.rootId) return;
+    const key = assetFavoriteKey(entry.rootId, entry.relativePath);
+    const pinned = assetFavorites.some(
+      (item) => assetFavoriteKey(item.rootId, item.relativePath) === key,
+    );
+    if (selected.error && !pinned) return;
+    changeAssetFavorites(
+      pinned
+        ? assetFavorites.filter((item) => assetFavoriteKey(item.rootId, item.relativePath) !== key)
+        : [...assetFavorites, entry],
+    );
+  };
   pin.onclick = () => {
     if (!alive || busy || folderPickIntent) return;
     const id = rootSelect.value;
@@ -585,6 +755,10 @@ export function mountAssetLibrary({
   }
   function acceptListing(value) {
     listing = value;
+    const presentPaths = new Set(listing.items.map((item) => item.relativePath));
+    for (const entry of assetFavorites)
+      if (entry.rootId === listing.root.id && presentPaths.has(entry.relativePath))
+        failedAssets.delete(assetFavoriteKey(entry.rootId, entry.relativePath));
     warnings.replaceChildren(element('summary', `Folder warnings (${listing.warnings.length})`));
     for (const warning of listing.warnings) warnings.append(element('div', warning));
     warnings.hidden = listing.warnings.length === 0;
@@ -659,6 +833,53 @@ export function mountAssetLibrary({
         busy = false;
         searchDuringRefresh = false;
         drawFavorites();
+      }
+    }
+  }
+  async function openAssetFavorite(entry, restoreFocus) {
+    if (!alive || busy || folderPickIntent || !roots.some((root) => root.id === entry.rootId))
+      return;
+    const key = assetFavoriteKey(entry.rootId, entry.relativePath);
+    if (!assetFavorites.some((item) => assetFavoriteKey(item.rootId, item.relativePath) === key))
+      return;
+    folderRegistrationError = null;
+    rootSelect.value = entry.rootId;
+    const request = refreshSequence + 1;
+    const pointerAtStart = pointerSequence;
+    try {
+      await refreshRoot();
+      if (
+        !alive ||
+        request !== refreshSequence ||
+        currentRootId !== entry.rootId ||
+        listing?.root?.id !== entry.rootId
+      )
+        return;
+      const item = listing.items.find((value) => value.relativePath === entry.relativePath);
+      if (!item) {
+        failedAssets.add(key);
+        drawFavorites();
+        message('Asset unavailable; refresh the folder or remove it from Quick access', true);
+        return;
+      }
+      failedAssets.delete(key);
+      search.value = entry.relativePath;
+      hierarchy.value = '';
+      shown = 48;
+      drawItems();
+      await choose(item, epoch);
+    } finally {
+      if (
+        restoreFocus &&
+        alive &&
+        request === refreshSequence &&
+        pointerAtStart === pointerSequence &&
+        panel.ownerDocument.activeElement === panel.ownerDocument.body
+      ) {
+        const replacement = [...quick.querySelectorAll('button')].find(
+          (button) => button.dataset.quickAsset === key || button.dataset.quickRemoveAsset === key,
+        );
+        if (replacement && !replacement.disabled) replacement.focus({ preventScroll: true });
       }
     }
   }
