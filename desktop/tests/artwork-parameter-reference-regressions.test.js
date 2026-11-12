@@ -1175,6 +1175,7 @@ test('project identity preflight preserves Text-local character IDs in normal an
     assertFresh() {},
     activate() {},
     stageActivation() {},
+    assertFreshForPublication() {},
     publishActivation() {},
     discardActivation() {},
     cancel() {},

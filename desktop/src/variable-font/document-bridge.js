@@ -3,6 +3,22 @@ import { canonicalAxes, LIMITS, freeze, requireThat as check } from './contract.
 import { hasCharacterAdjustments } from '../character-identity.js';
 
 export const VARIABLE_KIND = 'variable-glyf-v1';
+// Read a native AbortSignal's internal state without invoking an instance
+// accessor supplied by the caller at the publication boundary.
+const nativeAbortedGetter = Object.getOwnPropertyDescriptor(
+  globalThis.AbortSignal?.prototype ?? {},
+  'aborted',
+)?.get;
+
+function nativeAborted(signal) {
+  if (signal == null) return false;
+  check(typeof nativeAbortedGetter === 'function', 'INVALID_ABORT_SIGNAL');
+  try {
+    return nativeAbortedGetter.call(signal);
+  } catch {
+    check(false, 'INVALID_ABORT_SIGNAL');
+  }
+}
 export const VARIABLE_DOCUMENT_LIMITS = Object.freeze({
   runs: 8,
   commands: 100000,
@@ -174,11 +190,32 @@ export function createVariableDocumentPreparer({
     },
     fonts: () => ({ ...currentFonts }),
     assertFresh(ticket) {
+      const pending = pendingTicket;
+      check(
+        !disposed && pending?.ticket === ticket && pending.revision === generation,
+        'STALE_RESULT',
+      );
+      const aborted = pending.signal?.aborted;
+      // Reading the supplied signal may reenter and replace the pending bank.
+      check(
+        !aborted && !disposed && pendingTicket === pending && pending.revision === generation,
+        'STALE_RESULT',
+      );
+    },
+    assertFreshForPublication(ticket) {
+      // This and publishActivation form the trusted, callback-free bridge
+      // boundary. A signal without native AbortSignal state fails closed.
+      const pending = pendingTicket;
       check(
         !disposed &&
-          pendingTicket?.ticket === ticket &&
-          pendingTicket.revision === generation &&
-          !pendingTicket.signal?.aborted,
+          pending?.ticket === ticket &&
+          pending.revision === generation &&
+          pending.detached,
+        'STALE_RESULT',
+      );
+      const aborted = nativeAborted(pending.signal);
+      check(
+        !aborted && !disposed && pendingTicket === pending && pending.revision === generation,
         'STALE_RESULT',
       );
     },

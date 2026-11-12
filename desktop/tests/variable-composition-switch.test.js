@@ -238,6 +238,38 @@ for (const mode of ['new-ticket', 'gesture', 'busy', 'late-abort']) {
   });
 }
 
+test('a non-native abort signal is refused before prepared publication', async () => {
+  const fixture = await makeSavedProject();
+  const { owner, bridge } = await openSaved(fixture);
+  const signal = { aborted: false, addEventListener() {}, removeEventListener() {} };
+  try {
+    owner.commitPreparedCompositionSwitch(
+      await owner.prepareCompositionSwitch(fixture.secondId, bridge),
+    );
+    const before = serializeCompositionProject(owner.projectSnapshot()),
+      state = owner.state,
+      history = owner.historyState,
+      bank = bridge.stats().active,
+      token = await owner.prepareCommand(
+        {
+          ...owner.state,
+          type: 'set-text-content',
+          payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AW' },
+        },
+        bridge,
+        { signal },
+      );
+    assert.throws(() => owner.commitPrepared(token), /INVALID_ABORT_SIGNAL/);
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+    assert.deepEqual(owner.state, state);
+    assert.deepEqual(owner.historyState, history);
+    assert.deepEqual(bridge.stats().active, bank);
+    assert.equal(bridge.stats().candidate, null);
+  } finally {
+    bridge.dispose();
+  }
+});
+
 test('prepared Composition switch rejects teardown reentry before publishing its font bank', async () => {
   const fixture = await makeSavedProject();
   const { owner, bridge } = await openSaved(fixture);

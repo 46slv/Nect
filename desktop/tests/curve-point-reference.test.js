@@ -816,6 +816,7 @@ test('prepared Composition edits retain the promoted wrapper and Undo/Redo', asy
     assertFresh() {},
     activate() {},
     stageActivation() {},
+    assertFreshForPublication() {},
     publishActivation() {},
     discardActivation() {},
     cancel() {},

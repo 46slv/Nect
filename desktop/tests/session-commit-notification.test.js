@@ -93,6 +93,7 @@ test('prepared history commits notify once after activation and an observer erro
     preparedFonts: () => ({}),
     assertFresh: () => {},
     stageActivation: () => {},
+    assertFreshForPublication: () => {},
     publishActivation: () => {
       activated = true;
     },

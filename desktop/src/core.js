@@ -8007,6 +8007,7 @@ export class CommandSession {
       throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
     let staging = false;
     try {
+      const assertClipboard = this.captureNodeClipboardFreshness();
       p.assertCurrent();
       p.bridge.assertFresh(p.ticket);
       assertVariableDocumentReady(
@@ -8042,7 +8043,14 @@ export class CommandSession {
       p.bridge.stageActivation(p.ticket);
       p.assertCurrent();
       p.bridge.assertFresh(p.ticket);
+      // The signal getter above may itself start a gesture or set busy. The
+      // final native signal read after this callback cannot call user code.
+      p.assertCurrent();
+      p.bridge.assertFreshForPublication(p.ticket);
       p.assertLocal();
+      assertClipboard();
+      if (this.#gesture || this.hasTextComposition || this.#textDrafts.size)
+        throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
       if (this.#prepared !== p) throw Error('STALE_REVISION: document changed');
       // The coordinated publisher checks owner identity without callbacks and
       // publishes its already validated Project candidate. From here to both

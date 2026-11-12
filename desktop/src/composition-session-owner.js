@@ -682,6 +682,10 @@ export class CompositionSessionOwner {
       assertCurrent();
       prepared.bridge.assertFresh(prepared.ticket);
       assertCurrent();
+      this.#assertQuiescent();
+      assertCurrent();
+      prepared.bridge.assertFreshForPublication(prepared.ticket);
+      assertCurrent();
       // The new Session already binds the target Project and inherits clipboard
       // authority. Publish the prepared bank only after all fallible preflight.
       prepared.bridge.publishActivation(prepared.ticket);
@@ -1171,6 +1175,10 @@ export class CompositionSessionOwner {
       this.#assertQuiescent();
       assertCurrent();
       bridge.assertFresh(ticket);
+      assertCurrent();
+      this.#assertQuiescent();
+      assertCurrent();
+      bridge.assertFreshForPublication(ticket);
       assertCurrent();
       // Publish only after callback-bearing teardown and the last fresh check.
       bridge.publishActivation(ticket);
