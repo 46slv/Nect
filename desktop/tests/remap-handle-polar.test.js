@@ -10,7 +10,22 @@ import {
   point,
 } from '../src/core.js';
 import * as core from '../src/core.js';
+import { isVector2 } from '../src/node-value-validation.js';
 import { remapFixture } from './helpers/remap-fingerprint-fixture.js';
+
+test('Vector2 requires two own finite entries, including for Session input', () => {
+  const inherited = Array(2);
+  Object.setPrototypeOf(inherited, Object.assign(Object.create(Array.prototype), { 0: 1, 1: 2 }));
+  for (const value of [Array(2), [0, ,], [, 0], inherited, [0, Infinity], [0, undefined]])
+    assert.equal(isVector2(value), false);
+  assert.equal(isVector2([0, -0.1]), true);
+  const f = fixture('typed'),
+    before = f.session.snapshot(),
+    token = f.send('begin-gesture', { target: f.target });
+  assert.throws(() => f.send('update-gesture', { ...token, update: { delta: Array(2) } }));
+  f.send('cancel-gesture', token);
+  assert.deepEqual(f.session.snapshot(), before);
+});
 
 function fixture(kind = 'raw') {
   const doc = blankDocument(),
@@ -101,7 +116,14 @@ test('absolute Remap rejects invalid and ambiguous updates without partial commi
   const f = fixture('typed'),
     before = f.session.snapshot();
   let token = f.send('begin-gesture', { target: f.target });
-  for (const update of [{ value: [NaN, 0] }, { value: [0] }, { value: [0, 0], delta: [1, 1] }])
+  for (const update of [
+    { value: [NaN, 0] },
+    { value: [0] },
+    { value: Array(2) },
+    { value: [0, ,] },
+    { value: [, 0] },
+    { value: [0, 0], delta: [1, 1] },
+  ])
     assert.throws(() => f.send('update-gesture', { ...token, update }));
   f.send('cancel-gesture', token);
   assert.deepEqual(f.session.snapshot(), before);
