@@ -17,6 +17,7 @@ import {
   expressionDeclaration,
 } from './value-source-declarations.js';
 import { evaluateValueSource } from './value-source-binding.js';
+import { toggleDeclaration } from './toggle-node-declaration.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -51,4 +52,5 @@ export const builtinManifest = Object.freeze([
     'Composition Reference',
     'Reference',
   ),
+  entry(toggleDeclaration, { evaluate: evaluateValueSource }, 'Combine Vector', 'Combine Vector'),
 ]);
