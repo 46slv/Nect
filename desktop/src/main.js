@@ -17637,6 +17637,7 @@ document.addEventListener('keydown', (e) => {
   }
   const numericExpressionInput =
     !(drag?.type === 'numeric' && drag.started) &&
+    !e.target.closest?.('.new-project-dialog') &&
     !e.target.matches?.('[data-point-delta-axis]') &&
     !e.target.matches?.('[data-point-spacing]') &&
     e.target.matches?.('input[type="number"], input[data-numeric-expression]');
