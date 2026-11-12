@@ -579,7 +579,7 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     left.className = 'workspace-drawer workspace-drawer-left';
     left.dataset.drawerSide = 'left';
     left.id = 'workspace-drawer-left';
-    left.setAttribute('aria-label', 'Assets and colors');
+    left.setAttribute('aria-label', 'Assets, colors and effects');
     for (const entry of ITEMS.filter((entry) => entry.side === 'left'))
       entry.adapter.attach?.(left, { right });
     wrap.append(left);
@@ -652,7 +652,10 @@ export function createWorkspacePanels({ storage, declarations = WORKSPACE_SURFAC
     for (const side of ['left', 'right']) {
       const bar = root.ownerDocument.createElement('nav');
       bar.className = `workspace-panel-bar workspace-panel-bar-${side}`;
-      bar.setAttribute('aria-label', `${side === 'left' ? 'Assets and colors' : 'Editing'} panels`);
+      bar.setAttribute(
+        'aria-label',
+        `${side === 'left' ? 'Assets, colors and effects' : 'Editing'} panels`,
+      );
       const geometry = workspaceRailGeometry(
         228,
         ITEMS.filter((entry) => entry.side === side).length,
