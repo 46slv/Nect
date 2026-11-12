@@ -270,6 +270,82 @@ test('a non-native abort signal is refused before prepared publication', async (
   }
 });
 
+test('an unregistered signal cannot replace an existing prepared document ticket', async () => {
+  const fixture = await makeSavedProject(),
+    project = deserializeCompositionProject(fixture.json, deserialize),
+    document = activeCompositionDocument(project, fixture.secondId),
+    bridge = newBridge();
+  try {
+    const ticket = await bridge.prepareDocument(document),
+      proxySignal = new Proxy(new AbortController().signal, {});
+    await assert.rejects(
+      bridge.prepareDocument(document, { signal: proxySignal }),
+      /INVALID_ABORT_SIGNAL/,
+    );
+    assert.doesNotThrow(() => bridge.assertFresh(ticket));
+    bridge.activate(ticket);
+    assert.equal(exportSVG(document, bridge.fonts()), fixture.expectedB);
+  } finally {
+    bridge.dispose();
+  }
+});
+
+test('an unregistered signal cannot invalidate a prepared text command', async () => {
+  const fixture = await makeSavedProject();
+  const { owner, bridge } = await openSaved(fixture);
+  try {
+    owner.commitPreparedCompositionSwitch(
+      await owner.prepareCompositionSwitch(fixture.secondId, bridge),
+    );
+    const ticket = await owner.prepareCommand(
+      {
+        ...owner.state,
+        type: 'set-text-content',
+        payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AW' },
+      },
+      bridge,
+    );
+    await assert.rejects(
+      owner.prepareCommand(
+        {
+          ...owner.state,
+          type: 'set-text-content',
+          payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AX' },
+        },
+        bridge,
+        { signal: new AbortController().signal },
+      ),
+      /INVALID_ABORT_SIGNAL/,
+    );
+    owner.commitPrepared(ticket);
+    assert.equal(
+      owner.snapshot().layers[0].nodes.find((item) => item.id === fixture.textB).text,
+      'AW',
+    );
+  } finally {
+    bridge.dispose();
+  }
+});
+
+test('an unregistered signal cannot invalidate a prepared Composition switch', async () => {
+  const fixture = await makeSavedProject();
+  const { owner, bridge } = await openSaved(fixture);
+  try {
+    const ticket = await owner.prepareCompositionSwitch(fixture.secondId, bridge);
+    await assert.rejects(
+      owner.prepareCompositionSwitch(fixture.secondId, bridge, {
+        signal: new Proxy(new AbortController().signal, {}),
+      }),
+      /INVALID_ABORT_SIGNAL/,
+    );
+    owner.commitPreparedCompositionSwitch(ticket);
+    assert.equal(owner.activeCompositionId, fixture.secondId);
+    assert.equal(exportSVG(owner.snapshot(), bridge.fonts()), fixture.expectedB);
+  } finally {
+    bridge.dispose();
+  }
+});
+
 test('prepared Composition switch rejects teardown reentry before publishing its font bank', async () => {
   const fixture = await makeSavedProject();
   const { owner, bridge } = await openSaved(fixture);
