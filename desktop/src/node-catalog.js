@@ -238,14 +238,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Mirror',
-    categoryId: 'transform',
-    labelJa: '鏡像',
-    aliases: ['鏡像', '対称'],
-    description: '鏡像 対称',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Boolean',
     categoryId: 'combine',
     labelJa: '結合',
