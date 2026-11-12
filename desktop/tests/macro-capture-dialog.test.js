@@ -123,3 +123,56 @@ test('invalid or duplicate candidate identities are rejected before opening', (t
     assert.throws(() => openMacroCaptureDialog({ document: win.document, candidates: bad }));
   assert.equal(win.document.querySelector('dialog'), null);
 });
+
+test('equal candidate labels keep their source identities visible and accessible', async (t) => {
+  const values = [
+    { id: 'a', nodeId: 'first-aaaa1234', key: 'scale', label: 'Transform' },
+    { id: 'b', nodeId: 'second-bbbb1234', key: 'scale', label: 'Transform' },
+  ];
+  const f = fixture(t, values),
+    first = f.dialog.querySelector('[data-macro-control="a"]'),
+    second = f.dialog.querySelector('[data-macro-control="b"]');
+  assert.notEqual(first.getAttribute('aria-label'), second.getAttribute('aria-label'));
+  assert.notEqual(
+    f.dialog.querySelector('[data-macro-source="a"]').textContent,
+    f.dialog.querySelector('[data-macro-source="b"]').textContent,
+  );
+  const name = f.dialog.querySelector('[data-macro-name]');
+  name.value = 'Macro';
+  f.fire(name, 'input');
+  first.click();
+  second.click();
+  assert.equal(f.dialog.querySelector('[type="submit"]').disabled, true);
+  assert.match(f.dialog.querySelector('output').textContent, /different names/);
+  const secondLabel = f.dialog.querySelector('[data-macro-control-label="b"]');
+  secondLabel.value = 'Second Transform';
+  f.fire(secondLabel, 'input');
+  f.dialog.querySelector('[type="submit"]').click();
+  assert.deepEqual((await f.controller.result).parameters, [
+    values[0],
+    { ...values[1], label: 'Second Transform' },
+  ]);
+});
+
+test('line breaks and labels resembling generated hints cannot hide candidate identity', async (t) => {
+  const f = fixture(t, [
+    { id: 'a', nodeId: 'first', key: 'scale', label: 'Transform · Scale' },
+    { id: 'b', nodeId: 'second', key: 'scale', label: 'Transform\n · Scale' },
+    { id: 'c', nodeId: 'second', key: 'rotation', label: 'Publish control 1: Transform · Scale' },
+  ]);
+  const checkboxes = [...f.dialog.querySelectorAll('[data-macro-control]')],
+    names = checkboxes.map((input) => input.getAttribute('aria-label')),
+    hints = [...f.dialog.querySelectorAll('[data-macro-source]')].map((span) => span.textContent),
+    labels = [...f.dialog.querySelectorAll('[data-macro-control-label]')];
+  assert.equal(new Set(names).size, 3);
+  assert.equal(new Set(hints).size, 3);
+  assert.equal(labels[0].value, labels[1].value);
+  const name = f.dialog.querySelector('[data-macro-name]');
+  name.value = 'Macro';
+  f.fire(name, 'input');
+  checkboxes[0].click();
+  checkboxes[1].click();
+  assert.equal(f.dialog.querySelector('[type="submit"]').disabled, true);
+  f.controller.cancel();
+  assert.equal(await f.controller.result, null);
+});

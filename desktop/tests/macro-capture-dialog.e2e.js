@@ -53,9 +53,9 @@ try {
   await page.keyboard.press('Control+z');
   assert.equal(await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot())), before);
   await name.fill('Poster effect');
-  await dialog.getByRole('checkbox', { name: 'Publish Transform 1 · Scale' }).check();
-  await dialog.getByRole('checkbox', { name: 'Publish Transform 2 · Rotation' }).check();
-  await dialog.getByLabel('Name for Transform 1 · Scale').fill('Size');
+  await dialog.getByRole('checkbox', { name: 'Publish control 1: Transform 1 · Scale' }).check();
+  await dialog.getByRole('checkbox', { name: 'Publish control 4: Transform 2 · Rotation' }).check();
+  await dialog.getByLabel('Name for control 1: Transform 1 · Scale').fill('Size');
   assert.equal(await create.isEnabled(), true);
   await fs.mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/macro-capture-dialog.png', animations: 'disabled' });
@@ -66,14 +66,14 @@ try {
   }));
   assert.ok(metrics.width <= 420 && metrics.scroll <= metrics.client);
   await page.setViewportSize({ width: 320, height: 600 });
-  await dialog.getByLabel('Name for Transform 1 · Scale').fill('A'.repeat(100));
+  await dialog.getByLabel('Name for control 1: Transform 1 · Scale').fill('A'.repeat(100));
   const narrow = await dialog.evaluate((el) => ({
     width: el.getBoundingClientRect().width,
     client: el.clientWidth,
     scroll: el.scrollWidth,
   }));
   assert.ok(narrow.width <= 320 && narrow.scroll <= narrow.client);
-  await dialog.getByLabel('Name for Transform 1 · Scale').fill('Size');
+  await dialog.getByLabel('Name for control 1: Transform 1 · Scale').fill('Size');
   await page.setViewportSize({ width: 420, height: 800 });
   const cdp = await page.context().newCDPSession(page);
   await name.focus();
@@ -98,6 +98,34 @@ try {
     true,
   );
   assert.equal(await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot())), before);
+  await page.setViewportSize({ width: 320, height: 600 });
+  await page.evaluate(async () => {
+    const { openMacroCaptureDialog } = await import('/src/macro-capture-dialog.js');
+    window.captureDialog = openMacroCaptureDialog({
+      document,
+      candidates: [
+        { id: 'a', nodeId: 'first-aaaa1234', key: 'scale', label: 'Transform' },
+        { id: 'b', nodeId: 'second-bbbb1234', key: 'scale', label: 'Transform' },
+      ],
+    });
+    window.captureResult = undefined;
+    window.captureDialog.result.then((value) => (window.captureResult = value));
+  });
+  const sources = await page.locator('[data-macro-source]').allTextContents();
+  assert.equal(sources.length, 2);
+  assert.notEqual(sources[0], sources[1]);
+  await page.screenshot({
+    path: 'test-results/macro-capture-dialog-duplicate.png',
+    animations: 'disabled',
+  });
+  const duplicateLayout = await dialog.evaluate((el) => ({
+    width: el.getBoundingClientRect().width,
+    client: el.clientWidth,
+    scroll: el.scrollWidth,
+  }));
+  assert.ok(duplicateLayout.width <= 320 && duplicateLayout.scroll <= duplicateLayout.client);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => window.captureResult === null);
   assert.deepEqual(errors, []);
   console.log(
     'PASS Macro capture draft keyboard, IME, selection, narrow layout and no Project edit',

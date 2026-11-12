@@ -3,6 +3,29 @@ const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,180}$/;
 const validLabel = (value) =>
   typeof value === 'string' && value.trim().length > 0 && value.length <= 100;
 
+// Source hints stay separate from editable labels and never change saved names.
+function sourceHints(controls) {
+  const hints = new Map();
+  for (const [index, control] of controls.entries()) {
+    const peers = controls.filter((item) => item.key === control.key && item.id !== control.id);
+    let length = Math.min(4, control.nodeId.length);
+    while (
+      length < control.nodeId.length &&
+      peers.some((item) => item.nodeId.endsWith(control.nodeId.slice(-length)))
+    )
+      length++;
+    const identity =
+      length > 12
+        ? `${control.nodeId.slice(0, 4)}…${control.nodeId.slice(-4)}`
+        : `${length < control.nodeId.length ? '…' : ''}${control.nodeId.slice(-length)}`;
+    hints.set(
+      control.id,
+      `${index + 1} · ${control.key === 'scale' ? 'Scale' : 'Rotation'} · ${identity}`,
+    );
+  }
+  return hints;
+}
+
 export function openMacroCaptureDialog({ document, candidates, anchor = document.activeElement }) {
   if (!Array.isArray(candidates) || !candidates.length || candidates.length > 4)
     throw Error('Expected one to four Macro controls');
@@ -37,21 +60,30 @@ export function openMacroCaptureDialog({ document, candidates, anchor = document
     cancel = dialog.querySelector('[data-macro-cancel]'),
     status = dialog.querySelector('output'),
     composing = new Set();
-  const rows = controls.map((control) => {
+  const hints = sourceHints(controls);
+  const rows = controls.map((control, index) => {
     const row = document.createElement('div'),
       selected = document.createElement('input'),
       label = document.createElement('input');
     row.className = 'macro-capture-control';
     selected.type = 'checkbox';
     selected.dataset.macroControl = control.id;
-    selected.setAttribute('aria-label', `Publish ${control.label}`);
+    const hint = hints.get(control.id);
+    selected.setAttribute('aria-label', `Publish control ${index + 1}: ${control.label}`);
     label.type = 'text';
     label.maxLength = 100;
     label.value = control.label;
     label.dataset.macroControlLabel = control.id;
-    label.setAttribute('aria-label', `Name for ${control.label}`);
+    label.setAttribute('aria-label', `Name for control ${index + 1}: ${control.label}`);
     label.disabled = true;
     row.append(selected, label);
+    const source = document.createElement('span');
+    source.className = 'macro-capture-source';
+    source.dataset.macroSource = control.id;
+    source.textContent = hint;
+    source.title = `${control.key} · ${control.nodeId}`;
+    source.setAttribute('aria-hidden', 'true');
+    row.append(source);
     list.append(row);
     return { control, selected, label };
   });
@@ -64,21 +96,31 @@ export function openMacroCaptureDialog({ document, candidates, anchor = document
     const selected = rows.filter((row) => row.selected.checked);
     const nameValid = validLabel(name.value);
     const labelsValid = selected.every((row) => validLabel(row.label.value));
+    const labelKeys = selected.map((row) => row.label.value.trim().normalize('NFC'));
+    const labelsUnique = new Set(labelKeys).size === labelKeys.length;
     name.setAttribute('aria-invalid', String(touched && !nameValid));
     for (const row of rows) {
       row.label.disabled = !row.selected.checked;
       row.label.setAttribute(
         'aria-invalid',
-        String(row.selected.checked && !validLabel(row.label.value)),
+        String(
+          row.selected.checked &&
+            (!validLabel(row.label.value) ||
+              labelKeys.filter((key) => key === row.label.value.trim().normalize('NFC')).length >
+                1),
+        ),
       );
     }
-    submit.disabled = !nameValid || !selected.length || !labelsValid || composing.size > 0;
+    submit.disabled =
+      !nameValid || !selected.length || !labelsValid || !labelsUnique || composing.size > 0;
     status.textContent =
-      !touched || composing.size || (nameValid && labelsValid)
+      !touched || composing.size || (nameValid && labelsValid && labelsUnique)
         ? ''
         : !nameValid
           ? 'Enter a name.'
-          : 'Enter a name for each selected control.';
+          : !labelsValid
+            ? 'Enter a name for each selected control.'
+            : 'Give the selected controls different names.';
   }
   function finish(value) {
     if (settled) return;

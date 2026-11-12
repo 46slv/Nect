@@ -28,9 +28,23 @@
 }
 .macro-capture-control {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
+}
+.macro-capture-source {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+@media (max-width: 380px) {
+  .macro-capture-control {
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: 2px;
+  }
+  .macro-capture-source {
+    grid-column: 2;
+  }
 }
 .macro-capture-dialog input[type='text'] {
   box-sizing: border-box;
