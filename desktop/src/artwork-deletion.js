@@ -1,4 +1,5 @@
 import { blankLayer } from './core.js';
+import { pruneLayerFolderMember } from './layer-folders.js';
 
 function assertArtworkDocument(doc) {
   if (!doc || !Array.isArray(doc.layers) || doc.layers.length < 1 || doc.layers.length > 100)
@@ -23,6 +24,7 @@ function removeValidatedArtworkLayer(doc, layerId) {
     index = doc.layers.indexOf(target),
     replacement = doc.layers.length === 1 ? blankLayer() : null,
     nextLayerId = replacement?.id || doc.layers[index + 1]?.id || doc.layers[index - 1].id;
+  pruneLayerFolderMember(doc, layerId);
   doc.layers.splice(index, 1, ...(replacement ? [replacement] : []));
   return { removedLayerId: layerId, nextLayerId, replacedLastLayer: !!replacement };
 }

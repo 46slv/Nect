@@ -25,6 +25,7 @@ import {
 import { candidateDocument } from './artwork-candidate.js';
 import { isPaintedGroup } from './composition-reference.js';
 import { resolveArtworkMoveTarget } from './artwork-move-target.js';
+import { insertDuplicatedLayer, layerFolders } from './layer-folders.js';
 
 const unsupported = (code, reason) => ({ supported: false, code, reason });
 function hasExternalSource(value, nodeIds) {
@@ -142,7 +143,7 @@ export function stageArtworkDuplicate(doc, layerId, { fonts = {}, imageAssets } 
   const candidate = candidateDocument(doc);
   // Validation may normalize legacy records. Keep it on a separate clone so the
   // committed copy retains every authored parameter and graph layout exactly.
-  candidate.layers.splice(index, 0, structuredClone(layer));
+  insertDuplicatedLayer(candidate, source.id, index, structuredClone(layer));
   validate(candidate);
   return { layer, index, layerId: layer.id, outputNodeId: layer.output };
 }
@@ -150,6 +151,7 @@ export function stageArtworkDuplicate(doc, layerId, { fonts = {}, imageAssets } 
 function occupiedArtworkIds(doc) {
   const occupied = new Set();
   for (const guide of doc.editor?.guides || []) occupied.add(guide.id);
+  for (const folder of layerFolders(doc)) occupied.add(folder.id);
   for (const l of doc.layers) {
     for (const id of danglingExpressionIds(l.nodes)) occupied.add(id);
     occupied.add(l.id);
@@ -283,7 +285,8 @@ export function stageArtworkDuplicates(doc, layerIds, options) {
       copies.map((copy) => copy.layer),
     );
   const candidate = candidateDocument(doc);
-  for (const copy of copies) candidate.layers.splice(copy.index, 0, structuredClone(copy.layer));
+  for (const copy of copies)
+    insertDuplicatedLayer(candidate, copy.sourceLayerId, copy.index, structuredClone(copy.layer));
   validate(candidate);
   return copies;
 }
@@ -291,7 +294,7 @@ export function stageArtworkDuplicates(doc, layerIds, options) {
 /** Caller owns a single History transaction and selection snapshot. */
 export function duplicateArtworkLayers(doc, layerIds, options) {
   const copies = stageArtworkDuplicates(doc, layerIds, options);
-  for (const copy of copies) doc.layers.splice(copy.index, 0, copy.layer);
+  for (const copy of copies) insertDuplicatedLayer(doc, copy.sourceLayerId, copy.index, copy.layer);
   return copies.map(({ sourceLayerId, layerId, outputNodeId }) => ({
     sourceLayerId,
     layerId,
@@ -302,7 +305,7 @@ export function duplicateArtworkLayers(doc, layerIds, options) {
 /** Caller owns the one History transaction and final-artwork selection. */
 export function duplicateArtworkLayer(doc, layerId, options) {
   const staged = stageArtworkDuplicate(doc, layerId, options);
-  doc.layers.splice(staged.index, 0, staged.layer);
+  insertDuplicatedLayer(doc, layerId, staged.index, staged.layer);
   return { layerId: staged.layerId, outputNodeId: staged.outputNodeId };
 }
 
@@ -429,7 +432,7 @@ function assertCopiedRemapBindings(doc, source, copy, index, fonts) {
   const originalDocument = isolatedDuplicateCandidate(doc),
     copiedDocument = isolatedDuplicateCandidate(doc),
     original = originalDocument.layers.find((layer) => layer.id === source.id);
-  copiedDocument.layers.splice(index, 0, copy);
+  insertDuplicatedLayer(copiedDocument, source.id, index, copy);
   const originalEvaluation = evaluate(
     original,
     fonts,
@@ -694,7 +697,7 @@ export function duplicateLayerGeneric(doc, layerId, { fonts = {} } = {}) {
   assertCopiedRemapBindings(doc, source, layer, index, fonts);
   if (attachments.length) {
     const copyDocument = isolatedDuplicateCandidate(doc);
-    copyDocument.layers.splice(index, 0, layer);
+    insertDuplicatedLayer(copyDocument, source.id, index, layer);
     const copyEvaluation = evaluate(
       layer,
       fonts,
@@ -733,8 +736,8 @@ export function duplicateLayerGeneric(doc, layerId, { fonts = {} } = {}) {
     }
   }
   const candidate = isolatedDuplicateCandidate(doc);
-  candidate.layers.splice(index, 0, structuredClone(layer));
+  insertDuplicatedLayer(candidate, source.id, index, structuredClone(layer));
   validate(candidate);
-  doc.layers.splice(index, 0, layer);
+  insertDuplicatedLayer(doc, source.id, index, layer);
   return { layerId: layer.id, sourceLayerId: source.id };
 }

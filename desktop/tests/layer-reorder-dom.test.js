@@ -283,5 +283,29 @@ test('Layer name drags follow visual order and retain transaction boundaries', a
     assert.equal(saved(), changed);
     assert.equal(ui().past, 1);
   });
+  await t.test(
+    'Folder boundaries reject invalid drop indicators while allowing sibling reorder',
+    () => {
+      const [a, b, c] = seed();
+      win.nect.dispatch({
+        ...win.nect.commandState,
+        type: 'create-layer-folder',
+        payload: { name: 'Pair', layerIds: [b, c] },
+      });
+      flush();
+      layout();
+      const before = saved(),
+        past = ui().past;
+      const held = start(a, c, 'below');
+      assert.equal(document.querySelector('[data-layer-drop]'), null);
+      pointer(held.origin, 'pointerup', held.y);
+      assert.equal(saved(), before);
+      assert.equal(ui().past, past);
+      layout();
+      move(b, c, 'above');
+      assert.deepEqual(ids(), [a, c, b]);
+      assert.equal(ui().past, past + 1);
+    },
+  );
   await win.happyDOM.close();
 });

@@ -1501,6 +1501,7 @@ let sourceEpoch = 0,
   sourcePicker = null,
   sourceReturn = null;
 let viewerState = createViewerState();
+const collapsedLayerFolders = new Map();
 let session = createCompositionSessionOwner(
   migrateLegacyDocumentToCompositionProject(blankDocument()),
   sessionOptions,
@@ -1625,6 +1626,11 @@ let nodeContextMenu = null;
 let contextMenuScroll = new Map();
 const detailsState = new Map();
 const compositionViewStates = createCompositionViewStateStore({ resolvePointIds: pointPanelIds });
+function pruneCompositionViews(compositions) {
+  compositionViewStates.prune(compositions);
+  const ids = new Set(compositions.map((composition) => composition.id));
+  for (const id of collapsedLayerFolders.keys()) if (!ids.has(id)) collapsedLayerFolders.delete(id);
+}
 const selectionHistory = new WeakMap();
 const viewNeutralHistory = new WeakMap();
 const deletedCompositionHistory = new WeakMap();
@@ -1650,7 +1656,7 @@ function rememberDeletedComposition(before, after, compositionId, view) {
   }
 }
 function restoreDeletedCompositionView(record) {
-  compositionViewStates.prune(session.projectSnapshot().compositions);
+  pruneCompositionViews(session.projectSnapshot().compositions);
   if (record && history.entryToken === record.before && record.view)
     compositionViewStates.save(record.compositionId, record.view);
 }
@@ -5414,7 +5420,16 @@ function remapFields(n, result, panelOnly = false) {
 }
 // A name edit belongs to stable document IDs, never the currently selected row.
 function nameInput(kind, id) {
-  return `<input class="inline-name" data-rename-name="${id}" aria-label="${kind === 'node' ? 'Node' : 'Layer'} name" value="${esc(nameEdit.value)}" maxlength="100000" spellcheck="false">`;
+  return `<input class="inline-name" data-rename-name="${id}" aria-label="${kind === 'node' ? 'Node' : kind === 'folder' ? 'Folder' : 'Layer'} name" value="${esc(nameEdit.value)}" maxlength="100000" spellcheck="false">`;
+}
+function beginFolderNameEdit(folderId) {
+  const folder = history.doc.editor?.layerFolders?.find((item) => item.id === folderId);
+  if (!folder || deletionBusy() || variableAction) return;
+  nameEdit = { folderId, original: folder.name, value: folder.name, composing: false };
+  render();
+  const input = document.querySelector('[data-rename-name]');
+  input.focus({ preventScroll: true });
+  input.select();
 }
 function beginNameEdit(layerId, nodeId = null) {
   if (penDraft && !finishPenDraft()) return;
@@ -5442,6 +5457,26 @@ function finishNameEdit(commit, deferred = false) {
   nameEdit = null;
   lastNameClick = null;
   if (commit) {
+    if (edit.folderId) {
+      const folder = history.doc.editor?.layerFolders?.find((item) => item.id === edit.folderId);
+      if (!folder || folder.name !== edit.original)
+        notify('Name edit cancelled: Folder changed', true);
+      else if (!edit.value.trim()) notify('Name cannot be empty', true);
+      else
+        commandChange(
+          'rename-layer-folder',
+          {
+            folderId: edit.folderId,
+            name: edit.value,
+            expectedName: edit.original,
+          },
+          'Name updated',
+          true,
+        );
+      if (deferred) scheduleRender();
+      else render();
+      return;
+    }
     const l = history.doc.layers.find((l) => l.id === edit.layerId),
       target = edit.nodeId ? l?.nodes.find((n) => n.id === edit.nodeId) : l,
       value = edit.value.trim();
@@ -6205,6 +6240,40 @@ function refreshNodeControlInspector(afterFocus = false) {
   workspacePanels.refresh();
 }
 
+function layerPanelRows(doc) {
+  const folders = doc.editor?.layerFolders || [];
+  const collapsed = collapsedLayerFolders.get(session.activeCompositionId) || new Set();
+  const valid = new Set(folders.map((folder) => folder.id));
+  for (const id of collapsed) if (!valid.has(id)) collapsed.delete(id);
+  collapsedLayerFolders.set(session.activeCompositionId, collapsed);
+  const selectedIds = [...artworkSelection];
+  const owner = new Map(
+    folders.flatMap((folder) => folder.members.map((member) => [member.layerId, folder])),
+  );
+  const header = (folder) => {
+    const expanded = !collapsed.has(folder.id),
+      busy = deletionBusy() || !!variableAction;
+    const canAdd = selectedIds.length && selectedIds.every((id) => !owner.has(id));
+    const canRemove =
+      selectedIds.length && selectedIds.every((id) => owner.get(id)?.id === folder.id);
+    return `<div class="layer-folder" data-layer-folder="${esc(folder.id)}"><button class="layer-folder-toggle" data-folder-toggle="${esc(folder.id)}" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} Folder: ${esc(folder.name)}">${expanded ? '▾' : '▸'}</button>${nameEdit?.folderId === folder.id ? nameInput('folder', folder.id) : `<button class="layer-folder-name" data-folder-name="${esc(folder.id)}" title="Double-click or F2 to rename">${esc(folder.name)}</button>`}<button class="mini" data-folder-add="${esc(folder.id)}" aria-label="Add selected Layers to ${esc(folder.name)}" title="Add selected Layers" ${busy || !canAdd ? 'disabled' : ''}>Add</button><button class="mini" data-folder-out="${esc(folder.id)}" aria-label="Move selected Layers out of ${esc(folder.name)}" title="Move selected Layers out" ${busy || !canRemove ? 'disabled' : ''}>Move out</button><button class="mini" data-folder-dissolve="${esc(folder.id)}" aria-label="Ungroup ${esc(folder.name)}" title="Ungroup Folder" ${busy ? 'disabled' : ''}>Ungroup</button></div>`;
+  };
+  const rows = folders
+    .filter((folder) => !folder.members.length)
+    .reverse()
+    .map(header);
+  const seen = new Set();
+  for (const layer of [...doc.layers].reverse()) {
+    const folder = owner.get(layer.id);
+    if (folder && !seen.has(folder.id)) {
+      rows.push(header(folder));
+      seen.add(folder.id);
+    }
+    if (!folder || !collapsed.has(folder.id)) rows.push({ ...layer, folderMember: !!folder });
+  }
+  return rows;
+}
+
 function render(resetView = false, artworkResolution = null, graphScrollOverride = null) {
   if (closeFinalizing) {
     needsRender = true;
@@ -6367,13 +6436,13 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     .map((x) => `<option value="${x}">${nodeTypeLabel(x)}</option>`)
     .join(
       '',
-    )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button><button data-action="graph-overview" aria-label="Toggle node graph overview" aria-controls="graph-overview" aria-expanded="${graphOverviewOpen}" title="Show or hide graph overview">Overview</button></div>${nodePresetControls()}${nodeGroupControls()}<div class="graph-body"><div id="graph-overview" class="graph-overview" ${graphOverviewOpen ? '' : 'hidden'}><svg class="graph-overview-map" tabindex="0" role="img" aria-label="Node graph overview. Click or drag to navigate; arrow keys pan; Escape closes." preserveAspectRatio="none"></svg></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph-space"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div></div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Shift locks horizontal, vertical or 45°; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div><div class="layer-solo-status" role="status">${hasLayerSolo(doc) ? `Solo ${doc.layers.filter((l) => l.solo === true).length} · SVG/PNG <button class="mini" data-action="clear-layer-solo" aria-label="Clear all layer Solo">Clear</button>` : 'All visible layers · SVG/PNG'}<small>Hidden layers stay hidden</small></div>${[
-    ...doc.layers,
-  ]
-    .reverse()
-    .map(
-      (x) =>
-        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${(artworkTarget ? artworkSelection.has(x.id) : x.id === l.id) ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${workspaceIcon(x.visible ? 'eye' : 'eye-off')}</button><button class="layer-solo" data-layer-solo="${x.id}" aria-label="Solo layer: ${esc(x.name)}" aria-pressed="${x.solo === true}" title="Solo in preview and SVG/PNG; multiple allowed; Hide remains in effect">S</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" aria-pressed="${artworkTarget ? artworkSelection.has(x.id) : false}" title="${esc(x.name)} · Click to select; Shift-click to add/remove. Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
+    )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button><button data-action="graph-overview" aria-label="Toggle node graph overview" aria-controls="graph-overview" aria-expanded="${graphOverviewOpen}" title="Show or hide graph overview">Overview</button></div>${nodePresetControls()}${nodeGroupControls()}<div class="graph-body"><div id="graph-overview" class="graph-overview" ${graphOverviewOpen ? '' : 'hidden'}><svg class="graph-overview-map" tabindex="0" role="img" aria-label="Node graph overview. Click or drag to navigate; arrow keys pan; Escape closes." preserveAspectRatio="none"></svg></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph-space"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div></div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Shift locks horizontal, vertical or 45°; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer-folder" aria-label="Create Folder">+ Folder</button><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div><div class="layer-solo-status" role="status">${hasLayerSolo(doc) ? `Solo ${doc.layers.filter((l) => l.solo === true).length} · SVG/PNG <button class="mini" data-action="clear-layer-solo" aria-label="Clear all layer Solo">Clear</button>` : 'All visible layers · SVG/PNG'}<small>Hidden layers stay hidden</small></div>${layerPanelRows(
+    doc,
+  )
+    .map((x) =>
+      typeof x === 'string'
+        ? x
+        : `<div class="layer ${x.folderMember ? 'folder-member' : ''} ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${(artworkTarget ? artworkSelection.has(x.id) : x.id === l.id) ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${workspaceIcon(x.visible ? 'eye' : 'eye-off')}</button><button class="layer-solo" data-layer-solo="${x.id}" aria-label="Solo layer: ${esc(x.name)}" aria-pressed="${x.solo === true}" title="Solo in preview and SVG/PNG; multiple allowed; Hide remains in effect">S</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" aria-pressed="${artworkTarget ? artworkSelection.has(x.id) : false}" title="${esc(x.name)} · Click to select; Shift-click to add/remove. Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
     )
     .join(
       '',
@@ -9333,7 +9402,7 @@ async function openCompositionImportDialog() {
       resetTransient();
       for (const compositionId of imported.importedCompositionIds)
         compositionViewStates.forget(compositionId);
-      compositionViewStates.prune(session.projectSnapshot().compositions);
+      pruneCompositionViews(session.projectSnapshot().compositions);
       const graphScroll = restoreCompositionViewState();
       render(false, null, graphScroll);
       updateDocumentStatus();
@@ -9643,6 +9712,7 @@ function replaceDocument(
   cancelVariableAction();
   resetTransient();
   compositionViewStates.clear();
+  collapsedLayerFolders.clear();
   detailsState.clear();
   contextMenuScroll.clear();
   viewerState = createViewerState();
@@ -9739,7 +9809,7 @@ function restoreCompositionViewState() {
   return state.graphScroll;
 }
 function finishCompositionSwitch(project) {
-  compositionViewStates.prune(project.compositions);
+  pruneCompositionViews(project.compositions);
   const graphScroll = restoreCompositionViewState();
   render(false, null, graphScroll);
   updateDocumentStatus();
@@ -9952,7 +10022,7 @@ function addComposition() {
   resetTransient();
   const compositionId = session.createComposition();
   compositionViewStates.forget(compositionId);
-  compositionViewStates.prune(session.projectSnapshot().compositions);
+  pruneCompositionViews(session.projectSnapshot().compositions);
   const graphScroll = restoreCompositionViewState();
   render(false, null, graphScroll);
   updateDocumentStatus();
@@ -10232,9 +10302,9 @@ function dispatchCompositionDeletion(
     rememberDeletedComposition(before, history.entryToken, id, view);
     if (owner.activeCompositionId !== previousActive) {
       resetTransient();
-      compositionViewStates.prune(owner.projectSnapshot().compositions);
+      pruneCompositionViews(owner.projectSnapshot().compositions);
       graphScroll = restoreCompositionViewState();
-    } else compositionViewStates.prune(owner.projectSnapshot().compositions);
+    } else pruneCompositionViews(owner.projectSnapshot().compositions);
   }
   return { result, graphScroll };
 }
@@ -10523,6 +10593,50 @@ app.addEventListener('click', async (e) => {
   }
   if (d.alignArtwork !== undefined) {
     alignArtwork(b);
+    return;
+  }
+  if (d.action === 'add-layer-folder') {
+    if (deletionBusy() || variableAction) {
+      notify('Finish the active edit before creating a Folder', true);
+      return;
+    }
+    commandChange(
+      'create-layer-folder',
+      {
+        name: 'Folder',
+        layerIds: artworkTarget ? [...artworkSelection] : [],
+      },
+      'Folder created',
+    );
+    return;
+  }
+  if (d.folderName !== undefined) return;
+  if (d.folderToggle !== undefined) {
+    const id = d.folderToggle;
+    const collapsed = collapsedLayerFolders.get(session.activeCompositionId) || new Set();
+    if (collapsed.has(id)) collapsed.delete(id);
+    else collapsed.add(id);
+    collapsedLayerFolders.set(session.activeCompositionId, collapsed);
+    render();
+    [...app.querySelectorAll('[data-folder-toggle]')]
+      .find((item) => item.dataset.folderToggle === id)
+      ?.focus({ preventScroll: true });
+    return;
+  }
+  if (d.folderAdd !== undefined || d.folderOut !== undefined || d.folderDissolve !== undefined) {
+    if (b.disabled || deletionBusy() || variableAction) return;
+    const folderId = d.folderAdd ?? d.folderOut ?? d.folderDissolve;
+    const type =
+      d.folderAdd !== undefined
+        ? 'add-layers-to-folder'
+        : d.folderOut !== undefined
+          ? 'remove-layers-from-folder'
+          : 'dissolve-layer-folder';
+    commandChange(
+      type,
+      { folderId, layerIds: [...artworkSelection] },
+      type === 'dissolve-layer-folder' ? 'Folder ungrouped' : 'Folder updated',
+    );
     return;
   }
   if (d.orderLayer !== undefined) {
@@ -12381,6 +12495,11 @@ app.addEventListener(
   true,
 );
 app.addEventListener('dblclick', (e) => {
+  const folderTitle = e.target.closest('[data-folder-name]');
+  if (folderTitle && !nameEdit) {
+    beginFolderNameEdit(folderTitle.dataset.folderName);
+    return;
+  }
   const title = e.target.closest('[data-rename-node], [data-select-layer]');
   if (title && !nameEdit)
     beginNameEdit(title.dataset.selectLayer || current().id, title.dataset.renameNode || null);
@@ -17195,6 +17314,11 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     if (artworkSelection.size > 1) notify('Select one artwork to rename.', true);
     else beginNameEdit(artworkTarget);
+    return;
+  }
+  if (e.key === 'F2' && e.target.closest?.('[data-folder-name]')) {
+    e.preventDefault();
+    beginFolderNameEdit(e.target.closest('[data-folder-name]').dataset.folderName);
     return;
   }
   if (e.key === 'F2' || (e.key === 'Enter' && e.target.matches?.('[data-rename-node]'))) {

@@ -30,6 +30,7 @@ function documentEntityIds(document, ids = new Set()) {
   for (const slot of document.colorSlots || []) ids.add(slot.id);
   for (const preset of document.nodePresets || []) ids.add(preset.id);
   for (const guide of document.editor?.guides || []) ids.add(guide.id);
+  for (const folder of document.editor?.layerFolders || []) ids.add(folder.id);
   for (const layer of document.layers || []) {
     ids.add(layer.id);
     for (const group of layer.nodeGroups || []) ids.add(group.id);
