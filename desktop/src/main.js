@@ -24,6 +24,10 @@ import { rasterizeCoverageAlpha } from './color-coverage-raster.js';
 import { createSharedColorsPanel } from './shared-colors-panel.js';
 import { createEffectsPanel } from './effects-panel.js';
 import { planTransformEffect, TRANSFORM_EFFECT_ID } from './effect-insert-plan.js';
+import { planMacroInsertion } from './macro-insert-plan.js';
+import { captureMacroDefinition } from './macro-capture.js';
+import { openMacroCaptureDialog } from './macro-capture-dialog.js';
+import './macro-capture-dialog.css';
 import { createKeyColorRecipePanel } from './key-color-recipe-panel.js';
 import { createHslColorPicker } from './hsl-color-popover.js';
 import {
@@ -928,6 +932,7 @@ import {
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
   QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
   COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION,
+  MACRO_SCHEMA_VERSION,
   compositionPropertyReferencesInProject,
   qualifiedColorReferencesInProject,
   componentCompositionReferencesInProject,
@@ -1197,13 +1202,33 @@ const effectsPanel = createEffectsPanel({
   getTargetVersion: effectPanelVersion,
   getEntries: () => {
     const entry = nodeCatalog.find((item) => item.typeId === 'Transform');
-    return [
+    const entries = [
       {
         id: TRANSFORM_EFFECT_ID,
         label: nodeTypeLabel('Transform'),
         aliases: [entry?.labelJa, ...(entry?.aliases || [])].filter(Boolean),
       },
+      ...(history.doc.schemaVersion >= MACRO_SCHEMA_VERSION
+        ? history.doc.macroDefinitions || []
+        : []
+      ).map((definition) => ({
+        id: macroEffectId(definition),
+        label: definition.name,
+        aliases: [],
+      })),
     ];
+    const key = (label) => label.trim().normalize('NFKC').toLowerCase(),
+      totals = new Map(),
+      ordinals = new Map();
+    for (const item of entries) totals.set(key(item.label), (totals.get(key(item.label)) || 0) + 1);
+    return entries.map((item) => {
+      const name = key(item.label),
+        ordinal = (ordinals.get(name) || 0) + 1;
+      ordinals.set(name, ordinal);
+      return totals.get(name) > 1
+        ? { ...item, label: `${item.label} · ${ordinal}`, aliases: [...item.aliases, item.label] }
+        : item;
+    });
   },
   onApply: applyArtworkEffect,
   onError: (error) => notify(error.message, true),
@@ -1982,7 +2007,8 @@ function effectPanelVersion() {
     documents.hasDraft(),
   ];
 }
-function effectPanelTarget() {
+const macroEffectId = (definition) => `macro.${definition.id}.${definition.revision}`;
+function effectPanelTarget(effectId = TRANSFORM_EFFECT_ID) {
   // Inactive drawers are rebuilt during ordinary renders; avoid planning them.
   if (workspacePanels.active.left !== 'effects') return null;
   if (
@@ -2003,10 +2029,27 @@ function effectPanelTarget() {
     return { label: layer.name, reason: 'Finish the current edit' };
   let plan;
   try {
-    plan = planTransformEffect(history.doc, layer.id, {
+    const options = {
       fonts: resolveFonts(history.doc, activeFonts()),
       imageAssets: history.doc.imageAssets,
-    });
+    };
+    if (!effectId || effectId === TRANSFORM_EFFECT_ID)
+      plan = planTransformEffect(history.doc, layer.id, options);
+    else {
+      const definition = (
+        history.doc.schemaVersion >= MACRO_SCHEMA_VERSION ? history.doc.macroDefinitions || [] : []
+      ).find((item) => macroEffectId(item) === effectId);
+      if (!definition) return { label: layer.name, reason: 'Macro is unavailable' };
+      plan = planMacroInsertion(
+        history.doc,
+        layer.id,
+        {
+          definitionId: definition.id,
+          revision: definition.revision,
+        },
+        options,
+      );
+    }
   } catch (error) {
     return { label: layer.name, reason: error.message };
   }
@@ -2029,6 +2072,7 @@ function effectPanelTarget() {
       generation,
       compositionId,
       layerId: layer.id,
+      effectId: effectId || TRANSFORM_EFFECT_ID,
       expectedTarget: Object.freeze({ ...plan.target }),
     }),
   };
@@ -2037,7 +2081,7 @@ function applyArtworkEffect(effectId, target) {
   const { owner, envelope, projectRevision, generation, compositionId, layerId, expectedTarget } =
     target;
   if (
-    effectId !== TRANSFORM_EFFECT_ID ||
+    effectId !== target.effectId ||
     workspacePanels.active.left !== 'effects' ||
     owner !== session ||
     owner.state.sessionId !== envelope.sessionId ||
@@ -2055,11 +2099,15 @@ function applyArtworkEffect(effectId, target) {
   )
     throw Error('Artwork changed; select it again');
   const priorUI = selectionSnapshot(true);
-  const result = owner.dispatch({
-    ...envelope,
-    type: 'apply-effect',
-    payload: { layerId, effectId, expectedTarget },
-  });
+  const result = owner.dispatch(
+    effectId === TRANSFORM_EFFECT_ID
+      ? { ...envelope, type: 'apply-effect', payload: { layerId, effectId, expectedTarget } }
+      : {
+          ...envelope,
+          type: 'insert-macro',
+          payload: { expectedProjectRevision: projectRevision, target: expectedTarget },
+        },
+  );
   if (!result.changed) return;
   selected = result.nodeId;
   selection = new Set([selected]);
@@ -6724,10 +6772,27 @@ function mountSelectionViewers(doc, l, n, results) {
   });
 }
 
+function macroControls(n, layer) {
+  if (n.type !== 'Macro') return '';
+  const definition = (history.doc.macroDefinitions || []).find(
+    (item) => item.id === n.macro.definitionId && item.revision === n.macro.definitionRevision,
+  );
+  if (!definition) return '<p role="status">Macro is unavailable</p>';
+  const envelope = session.state,
+    scope = `data-macro-layer="${esc(layer.id)}" data-macro-node="${esc(n.id)}" data-macro-session="${esc(envelope.sessionId)}" data-macro-revision="${envelope.expectedRevision}" data-macro-project="${session.projectRevision}" data-macro-composition="${esc(session.activeCompositionId)}" data-macro-generation="${documents.generation}"`,
+    disabled = layer.locked || n.locked || deletionBusy() || variableAction;
+  return `<div class="macro-controls" ${scope}>${definition.parameters
+    .map((parameter) => {
+      const overridden = Object.hasOwn(n.macro.overrides, parameter.id),
+        value = overridden ? n.macro.overrides[parameter.id] : parameter.defaultValue;
+      return `<div class="field"><label>${esc(parameter.label)}<input type="number" step="any" data-macro-value="${esc(parameter.id)}" aria-label="${esc(parameter.label)}" value="${value}" ${disabled ? 'disabled' : ''}></label><button class="mini" data-macro-reset="${esc(parameter.id)}" ${disabled || !overridden ? 'disabled' : ''}>Reset</button></div>`;
+    })
+    .join('')}</div>`;
+}
 function inspectorMarkup(n, l, result, results, move, duplication) {
   return `${n ? `<h3 class="inspector-node-title">${esc(nodeDisplayName(n))}</h3><p class="inspector-node-type">Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>` : ''}${sourceNavigationPanel()}${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
     n
-      ? `${bypassControl(n)}${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${polarControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${['Curve', 'Multi Path'].includes(n.type) ? ownedPointFields(n) : n.type === 'Path Remap' ? remapFields(n, result, true) : ''}${editorParameters(
+      ? `${bypassControl(n)}${macroControls(n, l)}${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${polarControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${['Curve', 'Multi Path'].includes(n.type) ? ownedPointFields(n) : n.type === 'Path Remap' ? remapFields(n, result, true) : ''}${editorParameters(
           n,
         )
           .filter(
@@ -12110,6 +12175,9 @@ app.addEventListener('click', async (e) => {
         case 'update-node-preset':
         case 'apply-node-preset':
           changeNodePreset(d.action);
+          break;
+        case 'create-macro':
+          await createMacroFromSelection(event.target);
           break;
         case 'graph-fit':
         case 'graph-fit-selection':
@@ -17580,14 +17648,155 @@ function nodePresetControls() {
   const presets = history.doc.nodePresets || [];
   const chosen = presets.find((p) => p.id === selectedNodePreset);
   const blocked = current().locked || deletionBusy() || variableAction || osTextDrafts.size;
+  const selectedTransforms = current().nodes.filter((n) => selection.has(n.id));
+  const canCreateMacro =
+    selectedTransforms.length === 2 && selectedTransforms.every((n) => n.type === 'Transform');
   return `<div class="node-preset-controls" role="group" aria-label="Node presets">
     <select id="node-preset" aria-label="Node preset"><option value="">Presets</option>${presets.map((p) => `<option value="${esc(p.id)}" ${p === chosen ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
     <input id="node-preset-name" aria-label="Preset name" placeholder="Preset name" maxlength="100" value="${esc(chosen?.name || '')}">
     <button data-action="save-node-preset" ${blocked || !selection.size ? 'disabled' : ''}>Save preset</button>
     <button data-action="apply-node-preset" ${blocked || !chosen ? 'disabled' : ''}>Apply preset</button>
     <button data-action="update-node-preset" ${blocked || !chosen || !selection.size ? 'disabled' : ''}>Update preset</button>
+    <button data-action="create-macro" title="Select two connected Transform nodes" ${blocked || !canCreateMacro ? 'disabled' : ''}>Create Macro</button>
   </div>`;
 }
+async function createMacroFromSelection(anchor) {
+  if (deletionBusy() || variableAction || documents.hasDraft() || osTextDrafts.size) return;
+  const owner = session,
+    envelope = { ...owner.state },
+    projectRevision = owner.projectRevision,
+    compositionId = owner.activeCompositionId,
+    generation = documents.generation,
+    layerId = current().id,
+    sourceIds = [...selection],
+    selectedNodes = current().nodes.filter((item) => sourceIds.includes(item.id)),
+    candidates = selectedNodes.flatMap((item, index) =>
+      ['scale', 'rotation'].map((key, parameter) => ({
+        id: `control-${index * 2 + parameter + 1}`,
+        nodeId: item.id,
+        key,
+        label: key === 'scale' ? 'Scale' : 'Rotation',
+      })),
+    );
+  try {
+    captureMacroDefinition({
+      id: 'candidate',
+      name: 'Macro',
+      nodes: selectedNodes,
+      parameters: candidates.slice(0, 1),
+    });
+    const dialog = openMacroCaptureDialog({ document, candidates, anchor }),
+      result = await dialog.result;
+    if (!result) return;
+    const isCurrent = () =>
+      owner === session &&
+      owner.state.sessionId === envelope.sessionId &&
+      owner.state.expectedRevision === envelope.expectedRevision &&
+      owner.projectRevision === projectRevision &&
+      owner.activeCompositionId === compositionId &&
+      documents.generation === generation &&
+      current().id === layerId &&
+      selection.size === sourceIds.length &&
+      sourceIds.every((id) => selection.has(id)) &&
+      !deletionBusy() &&
+      !variableAction &&
+      !documents.hasDraft() &&
+      !osTextDrafts.size;
+    if (!isCurrent()) throw Error('Selection changed; create the Macro again');
+    const captured = captureMacroDefinition({
+      id: uid('macro'),
+      name: result.name.trim(),
+      nodes: current().nodes.filter((item) => sourceIds.includes(item.id)),
+      parameters: result.parameters,
+    });
+    if (!isCurrent()) throw Error('Selection changed; create the Macro again');
+    const beforeEntry = history.entryToken,
+      registered = owner.dispatch({
+        ...envelope,
+        type: 'register-macro-definition',
+        payload: { definition: captured.definition },
+      });
+    if (registered.changed) rememberViewNeutralHistory(beforeEntry, history.entryToken);
+    notify('Macro created');
+    render();
+  } catch (error) {
+    notify(error.message, true);
+  }
+}
+function currentMacroControl(element) {
+  const scope = element.closest('.macro-controls');
+  if (!scope?.isConnected || scope.closest('[hidden], [inert]')) return null;
+  const data = scope.dataset,
+    state = session.state;
+  if (
+    state.sessionId !== data.macroSession ||
+    state.expectedRevision !== Number(data.macroRevision) ||
+    session.projectRevision !== Number(data.macroProject) ||
+    session.activeCompositionId !== data.macroComposition ||
+    documents.generation !== Number(data.macroGeneration) ||
+    current().id !== data.macroLayer ||
+    selected !== data.macroNode ||
+    deletionBusy() ||
+    variableAction ||
+    documents.hasDraft()
+  )
+    return null;
+  const node = current().nodes.find((item) => item.id === data.macroNode && item.type === 'Macro');
+  if (!node || node.locked || current().locked) return null;
+  const definition = history.doc.macroDefinitions?.find(
+    (item) =>
+      item.id === node.macro.definitionId && item.revision === node.macro.definitionRevision,
+  );
+  return definition ? { node, definition, envelope: state } : null;
+}
+app.addEventListener('change', (event) => {
+  const input = event.target;
+  if (!input.matches?.('[data-macro-value]')) return;
+  const context = currentMacroControl(input),
+    parameter = context?.definition.parameters.find((item) => item.id === input.dataset.macroValue),
+    value = input.value === '' ? NaN : Number(input.value);
+  if (!context || !parameter || !Number.isFinite(value)) {
+    input.value = input.defaultValue;
+    notify(context ? 'Enter a finite value' : 'Macro changed; select it again', true);
+    return;
+  }
+  const current = Object.hasOwn(context.node.macro.overrides, parameter.id)
+    ? context.node.macro.overrides[parameter.id]
+    : parameter.defaultValue;
+  if (Object.is(current, value) || current === value) {
+    input.defaultValue = input.value;
+    return;
+  }
+  const result = commandChange(
+    'set-macro-override',
+    {
+      nodeId: context.node.id,
+      parameterId: parameter.id,
+      value,
+    },
+    'Macro updated',
+    true,
+    context.envelope,
+  );
+  settleNumericControl(input, result);
+});
+app.addEventListener('click', (event) => {
+  const button = event.target.closest?.('[data-macro-reset]');
+  if (!button || button.disabled) return;
+  const context = currentMacroControl(button),
+    parameterId = button.dataset.macroReset;
+  if (!context || !context.definition.parameters.some((item) => item.id === parameterId)) {
+    notify('Macro changed; select it again', true);
+    return;
+  }
+  commandChange(
+    'reset-macro-override',
+    { nodeId: context.node.id, parameterId },
+    'Macro reset',
+    false,
+    context.envelope,
+  );
+});
 document.addEventListener('change', (event) => {
   if (event.target.id !== 'node-preset') return;
   selectedNodePreset = event.target.value || null;
@@ -18239,7 +18448,11 @@ document.addEventListener('keydown', (e) => {
       }
       return;
     }
-    if (input.dataset.handlePolar || input.dataset.remapOutput !== undefined) {
+    if (
+      input.dataset.handlePolar ||
+      input.dataset.remapOutput !== undefined ||
+      input.dataset.macroValue !== undefined
+    ) {
       e.preventDefault();
       input.dispatchEvent(new window.Event('change', { bubbles: true }));
       return;

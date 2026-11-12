@@ -22,28 +22,35 @@ same selected-artwork and Session checks as every other effect.
 
 This is a partial REQ-22 route, not a complete effect library or Macro workflow.
 The existing named node presets retain their detached snapshot behavior; they are
-not registered Macro instances. Macro publication, controls, and cross-document
-reuse remain separate work.
+not registered Macro instances. Cross-document Macro reuse remains separate work.
 
 The focused browser test covers search, favorite persistence, Apply, initial paint, Inspector editing,
 canvas movement, Undo/Redo, Save/Open, and stale controls. Workspace and Session
 tests cover selection, composition, unavailable routes and guarded reentry.
 Native WebView2 and physical IME acceptance are not established by those tests.
 
-## Connected Macro Session slice
+## Project-local Macro slice
+
+Select two connected, unlocked literal Path Transform nodes and use Create Macro
+in Presets to name the definition and publish one or more Scale or Rotation
+controls. The definition is stored in the current Project. Connected, expressed,
+or extended Transform inputs are not captured by this first slice.
+
+The Effects drawer lists the Project's registered definitions by stable ID and
+revision. Applying one to a supported Rectangle adds a single Macro instance;
+the Inspector edits or resets its published Scalar values. Equal display names
+receive temporary list numbers without changing the underlying identity.
 
 The Session can insert a registered, revision-pinned two-Transform Macro into a
 single `Rectangle → Transform → Fill → Output` route and edit its published Scalar
 overrides. The existing terminal Transform remains the artwork Move target. The
 connected Path and affected downstream Path outputs are evaluated before commit;
 an overflowing insertion or affected edit is rejected without changing the Project
-or History. Undo/Redo and
-Project save/reopen retain the instance and its definition pin.
+or History. Undo/Redo and Project save/reopen retain the instance and its pin.
 
-This is not yet an Effects-panel workflow: definition creation, library access,
-published controls and Macro Apply UI are not connected. Partial-node copy,
-node presets and Composition import containing Macro instances are rejected until
-their definition closure is implemented. A complete Layer duplicate or same-Project
-Layer snapshot keeps its pinned definition. If that definition leaves History, a
-copied Layer cannot silently adopt a different definition with the same ID and
-revision. Native acceptance remains unverified.
+Partial-node copy, node presets and Composition import containing Macro instances
+are rejected until their definition closure is implemented. A complete Layer
+duplicate or same-Project Layer snapshot keeps its pinned definition. If that
+definition leaves History, a copied Layer cannot silently adopt a different
+definition with the same ID and revision. An external library and cross-Project
+reuse are not implemented. Native acceptance remains unverified.
