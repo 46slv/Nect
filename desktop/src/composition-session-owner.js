@@ -218,7 +218,13 @@ function preparedCompositionFonts(fonts, bridge, ticket) {
 
 function replaceRecord(target, source) {
   for (const key of Object.keys(target)) delete target[key];
-  Object.assign(target, source);
+  for (const key of Object.keys(source))
+    Object.defineProperty(target, key, {
+      value: source[key],
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
 }
 
 function freezeDocument(value) {
@@ -506,6 +512,7 @@ export class CompositionSessionOwner {
         );
         if (this.#macroProjectAdmission)
           this.#assertMacroOwnerCurrent(session, compositionId, revision, project);
+        return next;
       },
     });
     return session;
@@ -934,37 +941,61 @@ export class CompositionSessionOwner {
       this.#assertPrepared(token);
     } catch (error) {
       if (
-        this.#macroProjectAdmission &&
         pending?.token === token &&
-        pending.ticket &&
         (this.#prepared !== pending ||
           this.#session !== pending.session ||
           this.#activeCompositionId !== pending.compositionId ||
           this.#history.revision !== pending.projectRevision)
       ) {
         if (this.#prepared === pending) this.#prepared = null;
-        pending.bridge.discardActivation(pending.ticket);
+        if (pending.ticket) pending.bridge.discardActivation(pending.ticket);
+        else pending.session.discardPrepared?.(pending.innerToken);
       }
       throw error;
     }
     if (prepared.ticket) {
-      if (this.#macroProjectAdmission) {
-        try {
-          return this.#stepHistory(prepared.type, prepared.command, prepared);
-        } catch (error) {
-          if (this.#prepared === prepared) this.#prepared = null;
-          prepared.bridge.discardActivation(prepared.ticket);
-          throw error;
-        }
+      try {
+        return this.#stepHistory(prepared.type, prepared.command, prepared);
+      } catch (error) {
+        if (this.#prepared === prepared) this.#prepared = null;
+        prepared.bridge.discardActivation(prepared.ticket);
+        throw error;
       }
-      prepared.bridge.assertFresh(prepared.ticket);
-      prepared.bridge.activate(prepared.ticket);
-      this.#prepared = null;
-      return this.#stepHistory(prepared.type, prepared.command);
     }
 
     const revision = prepared.session.state.expectedRevision;
     try {
+      if (typeof prepared.session.commitPreparedCoordinated === 'function') {
+        const project = this.#history.doc;
+        let changed = false;
+        const result = prepared.session.commitPreparedCoordinated(
+          prepared.innerToken,
+          (candidate, candidateChanged) => {
+            // All callback-bearing preflight, including ticket teardown, has
+            // finished. Check the owner without invoking adapters again.
+            if (
+              this.#prepared !== prepared ||
+              this.#session !== prepared.session ||
+              this.#activeCompositionId !== prepared.compositionId ||
+              this.#history.doc !== project ||
+              this.#history.revision !== prepared.projectRevision
+            )
+              throw Error('STALE_REVISION: document changed');
+            if (!candidateChanged) return;
+            if (!candidate) throw Error('Missing prepared Project candidate');
+            this.#applyProjectEdit((history) => {
+              replaceRecord(history, candidate);
+            });
+            changed = true;
+          },
+        );
+        if (changed) {
+          this.#session.setProjectContext?.(this.#history.doc, prepared.compositionId);
+          this.#notifyCommitted('edit');
+        }
+        if (this.#prepared === prepared) this.#prepared = null;
+        return { ...result, projectRevision: this.#history.revision };
+      }
       const result = prepared.session.commitPrepared(prepared.innerToken);
       if (prepared.layerClipboardSnapshot || this.#macroProjectAdmission)
         this.#assertPrepared(token);
@@ -982,7 +1013,7 @@ export class CompositionSessionOwner {
         this.#session.setProjectContext?.(this.#history.doc, prepared.compositionId);
         this.#notifyCommitted('edit');
       }
-      this.#prepared = null;
+      if (this.#prepared === prepared) this.#prepared = null;
       return { ...result, projectRevision: this.#history.revision };
     } catch (error) {
       if (
@@ -994,7 +1025,8 @@ export class CompositionSessionOwner {
       ) {
         this.#session = this.#makeSession(this.#history.doc, prepared.compositionId);
       }
-      this.#prepared = null;
+      if (this.#prepared === prepared) this.#prepared = null;
+      prepared.session.discardPrepared?.(prepared.innerToken);
       throw error;
     }
   }
@@ -1108,35 +1140,50 @@ export class CompositionSessionOwner {
     const request = this.#preparedCompositionSwitch;
     if (!request || request.token !== token) throw Error('STALE_OPERATION');
     const { bridge, ticket, targetId } = request;
-    this.#assertCompositionSwitchCurrent(request);
-    const assertClipboard = request.session.captureNodeClipboardFreshness?.();
-    const assertCurrent = () => {
-      if (this.#preparedCompositionSwitch !== request) throw Error('STALE_OPERATION');
+    try {
       this.#assertCompositionSwitchCurrent(request);
-      assertClipboard?.();
-    };
-    bridge.assertFresh(ticket);
-    assertCurrent();
-    const fonts = preparedCompositionFonts(this.#fonts, bridge, ticket);
-    const nextSession = this.#makeSession(this.#history.doc, targetId, fonts.read, request.session);
-    assertCurrent();
-    bridge.assertFresh(ticket);
-    assertCurrent();
-    this.#assertQuiescent({ allowTextDrafts: true });
-    assertCurrent();
-    beforeCommit();
-    assertCurrent();
-    this.#assertQuiescent();
-    assertCurrent();
-    bridge.assertFresh(ticket);
-    assertCurrent();
-    // No fallible work follows activation; publish the bank and tab together.
-    bridge.activate(ticket);
-    fonts.useLive();
-    this.#activeCompositionId = targetId;
-    this.#session = nextSession;
-    this.#preparedCompositionSwitch = null;
-    return true;
+      const assertClipboard = request.session.captureNodeClipboardFreshness?.();
+      const assertCurrent = () => {
+        if (this.#preparedCompositionSwitch !== request) throw Error('STALE_OPERATION');
+        this.#assertCompositionSwitchCurrent(request);
+        assertClipboard?.();
+      };
+      bridge.assertFresh(ticket);
+      assertCurrent();
+      const fonts = preparedCompositionFonts(this.#fonts, bridge, ticket);
+      const nextSession = this.#makeSession(
+        this.#history.doc,
+        targetId,
+        fonts.read,
+        request.session,
+      );
+      assertCurrent();
+      bridge.assertFresh(ticket);
+      assertCurrent();
+      this.#assertQuiescent({ allowTextDrafts: true });
+      assertCurrent();
+      beforeCommit();
+      assertCurrent();
+      this.#assertQuiescent();
+      assertCurrent();
+      bridge.stageActivation(ticket);
+      assertCurrent();
+      this.#assertQuiescent();
+      assertCurrent();
+      bridge.assertFresh(ticket);
+      assertCurrent();
+      // Publish only after callback-bearing teardown and the last fresh check.
+      bridge.publishActivation(ticket);
+      fonts.useLive();
+      this.#activeCompositionId = targetId;
+      this.#session = nextSession;
+      this.#preparedCompositionSwitch = null;
+      return true;
+    } catch (error) {
+      if (this.#preparedCompositionSwitch === request) this.#preparedCompositionSwitch = null;
+      bridge.discardActivation(ticket);
+      throw error;
+    }
   }
 
   dispatch(command) {

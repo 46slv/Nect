@@ -815,6 +815,9 @@ test('prepared Composition edits retain the promoted wrapper and Undo/Redo', asy
     preparedFonts: () => ({}),
     assertFresh() {},
     activate() {},
+    stageActivation() {},
+    publishActivation() {},
+    discardActivation() {},
     cancel() {},
   };
   const token = await owner.prepareCommand(

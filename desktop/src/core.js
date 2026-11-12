@@ -7833,35 +7833,33 @@ export class CommandSession {
     const sequence = ++this.#prepareSequence;
     this.#prepared = null;
     const snapshotPaste = type === 'paste-layer-snapshot';
-    const entry = snapshotPaste
-      ? {
-          document: this.#history.doc,
-          revision: this.#history.revision,
-          binding: projectDocumentContexts.get(this.#history.doc),
-          contextEpoch: this.#projectContextOwner.epoch,
-          clipboard: this.#nodeClipboard,
-        }
-      : null;
+    const entry = {
+      document: this.#history.doc,
+      revision: this.#history.revision,
+      binding: projectDocumentContexts.get(this.#history.doc),
+      contextEpoch: this.#projectContextOwner.epoch,
+      clipboard: this.#nodeClipboard,
+    };
     const captured = snapshotPaste ? this.#resolveLayerClipboardSnapshot(payload.token) : null;
     const assertLocal = () => {
       if (
         sequence !== this.#prepareSequence ||
         sessionId !== this.id ||
         expectedRevision !== this.#history.revision ||
-        (entry &&
-          (this.#history.doc !== entry.document ||
-            this.#history.revision !== entry.revision ||
-            projectDocumentContexts.get(this.#history.doc) !== entry.binding ||
-            this.#projectContextOwner.epoch !== entry.contextEpoch ||
-            this.#nodeClipboard !== entry.clipboard))
+        this.#history.doc !== entry.document ||
+        this.#history.revision !== entry.revision ||
+        projectDocumentContexts.get(this.#history.doc) !== entry.binding ||
+        this.#projectContextOwner.epoch !== entry.contextEpoch ||
+        (snapshotPaste && this.#nodeClipboard !== entry.clipboard)
       )
         throw Error('STALE_REVISION: document changed');
-      if (captured && this.#resolveLayerClipboardSnapshot(payload.token) !== captured)
-        throw Error('STALE_SESSION: copied Layer changed');
     };
     assertLocal();
-    const authority = snapshotPaste ? this.#captureArtworkMoveAuthority() : null;
+    const authority = this.#captureArtworkMoveAuthority();
     const assertCurrent = () => {
+      assertLocal();
+      if (captured && this.#resolveLayerClipboardSnapshot(payload.token) !== captured)
+        throw Error('STALE_SESSION: copied Layer changed');
       assertLocal();
       authority?.();
       assertLocal();
@@ -7924,7 +7922,8 @@ export class CommandSession {
         type,
         sequence,
         result,
-        assertCurrent: snapshotPaste ? assertCurrent : null,
+        assertCurrent,
+        assertLocal,
       };
       return token;
     } catch (error) {
@@ -7986,10 +7985,16 @@ export class CommandSession {
   }
   commitPrepared(token) {
     return this.#observeCommit(() => this.#commitPrepared(token), {
-      skipFailed: this.#prepared?.type === 'paste-layer-snapshot',
+      skipFailed: true,
     });
   }
-  #commitPrepared(token) {
+  commitPreparedCoordinated(token, publishProject) {
+    if (typeof publishProject !== 'function') throw Error('Invalid prepared Project publisher');
+    return this.#observeCommit(() => this.#commitPrepared(token, publishProject), {
+      skipFailed: true,
+    });
+  }
+  #commitPrepared(token, publishProject = null) {
     const p = this.#prepared;
     if (
       !p ||
@@ -8000,43 +8005,80 @@ export class CommandSession {
       throw Error('STALE_REVISION: document changed');
     if (this.#busy() || this.#gesture || this.hasTextComposition || this.#textDrafts.size)
       throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
-    p.assertCurrent?.();
-    p.bridge.assertFresh(p.ticket);
-    assertVariableDocumentReady(
-      p.candidate,
-      resolveFonts(p.candidate, p.bridge.preparedFonts(p.ticket)),
-    );
-    p.assertCurrent?.();
-    const revision = this.#history.revision;
-    if (p.type === 'undo' || p.type === 'redo') this.#history[p.type]();
-    else if (!sameDocument(this.#history.doc, p.candidate)) {
-      assertNoAccidentalCurvePointRebind(this.#history.doc, p.candidate, this.#nodeClipboard);
-      assertArtworkReferenceTransition(this.#history.doc, p.candidate, {
-        ...this.#fonts(),
-        ...p.bridge.preparedFonts(p.ticket),
-      });
-      p.assertCurrent?.();
-      this.#beforeCandidateCommit?.(
-        this.#history.doc,
+    let staging = false;
+    try {
+      p.assertCurrent();
+      p.bridge.assertFresh(p.ticket);
+      assertVariableDocumentReady(
         p.candidate,
-        p.bridge.preparedFonts(p.ticket),
+        resolveFonts(p.candidate, p.bridge.preparedFonts(p.ticket)),
       );
-      p.assertCurrent?.();
-      this.#history.apply(() => {
+      p.assertCurrent();
+      const revision = this.#history.revision,
+        historyStep = p.type === 'undo' || p.type === 'redo',
+        changed = historyStep
+          ? (p.type === 'undo' ? this.#history.past : this.#history.future).length > 0
+          : !sameDocument(this.#history.doc, p.candidate);
+      let projectCandidate = null,
+        before = null;
+      if (changed && !historyStep) {
+        assertNoAccidentalCurvePointRebind(this.#history.doc, p.candidate, this.#nodeClipboard);
+        assertArtworkReferenceTransition(this.#history.doc, p.candidate, {
+          ...this.#fonts(),
+          ...p.bridge.preparedFonts(p.ticket),
+        });
+        p.assertCurrent();
+        projectCandidate = this.#beforeCandidateCommit?.(
+          this.#history.doc,
+          p.candidate,
+          p.bridge.preparedFonts(p.ticket),
+        );
+        p.assertCurrent();
+        before = cloneDocument(this.#history.doc);
+      }
+      // Teardown may call caller code. Nothing is published until it returns
+      // and every Session, Project and ticket boundary is checked again.
+      staging = true;
+      p.bridge.stageActivation(p.ticket);
+      p.assertCurrent();
+      p.bridge.assertFresh(p.ticket);
+      p.assertLocal();
+      if (this.#prepared !== p) throw Error('STALE_REVISION: document changed');
+      // The coordinated publisher checks owner identity without callbacks and
+      // publishes its already validated Project candidate. From here to both
+      // Session and font-bank publication there are no external callbacks.
+      publishProject?.(projectCandidate, changed);
+      p.bridge.publishActivation(p.ticket);
+      if (historyStep) this.#history[p.type]();
+      else if (changed) {
         this.#history.doc = p.candidate;
-      });
+        this.#history.record(before);
+      }
+      this.#trackProjectContextRoots();
+      if (p.type === 'import-svg') this.#nodeClipboard = null;
+      this.#prepared = null;
+      return { ...this.state, ...p.result, changed: revision !== this.#history.revision };
+    } catch (error) {
+      if (staging) {
+        p.bridge.discardActivation(p.ticket);
+        if (this.#prepared === p) this.#prepared = null;
+      }
+      throw error;
     }
-    this.#trackProjectContextRoots();
-    p.bridge.activate(p.ticket);
-    if (p.type === 'import-svg') this.#nodeClipboard = null;
-    this.#prepared = null;
-    return { ...this.state, ...p.result, changed: revision !== this.#history.revision };
   }
   cancelPrepared(bridge, token = null) {
     if (token && this.#prepared?.token !== token) return;
     this.#prepared = null;
     this.#prepareSequence++;
     bridge.cancel();
+  }
+  discardPrepared(token) {
+    const pending = this.#prepared;
+    if (!pending || pending.token !== token) return false;
+    this.#prepared = null;
+    this.#prepareSequence++;
+    pending.bridge.discardActivation(pending.ticket);
+    return true;
   }
   dispatch(command) {
     const entry = {

@@ -125,6 +125,30 @@ test('registration preserves all other Compositions and shared authored data', (
   assert.deepEqual(owner.projectSnapshot(), after);
 });
 
+test('registration preserves an opaque own __proto__ property through History and save', () => {
+  const project = makeProject();
+  Object.defineProperty(project, '__proto__', {
+    value: { label: 'opaque data' },
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
+  const owner = createCompositionSessionOwner(project);
+  send(owner, 'register-macro-definition', { definition: definition() });
+  const admitted = owner.projectSnapshot();
+  assert.equal(Object.hasOwn(admitted, '__proto__'), true);
+  assert.deepEqual(admitted.__proto__, { label: 'opaque data' });
+  const reopened = deserializeCompositionProject(
+    serializeCompositionProject(admitted),
+    deserialize,
+  );
+  assert.deepEqual(reopened.__proto__, { label: 'opaque data' });
+  send(owner, 'undo');
+  assert.deepEqual(owner.projectSnapshot().__proto__, { label: 'opaque data' });
+  send(owner, 'redo');
+  assert.deepEqual(owner.projectSnapshot(), admitted);
+});
+
 test('equal registration is a no-op; conflict rejects without losing Project or redo', () => {
   const owner = createCompositionSessionOwner(makeProject());
   send(owner, 'register-macro-definition', { definition: definition() });

@@ -116,6 +116,34 @@ async function openSaved(fixture, options = {}) {
   };
 }
 
+test('prepared Composition switch rejects teardown reentry before publishing its font bank', async () => {
+  const fixture = await makeSavedProject();
+  const { owner, bridge } = await openSaved(fixture);
+  const controller = new AbortController(),
+    signal = controller.signal,
+    remove = signal.removeEventListener.bind(signal);
+  let trigger = false;
+  signal.removeEventListener = (...args) => {
+    remove(...args);
+    if (trigger) {
+      trigger = false;
+      owner.renameComposition(fixture.firstId, 'Concurrent');
+    }
+  };
+  try {
+    const bank = bridge.stats().active,
+      token = await owner.prepareCompositionSwitch(fixture.secondId, bridge, { signal });
+    trigger = true;
+    assert.throws(() => owner.commitPreparedCompositionSwitch(token), /STALE/);
+    assert.equal(owner.activeCompositionId, fixture.firstId);
+    assert.equal(owner.projectSnapshot().compositions[0].name, 'Concurrent');
+    assert.deepEqual(bridge.stats().active, bank);
+    assert.equal(bridge.stats().candidate, null);
+  } finally {
+    bridge.dispose();
+  }
+});
+
 test('a reentrant Macro classification cannot publish a stale prepared History font bank', async () => {
   const fixture = await makeSavedProject();
   let owner,
@@ -250,6 +278,157 @@ test('AbortSignal cleanup cannot publish a stale prepared History or font bank',
     assert.deepEqual(bridge.stats().active, beforeBank);
     owner.switchComposition(fixture.secondId);
     assert.equal(exportSVG(owner.snapshot(), bridge.fonts()), fixture.expectedB);
+  } finally {
+    bridge.dispose();
+  }
+});
+
+test('prepared text teardown cannot expose its uncommitted edit to a reentrant Project edit', async () => {
+  const fixture = await makeSavedProject();
+  const { owner, bridge } = await openSaved(fixture, { macroProjectAdmission: () => false });
+  const controller = new AbortController(),
+    signal = controller.signal,
+    remove = signal.removeEventListener.bind(signal);
+  let trigger = false,
+    observed;
+  signal.removeEventListener = (...args) => {
+    remove(...args);
+    if (trigger) {
+      trigger = false;
+      observed = owner.snapshot().layers[0].nodes.find((entry) => entry.id === fixture.textB).text;
+      owner.dispatch({
+        ...owner.state,
+        type: 'set-document-settings',
+        payload: { key: 'width', value: 777 },
+      });
+    }
+  };
+  try {
+    owner.commitPreparedCompositionSwitch(
+      await owner.prepareCompositionSwitch(fixture.secondId, bridge),
+    );
+    const before = owner.snapshot(),
+      beforeBank = bridge.stats().active,
+      token = await owner.prepareCommand(
+        {
+          ...owner.state,
+          type: 'set-text-content',
+          payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AW' },
+        },
+        bridge,
+        { signal },
+      );
+    trigger = true;
+    assert.throws(() => owner.commitPrepared(token), /STALE/);
+    assert.equal(observed, 'AV');
+    assert.equal(
+      owner.snapshot().layers[0].nodes.find((entry) => entry.id === fixture.textB).text,
+      'AV',
+    );
+    assert.equal(owner.snapshot().width, 777);
+    assert.deepEqual(bridge.stats().active, beforeBank);
+    assert.equal(bridge.stats().candidate, null);
+    owner.commitPrepared(await owner.prepareCommand({ ...owner.state, type: 'undo' }, bridge));
+    assert.equal(owner.snapshot().width, before.width);
+    assert.equal(
+      owner.snapshot().layers[0].nodes.find((entry) => entry.id === fixture.textB).text,
+      'AV',
+    );
+  } finally {
+    bridge.dispose();
+  }
+});
+
+test('abort during prepared text teardown preserves Project, History and active font bank', async () => {
+  const fixture = await makeSavedProject();
+  const { owner, bridge } = await openSaved(fixture);
+  const controller = new AbortController(),
+    signal = controller.signal,
+    remove = signal.removeEventListener.bind(signal);
+  let trigger = false;
+  signal.removeEventListener = (...args) => {
+    remove(...args);
+    if (trigger) {
+      trigger = false;
+      controller.abort();
+    }
+  };
+  try {
+    owner.commitPreparedCompositionSwitch(
+      await owner.prepareCompositionSwitch(fixture.secondId, bridge),
+    );
+    const before = serializeCompositionProject(owner.projectSnapshot()),
+      beforeHistory = owner.historyState,
+      beforeBank = bridge.stats().active,
+      token = await owner.prepareCommand(
+        {
+          ...owner.state,
+          type: 'set-text-content',
+          payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AW' },
+        },
+        bridge,
+        { signal },
+      );
+    trigger = true;
+    assert.throws(() => owner.commitPrepared(token), /STALE|CANCEL/);
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), before);
+    assert.deepEqual(owner.historyState, beforeHistory);
+    assert.deepEqual(bridge.stats().active, beforeBank);
+    assert.equal(bridge.stats().candidate, null);
+    assert.equal(exportSVG(owner.snapshot(), bridge.fonts()), fixture.expectedB);
+  } finally {
+    bridge.dispose();
+  }
+});
+
+test('reentrant prepared text supersedes the old ticket without losing the new one', async () => {
+  const fixture = await makeSavedProject();
+  const { owner, bridge } = await openSaved(fixture);
+  const controller = new AbortController(),
+    signal = controller.signal,
+    remove = signal.removeEventListener.bind(signal);
+  let trigger = false,
+    newer;
+  signal.removeEventListener = (...args) => {
+    remove(...args);
+    if (trigger) {
+      trigger = false;
+      newer = owner.prepareCommand(
+        {
+          ...owner.state,
+          type: 'set-text-content',
+          payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AX' },
+        },
+        bridge,
+      );
+    }
+  };
+  try {
+    owner.commitPreparedCompositionSwitch(
+      await owner.prepareCompositionSwitch(fixture.secondId, bridge),
+    );
+    const token = await owner.prepareCommand(
+      {
+        ...owner.state,
+        type: 'set-text-content',
+        payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AW' },
+      },
+      bridge,
+      { signal },
+    );
+    trigger = true;
+    assert.throws(() => owner.commitPrepared(token), /STALE/);
+    const newToken = await newer;
+    owner.commitPrepared(newToken);
+    assert.equal(
+      owner.snapshot().layers[0].nodes.find((entry) => entry.id === fixture.textB).text,
+      'AX',
+    );
+    owner.commitPrepared(await owner.prepareCommand({ ...owner.state, type: 'undo' }, bridge));
+    assert.equal(
+      owner.snapshot().layers[0].nodes.find((entry) => entry.id === fixture.textB).text,
+      'AV',
+    );
   } finally {
     bridge.dispose();
   }
