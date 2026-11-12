@@ -309,6 +309,84 @@ test('candidate validates the existing Project and rejects unsafe JSON without i
       return {};
     },
   });
-  assert.throws(() => validateMacroProjectCandidate(candidate), /accessor/i);
+  assert.throws(() => validateMacroProjectCandidate(candidate), /accessor|enumerable/i);
   assert.equal(called, 0);
+});
+
+test('candidate rejects hidden registry, node identity, discriminator and pin data', () => {
+  for (const hide of [
+    (p) => Object.defineProperty(p, 'macroDefinitions', { enumerable: false }),
+    (p) => Object.defineProperty(p.compositions[0].layers[0].nodes[0], 'id', { enumerable: false }),
+    (p) =>
+      Object.defineProperty(p.compositions[0].layers[0].nodes[0], 'type', { enumerable: false }),
+    (p) =>
+      Object.defineProperty(p.compositions[0].layers[0].nodes[0], 'macro', { enumerable: false }),
+    (p) =>
+      Object.defineProperty(p.compositions[0].layers[0].nodes[0].macro, 'overrides', {
+        enumerable: false,
+      }),
+  ]) {
+    const candidate = project();
+    hide(candidate);
+    assert.throws(() => validateMacroProjectCandidate(candidate), /Macro|enumerable/i);
+  }
+});
+
+test('hidden typed payloads reject before any nested getter runs', () => {
+  const candidate = project(),
+    macro = candidate.compositions[0].layers[0].nodes[0].macro;
+  let called = 0;
+  Object.defineProperty(macro, 'definitionId', {
+    enumerable: true,
+    get() {
+      called++;
+      return 'double-transform';
+    },
+  });
+  Object.defineProperty(candidate.compositions[0].layers[0].nodes[0], 'macro', {
+    value: macro,
+    enumerable: false,
+  });
+  assert.throws(() => validateMacroProjectCandidate(candidate));
+  assert.equal(called, 0);
+});
+
+test('candidate refuses hidden toJSON callbacks without executing them', () => {
+  for (const target of [
+    (p) => p,
+    (p) => p.compositions[0],
+    (p) => p.compositions[0].layers[0].nodes[0],
+    (p) => p.compositions[0].layers[0].nodes[0].macro,
+    (p) => p.macroDefinitions[0].nodes[0].params,
+    (p) => p.metadata,
+  ]) {
+    const candidate = project();
+    let called = 0;
+    Object.defineProperty(target(candidate), 'toJSON', {
+      value() {
+        called++;
+        return {};
+      },
+      enumerable: false,
+    });
+    assert.throws(() => validateMacroProjectCandidate(candidate));
+    assert.equal(called, 0);
+  }
+  const candidate = project();
+  candidate.metadata.toJSON = 'ordinary JSON data';
+  assert.strictEqual(validateMacroProjectCandidate(candidate), candidate);
+});
+
+test('candidate refuses other hidden or ignored data that serialization would discard', () => {
+  for (const hide of [
+    (p) => Object.defineProperty(p, 'name', { enumerable: false }),
+    (p) => Object.defineProperty(p.compositions[0], 'id', { enumerable: false }),
+    (p) => Object.defineProperty(p.compositions[0].layers[0], 'name', { enumerable: false }),
+    (p) => Object.defineProperty(p.metadata, 'owner', { enumerable: false }),
+    (p) => Object.defineProperty(p.compositions, 'note', { value: 'not serialized' }),
+  ]) {
+    const candidate = project();
+    hide(candidate);
+    assert.throws(() => validateMacroProjectCandidate(candidate), /serialize|Macro/i);
+  }
 });

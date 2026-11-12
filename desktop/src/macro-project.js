@@ -23,6 +23,89 @@ function dataArray(values, label) {
   return result;
 }
 
+function ownEnumerableValue(record, key, label, { optional = false } = {}) {
+  if (!record || typeof record !== 'object' || Array.isArray(record))
+    throw Error(`Invalid ${label}`);
+  const descriptor = Object.getOwnPropertyDescriptor(record, key);
+  if (!descriptor && optional) return undefined;
+  if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value'))
+    throw Error(`Invalid enumerable ${label}`);
+  return descriptor.value;
+}
+
+// Inspect the typed route before the existing codec reads any hidden payload.
+// This is an opt-in admission contract, not a change to ordinary Open/Save.
+export function assertMacroCandidateEnvelope(project) {
+  ownEnumerableValue(project, 'macroDefinitions', 'Macro definitions', { optional: true });
+  const compositions = ownEnumerableValue(project, 'compositions', 'Macro Project compositions');
+  for (const composition of dataArray(compositions, 'Macro Project compositions')) {
+    const layers = ownEnumerableValue(composition, 'layers', 'Macro Composition layers');
+    for (const layer of dataArray(layers, 'Macro Composition layers')) {
+      const nodes = ownEnumerableValue(layer, 'nodes', 'Macro Layer nodes');
+      for (const node of dataArray(nodes, 'Macro Layer nodes')) {
+        ownEnumerableValue(node, 'id', 'Macro candidate node ID');
+        const type = ownEnumerableValue(node, 'type', 'Macro candidate node type');
+        if (typeof type !== 'string') throw Error('Invalid Macro candidate node type');
+        if (type !== 'Macro') continue;
+        const pin = ownEnumerableValue(node, 'macro', 'Macro instance pin');
+        if (!pin || typeof pin !== 'object' || Array.isArray(pin))
+          throw Error('Invalid Macro instance pin');
+        const keys = Reflect.ownKeys(pin);
+        if (
+          keys.length !== 3 ||
+          keys.some((key) => !['definitionId', 'definitionRevision', 'overrides'].includes(key))
+        )
+          throw Error('Invalid Macro instance pin');
+        for (const key of keys) ownEnumerableValue(pin, key, 'Macro instance pin field');
+      }
+    }
+  }
+  const presets = ownEnumerableValue(project, 'nodePresets', 'Macro Project presets', {
+    optional: true,
+  });
+  if (presets !== undefined)
+    for (const preset of dataArray(presets, 'Macro Project presets')) {
+      const nodes = ownEnumerableValue(preset, 'nodes', 'Macro preset nodes', { optional: true });
+      if (nodes !== undefined)
+        for (const node of dataArray(nodes, 'Macro preset nodes'))
+          ownEnumerableValue(node, 'type', 'Macro preset node type');
+    }
+}
+
+// JSON.stringify invokes own or inherited toJSON methods, including hidden
+// ones, and silently drops hidden object fields and extra array properties.
+// Candidate admission rejects those cases without calling a getter. The
+// ordinary codec deliberately retains its old behavior.
+export function assertNoMacroCandidateJsonCallbacks(value) {
+  if (!value || typeof value !== 'object') return;
+  let current = value;
+  while (current) {
+    const descriptor = Object.getOwnPropertyDescriptor(current, 'toJSON');
+    if (descriptor) {
+      if (!Object.hasOwn(descriptor, 'value') || typeof descriptor.value === 'function')
+        throw Error('Macro candidate cannot use a toJSON callback');
+      break;
+    }
+    current = Object.getPrototypeOf(current);
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (Array.isArray(value)) {
+    for (const key of Object.getOwnPropertyNames(descriptors)) {
+      if (key === 'length') continue;
+      if (!/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= value.length)
+        throw Error('Macro candidate cannot serialize extra array data');
+    }
+    for (let index = 0; index < value.length; index++)
+      assertNoMacroCandidateJsonCallbacks(descriptors[String(index)].value);
+  } else {
+    for (const key of Object.getOwnPropertyNames(descriptors)) {
+      if (!descriptors[key].enumerable)
+        throw Error('Macro candidate cannot serialize hidden object data');
+      assertNoMacroCandidateJsonCallbacks(descriptors[key].value);
+    }
+  }
+}
+
 function definitionsRegistry(definitions) {
   const registry = new Map();
   const snapshots = [];
