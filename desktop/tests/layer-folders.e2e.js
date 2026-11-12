@@ -153,6 +153,89 @@ try {
   );
   await page.locator('[aria-label="Folder name"]').press('Escape');
   assert.deepEqual(await project(), saved);
+
+  const historyMismatches = [];
+  for (const action of ['create', 'add', 'remove', 'rename', 'ungroup']) {
+    const nextIds = await page.evaluate(async (action) => {
+      const { blankDocument, blankLayer, node } = await import('/src/core.js');
+      const { migrateLegacyDocumentToCompositionProject } = await import(
+        '/src/composition-project-model.js'
+      );
+      const doc = blankDocument();
+      doc.layers = ['Back', 'Middle', 'Front'].map((name) => {
+        const layer = blankLayer(name),
+          rectangle = node('Rectangle'),
+          fill = node('Fill');
+        fill.params.path.source = rectangle.id;
+        layer.nodes.unshift(rectangle, fill);
+        layer.nodes.find((item) => item.type === 'Output').params.path.source = fill.id;
+        return layer;
+      });
+      window.nect.load(JSON.stringify(migrateLegacyDocumentToCompositionProject(doc)));
+      window.nect.dispatch({
+        ...window.nect.commandState,
+        type: 'create-layer-folder',
+        payload: {
+          folderId: 'history-folder',
+          name: 'Source',
+          layerIds:
+            action === 'create'
+              ? []
+              : action === 'remove'
+                ? doc.layers.map((l) => l.id)
+                : [doc.layers[0].id],
+        },
+      });
+      return doc.layers.map((layer) => layer.id);
+    }, action);
+    await ensureWorkspacePanel(page, 'layers');
+    await select(nextIds[0]);
+    await page.evaluate(() =>
+      window.nect.dispatch({
+        ...window.nect.commandState,
+        type: 'rename-layer-folder',
+        payload: { folderId: 'history-folder', name: 'Temporary history' },
+      }),
+    );
+    await page.locator('[data-action="undo"]').click();
+    await page.locator('[data-action="redo"]').click();
+    await page.locator('[data-action="undo"]').click();
+    await select(nextIds[1]);
+    const expectedSelection = [nextIds[1]];
+    if (action !== 'add') {
+      await select(nextIds[2], true);
+      expectedSelection.push(nextIds[2]);
+    }
+    const beforeAction = await project();
+    if (action === 'create') await page.locator('[data-action="add-layer-folder"]').click();
+    else if (action === 'add') await page.locator('[data-folder-add="history-folder"]').click();
+    else if (action === 'remove') await page.locator('[data-folder-out="history-folder"]').click();
+    else if (action === 'ungroup')
+      await page.locator('[data-folder-dissolve="history-folder"]').click();
+    else {
+      await page.locator('[data-folder-name="history-folder"]').focus();
+      await page.keyboard.press('F2');
+      await page.locator('[aria-label="Folder name"]').fill('Renamed');
+      await page.locator('[aria-label="Folder name"]').press('Enter');
+    }
+    const afterAction = await project();
+    assert.notDeepEqual(afterAction, beforeAction, action);
+    for (const [direction, expected] of [
+      ['undo', beforeAction],
+      ['redo', afterAction],
+    ]) {
+      await page.locator(`[data-action="${direction}"]`).click();
+      assert.deepEqual(await project(), expected, `${action} ${direction} document`);
+      const actual = (
+        await page
+          .locator('.layer.selected')
+          .evaluateAll((rows) => rows.map((row) => row.dataset.layer))
+      ).sort();
+      if (JSON.stringify(actual) !== JSON.stringify([...expectedSelection].sort()))
+        historyMismatches.push(`${action} ${direction}: selection changed`);
+    }
+  }
+  assert.deepEqual(historyMismatches, []);
   assert.deepEqual(errors, []);
   console.log('PASS Layer Folder create, membership, disclosure, rename and project reopen');
 } finally {
