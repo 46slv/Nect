@@ -95,12 +95,15 @@ test('IME confirmation and search Enter do not apply, while an explicit Apply do
 
 test('a stale displayed artwork is passed to the owner for refusal, and a new view captures the replacement', (t) => {
   const f = fixture(t);
+  const mutableTarget = { label: 'Before', snapshot: { session: 'a', revision: 3, layer: 'one' } };
+  f.setTarget(mutableTarget);
   const old = f.mount();
   const replacement = {
     label: 'Replacement',
     snapshot: { session: 'b', revision: 3, layer: 'one' },
   };
-  f.setTarget(replacement);
+  // Even if a caller reuses its outer object, the displayed action keeps its original snapshot.
+  mutableTarget.snapshot = replacement.snapshot;
   old.querySelector('[data-effects-apply]').click();
   assert.deepEqual(f.actions, []);
   assert.deepEqual(f.errors, ['Artwork changed']);

@@ -7,7 +7,8 @@ export function createEffectsPanel({
   onError = () => {},
 }) {
   let query = '',
-    selectedId = null;
+    selectedId = null,
+    composing = false;
 
   const normalize = (value) => String(value).normalize('NFKC').toLowerCase();
   const matches = (entry) => {
@@ -21,7 +22,13 @@ export function createEffectsPanel({
 
   function createView() {
     const target = getTarget();
-    const entries = getEntries();
+    const snapshot = target?.snapshot;
+    const reason = target?.reason;
+    const entries = getEntries().map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      aliases: [...(entry.aliases || [])],
+    }));
     const panel = document.createElement('section');
     panel.className = 'effects-panel';
     panel.setAttribute('aria-label', 'Effects');
@@ -49,7 +56,6 @@ export function createEffectsPanel({
     apply.textContent = 'Apply';
     panel.append(heading, targetLabel, search, list, status, apply);
 
-    let composing = false;
     function refresh() {
       const visible = entries.filter(matches);
       if (!visible.some((entry) => entry.id === selectedId)) selectedId = visible[0]?.id || null;
@@ -64,14 +70,13 @@ export function createEffectsPanel({
           selectedId = entry.id;
           for (const button of list.querySelectorAll('[data-effect-id]'))
             button.setAttribute('aria-pressed', String(button.dataset.effectId === selectedId));
-          apply.disabled = !target?.snapshot || !!target.reason || composing;
+          apply.disabled = !snapshot || !!reason || composing;
         });
         list.append(row);
       }
       status.textContent =
-        target?.reason ||
-        (!target ? 'Select artwork' : !visible.length ? 'No matching effects' : '');
-      apply.disabled = !target?.snapshot || !!target.reason || !selectedId || composing;
+        reason || (!target ? 'Select artwork' : !visible.length ? 'No matching effects' : '');
+      apply.disabled = !snapshot || !!reason || !selectedId || composing;
     }
     search.addEventListener('compositionstart', () => {
       composing = true;
@@ -93,7 +98,7 @@ export function createEffectsPanel({
     apply.addEventListener('click', () => {
       if (!panel.isConnected || apply.disabled || composing) return;
       try {
-        onApply(selectedId, target.snapshot);
+        onApply(selectedId, snapshot);
       } catch (error) {
         onError(error);
       }
@@ -102,5 +107,10 @@ export function createEffectsPanel({
     return panel;
   }
 
-  return { createView };
+  return {
+    createView,
+    get canDeactivate() {
+      return !composing;
+    },
+  };
 }
