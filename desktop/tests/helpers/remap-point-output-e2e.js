@@ -75,6 +75,16 @@ export async function verifyRemapPointOutput(page) {
   assert.equal(await snapshot(), beforeTinyEdit);
   await field('handleB', 'length').press('Control+A');
   await field('handleB', 'length').press('0');
+  await field('handleB', 'length').press('/');
+  await field('handleB', 'length').press('0');
+  await field('handleB', 'length').press('Enter');
+  assert.match(await page.locator('.status .message').innerText(), /Invalid calculation/);
+  await field('handleB', 'length').blur();
+  await settle();
+  assert.equal(await snapshot(), beforeTinyEdit, 'invalid expression and blur do not quantize');
+  await field('handleB', 'length').focus();
+  await field('handleB', 'length').press('Control+A');
+  await field('handleB', 'length').press('0');
   await field('handleB', 'length').press('Enter');
   await settle();
   assert.deepEqual((await output()).handleB, [0, 0], 'explicit zero clears the rounded handle');

@@ -1,6 +1,6 @@
 # Blank artwork entry points
 
-**New** starts an empty 960 × 540 document with one blank composition and one vector Output. It asks before replacing the current project. **+ Blank** in Layers appends the same minimal composition without changing earlier artwork. The editor starts with this same blank document and no selected node or artwork.
+**New** asks for the initial Width and Height in document px before creating an empty project with one blank Composition and one vector Output. The initial fields show 960 × 540; both values must be finite, positive and at most 100,000. After Create, the existing Save/Discard/Cancel guard protects the current project. **+ Blank** in Layers appends a minimal Layer without changing earlier artwork. The editor starts with the existing 960 × 540 blank document and no selected node or artwork.
 
 Production startup and Layers have no demo entry point. The public `document()` and `layer()` factories retain their explicit example behavior for existing callers and fixtures; saved documents are unchanged. Startup reuses `blankDocument()` rather than a separate scene definition. Open, Save and unsaved-change guards retain their existing behavior.
 
@@ -14,7 +14,7 @@ Empty geometry emits no path/group/paint element or selectable canvas hit. The b
 
 ## History and existing work
 
-- New uses the existing unsaved Save/Discard/Cancel guard. Cancelling leaves the current document and history unchanged; an active edit or Pen draft must be finished or cancelled before changing documents.
+- Cancelling the size dialog leaves the current project, its file binding and history unchanged. New uses the existing unsaved Save/Discard/Cancel guard after dimensions are confirmed; cancelling that guard also leaves the current document and history unchanged. An active edit or Pen draft must be finished or cancelled before changing documents. If the project or active Composition changes while the size dialog or the unsaved decision is pending, the old request cannot replace the newer work.
 - Confirming New replaces the project with independent, empty Undo/Redo history. Undo cannot recover the replaced project; save existing work before discarding it.
 - Launch and New are unsaved until **Save JSON**. The existing unsaved-close warning remains active.
 - **+ Blank** first cancels any pressed edit/wire gesture before changing layer scope. Rejected append likewise retains the pre-gesture committed document. It is one Undo unit, works from hidden/locked/image contexts and preserves prior nodes, wires, Output, visibility, locks and assets. Candidate validation and the 100-layer limit run before append. Capacity or invalid-document rejection preserves history and selection.
@@ -22,8 +22,8 @@ Empty geometry emits no path/group/paint element or selectable canvas hit. The b
 
 ## Persistence and verification
 
-Save/reload retains the intentional empty composition. Empty SVG is the artboard element without content; PNG has transparent pixels at the selected export scale. Adding subsequent artwork and exporting the mixed document omits the empty layer without omitting valid artwork.
+Save/reload retains the confirmed dimensions and intentional empty Composition. Empty SVG is the artboard element without content; PNG has transparent pixels at the selected export scale. Adding subsequent artwork and exporting the mixed document omits the empty layer without omitting valid artwork.
 
-`tests/blank-artwork.test.js` covers factory compatibility, strict opt-in/cache behavior, reachable malformed graphs, empty export, candidate preservation, IDs, capacity and history. `tests/blank-artwork-dom.test.js` covers blank launch, absence of demo UI, existing-document opening, New/+Blank, dirty state, draft cancellation, selection, all toolbar entry points and explicit graph routing. `tests/blank-artwork.e2e.js` is the separate Chrome harness for New confirmation, open/pressed Pen cancellation, exact Undo/Redo, transparent SVG/PNG, cold JSON reopen, independent creation, +Blank capacity and 1280×800 / 1600×1000 layouts. The startup change was checked with synthetic DOM tests and a production Web build; this Chrome harness was not run for this change. Native WebView2, file dialogs and Windows IME remain separate acceptance gates.
+`tests/blank-artwork.test.js` covers factory behavior, strict opt-in/cache behavior, reachable malformed graphs, empty export, candidate preservation, IDs, capacity and history. `tests/blank-artwork-dom.test.js` covers blank launch, New size validation and stale decisions, existing-document opening, New/+Blank, dirty state, draft cancellation, selection, toolbar entry points and explicit graph routing. `tests/blank-artwork.e2e.js` covers the browser New/Save/Open flow and confirmed dimensions, open/pressed Pen cancellation, exact Undo/Redo, transparent SVG/PNG, independent creation, +Blank capacity and layout. Native WebView2, native file dialogs and physical Windows IME remain separate acceptance gates.
 
 [Editable blank document](../examples/blank-document.json).

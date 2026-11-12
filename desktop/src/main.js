@@ -1,4 +1,5 @@
 import { workspaceIcon } from './ui-icons.js';
+import { chooseNewProjectSize } from './new-project-dialog.js';
 import { createLayerClipboardOwner } from './layer-clipboard-owner.js';
 import { samePrivateFontSource } from './private-font-source.js';
 import { createFontChoiceController } from './font-choice-controller.js';
@@ -11767,8 +11768,28 @@ app.addEventListener('click', async (e) => {
           notify('Composition added');
           break;
         case 'new': {
+          if (documents.saving || documents.transitioning || document.querySelector('dialog[open]'))
+            break;
+          const owner = session,
+            state = owner.state,
+            projectRevision = owner.projectRevision,
+            compositionId = owner.activeCompositionId,
+            generation = documents.generation,
+            blank = blankDocument(),
+            isCurrent = () =>
+              session === owner &&
+              documents.generation === generation &&
+              owner.projectRevision === projectRevision &&
+              owner.activeCompositionId === compositionId &&
+              owner.state.sessionId === state.sessionId &&
+              owner.state.expectedRevision === state.expectedRevision &&
+              !documents.hasPendingEdits();
+          const size = await chooseNewProjectSize({ ...blank, isCurrent });
+          if (!size) break;
+          if (!isCurrent()) throw Error('Project changed. Start New again.');
           if (!(await confirmReplace('creating a new document'))) break;
-          replaceDocument(blankDocument());
+          if (!isCurrent()) throw Error('Project changed. Start New again.');
+          replaceDocument({ ...blank, ...size });
           selected = null;
           artworkTarget = null;
           artworkSelection = new Set();
@@ -17998,6 +18019,7 @@ document.addEventListener('keydown', (e) => {
         input.type = 'number';
         delete input.dataset.numericExpression;
         numericInputDrafts.delete(input);
+        remapOutputEdited.delete(input);
         if (needsRender) scheduleRender();
         notify('Invalid calculation', true);
       }
