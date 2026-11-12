@@ -975,6 +975,7 @@ import {
   exportScene,
   renderElement,
   createVariableDocumentPreparer,
+  createVariablePreparationController,
   scrubNumericValues,
   guideDefaults,
   guideSettings,
@@ -1315,7 +1316,7 @@ async function preparedChange(
     owner: session,
     bridge: variableBridge,
     revision: envelope.expectedRevision,
-    controller: new AbortController(),
+    controller: createVariablePreparationController(),
   };
   variableAction = action;
   const cancelFromParent = () => {
@@ -1384,7 +1385,13 @@ async function prepareOpenDocument(next, options = {}) {
   const bridge = createVariableDocumentPreparer();
   const owner = session,
     revision = session.state.expectedRevision;
-  const action = { owner, bridge, opening: true, revision, controller: new AbortController() };
+  const action = {
+    owner,
+    bridge,
+    opening: true,
+    revision,
+    controller: createVariablePreparationController(),
+  };
   variableAction = action;
   notify('Preparing variable fonts before opening… Escape cancels');
   try {
@@ -10406,7 +10413,7 @@ async function prepareCompositionSwitch(compositionId, project, { allowedDialog,
       generation: documents.generation,
       operation: documents.operation,
       interactionEpoch: compositionInteractionEpoch,
-      controller: new AbortController(),
+      controller: createVariablePreparationController(),
     };
   variableAction = action;
   notify('Preparing variable text… Escape cancels');

@@ -3,21 +3,78 @@ import { canonicalAxes, LIMITS, freeze, requireThat as check } from './contract.
 import { hasCharacterAdjustments } from '../character-identity.js';
 
 export const VARIABLE_KIND = 'variable-glyf-v1';
-// Read a native AbortSignal's internal state without invoking an instance
-// accessor supplied by the caller at the publication boundary.
-const nativeAbortedGetter = Object.getOwnPropertyDescriptor(
-  globalThis.AbortSignal?.prototype ?? {},
-  'aborted',
-)?.get;
+// Public signals identify only controllers created here. The Worker and final
+// commit use a separate private signal and flag that callers cannot replace.
+const preparationSignals = new WeakMap();
+const NativeAbortController = AbortController,
+  nativeAddListener = EventTarget.prototype.addEventListener,
+  nativeRemoveListener = EventTarget.prototype.removeEventListener,
+  nativeAbortController = NativeAbortController.prototype.abort;
 
-function nativeAborted(signal) {
-  if (signal == null) return false;
-  check(typeof nativeAbortedGetter === 'function', 'INVALID_ABORT_SIGNAL');
-  try {
-    return nativeAbortedGetter.call(signal);
-  } catch {
-    check(false, 'INVALID_ABORT_SIGNAL');
-  }
+export function createVariablePreparationController() {
+  const visible = new NativeAbortController(),
+    internal = new NativeAbortController(),
+    state = { aborted: false, internal };
+  const privateSignal = internal.signal;
+  Object.defineProperties(privateSignal, {
+    aborted: { get: () => state.aborted },
+    addEventListener: {
+      value: (...args) => nativeAddListener.call(privateSignal, ...args),
+    },
+    removeEventListener: {
+      value: (...args) => nativeRemoveListener.call(privateSignal, ...args),
+    },
+  });
+  preparationSignals.set(visible.signal, state);
+  return Object.freeze({
+    signal: visible.signal,
+    abort(reason) {
+      if (state.aborted) return;
+      state.aborted = true;
+      try {
+        nativeAbortController.call(internal, reason);
+      } finally {
+        nativeAbortController.call(visible, reason);
+      }
+    },
+  });
+}
+
+function preparationState(signal) {
+  if (signal == null) return null;
+  const state = preparationSignals.get(signal);
+  check(state, 'INVALID_ABORT_SIGNAL');
+  return state;
+}
+
+export function captureVariablePreparationOptions(options = {}) {
+  check(options && typeof options === 'object' && !Array.isArray(options), 'INVALID_ABORT_SIGNAL');
+  const descriptor = Object.getOwnPropertyDescriptor(options, 'signal');
+  check(descriptor || !('signal' in options), 'INVALID_ABORT_SIGNAL');
+  check(
+    !descriptor || (descriptor.enumerable && Object.hasOwn(descriptor, 'value')),
+    'INVALID_ABORT_SIGNAL',
+  );
+  const signal = descriptor?.value,
+    state = preparationState(signal);
+  check(!state?.aborted, 'CANCELLED');
+  return Object.freeze({ signal });
+}
+
+// A tab request owns its child; canceling it must not abort the caller or a
+// separate request that happens to share the caller's parent signal.
+export function createVariablePreparationChild(parentSignal) {
+  const parent = preparationState(parentSignal),
+    controller = createVariablePreparationController(),
+    relay = () => controller.abort();
+  if (parent?.aborted) controller.abort();
+  else parent?.internal.signal.addEventListener('abort', relay, { once: true });
+  return Object.freeze({
+    controller,
+    unlink() {
+      parent?.internal.signal.removeEventListener('abort', relay);
+    },
+  });
 }
 export const VARIABLE_DOCUMENT_LIMITS = Object.freeze({
   runs: 8,
@@ -78,6 +135,7 @@ export function createVariableDocumentPreparer({
 } = {}) {
   const preparer = createVariablePreparer(options);
   const registered = new Map();
+  const preparationChecks = new WeakMap();
   let generation = 0,
     currentFonts = {},
     disposed = false,
@@ -100,13 +158,34 @@ export function createVariableDocumentPreparer({
     }
   };
   return {
-    async prepareDocument(input, { signal } = {}) {
+    preparationEpoch() {
+      const token = Object.freeze({});
+      preparationChecks.set(token, { generation, pending: pendingTicket });
+      return token;
+    },
+    assertPreparationEpoch(epoch) {
+      const captured = preparationChecks.get(epoch);
+      check(
+        !disposed &&
+          captured &&
+          generation === captured.generation &&
+          pendingTicket === captured.pending,
+        'STALE_RESULT',
+      );
+    },
+    async prepareDocument(input, options = {}) {
+      const beforeGeneration = generation,
+        beforePending = pendingTicket,
+        { signal } = captureVariablePreparationOptions(options),
+        signalState = preparationState(signal),
+        workerSignal = signalState?.internal.signal;
+      check(generation === beforeGeneration && pendingTicket === beforePending, 'STALE_RESULT');
       check(typeof resolveFonts === 'function', 'VARIABLE_RESOLVER_REQUIRED');
       check(!disposed, 'DISPOSED');
       const revision = ++generation;
       clearTicket();
       preparer.setRevision(revision);
-      check(!signal?.aborted, 'CANCELLED');
+      check(!signalState?.aborted, 'CANCELLED');
       const doc = cloneDocument(input);
       validate(doc);
       const fonts = resolveFonts(doc);
@@ -120,8 +199,8 @@ export function createVariableDocumentPreparer({
           const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
           const assetId = await preparer.register(bytes);
           check(
-            generation === revision && !signal?.aborted,
-            signal?.aborted ? 'CANCELLED' : 'STALE_RESULT',
+            generation === revision && !signalState?.aborted,
+            signalState?.aborted ? 'CANCELLED' : 'STALE_RESULT',
           );
           record = { assetId, metadata: fonts[id].nectVariable };
           registered.set(asset.data, record);
@@ -153,7 +232,7 @@ export function createVariableDocumentPreparer({
         serializedBytes = 0;
       try {
         for (const { assetId, request, ids } of requests.values()) {
-          const run = await preparer.prepare(assetId, request, { signal });
+          const run = await preparer.prepare(assetId, request, { signal: workerSignal });
           check(generation === revision, 'STALE_RESULT');
           commands += run.commands.length;
           serializedBytes += new TextEncoder().encode(JSON.stringify(run)).byteLength;
@@ -165,13 +244,14 @@ export function createVariableDocumentPreparer({
           for (const id of ids)
             banks.get(id).set(JSON.stringify([request.text, request.axes]), run);
         }
-        check(!signal?.aborted, 'CANCELLED');
+        check(!signalState?.aborted, 'CANCELLED');
         assertVariableDocumentReady(doc, fonts);
         const ticket = Object.freeze({});
         pendingTicket = {
           ticket,
           revision,
-          signal,
+          signal: workerSignal,
+          signalState,
           usage: { runs: requests.size, commands, serializedBytes },
           document: freeze(doc),
           fonts: Object.freeze(fonts),
@@ -182,7 +262,7 @@ export function createVariableDocumentPreparer({
             preparer.setRevision(++generation);
           }
         };
-        signal?.addEventListener('abort', pendingTicket.abort, { once: true });
+        workerSignal?.addEventListener('abort', pendingTicket.abort, { once: true });
         return ticket;
       } finally {
         if (!preparer.stats().pending) preparer.releaseWorker();
@@ -195,16 +275,17 @@ export function createVariableDocumentPreparer({
         !disposed && pending?.ticket === ticket && pending.revision === generation,
         'STALE_RESULT',
       );
-      const aborted = pending.signal?.aborted;
-      // Reading the supplied signal may reenter and replace the pending bank.
       check(
-        !aborted && !disposed && pendingTicket === pending && pending.revision === generation,
+        !pending.signalState?.aborted &&
+          !disposed &&
+          pendingTicket === pending &&
+          pending.revision === generation,
         'STALE_RESULT',
       );
     },
     assertFreshForPublication(ticket) {
       // This and publishActivation form the trusted, callback-free bridge
-      // boundary. A signal without native AbortSignal state fails closed.
+      // boundary. Only the module-private cancellation flag is read here.
       const pending = pendingTicket;
       check(
         !disposed &&
@@ -213,9 +294,11 @@ export function createVariableDocumentPreparer({
           pending.detached,
         'STALE_RESULT',
       );
-      const aborted = nativeAborted(pending.signal);
       check(
-        !aborted && !disposed && pendingTicket === pending && pending.revision === generation,
+        !pending.signalState?.aborted &&
+          !disposed &&
+          pendingTicket === pending &&
+          pending.revision === generation,
         'STALE_RESULT',
       );
     },
@@ -259,10 +342,14 @@ export function createVariableDocumentPreparer({
       return true;
     },
     activate(ticket) {
-      this.assertFresh(ticket);
-      currentFonts = pendingTicket.fonts;
-      activeUsage = pendingTicket.usage;
-      clearTicket();
+      try {
+        this.stageActivation(ticket);
+        this.assertFreshForPublication(ticket);
+        this.publishActivation(ticket);
+      } catch (error) {
+        this.discardActivation(ticket);
+        throw error;
+      }
     },
     cancel() {
       clearTicket();

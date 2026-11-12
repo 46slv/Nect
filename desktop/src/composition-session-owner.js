@@ -19,6 +19,10 @@ import { prepareProjectCompositionsImport } from './composition-project-import.j
 import { resolveLayerClipboardToken } from './layer-clipboard-owner.js';
 import { mergeMacroDefinitions } from './macro-project.js';
 import {
+  captureVariablePreparationOptions,
+  createVariablePreparationChild,
+} from './variable-font/document-bridge.js';
+import {
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
   QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
@@ -836,6 +840,29 @@ export class CompositionSessionOwner {
   }
 
   async prepareCommand(command, bridge, options = {}) {
+    const beforeOptions = {
+      session: this.#session,
+      project: this.#history.doc,
+      revision: this.#history.revision,
+      compositionId: this.#activeCompositionId,
+      prepared: this.#prepared,
+      preparedSwitch: this.#preparedCompositionSwitch,
+      bridgeEpoch: bridge.preparationEpoch?.(),
+    };
+    options = captureVariablePreparationOptions(options);
+    const assertBeforePrepare = () => {
+      bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+      if (
+        this.#session !== beforeOptions.session ||
+        this.#history.doc !== beforeOptions.project ||
+        this.#history.revision !== beforeOptions.revision ||
+        this.#activeCompositionId !== beforeOptions.compositionId ||
+        this.#prepared !== beforeOptions.prepared ||
+        this.#preparedCompositionSwitch !== beforeOptions.preparedSwitch
+      )
+        throw Error('STALE_REVISION: document changed');
+    };
+    assertBeforePrepare();
     const typeDescriptor =
       command && typeof command === 'object'
         ? Object.getOwnPropertyDescriptor(command, 'type')
@@ -845,6 +872,7 @@ export class CompositionSessionOwner {
     command = capturePreparedCommand(command, typeDescriptor.value);
     this.#assertCurrentCommand(command);
     this.#assertQuiescent();
+    assertBeforePrepare();
     if (command.type === 'delete-color-slot')
       assertColorSlotUnused(this.#history.doc, command.payload?.slotId);
     const session = this.#session,
@@ -860,6 +888,7 @@ export class CompositionSessionOwner {
         this.#history.doc;
       const targetCompositionId = this.#compositionFor(project);
       const document = this.#documentFor(project, targetCompositionId);
+      assertBeforePrepare();
       const ticket = await bridge.prepareDocument(document, options);
       if (
         this.#session !== session ||
@@ -884,6 +913,7 @@ export class CompositionSessionOwner {
       return token;
     }
 
+    assertBeforePrepare();
     const innerToken = await session.prepareCommand(command, bridge, options);
     if (
       this.#session !== session ||
@@ -1091,9 +1121,29 @@ export class CompositionSessionOwner {
   }
 
   async prepareCompositionSwitch(compositionId, bridge, options = {}) {
+    const beforeOptions = {
+      session: this.#session,
+      project: this.#history.doc,
+      revision: this.#history.revision,
+      compositionId: this.#activeCompositionId,
+      preparedSwitch: this.#preparedCompositionSwitch,
+      bridgeEpoch: bridge.preparationEpoch?.(),
+    };
+    options = captureVariablePreparationOptions(options);
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+    if (
+      this.#session !== beforeOptions.session ||
+      this.#history.doc !== beforeOptions.project ||
+      this.#history.revision !== beforeOptions.revision ||
+      this.#activeCompositionId !== beforeOptions.compositionId ||
+      this.#preparedCompositionSwitch !== beforeOptions.preparedSwitch
+    )
+      throw Error('STALE_REVISION: document changed');
     if (!this.#history.doc.compositions.some((entry) => entry.id === compositionId))
       throw Error('Unknown active Composition ID');
     if (compositionId === this.#activeCompositionId) return null;
+    const child = createVariablePreparationChild(options.signal),
+      previous = this.#preparedCompositionSwitch;
     const request = {
       session: this.#session,
       sourceId: this.#activeCompositionId,
@@ -1101,11 +1151,17 @@ export class CompositionSessionOwner {
       projectRevision: this.#history.revision,
       bridge,
       ticket: null,
+      child,
     };
     this.#preparedCompositionSwitch = request;
     try {
+      if (previous) {
+        previous.child.unlink();
+        previous.child.controller.abort();
+      }
+      if (this.#preparedCompositionSwitch !== request) throw Error('STALE_OPERATION');
       const document = this.#documentFor(this.#history.doc, compositionId);
-      request.ticket = await bridge.prepareDocument(document, options);
+      request.ticket = await bridge.prepareDocument(document, { signal: child.controller.signal });
       if (this.#preparedCompositionSwitch !== request) throw Error('STALE_OPERATION');
       this.#assertCompositionSwitchCurrent(request);
       bridge.assertFresh(request.ticket);
@@ -1113,15 +1169,9 @@ export class CompositionSessionOwner {
       return request.token;
     } catch (error) {
       if (this.#preparedCompositionSwitch === request) this.#preparedCompositionSwitch = null;
-      // Never invalidate a newer operation's ticket on the same bridge.
-      if (request.ticket) {
-        try {
-          bridge.assertFresh(request.ticket);
-          bridge.cancel();
-        } catch {
-          // The ticket has already been canceled or superseded.
-        }
-      }
+      child.unlink();
+      child.controller.abort();
+      if (request.ticket) bridge.discardActivation(request.ticket);
       throw error;
     }
   }
@@ -1130,14 +1180,9 @@ export class CompositionSessionOwner {
     const request = this.#preparedCompositionSwitch;
     if (!request || request.bridge !== bridge) return;
     this.#preparedCompositionSwitch = null;
-    if (request.ticket) {
-      try {
-        bridge.assertFresh(request.ticket);
-        bridge.cancel();
-      } catch {
-        // The ticket has already been canceled or superseded.
-      }
-    }
+    request.child.unlink();
+    request.child.controller.abort();
+    if (request.ticket) bridge.discardActivation(request.ticket);
   }
 
   commitPreparedCompositionSwitch(token, { beforeCommit = () => {} } = {}) {
@@ -1186,9 +1231,12 @@ export class CompositionSessionOwner {
       this.#activeCompositionId = targetId;
       this.#session = nextSession;
       this.#preparedCompositionSwitch = null;
+      request.child.unlink();
       return true;
     } catch (error) {
       if (this.#preparedCompositionSwitch === request) this.#preparedCompositionSwitch = null;
+      request.child.unlink();
+      request.child.controller.abort();
       bridge.discardActivation(ticket);
       throw error;
     }

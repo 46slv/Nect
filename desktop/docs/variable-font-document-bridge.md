@@ -31,13 +31,16 @@ as replacements. Position and size do not enter design-unit run identity.
 
 ## Open / standalone export
 
-Import `createVariableDocumentPreparer` from `src/core.js`.
+Import `createVariableDocumentPreparer` and, when cancellation is needed,
+`createVariablePreparationController` from `src/core.js`.
 
 1. `deserialize(json)` structurally validates bytes, rights, schema and authored
    coordinates. It does not prepare variable outlines.
 2. `const bridge = createVariableDocumentPreparer({workerFactory?, timeout?})`.
    The default is the local module worker; Node supplies a real worker-thread adapter.
-3. `const ticket = await bridge.prepareDocument(doc, {signal?})`.
+3. Optionally create `const controller = createVariablePreparationController()`;
+   pass its `signal` as `bridge.prepareDocument(doc, {signal: controller.signal})`.
+   Call `controller.abort()` to cancel. Omitting `signal` is also supported.
 4. `bridge.preparedDocument(ticket)` and `bridge.preparedFonts(ticket)` provide
    the frozen validated document and immutable prepared descriptors for a preview.
 5. `bridge.activate(ticket)` publishes the prepared bank after the caller verifies
@@ -49,6 +52,10 @@ Import `createVariableDocumentPreparer` from `src/core.js`.
 A ticket is opaque and only the latest ticket from that bridge is valid. Activation
 is synchronous, freshness checked, and single use. `cancel()` invalidates only the
 candidate. `dispose()` closes the document runtime and invalidates its fonts.
+A supplied signal must be the exact signal from this factory; an unregistered
+signal or a Proxy is rejected before replacing an existing preparation. Its
+public signal remains usable for ordinary abort listeners. The bridge and Worker
+use a separate private signal and a private cancellation flag at commit time.
 A finished worker is released, allowing another document preparer to acquire the
 single global worker slot. A failed or canceled replacement never drops the active
 bank. Callers must not retain unlimited borrowed preview font maps/snapshots.
@@ -70,7 +77,8 @@ reject. Static evaluation retains its prior return shape and geometry.
 
 Use `await session.prepareCommand(envelope, bridge, {signal?})` followed by
 `session.commitPrepared(token)`. The envelope uses existing session ID and expected
-revision. Supported asynchronous intents are:
+revision. If supplied, the signal is the factory-issued signal described above.
+Supported asynchronous intents are:
 
 - `set-text-content` with the existing text/selection/input intent payload
 - `set-text-settings` with existing settings (unsupported variable modes reject)

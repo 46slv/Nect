@@ -127,9 +127,11 @@ import { PRIVATE_FONT_SCHEMA_VERSION } from './private-font-source.js';
 import {
   createVariableDocumentPreparer as createVariableBridge,
   assertVariableDocumentReady,
+  captureVariablePreparationOptions,
   validateVariableText,
   VARIABLE_KIND,
 } from './variable-font/document-bridge.js';
+export { createVariablePreparationController } from './variable-font/document-bridge.js';
 import { canonicalAxes, requireThat as variableCheck } from './variable-font/contract.js';
 import { validateCharacterArrangement } from './character-arrangement.js';
 import {
@@ -7810,11 +7812,30 @@ export class CommandSession {
     return cloneDocument(this.#history.doc);
   }
   async prepareCommand(envelope, bridge, options = {}) {
+    const beforeOptions = {
+      document: this.#history.doc,
+      revision: this.#history.revision,
+      sequence: this.#prepareSequence,
+      prepared: this.#prepared,
+      clipboard: this.#nodeClipboard,
+      bridgeEpoch: bridge.preparationEpoch?.(),
+    };
+    options = captureVariablePreparationOptions(options);
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+    if (
+      this.#history.doc !== beforeOptions.document ||
+      this.#history.revision !== beforeOptions.revision ||
+      this.#prepareSequence !== beforeOptions.sequence ||
+      this.#prepared !== beforeOptions.prepared ||
+      this.#nodeClipboard !== beforeOptions.clipboard
+    )
+      throw Error('STALE_REVISION: document changed');
     const { sessionId, expectedRevision, type, payload = {} } = envelope;
     if (sessionId !== this.id || expectedRevision !== this.#history.revision)
       throw Error('STALE_REVISION: document changed');
     if (this.#busy() || this.#gesture || this.hasTextComposition || this.#textDrafts.size)
       throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
     if (
       ![
         'set-text-content',
@@ -7883,6 +7904,7 @@ export class CommandSession {
       ? layerSnapshotPreparationDocument(entry.document, captured)
       : candidate;
     if (snapshotPaste) assertCurrent();
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
     const ticket = await bridge.prepareDocument(input, options);
     try {
       assertLocal();
