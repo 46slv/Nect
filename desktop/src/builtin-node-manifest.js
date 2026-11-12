@@ -23,6 +23,8 @@ import { evaluateNullPosition } from './null-position-binding.js';
 import { colorDeclaration } from './color-node-declaration.js';
 import { simplifyPathDeclaration } from './simplify-path-declaration.js';
 import { evaluateSimplifyPath } from './simplify-path-binding.js';
+import { expandStrokeDeclaration } from './expand-stroke-declaration.js';
+import { evaluateExpandStroke } from './expand-stroke-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -61,4 +63,10 @@ export const builtinManifest = Object.freeze([
   entry(nullPositionDeclaration, { evaluate: evaluateNullPosition }, 'Vector', 'Toggle'),
   entry(colorDeclaration, { evaluate: evaluateValueSource }, 'Toggle', 'Luminance Instances'),
   entry(simplifyPathDeclaration, { evaluate: evaluateSimplifyPath }, 'Dash Path', 'Smooth Path'),
+  entry(
+    expandStrokeDeclaration,
+    { evaluate: evaluateExpandStroke },
+    'Simplify Path',
+    'Text to Path',
+  ),
 ]);

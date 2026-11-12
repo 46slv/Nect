@@ -166,14 +166,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Expand Stroke',
-    categoryId: 'path',
-    labelJa: '線をパス',
-    aliases: ['線をパス', 'アウトライン'],
-    description: '線をパス アウトライン',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Closed Path Offset',
     categoryId: 'path',
     labelJa: '閉じた輪郭',
