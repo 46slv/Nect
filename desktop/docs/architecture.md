@@ -30,9 +30,9 @@ and the live implementation; older format examples below are historical.
 
 ## Project schema
 
-Operational root: `{schemaVersion, name, width, height, layers, fontAssets?}`. The schema version tracks supported node/document features. The isolated Composition model utility has its own envelope version and does not change this saved format. The artboard ratio is independent from the 16:9 workspace design.
+The saved operational root is a Composition project with `compositionSchemaVersion`, shared Document fields and `compositions`. Each outer Composition owns its dimensions, `editor` settings and Layers. The Session projects the active Composition to a Document for core commands and writes the result back to that project; see [Composition Session](composition-session-owner.md). The schema version tracks supported node/document features. The artboard ratio is independent from the workspace design.
 
-Layer: `{id, name, visible, locked, fill, nodes, output}`. Layer order is paint order (last is front). One layer equals one composition. No implicit node sharing.
+Layer: `{id, name, visible, locked, fill, nodes, output}`. Layer order within an outer Composition is paint order (last is front). Each Layer owns one graph; it is distinct from an outer Composition. No implicit node sharing. Neutral [Layer Folders](layer-folders.md) organize contiguous Layers without changing that paint order.
 
 Node: `{id, type, name, position, params, points, operation, edits, text, font}`. `position` is graph UI position, not artwork position.
 
