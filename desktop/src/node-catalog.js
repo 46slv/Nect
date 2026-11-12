@@ -126,14 +126,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Dash Path',
-    categoryId: 'path',
-    labelJa: '破線',
-    aliases: ['破線'],
-    description: '破線',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Transform',
     categoryId: 'transform',
     labelJa: '移動',

@@ -156,7 +156,6 @@ import {
 import { validateInstancePath } from './instance-points-geometry.js';
 import { polarSettings } from './polar-transform.js';
 import { dashIntervals } from './dash-intervals.js';
-import { dashPathGeometry } from './path-edit-geometry.js';
 import {
   repeatGeometry,
   repeaterSettings,
@@ -539,12 +538,6 @@ const legacyDefinitions = {
     offset: p('Vector2', [0, 0]),
     scale: p('Scalar', 1),
     rotation: p('Scalar', 0),
-  },
-  'Dash Path': {
-    path: p('Path', null),
-    dashLength: p('Scalar', 12),
-    gapLength: p('Scalar', 6),
-    offset: p('Scalar', 0),
   },
   'Resample Path': {
     path: p('Path', null),
@@ -957,7 +950,6 @@ const bypassInputs = Object.freeze({
   Boolean: 'a',
   Transform: 'path',
   'Resample Path': 'path',
-  'Dash Path': 'path',
   'Path Remap': 'path',
   'Closed Path Offset': 'path',
   'Geometry Repeater': 'path',
@@ -3282,22 +3274,6 @@ export function evaluate(
           prefix: n.id,
         });
         setEvaluationFingerprint(result, (currentEra) => [n.id, source, result.matrix]);
-      } else if (n.type === 'Dash Path') {
-        const source = read('path');
-        result = dashPathGeometry(source, {
-          dashLength: read('dashLength'),
-          gapLength: read('gapLength'),
-          offset: read('offset'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Dash Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Resample Path') {
         const source = read('path');
         if (!source) throw Error('Connect a Path input');

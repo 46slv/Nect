@@ -71,6 +71,8 @@ import { trimPathDeclaration } from './trim-path-declaration.js';
 import { evaluateTrimPath } from './trim-path-binding.js';
 import { setPathStartDeclaration } from './set-path-start-declaration.js';
 import { evaluateSetPathStart } from './set-path-start-binding.js';
+import { dashPathDeclaration } from './dash-path-declaration.js';
+import { evaluateDashPath } from './dash-path-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -173,4 +175,5 @@ export const builtinManifest = Object.freeze([
   ),
   entry(trimPathDeclaration, { evaluate: evaluateTrimPath }, 'Expand Stroke', 'Simplify Path'),
   entry(setPathStartDeclaration, { evaluate: evaluateSetPathStart }, 'Trim Path', 'Trim Path'),
+  entry(dashPathDeclaration, { evaluate: evaluateDashPath }, 'Smooth Path', 'Auto Handles'),
 ]);
