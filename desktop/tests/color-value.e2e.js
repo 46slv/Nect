@@ -216,6 +216,72 @@ try {
       diskJsonReloadAndSvg: true,
     });
   }
+  // A Color node follows its shared slot while preserving its own authored fallback.
+  {
+    const d = document(),
+      layer = d.layers[0],
+      source = node('Color', 40, 400),
+      fill = layer.nodes.find((item) => item.type === 'Fill');
+    d.schemaVersion = 54;
+    d.colorSlots = [
+      { id: 'foundation-slot', name: 'Foundation', value: { hex: '#123456', alpha: 0.6 } },
+    ];
+    source.params.value.colorSlotId = 'foundation-slot';
+    layer.nodes.push(source);
+    connect(layer, source.id, fill.id, 'color');
+    await page.evaluate((text) => window.nect.load(text), serialize(d));
+    await inspect(source.id);
+    await ensureWorkspacePanel(page, 'inspector');
+    const field = page.locator(
+      `.inspector-body .field[data-node="${source.id}"][data-key="value"]`,
+    );
+    assert.equal(
+      await field.locator('[data-shared-color-binding]').inputValue(),
+      'foundation-slot',
+    );
+    assert.equal(await field.locator('[data-hsl-picker-open]').isDisabled(), true);
+    assert.deepEqual(await page.evaluate((id) => window.nect.evaluate().run(id), source.id), {
+      hex: '#123456',
+      alpha: 0.6,
+    });
+    const beforeSlotEdit = await saved();
+    await ensureWorkspacePanel(page, 'colors');
+    const advanced = page.locator('[data-color-advanced]');
+    if (!(await advanced.evaluate((element) => element.open)))
+      await advanced.locator('summary').click();
+    const alpha = page.locator(
+      '[data-shared-color-row="foundation-slot"] [data-shared-color-edit="alpha"]',
+    );
+    await alpha.fill('0.3');
+    await alpha.press('Tab');
+    await page.waitForFunction(() => window.nect.evaluate().path.fill.alpha === 0.3);
+    assert.deepEqual(await page.evaluate((id) => window.nect.evaluate().run(id), source.id), {
+      hex: '#123456',
+      alpha: 0.3,
+    });
+    const afterSlotEdit = await saved();
+    await page.locator('[data-action="undo"]').click();
+    assert.equal(await saved(), beforeSlotEdit);
+    assert.equal(await page.evaluate(() => window.nect.evaluate().path.fill.alpha), 0.6);
+    await page.locator('[data-action="redo"]').click();
+    assert.equal(await saved(), afterSlotEdit);
+    assert.equal(await page.evaluate(() => window.nect.evaluate().path.fill.alpha), 0.3);
+    await page.evaluate((text) => window.nect.load(text), afterSlotEdit);
+    assert.equal(await page.evaluate(() => window.nect.evaluate().path.fill.alpha), 0.3);
+    assert.equal(
+      await page.evaluate(
+        (id) =>
+          window.nect.document.layers[0].nodes.find((item) => item.id === id).params.value
+            .colorSlotId,
+        source.id,
+      ),
+      'foundation-slot',
+    );
+    await inspect(source.id);
+    await ensureWorkspacePanel(page, 'inspector');
+    await page.screenshot({ path: resolve(output, 'color-slot-source.png') });
+    results.push({ type: 'Color slot source', live: true, oneUndo: true, reload: true });
+  }
   assert.deepEqual(errors, []);
   const receipt = {
     nativeWebView2: native,

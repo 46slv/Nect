@@ -1321,6 +1321,15 @@ async function preparedChange(
     if (variableAction !== action || session !== action.owner) return null;
     if (!isCurrent()) {
       cancelVariableAction();
+      notify('Edit or selection changed; operation cancelled', true);
+      if (
+        documents.hasDraft() ||
+        editingControl(document.activeElement) ||
+        sharedColors.editing ||
+        numericInputDrafts.has(document.activeElement)
+      )
+        needsRender = true;
+      else render();
       return null;
     }
     if (preview) {
@@ -1512,7 +1521,7 @@ let history = session.historyView,
   selected = null,
   artworkTarget = null,
   artworkSelection = new Set(),
-  layerClipboard = createLayerClipboardOwner(),
+  layerClipboard = createLayerClipboardOwner({ currentGeneration: () => documents.generation }),
   selectedNodePreset = null,
   tool = 'select',
   textTools = null,
@@ -1689,6 +1698,11 @@ function selectionSnapshot(withEditSelection = false) {
       : {}),
   };
 }
+function selectionSignature(state) {
+  return JSON.stringify(state, (_key, value) =>
+    value instanceof Set || value instanceof Map ? [...value] : value,
+  );
+}
 function restoreHistorySelection(state) {
   ({ activeLayer, selected, artworkTarget } = state);
   artworkSelection = new Set(state.artworkSelection);
@@ -1706,6 +1720,37 @@ function restoreHistorySelection(state) {
       state.pointFocus && ids.has(state.pointFocus.pointId) ? { ...state.pointFocus } : null;
     for (const [id, batch] of structuredClone(state.remapBatches)) remapBatches.set(id, batch);
   }
+}
+function restoreSurvivingHistorySelection(state) {
+  const layerIds = new Set(history.doc.layers.map((layer) => layer.id)),
+    artworkIds = [...state.artworkSelection].filter((id) => layerIds.has(id)),
+    artworkTarget = artworkIds.includes(state.artworkTarget)
+      ? state.artworkTarget
+      : artworkIds.at(-1) || null,
+    active =
+      artworkTarget ||
+      (layerIds.has(state.activeLayer) ? state.activeLayer : history.doc.layers[0].id),
+    layer = history.doc.layers.find((item) => item.id === active),
+    nodeIds = new Set(layer.nodes.map((item) => item.id)),
+    selectedIds = [...state.selection].filter((id) => nodeIds.has(id)),
+    selected = selectedIds.includes(state.selected) ? state.selected : selectedIds.at(-1) || null,
+    sameEditTarget = active === state.activeLayer && selected === state.selected;
+  restoreHistorySelection({
+    ...state,
+    activeLayer: active,
+    artworkTarget,
+    artworkSelection: new Set(artworkIds),
+    selected: artworkTarget ? null : selected,
+    selection: new Set(artworkTarget ? [] : selectedIds),
+    ...(sameEditTarget
+      ? {}
+      : {
+          characterEdit: null,
+          pointSelection: { nodeId: null, ids: new Set() },
+          pointFocus: null,
+          remapBatches: new Map(),
+        }),
+  });
 }
 function stepHistory(redo = false) {
   if (osTextDrafts.size) {
@@ -1735,7 +1780,16 @@ function stepHistory(redo = false) {
     // Preserve the current view before async preparation so a later user
     // selection is not overwritten when the History step completes.
     if (viewNeutral) restoreHistorySelection(priorUI);
+    const pendingSelection = selectionSignature(selectionSnapshot(true));
+    let restoreRecordedSelection = false,
+      latestSelection = null;
     const capturePendingDeletion = () => {
+      // A draft can start after asynchronous History preparation begins.
+      // Do not let the prepared document replace that newer input.
+      if (documents.hasDraft() || nameEdit) return false;
+      latestSelection = selectionSnapshot(true);
+      restoreRecordedSelection =
+        !viewNeutral && selectionSignature(latestSelection) === pendingSelection;
       if (deleted && entryToken === deleted.before && history.entryToken === entryToken) {
         saveCompositionViewState();
         deleted.view = compositionViewStates.snapshot(deleted.compositionId) || deleted.view;
@@ -1756,8 +1810,17 @@ function stepHistory(redo = false) {
           const graphScroll = restoreCompositionViewState();
           render(false, null, graphScroll);
         } else {
-          activeLayer =
-            history.doc.layers.find((l) => l.id === activeLayer)?.id || history.doc.layers[0].id;
+          const state = restoreRecordedSelection && selectionHistory.get(history.doc);
+          if (state) restoreHistorySelection(state);
+          else if (!viewNeutral && latestSelection)
+            restoreSurvivingHistorySelection(latestSelection);
+          if (!history.doc.layers.some((layer) => layer.id === activeLayer)) {
+            activeLayer = history.doc.layers[0].id;
+            selected = null;
+            artworkTarget = null;
+            artworkSelection = new Set();
+            selection = new Set();
+          }
           render();
         }
       }
@@ -8977,21 +9040,60 @@ function duplicateArtwork(layerId, selectionKey) {
     notify(error.message, true);
   }
 }
-function duplicateFocusedLayer(layerId) {
+function duplicateFocusedLayer(layerId, clipboardToken = null) {
+  if (variableAction) {
+    notify('Finish or cancel variable font preparation first', true);
+    return;
+  }
   if (deletionBusy()) return;
   try {
     const priorUI = selectionSnapshot(true);
+    if (clipboardToken && hasVariableFonts(history.doc)) {
+      const owner = session,
+        generation = documents.generation,
+        compositionId = owner.activeCompositionId,
+        envelope = owner.state,
+        sameSelection = () =>
+          activeLayer === priorUI.activeLayer &&
+          artworkTarget === priorUI.artworkTarget &&
+          selected === priorUI.selected &&
+          JSON.stringify([...artworkSelection]) === JSON.stringify([...priorUI.artworkSelection]) &&
+          JSON.stringify([...selection]) === JSON.stringify([...priorUI.selection]),
+        isCurrent = () =>
+          session === owner &&
+          documents.generation === generation &&
+          owner.activeCompositionId === compositionId &&
+          sameSelection() &&
+          layerClipboard.token({ owner, generation, compositionId }) === clipboardToken;
+      void preparedChange(
+        'paste-layer-snapshot',
+        { token: clipboardToken },
+        'Layer pasted',
+        envelope,
+        false,
+        isCurrent,
+      ).then((created) => {
+        if (!created?.changed || session !== owner || documents.generation !== generation) return;
+        activeLayer = created.layerId;
+        artworkTarget = created.layerId;
+        artworkSelection = new Set([created.layerId]);
+        selectionHistory.set(history.past.at(-1), priorUI);
+        selectionHistory.set(history.doc, selectionSnapshot(true));
+        render();
+      });
+      return;
+    }
     const created = session.dispatch({
       ...session.state,
-      type: 'duplicate-layer',
-      payload: { layerId },
+      type: clipboardToken ? 'paste-layer-snapshot' : 'duplicate-layer',
+      payload: clipboardToken ? { token: clipboardToken } : { layerId },
     });
     activeLayer = created.layerId;
     artworkTarget = created.layerId;
     artworkSelection = new Set([created.layerId]);
     selectionHistory.set(history.past.at(-1), priorUI);
     selectionHistory.set(history.doc, selectionSnapshot(true));
-    notify('Layer duplicated');
+    notify(clipboardToken ? 'Layer pasted' : 'Layer duplicated');
     render();
   } catch (error) {
     notify(error.message, true);
@@ -18324,26 +18426,33 @@ document.addEventListener('keydown', (event) => {
   const layerId = row.dataset.layer;
   if (event.key.toLowerCase() === 'c') {
     if (!session.hasLayer(session.activeCompositionId, layerId)) return;
-    layerClipboard.copy({
-      owner: session,
-      generation: documents.generation,
-      compositionId: session.activeCompositionId,
-      layerId,
-    });
     event.preventDefault();
-    notify('Layer copied');
+    try {
+      if (compositionActionBusy()) throw Error('Finish or cancel the current edit before copying');
+      layerClipboard.copy({
+        owner: session,
+        generation: documents.generation,
+        compositionId: session.activeCompositionId,
+        layerId,
+      });
+      notify('Layer copied');
+    } catch (error) {
+      notify(error.message, true);
+    }
   } else if (event.key.toLowerCase() === 'v' && layerClipboard.hasCopy) {
     event.preventDefault();
-    const sourceId = layerClipboard.source({
+    const context = {
       owner: session,
       generation: documents.generation,
       compositionId: session.activeCompositionId,
-    });
-    if (!sourceId) {
+    };
+    const sourceId = layerClipboard.source(context),
+      token = layerClipboard.token(context);
+    if (!sourceId || !token) {
       notify('Copied Layer is unavailable in this Composition', true);
       return;
     }
-    duplicateFocusedLayer(sourceId);
+    duplicateFocusedLayer(sourceId, token);
   } else if (event.key.toLowerCase() === 'd') {
     event.preventDefault();
     duplicateFocusedLayer(layerId);

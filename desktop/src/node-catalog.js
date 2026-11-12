@@ -166,14 +166,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Expand Stroke',
-    categoryId: 'path',
-    labelJa: '線をパス',
-    aliases: ['線をパス', 'アウトライン'],
-    description: '線をパス アウトライン',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Closed Path Offset',
     categoryId: 'path',
     labelJa: '閉じた輪郭',
@@ -195,14 +187,6 @@ const legacyNodeCatalog = [
     labelJa: '滑らか',
     aliases: ['滑らか', 'スムーズ'],
     description: '滑らか スムーズ',
-    creationRoute: 'add',
-  },
-  {
-    typeId: 'Simplify Path',
-    categoryId: 'path',
-    labelJa: '簡略化',
-    aliases: ['簡略化'],
-    description: '簡略化',
     creationRoute: 'add',
   },
   {
@@ -366,14 +350,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Color',
-    categoryId: 'paint',
-    labelJa: '色',
-    aliases: ['色', 'カラー'],
-    description: '色 カラー',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Fill',
     categoryId: 'paint',
     labelJa: '塗り',
@@ -459,22 +435,6 @@ const legacyNodeCatalog = [
     labelJa: 'ベクトル変換',
     aliases: ['ベクトル変換'],
     description: '数値ベクトルの移動・回転・拡大縮小',
-    creationRoute: 'add',
-  },
-  {
-    typeId: 'Toggle',
-    categoryId: 'value',
-    labelJa: '切り替え',
-    aliases: ['切り替え', '真偽'],
-    description: '切り替え 真偽',
-    creationRoute: 'add',
-  },
-  {
-    typeId: 'Null',
-    categoryId: 'value',
-    labelJa: '基準点',
-    aliases: ['基準点'],
-    description: '基準点',
     creationRoute: 'add',
   },
   {
