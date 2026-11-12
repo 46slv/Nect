@@ -154,15 +154,8 @@ import {
   selectLuminanceCenters,
 } from './luminance-instances.js';
 import { validateInstancePath } from './instance-points-geometry.js';
-import { autoHandlesGeometry } from './auto-handles-geometry.js';
-import { taperGeometry } from './taper-geometry.js';
-import { bendGeometry } from './bend-geometry.js';
-import { twistGeometry } from './twist-geometry.js';
-import { polarSettings, polarTransformGeometry } from './polar-transform.js';
-import { waveGeometry } from './wave-geometry.js';
+import { polarSettings } from './polar-transform.js';
 import { dashIntervals } from './dash-intervals.js';
-import { smoothGeometry } from './smooth-geometry.js';
-import { roughenGeometry } from './roughen-geometry.js';
 import { roundCorners } from './corner-round-geometry.js';
 import { mirrorGeometry } from './mirror-geometry.js';
 import {
@@ -575,12 +568,6 @@ const legacyDefinitions = {
     scale: p('Scalar', 1),
     rotation: p('Scalar', 0),
   },
-  'Smooth Path': {
-    path: p('Path', null),
-    factor: p('Scalar', 0.5),
-    iterations: p('Scalar', 3),
-    keepEndpoints: p('Boolean', true),
-  },
   'Dash Path': {
     path: p('Path', null),
     dashLength: p('Scalar', 12),
@@ -597,34 +584,7 @@ const legacyDefinitions = {
     start: p('Scalar', 0),
   },
   'Set Closure': { path: p('Path', null), closed: p('Boolean', true) },
-  Taper: { path: p('Path', null), amount: p('Scalar', 0) },
-  'Bend Points': { path: p('Path', null), angle: p('Scalar', 0) },
-  'Twist Points': { path: p('Path', null), angle: p('Scalar', 0) },
-  'Polar Transform': {
-    path: p('Path', null),
-    origin: p('Vector2', [0, 0]),
-    center: p('Vector2', [480, 270]),
-    width: p('Scalar', 960),
-    height: p('Scalar', 540),
-    radius: p('Scalar', 270),
-    angle: p('Scalar', -90),
-    inverse: p('Boolean', false),
-  },
-  'Auto Handles': { path: p('Path', null), strength: p('Scalar', 1) },
-  'Wave Points': {
-    path: p('Path', null),
-    amplitude: p('Scalar', 20),
-    wavelength: p('Scalar', 150),
-    phase: p('Scalar', 0),
-    keepEndpoints: p('Boolean', false),
-  },
   'Subdivide Path': { path: p('Path', null), segments: p('Scalar', 2) },
-  Roughen: {
-    path: p('Path', null),
-    amount: p('Scalar', 3),
-    seed: p('Scalar', 1),
-    keepEndpoints: p('Boolean', true),
-  },
   'Resample Path': {
     path: p('Path', null),
     count: p('Scalar', 32),
@@ -919,21 +879,17 @@ export function node(type, x = 40, y = 40) {
       ? 'square'
       : type === 'Resample Path'
         ? 'count'
-        : type === 'Taper' || type === 'Bend Points'
+        : type === 'Line Screen'
           ? 'horizontal'
-          : type === 'Line Screen'
-            ? 'horizontal'
-            : type === 'Wave Points'
-              ? 'vertical'
-              : type === 'Mirror'
-                ? 'left-right'
-                : type === 'Closed Path Offset'
-                  ? 'miter'
-                  : type === 'Geometry Repeater'
-                    ? 'linear'
-                    : builtinNodeRegistry.get(type)?.declaration.defaultOperation
-                      ? builtinNodeRegistry.get(type).declaration.defaultOperation
-                      : 'subtract',
+          : type === 'Mirror'
+            ? 'left-right'
+            : type === 'Closed Path Offset'
+              ? 'miter'
+              : type === 'Geometry Repeater'
+                ? 'linear'
+                : builtinNodeRegistry.get(type)?.declaration.defaultOperation
+                  ? builtinNodeRegistry.get(type).declaration.defaultOperation
+                  : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -1089,18 +1045,10 @@ const bypassInputs = Object.freeze({
   Mirror: 'path',
   'Corner Round': 'path',
   'Resample Path': 'path',
-  Roughen: 'path',
-  'Smooth Path': 'path',
   'Trim Path': 'path',
   'Set Path Start': 'path',
   'Set Closure': 'path',
   'Subdivide Path': 'path',
-  Taper: 'path',
-  'Bend Points': 'path',
-  'Twist Points': 'path',
-  'Polar Transform': 'path',
-  'Auto Handles': 'path',
-  'Wave Points': 'path',
   'Dash Path': 'path',
   'Vector Transform': 'vector',
   'Path Remap': 'path',
@@ -1795,9 +1743,6 @@ export const operationOptions = {
   'Error Diffusion Dither': ['square', 'circle', 'polygon', 'star'],
   'Ordered Dither Image': ['square', 'circle', 'polygon', 'star'],
   'Error Diffusion Dither Image': ['square', 'circle', 'polygon', 'star'],
-  Taper: ['horizontal', 'vertical'],
-  'Bend Points': ['horizontal', 'vertical'],
-  'Wave Points': ['vertical', 'horizontal'],
   Mirror: ['left-right', 'up-down', 'angle'],
   'Closed Path Offset': ['miter', 'bevel', 'round'],
   'Geometry Repeater': ['linear', 'radial-fit', 'radial-step', 'ae-2d'],
@@ -4078,101 +4023,6 @@ export function evaluate(
           evaluatedFingerprint(source, currentEra) || signature(source),
           signature(result),
         ]);
-      } else if (n.type === 'Taper') {
-        const source = read('path');
-        result = taperGeometry(source, {
-          amount: read('amount'),
-          axis: n.operation,
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Taper; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Bend Points') {
-        const source = read('path');
-        result = bendGeometry(source, {
-          angle: read('angle'),
-          axis: n.operation,
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Bend Points; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Auto Handles') {
-        const source = read('path');
-        result = autoHandlesGeometry(source, {
-          strength: read('strength'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Auto Handles; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Polar Transform') {
-        const source = read('path');
-        result = polarTransformGeometry(
-          source,
-          Object.fromEntries(
-            ['origin', 'center', 'width', 'height', 'radius', 'angle', 'inverse'].map((key) => [
-              key,
-              read(key),
-            ]),
-          ),
-        );
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Polar Transform; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Twist Points') {
-        const source = read('path');
-        result = twistGeometry(source, {
-          angle: read('angle'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Twist Points; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Wave Points') {
-        const source = read('path');
-        result = waveGeometry(source, {
-          amplitude: read('amplitude'),
-          wavelength: read('wavelength'),
-          phase: read('phase'),
-          direction: n.operation,
-          keepEndpoints: read('keepEndpoints'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Wave Points; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Subdivide Path') {
         const source = read('path');
         result = subdividePathGeometry(source, {
@@ -4184,38 +4034,6 @@ export function evaluate(
           n.id,
           null,
           'Canvas character editing is unavailable through Subdivide Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Smooth Path') {
-        const source = read('path');
-        result = smoothGeometry(source, {
-          factor: read('factor'),
-          iterations: read('iterations'),
-          keepEndpoints: read('keepEndpoints'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Smooth Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Roughen') {
-        const source = read('path');
-        result = roughenGeometry(source, {
-          amount: read('amount'),
-          seed: read('seed'),
-          keepEndpoints: read('keepEndpoints'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Roughen; edit the source Text',
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
@@ -7548,7 +7366,13 @@ export class CommandSession {
       ).candidate;
     }
     if (['nodes-translate', 'curve-point', 'remap-point'].includes(target.kind)) {
-      const perPoint = update.pointMoves !== undefined;
+      const perPoint = update.pointMoves !== undefined,
+        absoluteRemap = update.value !== undefined;
+      if (absoluteRemap) {
+        if (target.kind !== 'remap-point' || perPoint || update.delta !== undefined)
+          throw Error('Invalid absolute Remap value');
+        assertValue('Vector2', update.value);
+      }
       if (perPoint) {
         if (
           !['curve-point', 'remap-point'].includes(target.kind) ||
@@ -7557,7 +7381,7 @@ export class CommandSession {
           !Array.isArray(update.pointMoves)
         )
           throw Error('Invalid per-point movement');
-      } else assertValue('Vector2', update.delta);
+      } else if (!absoluteRemap) assertValue('Vector2', update.delta);
       const pointMoves = new Map();
       if (perPoint)
         for (const move of update.pointMoves) {
@@ -7575,6 +7399,7 @@ export class CommandSession {
         if (q.locked || q.source || q.expression) throw Error('Parameter is locked or driven');
         q.value = original.map((v, i) => v + delta[i]);
       };
+      let absoluteUnchanged = false;
       if (target.kind === 'nodes-translate') {
         if (
           !Array.isArray(target.nodeIds) ||
@@ -7641,6 +7466,8 @@ export class CommandSession {
           (pointIds.length > 1 && target.key !== 'position')
         )
           throw Error('Select distinct point anchors');
+        if (absoluteRemap && pointIds.length !== 1)
+          throw Error('Absolute Remap value requires one point');
         if (
           update.independent !== undefined &&
           (typeof update.independent !== 'boolean' || target.key === 'position')
@@ -7685,7 +7512,14 @@ export class CommandSession {
               throw Error('Retained edit is suspended; rebind before dragging');
             const edit = enableRemapPoint(node, input, pointId);
             const delta = perPoint ? pointMoves.get(pointId) : update.delta;
-            write(edit.params[target.key], undefined, delta);
+            if (absoluteRemap) {
+              const q = edit.params[target.key];
+              if (!q || q.type !== 'Vector2') throw Error('Missing vector parameter');
+              if (q.locked || q.source || q.expression)
+                throw Error('Parameter is locked or driven');
+              absoluteUnchanged = update.value.every((value, index) => value === q.value[index]);
+              q.value = [...update.value];
+            } else write(edit.params[target.key], undefined, delta);
             if (perPoint && delta.every((value) => value === 0)) {
               const index = node.edits.indexOf(edit);
               if (original) node.edits[index] = original;
@@ -7696,9 +7530,11 @@ export class CommandSession {
       }
       // Returning to the origin must retain sparse Remap edits and the redo branch.
       if (
-        (perPoint ? [...pointMoves.values()] : [update.delta]).every((delta) =>
-          delta.every((value) => value === 0),
-        )
+        absoluteRemap
+          ? absoluteUnchanged
+          : (perPoint ? [...pointMoves.values()] : [update.delta]).every((delta) =>
+              delta.every((value) => value === 0),
+            )
       )
         return cloneDocument(base);
       validate(candidate);

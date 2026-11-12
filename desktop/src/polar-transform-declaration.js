@@ -1,0 +1,26 @@
+export const polarTransformDeclaration = {
+  typeId: 'Polar Transform',
+  revision: 1,
+  implementationId: 'builtin.polar-transform.v1',
+  resultType: 'Path',
+  capabilities: [],
+  bypassInput: 'path',
+  parameters: [
+    { id: 'path', type: 'Path', default: null },
+    { id: 'origin', type: 'Vector2', default: [0, 0] },
+    { id: 'center', type: 'Vector2', default: [480, 270] },
+    { id: 'width', type: 'Scalar', default: 960 },
+    { id: 'height', type: 'Scalar', default: 540 },
+    { id: 'radius', type: 'Scalar', default: 270 },
+    { id: 'angle', type: 'Scalar', default: -90 },
+    { id: 'inverse', type: 'Boolean', default: false },
+  ],
+  outputs: [{ id: 'default', type: 'Path', label: '', legacyDefault: true }],
+  catalog: {
+    categoryId: 'transform',
+    labelJa: '極座標変換',
+    aliases: ['Polar Transform', 'Polar Coordinates', '極座標', '円形変形'],
+    description: 'パスの横位置を角度、縦位置を半径へ変換。Inverseで逆変換。',
+    creationRoute: 'add',
+  },
+};

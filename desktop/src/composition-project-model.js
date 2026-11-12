@@ -24,7 +24,7 @@ import {
 } from './curve-point-reference.js';
 import { qualifiedReferencesForCodec } from './expression-parser.js';
 const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,180}$/;
-const MAX_DIMENSION = 100000;
+export const MAX_COMPOSITION_DIMENSION = 100000;
 export const MAX_COMPOSITIONS = 100;
 const MAX_LAYERS = 100;
 const MAX_NODES_PER_LAYER = 2000;
@@ -99,7 +99,7 @@ function assertDimensions(width, height) {
     ['width', width],
     ['height', height],
   ]) {
-    if (!Number.isFinite(value) || value <= 0 || value > MAX_DIMENSION)
+    if (!Number.isFinite(value) || value <= 0 || value > MAX_COMPOSITION_DIMENSION)
       throw Error(`Invalid Composition ${name}`);
   }
 }

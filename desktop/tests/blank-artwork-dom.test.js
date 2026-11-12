@@ -86,7 +86,7 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
     export const openSVGSource = async () => null;
     export const writeProject = async (request) => { io.writes.push(structuredClone(request)); return { token: 'memory-project-' + request.operation, path: 'memory/project.json' }; };
     export const releaseProject = async (binding) => { if (binding?.token) io.released.push(binding.token); };
-    export const chooseUnsaved = async () => io.choice;
+    export const chooseUnsaved = async () => io.choose ? io.choose() : io.choice;
     export const registerClose = async () => {};
     export const listSystemFonts = async () => [];
     export const readSystemFont = async () => { throw Error('No system fonts in integration fixture'); };
@@ -173,6 +173,7 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
   const newBlank = async () => {
     fileIO.choice = confirmed ? 'discard' : 'cancel';
     click('[data-action="new"]');
+    document.querySelector('.new-project-dialog button[type="submit"]')?.click();
     await Promise.resolve();
     document
       .querySelector('dialog button[value="' + (confirmed ? 'discard' : 'cancel') + '"]')
@@ -224,6 +225,82 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
     assert.equal(saved(), serialize(existing));
     assert.equal(win.nect.document.layers[0].nodes.length, 6);
     assert.ok($('.shape'));
+  });
+  await t.test('New validates dimensions, protects drafts and keeps Cancel atomic', async () => {
+    load(seed());
+    click('[data-tool="Circle"]');
+    click('[data-action="undo"]');
+    const before = saved(),
+      state = structuredClone(win.nect.commandState),
+      prior = structuredClone(ui());
+    click('[data-action="new"]');
+    const dialog = $('.new-project-dialog'),
+      width = dialog.querySelector('[name="width"]'),
+      height = dialog.querySelector('[name="height"]'),
+      create = dialog.querySelector('button[type="submit"]');
+    assert.deepEqual([width.value, height.value], ['960', '540']);
+    for (const value of ['', '0', '-1', '100001']) {
+      width.value = value;
+      width.dispatchEvent(new win.Event('input', { bubbles: true }));
+      assert.equal(create.disabled, true, value);
+      dialog.querySelector('form').dispatchEvent(new win.Event('submit', { cancelable: true }));
+      assert.equal(saved(), before);
+    }
+    width.value = '1250';
+    width.dispatchEvent(new win.Event('input', { bubbles: true }));
+    height.value = '875';
+    height.dispatchEvent(new win.Event('input', { bubbles: true }));
+    width.dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
+    assert.equal(create.disabled, true);
+    dialog.dispatchEvent(new win.Event('cancel', { cancelable: true }));
+    assert.ok(dialog.isConnected, 'IME Escape must not close the dialog');
+    width.dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true }));
+    assert.equal(create.disabled, false);
+    dialog.querySelector('[data-cancel]').click();
+    await Promise.resolve();
+    assert.equal(saved(), before);
+    assert.deepEqual(win.nect.commandState, state);
+    assert.deepEqual(ui(), prior);
+  });
+  await t.test('New refuses a stale Project and stale unsaved decision', async () => {
+    load(seed());
+    click('[data-action="new"]');
+    const dialog = $('.new-project-dialog');
+    win.nect.dispatch({
+      ...win.nect.commandState,
+      type: 'set-document-settings',
+      payload: { key: 'width', value: 1100 },
+    });
+    const changed = saved();
+    dialog.querySelector('button[type="submit"]').click();
+    assert.match(dialog.querySelector('output').textContent, /Project changed/);
+    dialog.querySelector('[data-cancel]').click();
+    await Promise.resolve();
+    assert.equal(saved(), changed);
+
+    load(seed());
+    click('[data-tool="Circle"]');
+    let finishChoice;
+    fileIO.choose = () => new Promise((resolve) => (finishChoice = resolve));
+    try {
+      click('[data-action="new"]');
+      $('.new-project-dialog button[type="submit"]').click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.equal(typeof finishChoice, 'function');
+      win.nect.dispatch({
+        ...win.nect.commandState,
+        type: 'set-document-settings',
+        payload: { key: 'height', value: 777 },
+      });
+      const later = saved();
+      finishChoice('discard');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.equal(saved(), later);
+      assert.equal(win.nect.document.height, 777);
+    } finally {
+      fileIO.choose = null;
+      finishChoice?.('cancel');
+    }
   });
   await t.test(
     'New creates an unsaved document with an independent empty Undo history',
