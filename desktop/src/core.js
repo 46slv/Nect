@@ -160,7 +160,6 @@ import { bendGeometry } from './bend-geometry.js';
 import { twistGeometry } from './twist-geometry.js';
 import { polarSettings, polarTransformGeometry } from './polar-transform.js';
 import { waveGeometry } from './wave-geometry.js';
-import { puckerBloatGeometry } from './pucker-bloat-geometry.js';
 import { dashIntervals } from './dash-intervals.js';
 import { smoothGeometry } from './smooth-geometry.js';
 import { roughenGeometry } from './roughen-geometry.js';
@@ -617,12 +616,6 @@ const legacyDefinitions = {
     wavelength: p('Scalar', 150),
     phase: p('Scalar', 0),
     keepEndpoints: p('Boolean', false),
-  },
-  'Pucker & Bloat': {
-    path: p('Path', null),
-    amount: p('Scalar', 0),
-    autoCenter: p('Boolean', true),
-    center: p('Vector2', [0, 0]),
   },
   'Subdivide Path': { path: p('Path', null), segments: p('Scalar', 2) },
   Roughen: {
@@ -1101,7 +1094,6 @@ const bypassInputs = Object.freeze({
   'Set Path Start': 'path',
   'Set Closure': 'path',
   'Subdivide Path': 'path',
-  'Pucker & Bloat': 'path',
   Taper: 'path',
   'Bend Points': 'path',
   'Twist Points': 'path',
@@ -4177,23 +4169,6 @@ export function evaluate(
           n.id,
           null,
           'Canvas character editing is unavailable through Wave Points; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Pucker & Bloat') {
-        const source = read('path'),
-          autoCenter = read('autoCenter');
-        result = puckerBloatGeometry(source, {
-          amount: read('amount'),
-          autoCenter,
-          ...(autoCenter ? {} : { center: read('center') }),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Pucker & Bloat; edit the source Text',
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));

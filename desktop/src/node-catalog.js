@@ -302,14 +302,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Pucker & Bloat',
-    categoryId: 'transform',
-    labelJa: '収縮',
-    aliases: ['収縮', '膨張'],
-    description: '収縮 膨張',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Roughen',
     categoryId: 'transform',
     labelJa: 'ラフ',
