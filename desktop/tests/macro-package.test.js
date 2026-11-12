@@ -111,6 +111,25 @@ test('An instance pins the exact definition revision and does not follow newer d
   assert.equal(resolveMacroInstance(next, later)[0].value, 75);
 });
 
+test('Published overrides follow stable IDs when labels and display order change', () => {
+  const updated = definition();
+  updated.revision = 2;
+  updated.parameters.reverse();
+  updated.parameters[1].label = 'Turn';
+  const pinned = snapshotMacroInstance(
+    {
+      ...instance(),
+      definitionRevision: 2,
+      overrides: { 'public-angle': 0, 'public-scale': 3 },
+    },
+    updated,
+  );
+  assert.deepEqual(resolveMacroInstance(updated, pinned), [
+    { parameterId: 'public-scale', nodeId: 'local-b', key: 'scale', value: 3 },
+    { parameterId: 'public-angle', nodeId: 'local-a', key: 'rotation', value: 0 },
+  ]);
+});
+
 test('Same ID and revision with different content is rejected; object key order is not identity', () => {
   const first = snapshotMacroDefinition(definition()),
     reordered = JSON.parse(JSON.stringify(first)),
@@ -171,6 +190,7 @@ test('External resources, expressions, references and unsupported node data are 
     (d) => (d.nodes[0].imageAsset = 'external'),
     (d) => (d.nodes[0].params.rotation = { expression: 'ref(artwork,...)', value: 1 }),
     (d) => (d.nodes[0].params.source = 'outside'),
+    (d) => (d.nodes[0].params.position = [5, 7]),
     (d) => (d.nodes[0].bypassed = true),
     (d) => (d.nodes[0].params.anchor = [1, ,]),
     (d) => (d.nodes[0].params.scale = Infinity),
@@ -218,6 +238,52 @@ test('Unknown, nonfinite or foreign overrides fail without changing either input
   }
   assert.throws(() => snapshotMacroInstance({ ...base, definitionId: 'other' }, def), /unpinned/i);
   assert.throws(() => snapshotMacroInstance({ ...base, definitionRevision: 2 }, def), /unpinned/i);
+});
+
+test('Override IDs are validated without coercion or invoking user code', () => {
+  const def = definition();
+  def.parameters[0].id = '1';
+  let called = false;
+  const objectId = {
+    [Symbol.toPrimitive]() {
+      called = true;
+      return '1';
+    },
+  };
+  assert.throws(() => setMacroOverride(def, instance(), 1, 4), /published/i);
+  assert.throws(() => setMacroOverride(def, instance(), objectId, 4), /published/i);
+  assert.equal(called, false);
+  assert.equal(setMacroOverride(def, instance(), '1', 4).overrides['1'], 4);
+});
+
+test('Literal, published default and instance override reject affine overflow atomically', () => {
+  const overflowingLiteral = definition();
+  overflowingLiteral.nodes.find((item) => item.id === 'local-a').params.anchor = [
+    Number.MAX_VALUE,
+    0,
+  ];
+  overflowingLiteral.nodes.find((item) => item.id === 'local-a').params.offset = [
+    Number.MAX_VALUE,
+    0,
+  ];
+  assert.throws(() => snapshotMacroDefinition(overflowingLiteral), /finite/i);
+
+  const overflowingDefault = definition();
+  overflowingDefault.nodes.find((item) => item.id === 'local-a').params.anchor = [2, 0];
+  overflowingDefault.parameters[0].key = 'scale';
+  overflowingDefault.parameters[0].defaultValue = Number.MAX_VALUE;
+  assert.throws(() => snapshotMacroDefinition(overflowingDefault), /finite/i);
+
+  const valid = definition();
+  valid.nodes.find((item) => item.id === 'local-a').params.anchor = [2, 0];
+  valid.parameters[0].key = 'scale';
+  valid.parameters[0].defaultValue = 1;
+  const base = instance(),
+    before = structuredClone(base);
+  assert.throws(() => setMacroOverride(valid, base, 'public-angle', Number.MAX_VALUE), /finite/i);
+  assert.deepEqual(base, before);
+  const zero = setMacroOverride(valid, base, 'public-angle', 0);
+  assert.equal(resolveMacroInstance(valid, zero)[0].value, 0);
 });
 
 test('Accessor, hidden, cyclic and non-data input is rejected without invoking accessors', () => {
