@@ -6,6 +6,8 @@ import { dashPathDeclaration } from '../src/dash-path-declaration.js';
 import { evaluateDashPath } from '../src/dash-path-binding.js';
 import { createNodeRegistry, parseNodeDeclaration } from '../src/node-foundation.js';
 import { nectNodeHost } from '../src/nect-node-host.js';
+import { builtinManifest } from '../src/builtin-node-manifest.js';
+import { builtinNodeRegistry } from '../src/builtin-node-registry.js';
 
 test('Dash Path declaration retains the existing factory and interface', () => {
   const parsed = parseNodeDeclaration(JSON.stringify(dashPathDeclaration)),
@@ -17,6 +19,11 @@ test('Dash Path declaration retains the existing factory and interface', () => {
     n = node('Dash Path'),
     defs = Object.keys(definitions),
     catalog = nodeCatalog.map(({ typeId }) => typeId);
+  assert.deepEqual(builtinNodeRegistry.get(n.type).declaration, dashPathDeclaration);
+  assert.equal(
+    builtinManifest.find((row) => row.declaration.typeId === n.type).binding.evaluate,
+    evaluateDashPath,
+  );
   assert.equal(resolved.declaration.bypassInput, 'path');
   assert.ok(Object.isFrozen(resolved.declaration));
   assert.deepEqual(Object.keys(n.params), ['path', 'dashLength', 'gapLength', 'offset']);
