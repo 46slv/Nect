@@ -24,6 +24,23 @@ import {
   reserveDanglingArtworkReferenceIds,
 } from './curve-point-reference.js';
 const PROJECT_HISTORY_TOKEN = Symbol('project history token');
+
+// A Project cannot retain a reference to a removed Layer. Explain the affected
+// source and consumer before either the inner Session or Project commits.
+// A standalone Document Session intentionally permits a diagnosed missing target.
+function assertNoRemovedLayerConsumers(before, candidate) {
+  const remaining = new Set(candidate.layers.map((layer) => layer.id));
+  const removed = new Map(
+    before.layers.filter((layer) => !remaining.has(layer.id)).map((layer) => [layer.id, layer]),
+  );
+  if (!removed.size) return;
+  for (const consumer of candidate.layers)
+    for (const node of consumer.nodes) {
+      const target = removed.get(node.compositionReference?.compositionId);
+      if (target && ['Composition Reference', 'SVG'].includes(node.type))
+        throw Error(`Cannot delete "${target.name}": used by "${consumer.name}"`);
+    }
+}
 // Only document-global identities can satisfy an Artwork reference. Character,
 // contour and remap-edit IDs stay scoped to their owning node.
 function documentEntityIds(document, ids = new Set()) {
@@ -361,6 +378,7 @@ export class CompositionSessionOwner {
         return assertCurrent;
       },
       beforeCandidateCommit: (before, candidate) => {
+        assertNoRemovedLayerConsumers(before, candidate);
         assertProjectIdentityChangeSafe(this.#history.doc, compositionId, before, candidate);
         // Validate the whole projection before the inner Session commits;
         // a new identity or reference can affect an inactive Composition.

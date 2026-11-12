@@ -2,6 +2,8 @@
 
 Use **Delete layer** in a Layers row to remove that exact composition and its complete node graph. The action identifies the row's stable layer ID, including when another layer is active. Hidden, guide and intentionally empty compositions can be removed this way. Locked layers must be unlocked first. A stale or ambiguous layer ID rejects without changing the document.
 
+In a Project, a Composition used by a surviving **Composition Reference** or **SVG** node cannot be removed; the status names the source and a consumer. Unlink or remove the consuming node first, or select the source and every consumer for one multi-layer deletion. The check includes disconnected nodes so their authored references are preserved. A standalone Document Session retains its existing missing-target diagnostic and Undo behavior.
+
 Alternatively, select final artwork by clicking its canvas output or Layers name, focus the artboard, then press **Delete**. This shortcut removes only that selected artwork layer. It does not guess a source node or use the movement resolver: gradients, Boolean/Remap/Repeater graphs, images and Curves above the whole-artwork movement budget are all removable. Graph-card **Delete** and **Duplicate** remain node operations.
 
 ## Transaction, selection and preservation
