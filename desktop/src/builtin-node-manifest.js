@@ -69,6 +69,8 @@ import { closedOffsetDeclaration } from './closed-offset-node-declaration.js';
 import { evaluateClosedOffset } from './closed-offset-node-binding.js';
 import { subdividePathDeclaration } from './subdivide-path-declaration.js';
 import { evaluateSubdividePath } from './subdivide-path-binding.js';
+import { resamplePathDeclaration } from './resample-path-declaration.js';
+import { evaluateResamplePath } from './resample-path-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -175,4 +177,5 @@ export const builtinManifest = Object.freeze([
     'Pucker & Bloat',
     'Reverse Path',
   ),
+  entry(resamplePathDeclaration, { evaluate: evaluateResamplePath }, 'Roughen', 'Subdivide Path'),
 ]);
