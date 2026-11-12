@@ -101,3 +101,84 @@ export async function checkGroupedColorCoverage() {
   }
   return results;
 }
+
+export function groupedGradientDocument(kind, gradientType) {
+  const doc = groupedDocument(kind),
+    layer = doc.layers[0],
+    previous = layer.nodes.find((n) => n.type === 'Fill'),
+    stroke = layer.nodes.find((n) => n.type === 'Stroke'),
+    gradient = node(gradientType === 'linear' ? 'Linear Gradient Fill' : 'Radial Gradient Fill');
+  doc.colorSlots = [
+    { id: 'start_red', name: 'Start', value: { hex: '#ff0000', alpha: 0.25 } },
+    { id: 'end_green', name: 'End', value: { hex: '#00ff00', alpha: 0.75 } },
+    { id: 'stroke_blue', name: 'Stroke', value: { hex: '#0000ff', alpha: 0.6 } },
+  ];
+  gradient.params.startColor.colorSlotId = 'start_red';
+  gradient.params.endColor.colorSlotId = 'end_green';
+  if (gradientType === 'linear') {
+    gradient.params.start.value = [0, 0];
+    gradient.params.end.value = [64, 0];
+  } else {
+    gradient.params.center.value = [32, 24];
+    gradient.params.radius.value = 30;
+  }
+  layer.nodes.push(gradient);
+  connect(layer, previous.params.path.source, gradient.id, 'path');
+  connect(layer, gradient.id, stroke.id, 'path');
+  layer.nodes.splice(layer.nodes.indexOf(previous), 1);
+  return doc;
+}
+
+export async function checkGroupedGradientCoverage() {
+  const results = [];
+  for (const [kind, gradientType] of [
+    ['join', 'linear'],
+    ['join', 'radial'],
+    ['repeater', 'linear'],
+    ['repeater', 'radial'],
+  ]) {
+    const doc = groupedGradientDocument(kind, gradientType),
+      before = serialize(doc),
+      scene = exportScene(doc),
+      passes = colorCoveragePasses(scene, doc),
+      measured = await sampleColorCoverage(
+        ['start_red', 'end_green', 'stroke_blue'],
+        passes,
+        doc,
+        rasterizeCoverageAlpha,
+      ),
+      pixels = await rgba(exportSVG(doc), doc.width, doc.height),
+      reference = [0, 0, 0];
+    const wrongOrder = await sampleColorCoverage(
+      ['start_red', 'end_green', 'stroke_blue'],
+      [passes[0], passes[2], passes[1], passes[3]],
+      doc,
+      rasterizeCoverageAlpha,
+    );
+    let alpha = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      const coverage = pixels[index + 3] / 255;
+      for (let channel = 0; channel < 3; channel++)
+        reference[channel] += (pixels[index + channel] / 255) * coverage;
+      alpha += coverage;
+    }
+    results.push({
+      kind,
+      gradientType,
+      order: passes.map((pass) => ({
+        paint: pass.paint,
+        slotId: pass.slotId,
+        ...(pass.split ? { start: pass.split.startSlotId, end: pass.split.endSlotId } : {}),
+      })),
+      measured: measured.slots.map((slot) => slot.contribution),
+      wrongOrder: wrongOrder.slots.map((slot) => slot.contribution),
+      percentages: measured.slots.map((slot) => slot.percent),
+      other: measured.other.contribution,
+      reference,
+      painted: measured.paintedPixelEquivalent,
+      alpha,
+      unchanged: serialize(doc) === before,
+    });
+  }
+  return results;
+}
