@@ -8,6 +8,7 @@ import {
   CommandSession,
   connect,
   deserialize,
+  enableRemapPoint,
   evaluate,
   node,
   serialize,
@@ -181,3 +182,38 @@ test('Resample retains actual Text routing and generated point identities', () =
   assert.match(result.characterOccurrences[0].reason, /unavailable through Resample Path/);
   assert.deepEqual(evaluate(deserialize(saved).layers[0], fonts).run(effect.id), result);
 });
+
+for (const operation of ['count', 'spacing']) {
+  test(`Resample ${operation} keeps saved Remap edits and suspends them when geometry changes`, () => {
+    const doc = blankDocument(),
+      layer = doc.layers[0],
+      source = node('Imported Path'),
+      effect = node('Resample Path'),
+      remap = node('Path Remap');
+    source.id = 'source';
+    source.rawPath = 'M0 0 L100 0 L100 100 L0 100 Z';
+    effect.id = 'resample';
+    effect.operation = operation;
+    effect.params.count.value = 8;
+    effect.params.spacing.value = 50;
+    remap.id = 'remap';
+    layer.nodes.push(source, effect, remap);
+    connect(layer, source.id, effect.id, 'path');
+    connect(layer, effect.id, remap.id, 'path');
+    const input = evaluate(layer).run(effect.id),
+      point = input.contours[0].points[0];
+    enableRemapPoint(remap, input, point.id).params.position.value = [3, 1];
+    const active = evaluate(layer),
+      edited = active.run(remap.id),
+      saved = serialize(doc),
+      reopened = evaluate(deserialize(saved).layers[0]);
+    assert.notDeepEqual(edited.contours[0].points[0].position, point.position);
+    assert.deepEqual(reopened.run(remap.id), edited);
+    assert.deepEqual(active.warnings, []);
+    assert.deepEqual(reopened.warnings, []);
+    effect.params[operation].value = operation === 'count' ? 10 : 40;
+    const changed = evaluate(layer);
+    changed.run(remap.id);
+    assert.match(changed.warnings.join(' '), /suspended/i);
+  });
+}
