@@ -702,7 +702,6 @@ const legacyDefinitions = {
     miterLimit: p('Scalar', 4),
     dashOffset: p('Scalar', 0),
   },
-  Output: { path: p('PaintedPath', null) },
   Text: {
     position: p('Vector2', [200, 300]),
     size: p('Scalar', 100),
@@ -991,7 +990,6 @@ export function outputType(n, port) {
       'Error Diffusion Dither',
       'Line Screen',
       'Stroke',
-      'Output',
     ].includes(n.type)
   )
     return 'PaintedPath';
@@ -3688,6 +3686,7 @@ export function evaluate(
             source = input?.source ? byId.get(input.source) : undefined;
           return source ? outputType(source, input.sourcePort) : undefined;
         };
+        const nodeHasEmptyOutput = () => hasEmptyOutput(layer, n);
         const identity = Object.freeze({
           provenance: (currentEra) => provenance(nodeId, undefined, currentEra),
           fingerprint: evaluatedFingerprint,
@@ -3703,6 +3702,7 @@ export function evaluate(
               identity,
               hasParameter,
               sourceOutputType,
+              hasEmptyOutput: nodeHasEmptyOutput,
               paintedGroup: (inputs) => {
                 const painted = evaluatedPaintedGroup(inputs, { prefix: nodeId });
                 setEvaluationFingerprint(painted, () => [nodeId, inputs]);
@@ -3716,6 +3716,7 @@ export function evaluate(
               identity,
               hasParameter,
               sourceOutputType,
+              hasEmptyOutput: nodeHasEmptyOutput,
             });
         result = registered.evaluate(n.operation, read, context);
         assertValue(registered.interface(n.operation, shape).resultType, result);
@@ -4536,12 +4537,11 @@ export function evaluate(
         } finally {
           for (const item of liveOperands) item.remove();
         }
-      } else if (hasEmptyOutput(layer, n)) result = { contours: [] };
-      else {
+      } else {
         result = read('path');
         if (!result) throw Error(`Connect a ${n.params.path.type} input`);
         result = cloneEvaluated(result);
-        if (isPaintedGroup(result) && n.type !== 'Output')
+        if (isPaintedGroup(result))
           throw Error('Edit paint in the source Composition, or use Convert to Path');
         if (n.type === 'Fill') {
           result.fill = read('color');
