@@ -520,7 +520,6 @@ const legacyDefinitions = {
     softness: p('Scalar', 0.05),
   },
   Mask: { path: p('PaintedPath', null), mask: p('Path', null), invert: p('Boolean', false) },
-  Rectangle: { center: p('Vector2', [460, 250]), size: p('Vector2', [180, 220]) },
   Polygon: {
     center: p('Vector2', [350, 250]),
     sides: p('Scalar', 6),
@@ -3690,29 +3689,6 @@ export function evaluate(
         assertValue(registered.interface(n.operation, shape).resultType, result);
       } else if (n.type === 'Polygon' || n.type === 'Star') {
         result = radialPath(n, read);
-      } else if (n.type === 'Circle' || n.type === 'Ellipse' || n.type === 'Rectangle') {
-        const center = read('center');
-        let item;
-        if (n.type === 'Circle')
-          item = new scope.Path.Circle({
-            center,
-            radius: Math.max(0, read('radius')),
-            insert: false,
-          });
-        else {
-          let size = read('size').map(Math.abs),
-            rectangle = new scope.Rectangle(
-              center[0] - size[0] / 2,
-              center[1] - size[1] / 2,
-              ...size,
-            );
-          item =
-            n.type === 'Ellipse'
-              ? new scope.Path.Ellipse({ rectangle, insert: false })
-              : new scope.Path.Rectangle({ rectangle, insert: false });
-        }
-        result = fromPaper(item, n.id);
-        item.remove();
       } else if (n.type === 'Image') {
         if (!Object.hasOwn(imageAssets, n.asset)) throw Error('Missing image asset');
         const size = read('size');
