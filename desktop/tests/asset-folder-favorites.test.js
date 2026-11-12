@@ -50,15 +50,16 @@ function fixture(t, initial = [], overrides = {}) {
   let roots = [a, b];
   let listRoots = () => roots;
   let refresh = (id) => listing(roots.find((root) => root.id === id));
+  let removeRoot = (id) => {
+    roots = roots.filter((root) => root.id !== id);
+    return roots;
+  };
   const calls = [];
   handler = (command, payload) => {
     calls.push({ command, payload });
     if (command === 'list_asset_folders') return listRoots();
     if (command === 'refresh_asset_folder') return refresh(payload.rootId);
-    if (command === 'remove_asset_folder') {
-      roots = roots.filter((root) => root.id !== payload.rootId);
-      return roots;
-    }
+    if (command === 'remove_asset_folder') return removeRoot(payload.rootId);
     throw Error(`Unexpected IPC ${command}`);
   };
   const options = {
@@ -99,6 +100,9 @@ function fixture(t, initial = [], overrides = {}) {
     },
     setRefresh(value) {
       refresh = value;
+    },
+    setRemove(value) {
+      removeRoot = value;
     },
     failRead(value) {
       failRead = value;
@@ -240,6 +244,33 @@ test('a panel hidden and shown during destination capture cancels the slot actio
   view.panel.querySelector('[data-quick-slot="1"]').click();
   await tick();
   assert.equal(refreshes(), before);
+});
+
+test('a folder removal started during destination capture prevents an old slot refresh', async (t) => {
+  let view;
+  const f = fixture(t, [], {
+    capture() {
+      [...view.panel.querySelectorAll('button')]
+        .find((button) => button.textContent === 'Remove')
+        .click();
+      return {};
+    },
+  });
+  f.data.set(
+    ASSET_ITEM_FAVORITES_KEY,
+    JSON.stringify([{ rootId: 'root-a', relativePath: 'same.svg', slot: validSlot }]),
+  );
+  view = f.mount();
+  await ready(view);
+  const pending = deferred();
+  f.setRemove(() => pending.promise);
+  const refreshes = () => f.calls.filter((call) => call.command === 'refresh_asset_folder').length;
+  const before = refreshes();
+  view.panel.querySelector('[data-quick-slot="1"]').click();
+  await tick();
+  assert.equal(refreshes(), before);
+  pending.resolve([b]);
+  await waitFor(() => !view.root.disabled);
 });
 
 test('native favorites survive remount, use exact IDs, and remove stale IDs without retargeting', async (t) => {

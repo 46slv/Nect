@@ -787,7 +787,11 @@ export function mountAssetLibrary({
     return true;
   }
   slotSelect.onchange = () => {
-    if (!alive || slotSelect.disabled || !['', '1', '2', '3'].includes(slotSelect.value)) {
+    if (
+      !canUseQuickSlot() ||
+      slotSelect.disabled ||
+      !['', '1', '2', '3'].includes(slotSelect.value)
+    ) {
       slotSelect.value = slotDraftValue;
       return;
     }
@@ -814,7 +818,7 @@ export function mountAssetLibrary({
   });
   for (const field of Object.values(fields)) field.addEventListener('input', buttons);
   slotAssign.onclick = () => {
-    if (!alive || slotAssign.disabled || !selected || !listing) return;
+    if (!canUseQuickSlot() || slotAssign.disabled || !selected || !listing) return;
     const key = assetFavoriteKey(listing.root.id, selected.relativePath);
     const selectedEntry = assetFavorites.find(
       (entry) => assetFavoriteKey(entry.rootId, entry.relativePath) === key,
@@ -1391,6 +1395,7 @@ export function mountAssetLibrary({
       return;
     }
     if (
+      busy ||
       !canUseQuickSlot() ||
       expectedVersion !== assetFavoritesVersion ||
       pointerAtStart !== pointerSequence ||

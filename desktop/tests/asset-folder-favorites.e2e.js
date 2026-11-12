@@ -63,6 +63,24 @@ try {
   await panel.getByRole('button', { name: 'Pin asset', exact: true }).click({ timeout: 3000 });
   assert.equal(await panel.locator('[data-quick-asset]').count(), 1);
   await panel.getByLabel('Quick slot', { exact: true }).selectOption('1', { timeout: 3000 });
+  await panel.evaluate((element) => {
+    const select = element.querySelector('[aria-label="Quick slot"]');
+    const assign = [...element.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Assign slot',
+    );
+    element.hidden = true;
+    element.inert = true;
+    select.value = '2';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    assign.click();
+    element.hidden = false;
+    element.inert = false;
+  });
+  assert.equal(await panel.getByLabel('Quick slot', { exact: true }).inputValue(), '1');
+  assert.equal(
+    await panel.getByRole('button', { name: 'Slot 1 empty', exact: true }).isDisabled(),
+    true,
+  );
   await panel.getByRole('button', { name: 'Assign slot', exact: true }).click();
   await panel.getByRole('button', { name: 'Place slot 1: alpha.svg', exact: true }).waitFor();
   await panel.getByRole('button', { name: 'Pin folder', exact: true }).focus();
