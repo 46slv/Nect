@@ -17,6 +17,8 @@ import {
   serialize,
 } from '../src/core.js';
 import { createNodeRegistry, parseNodeDeclaration } from '../src/node-foundation.js';
+import { builtinManifest } from '../src/builtin-node-manifest.js';
+import { builtinNodeRegistry } from '../src/builtin-node-registry.js';
 import { nectNodeHost } from '../src/nect-node-host.js';
 import { nodeCatalog } from '../src/node-catalog.js';
 import { roughenDeclaration } from '../src/roughen-node-declaration.js';
@@ -49,7 +51,13 @@ function scene(rawPath) {
   return { doc, layer, source, roughen };
 }
 
-test('Roughen declaration resolves and captures the existing interface', () => {
+test('production Roughen resolves through the trusted binding and retains its interface', () => {
+  const registered = builtinNodeRegistry.get('Roughen'),
+    manifest = builtinManifest.find((row) => row.declaration.typeId === 'Roughen');
+  assert.ok(registered && manifest);
+  assert.equal(manifest.binding.evaluate, evaluateRoughen);
+  assert.deepEqual(registered.declaration, roughenDeclaration);
+  assert.ok(Object.isFrozen(registered.declaration));
   const parsed = parseNodeDeclaration(JSON.stringify(roughenDeclaration));
   const resolved = createNodeRegistry([parsed], bindings(), nectNodeHost).get('Roughen');
   assert.ok(Object.isFrozen(resolved.declaration));

@@ -156,7 +156,6 @@ import {
 import { validateInstancePath } from './instance-points-geometry.js';
 import { polarSettings } from './polar-transform.js';
 import { dashIntervals } from './dash-intervals.js';
-import { roughenGeometry } from './roughen-geometry.js';
 import { roundCorners } from './corner-round-geometry.js';
 import { mirrorGeometry } from './mirror-geometry.js';
 import {
@@ -585,12 +584,6 @@ const legacyDefinitions = {
   },
   'Set Closure': { path: p('Path', null), closed: p('Boolean', true) },
   'Subdivide Path': { path: p('Path', null), segments: p('Scalar', 2) },
-  Roughen: {
-    path: p('Path', null),
-    amount: p('Scalar', 3),
-    seed: p('Scalar', 1),
-    keepEndpoints: p('Boolean', true),
-  },
   'Resample Path': {
     path: p('Path', null),
     count: p('Scalar', 32),
@@ -1051,7 +1044,6 @@ const bypassInputs = Object.freeze({
   Mirror: 'path',
   'Corner Round': 'path',
   'Resample Path': 'path',
-  Roughen: 'path',
   'Trim Path': 'path',
   'Set Path Start': 'path',
   'Set Closure': 'path',
@@ -4041,22 +4033,6 @@ export function evaluate(
           n.id,
           null,
           'Canvas character editing is unavailable through Subdivide Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Roughen') {
-        const source = read('path');
-        result = roughenGeometry(source, {
-          amount: read('amount'),
-          seed: read('seed'),
-          keepEndpoints: read('keepEndpoints'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Roughen; edit the source Text',
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));

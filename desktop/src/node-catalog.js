@@ -246,14 +246,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Roughen',
-    categoryId: 'transform',
-    labelJa: 'ラフ',
-    aliases: ['ラフ', 'ランダム'],
-    description: 'ラフ ランダム',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Boolean',
     categoryId: 'combine',
     labelJa: '結合',
