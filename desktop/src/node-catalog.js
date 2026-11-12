@@ -198,14 +198,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Simplify Path',
-    categoryId: 'path',
-    labelJa: '簡略化',
-    aliases: ['簡略化'],
-    description: '簡略化',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Trim Path',
     categoryId: 'path',
     labelJa: '切り取り',
