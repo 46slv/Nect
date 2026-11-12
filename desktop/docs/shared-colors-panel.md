@@ -99,8 +99,11 @@ composite/readback differences are reconciled proportionally only within 4/255 p
 pixel. If a painted pixel has no recoverable component mass (including near-zero
 alpha/AA-edge precision cases), or the discrepancy exceeds that bound, the entire
 measurement is unavailable. No mass is invented, assigned to Other, or partly shown.
-Focal/elliptical/extra-stop paints, gradient strokes, authored masks,
-filters, blend modes, independently grouped paths and repeater appearance remain
+Independent contour groups with solid paint are measured in the renderer's
+per-group fill-then-stroke order, including fully opaque 2D Repeater copies. A
+group's contours stay together so holes keep their original fill rule. Grouped
+gradients, partial Repeater opacity or alternate paint, focal/elliptical/extra-stop
+paints, gradient strokes, authored masks, filters and blend modes remain
 unsupported; the whole scene becomes unavailable rather than partly measured.
 
 The longest sample edge is at most 256 pixels;

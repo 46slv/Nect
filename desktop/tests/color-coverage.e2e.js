@@ -845,6 +845,12 @@ try {
     }
     return receipts;
   });
+  const grouped = await page.evaluate(async () => {
+    const { checkGroupedColorCoverage } = await import(
+      '/tests/helpers/grouped-color-coverage-acceptance.js'
+    );
+    return checkGroupedColorCoverage();
+  });
   await fs.writeFile(
     `${output}/results.json`,
     JSON.stringify(
@@ -853,12 +859,33 @@ try {
         route:
           'production exportScene/renderElement/exportSVG → browser SVG Image → canvas RGBA alpha',
         results,
+        grouped,
         errors,
       },
       null,
       2,
     ),
   );
+  for (const result of grouped) {
+    assert.deepEqual(
+      result.order,
+      [
+        ['fill', 'fill_red'],
+        ['stroke', 'stroke_blue'],
+        ['fill', 'fill_red'],
+        ['stroke', 'stroke_blue'],
+      ],
+      `${result.kind}: production group paint order`,
+    );
+    for (let index = 0; index < result.reference.length; index++)
+      assert.ok(
+        Math.abs(result.measured[index] - result.reference[index]) <= (64 * 48 * 3) / 255,
+        `${result.kind}: slot contribution disagrees with rendered pixels`,
+      );
+    assert.ok(Math.abs(result.painted - result.alpha) <= (64 * 48 * 3) / 255);
+    assert.equal(result.other, 0);
+    assert.equal(result.unchanged, true);
+  }
   for (const result of results) {
     const context = result.name;
     assert.equal(result.measurementError, null, `${context}: ${result.measurementError}`);
@@ -1057,13 +1084,13 @@ try {
   await fs.writeFile(
     `${output}/results.json`,
     JSON.stringify(
-      { passed: true, route: 'production SVG to browser canvas alpha', results, errors },
+      { passed: true, route: 'production SVG to browser canvas alpha', results, grouped, errors },
       null,
       2,
     ),
   );
   console.log(
-    `Color coverage raster acceptance passed (${results.length} fixtures); ${output}/results.json`,
+    `Color coverage raster acceptance passed (${results.length} fixtures + ${grouped.length} grouped); ${output}/results.json`,
   );
 } finally {
   await browser.close();
