@@ -1726,6 +1726,55 @@ function copyEvaluationIdentity(source, result) {
   return result;
 }
 const cloneEvaluated = (value) => copyEvaluationIdentity(value, clone(value));
+function macroPathIndex(nodes) {
+  const cache = new Map(),
+    active = new Set();
+  function inspect(n) {
+    if (!n) return false;
+    if (cache.has(n.id)) return cache.get(n.id);
+    if (active.has(n.id)) return false;
+    active.add(n.id);
+    let found;
+    if (n.type === 'Macro' && !n.bypassed && n.params.path.source) {
+      found = true;
+    } else {
+      found = evaluatedParameters(n).some(
+        ([, input]) =>
+          ['Path', 'PaintedPath'].includes(input?.type) &&
+          input.source &&
+          inspect(nodes.get(input.source)),
+      );
+    }
+    active.delete(n.id);
+    cache.set(n.id, found);
+    return found;
+  }
+  return inspect;
+}
+function macroPathSignature(nodes, start, hasMacro) {
+  const seen = new Set(),
+    trace = [];
+  function visit(n) {
+    if (!n || seen.has(n.id) || !hasMacro(n)) return;
+    seen.add(n.id);
+    trace.push(n);
+    if (n.type === 'Macro' && !n.bypassed && n.params.path.source) return;
+    for (const [, input] of evaluatedParameters(n))
+      if (['Path', 'PaintedPath'].includes(input?.type) && input.source)
+        visit(nodes.get(input.source));
+  }
+  visit(start);
+  return JSON.stringify(trace);
+}
+function assertMacroDownstreamPath(path, matrix) {
+  try {
+    assertMacroPathStep(path, matrix);
+  } catch (error) {
+    throw Object.assign(Error(`Macro downstream Path: ${error.message}`), {
+      code: 'MACRO_DOWNSTREAM_PATH_INVALID',
+    });
+  }
+}
 function transformEvaluatedPath(source, matrix, nodeId) {
   const object = toPaper(source);
   try {
@@ -2636,6 +2685,7 @@ export function evaluate(
   let computed = 0,
     reused = 0;
   const byId = new Map(layer.nodes.map((n) => [n.id, n]));
+  const macroPath = layer.nodes.some((n) => n.type === 'Macro') ? macroPathIndex(byId) : () => null;
   let storedGraphError = null;
   if (layer.nodes.some((n) => n.bypassed)) {
     try {
@@ -3285,8 +3335,10 @@ export function evaluate(
       } else if (n.type === 'Transform' && n.paintMode) {
         const source = read('path');
         if (!source) throw Error('Connect a PaintedPath input');
+        const matrix = transformValues(n, read).matrix;
+        if (macroPath(n)) assertMacroDownstreamPath(source, matrix);
         result = evaluatedPaintedGroup([source], {
-          matrix: transformValues(n, read).matrix,
+          matrix,
           prefix: n.id,
         });
         setEvaluationFingerprint(result, (currentEra) => [n.id, source, result.matrix]);
@@ -3773,7 +3825,11 @@ export function evaluate(
             }
           }
         } else if (n.type === 'Transform') {
-          result = transformEvaluatedPath(result, transformValues(n, read).matrix, n.id);
+          const matrix = transformValues(n, read).matrix,
+            fromMacro = macroPath(n);
+          if (fromMacro) assertMacroDownstreamPath(result, matrix);
+          result = transformEvaluatedPath(result, matrix, n.id);
+          if (fromMacro) assertMacroDownstreamPath(result, [1, 0, 0, 1, 0, 0]);
         } else if (n.type === 'Macro') {
           if (byId.get(n.params.path.source)?.type !== 'Rectangle')
             throw Error('Macro requires a direct Rectangle source');
@@ -3813,6 +3869,12 @@ export function evaluate(
             for (const point of contour.points)
               point.position = point.position.map((v, axis) => v + delta[axis]);
       }
+      if (
+        n.type !== 'Macro' &&
+        ['Path', 'PaintedPath'].includes(outputType(n, port)) &&
+        macroPath(n)
+      )
+        assertMacroDownstreamPath(result, [1, 0, 0, 1, 0, 0]);
       if (result?.characterOccurrences?.length > 256)
         result.characterOccurrences = [
           ...new Map(
@@ -4130,7 +4192,8 @@ function foreignAffectedVertices(before, candidate, fonts, collectMacro = false)
       }
     }
   }
-  const affectedMacros = new Map();
+  const affectedMacroNodes = new Map(),
+    macroIndexes = new Map();
   for (let i = 0; i < queue.length; i++) {
     const item = queue[i],
       marker = `${item.key}\0${item.foreign ? 1 : 0}`;
@@ -4139,14 +4202,17 @@ function foreignAffectedVertices(before, candidate, fonts, collectMacro = false)
     if (collectMacro) {
       const vertex = vertices.get(item.key),
         node = vertex && candidateGraph.nodes.get(vertex.layerId)?.get(vertex.nodeId);
-      if (
-        vertex?.key === undefined &&
-        node?.type === 'Macro' &&
-        !node.bypassed &&
-        node.params.path.source
-      ) {
-        if (!affectedMacros.has(vertex.layerId)) affectedMacros.set(vertex.layerId, new Set());
-        affectedMacros.get(vertex.layerId).add(vertex.nodeId);
+      const nodes = candidateGraph.nodes.get(vertex?.layerId);
+      if (nodes && !macroIndexes.has(vertex.layerId))
+        macroIndexes.set(vertex.layerId, macroPathIndex(nodes));
+      const isAffectedPath =
+        node &&
+        ['Path', 'PaintedPath'].includes(outputType(node, vertex?.port)) &&
+        macroIndexes.get(vertex.layerId)?.(node);
+      if (vertex?.key === undefined && isAffectedPath) {
+        if (!affectedMacroNodes.has(vertex.layerId))
+          affectedMacroNodes.set(vertex.layerId, new Set());
+        affectedMacroNodes.get(vertex.layerId).add(vertex.nodeId);
       }
     }
     for (const edge of reverse.get(item.key) || []) {
@@ -4157,7 +4223,7 @@ function foreignAffectedVertices(before, candidate, fonts, collectMacro = false)
   }
   return {
     affected: [...affected.values()].filter((v) => current.has(nodeKey(v.layerId, v.nodeId))),
-    affectedMacros,
+    affectedMacroNodes,
     candidateGraph,
     activatedVertices,
   };
@@ -4206,25 +4272,22 @@ function assertArtworkReferenceTransition(
     )
       throw Error('New identity would retarget a missing Artwork reference');
 
-  const { affected, affectedMacros, candidateGraph, activatedVertices } = foreignAffectedVertices(
-    before,
-    candidate,
-    fonts,
-    hasMacro,
-  );
+  const { affected, affectedMacroNodes, candidateGraph, activatedVertices } =
+    foreignAffectedVertices(before, candidate, fonts, hasMacro);
   if (hasMacro) {
     const currentFonts = resolveFonts(candidate, fonts),
       oldFonts = resolveFonts(before, fonts);
     for (const layer of candidate.layers) {
-      const ids = affectedMacros.get(layer.id);
+      const ids = affectedMacroNodes.get(layer.id);
       if (!ids) continue;
-      const instances = layer.nodes.filter(
-        (item) =>
-          item.type === 'Macro' && ids.has(item.id) && !item.bypassed && item.params.path.source,
-      );
+      const instances = layer.nodes.filter((item) => ids.has(item.id));
       if (!instances.length) continue;
       const current = evaluate(layer, currentFonts, candidate.imageAssets, candidate, null, true),
-        oldLayer = before.layers.find((item) => item.id === layer.id);
+        oldLayer = before.layers.find((item) => item.id === layer.id),
+        currentNodes = candidateGraph.nodes.get(layer.id),
+        oldNodes = new Map((oldLayer?.nodes || []).map((item) => [item.id, item])),
+        currentPath = macroPathIndex(currentNodes),
+        oldPath = macroPathIndex(oldNodes);
       let prior;
       for (const instance of instances) {
         try {
@@ -4236,14 +4299,16 @@ function assertArtworkReferenceTransition(
           )
             continue;
           const old = oldLayer?.nodes.find(
-            (item) => item.id === instance.id && item.type === 'Macro',
-          );
+              (item) => item.id === instance.id && item.type === instance.type,
+            ),
+            oldInfo = oldPath(old),
+            currentInfo = currentPath(instance);
           if (
             old &&
-            !old.bypassed &&
-            old.params.path.source &&
-            JSON.stringify(old.params.path) === JSON.stringify(instance.params.path) &&
-            JSON.stringify(old.macro) === JSON.stringify(instance.macro)
+            oldInfo &&
+            currentInfo &&
+            macroPathSignature(oldNodes, old, oldPath) ===
+              macroPathSignature(currentNodes, instance, currentPath)
           ) {
             prior ||= evaluate(oldLayer, oldFonts, before.imageAssets, before, null, true);
             try {
@@ -7441,6 +7506,9 @@ export class CommandSession {
       'paste-nodes',
       'paste-layer-snapshot',
       'apply-effect',
+      'insert-macro',
+      'set-macro-override',
+      'reset-macro-override',
       'move-layers-to-folder',
       'order-layer-folder',
       'remove-layers-from-folder',

@@ -8,6 +8,7 @@ import {
   nodesHaveCompositionPropertyReferenceSyntax,
   nodesHaveQualifiedColorReferenceSyntax,
 } from './curve-point-reference.js';
+import { snapshotMacroDefinition } from './macro-package.js';
 
 // The token contains no caller-supplied Layer. Its resolver remains private to
 // the owning clipboard and refuses retired or temporarily unavailable copies.
@@ -60,6 +61,20 @@ export function createLayerClipboardOwner({ currentGeneration = null } = {}) {
       if (!source) throw Error('Layer is unavailable');
       if (source.locked) throw Error('Unlock this Layer before copying it');
       const artworkReferences = artworkReferencesInLayers([source]);
+      const macroDefinitions = new Map();
+      for (const item of source.nodes) {
+        if (item.type !== 'Macro') continue;
+        const pin = item.macro,
+          definition = doc.macroDefinitions?.find(
+            (candidate) =>
+              candidate.id === pin?.definitionId && candidate.revision === pin.definitionRevision,
+          );
+        if (!definition) throw Error('A copied Macro definition is unavailable');
+        macroDefinitions.set(
+          JSON.stringify([definition.id, definition.revision]),
+          snapshotMacroDefinition(definition),
+        );
+      }
       if (doc.schemaVersion < ARTWORK_REFERENCE_SCHEMA_VERSION && artworkReferences.length)
         throw Error('Copying an inactive Artwork reference is not supported');
       if (artworkReferences.some((ref) => ref.layerId === layerId))
@@ -106,6 +121,7 @@ export function createLayerClipboardOwner({ currentGeneration = null } = {}) {
         slotIds: [...slotIds],
         layerIds: [...layerIds],
         sourceLayerId: layerId,
+        macroDefinitions: [...macroDefinitions.values()],
         artworkReferences: artworkReferences
           .filter((ref) => ref.layerId !== layerId)
           .map((ref) => ({
