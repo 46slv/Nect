@@ -155,7 +155,6 @@ import {
 } from './luminance-instances.js';
 import { validateInstancePath } from './instance-points-geometry.js';
 import { autoHandlesGeometry } from './auto-handles-geometry.js';
-import { taperGeometry } from './taper-geometry.js';
 import { polarSettings, polarTransformGeometry } from './polar-transform.js';
 import { dashIntervals } from './dash-intervals.js';
 import { smoothGeometry } from './smooth-geometry.js';
@@ -593,7 +592,6 @@ const legacyDefinitions = {
     start: p('Scalar', 0),
   },
   'Set Closure': { path: p('Path', null), closed: p('Boolean', true) },
-  Taper: { path: p('Path', null), amount: p('Scalar', 0) },
   'Polar Transform': {
     path: p('Path', null),
     origin: p('Vector2', [0, 0]),
@@ -906,19 +904,17 @@ export function node(type, x = 40, y = 40) {
       ? 'square'
       : type === 'Resample Path'
         ? 'count'
-        : type === 'Taper'
+        : type === 'Line Screen'
           ? 'horizontal'
-          : type === 'Line Screen'
-            ? 'horizontal'
-            : type === 'Mirror'
-              ? 'left-right'
-              : type === 'Closed Path Offset'
-                ? 'miter'
-                : type === 'Geometry Repeater'
-                  ? 'linear'
-                  : builtinNodeRegistry.get(type)?.declaration.defaultOperation
-                    ? builtinNodeRegistry.get(type).declaration.defaultOperation
-                    : 'subtract',
+          : type === 'Mirror'
+            ? 'left-right'
+            : type === 'Closed Path Offset'
+              ? 'miter'
+              : type === 'Geometry Repeater'
+                ? 'linear'
+                : builtinNodeRegistry.get(type)?.declaration.defaultOperation
+                  ? builtinNodeRegistry.get(type).declaration.defaultOperation
+                  : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -1080,7 +1076,6 @@ const bypassInputs = Object.freeze({
   'Set Path Start': 'path',
   'Set Closure': 'path',
   'Subdivide Path': 'path',
-  Taper: 'path',
   'Polar Transform': 'path',
   'Auto Handles': 'path',
   'Dash Path': 'path',
@@ -1777,7 +1772,6 @@ export const operationOptions = {
   'Error Diffusion Dither': ['square', 'circle', 'polygon', 'star'],
   'Ordered Dither Image': ['square', 'circle', 'polygon', 'star'],
   'Error Diffusion Dither Image': ['square', 'circle', 'polygon', 'star'],
-  Taper: ['horizontal', 'vertical'],
   Mirror: ['left-right', 'up-down', 'angle'],
   'Closed Path Offset': ['miter', 'bevel', 'round'],
   'Geometry Repeater': ['linear', 'radial-fit', 'radial-step', 'ae-2d'],
@@ -4058,21 +4052,6 @@ export function evaluate(
           evaluatedFingerprint(source, currentEra) || signature(source),
           signature(result),
         ]);
-      } else if (n.type === 'Taper') {
-        const source = read('path');
-        result = taperGeometry(source, {
-          amount: read('amount'),
-          axis: n.operation,
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Taper; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Auto Handles') {
         const source = read('path');
         result = autoHandlesGeometry(source, {
