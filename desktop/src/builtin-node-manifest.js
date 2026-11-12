@@ -59,6 +59,12 @@ import { polygonDeclaration } from './polygon-node-declaration.js';
 import { evaluatePolygon } from './polygon-node-binding.js';
 import { starDeclaration } from './star-node-declaration.js';
 import { evaluateStar } from './star-node-binding.js';
+import { circleDeclaration } from './circle-node-declaration.js';
+import { evaluateCircle } from './circle-node-binding.js';
+import { ellipseDeclaration } from './ellipse-node-declaration.js';
+import { evaluateEllipse } from './ellipse-node-binding.js';
+import { rectangleDeclaration } from './rectangle-node-declaration.js';
+import { evaluateRectangle } from './rectangle-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -148,6 +154,9 @@ export const builtinManifest = Object.freeze([
     'Vector Math',
   ),
   entry(outputDeclaration, { evaluate: evaluateOutput }, 'Stroke', null, 'private'),
+  entry(circleDeclaration, { evaluate: evaluateCircle }, 'Mask', 'Mask'),
+  entry(ellipseDeclaration, { evaluate: evaluateEllipse }, 'Circle', 'Circle'),
+  entry(rectangleDeclaration, { evaluate: evaluateRectangle }, 'Ellipse', 'Ellipse'),
   entry(polygonDeclaration, { evaluate: evaluatePolygon }, 'Rectangle', 'Rectangle'),
   entry(starDeclaration, { evaluate: evaluateStar }, 'Polygon', 'Polygon'),
 ]);
