@@ -6,10 +6,12 @@ import {
   artworkProjectSnapshot,
 } from './helpers/artwork-project.js';
 import { chromium } from 'playwright-core';
+import { Window } from 'happy-dom';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import { blankLayer, document as makeDoc, node } from '../src/core.js';
+import { blankLayer, document as makeDoc, node, CommandSession } from '../src/core.js';
 import { appendArtwork } from '../src/artwork-creation.js';
+import { readSVGSource } from '../src/svg-tree.js';
 import { deletionDocument, unsupportedLayer } from './fixtures/artwork-deletion.js';
 
 const browser = await chromium.launch({
@@ -70,6 +72,33 @@ try {
   await fs.mkdir('test-results', { recursive: true });
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
+
+  // A real row action must identify the surviving consumer and keep its SVG source.
+  const imported = new CommandSession(makeDoc()),
+    consumer = imported.snapshot().layers[0],
+    added = imported.dispatch({
+      ...imported.state,
+      type: 'add-svg-part',
+      payload: {
+        layerId: consumer.id,
+        name: 'mark.svg',
+        source: readSVGSource(
+          '<svg width="20" height="20"><rect width="20" height="20" fill="#ff0000"/></svg>',
+          new Window().DOMParser,
+        ),
+      },
+    }),
+    source = imported.snapshot().layers.find((layer) => layer.id === added.sourceLayerId);
+  await load(imported.snapshot());
+  await ensureWorkspacePanel(page, 'layers');
+  const beforeReferencedDelete = await snapshot();
+  await deletion(source.id).click();
+  assert.equal(await snapshot(), beforeReferencedDelete);
+  const refusal = await page.locator('.status .message').textContent();
+  assert.ok(refusal.includes(source.name));
+  assert.ok(refusal.includes(consumer.name));
+  assert.match(refusal, /used by/i);
+
   for (const width of [1600, 1280]) {
     await page.setViewportSize({ width, height: width === 1600 ? 1000 : 800 });
     const doc = deletionDocument(),
