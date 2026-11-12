@@ -156,7 +156,6 @@ import {
 import { validateInstancePath } from './instance-points-geometry.js';
 import { polarSettings } from './polar-transform.js';
 import { dashIntervals } from './dash-intervals.js';
-import { smoothGeometry } from './smooth-geometry.js';
 import { roughenGeometry } from './roughen-geometry.js';
 import { roundCorners } from './corner-round-geometry.js';
 import { mirrorGeometry } from './mirror-geometry.js';
@@ -568,12 +567,6 @@ const legacyDefinitions = {
     offset: p('Vector2', [0, 0]),
     scale: p('Scalar', 1),
     rotation: p('Scalar', 0),
-  },
-  'Smooth Path': {
-    path: p('Path', null),
-    factor: p('Scalar', 0.5),
-    iterations: p('Scalar', 3),
-    keepEndpoints: p('Boolean', true),
   },
   'Dash Path': {
     path: p('Path', null),
@@ -1059,7 +1052,6 @@ const bypassInputs = Object.freeze({
   'Corner Round': 'path',
   'Resample Path': 'path',
   Roughen: 'path',
-  'Smooth Path': 'path',
   'Trim Path': 'path',
   'Set Path Start': 'path',
   'Set Closure': 'path',
@@ -4049,22 +4041,6 @@ export function evaluate(
           n.id,
           null,
           'Canvas character editing is unavailable through Subdivide Path; edit the source Text',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Smooth Path') {
-        const source = read('path');
-        result = smoothGeometry(source, {
-          factor: read('factor'),
-          iterations: read('iterations'),
-          keepEndpoints: read('keepEndpoints'),
-          prefix: fingerprint(n.id),
-        });
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Smooth Path; edit the source Text',
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));

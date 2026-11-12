@@ -130,6 +130,7 @@ export const browserTestFiles = Object.freeze([
   'tests/node-foundation-bend.e2e.js',
   'tests/node-foundation-taper.e2e.js',
   'tests/node-foundation-auto-handles.e2e.js',
+  'tests/node-foundation-smooth.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };

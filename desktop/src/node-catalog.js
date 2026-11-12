@@ -174,14 +174,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Smooth Path',
-    categoryId: 'path',
-    labelJa: '滑らか',
-    aliases: ['滑らか', 'スムーズ'],
-    description: '滑らか スムーズ',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Trim Path',
     categoryId: 'path',
     labelJa: '切り取り',
