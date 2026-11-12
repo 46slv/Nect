@@ -294,14 +294,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Wave Points',
-    categoryId: 'transform',
-    labelJa: '波',
-    aliases: ['波'],
-    description: '波',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Roughen',
     categoryId: 'transform',
     labelJa: 'ラフ',
