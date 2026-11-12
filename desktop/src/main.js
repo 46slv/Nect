@@ -2089,6 +2089,7 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
     return null;
   }
   const beforeDocument = history.doc,
+    beforeEntry = history.entryToken,
     oldPast = history.past.at(-1),
     pointUI = [
       'translate-points',
@@ -2119,6 +2120,17 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
           ? payload
           : { layerId: current().id, ...payload },
     });
+    if (
+      result.changed &&
+      [
+        'create-layer-folder',
+        'rename-layer-folder',
+        'add-layers-to-folder',
+        'remove-layers-from-folder',
+        'dissolve-layer-folder',
+      ].includes(type)
+    )
+      rememberViewNeutralHistory(beforeEntry, history.entryToken);
     if (pointUI && history.doc !== beforeDocument && history.past.at(-1) !== oldPast) {
       selectionHistory.set(history.past.at(-1), pointUI);
       selectionHistory.set(history.doc, selectionSnapshot(true));
