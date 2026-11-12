@@ -141,6 +141,44 @@ for (const [label, stored] of [
   });
 }
 
+test('a pointer transition during asset refresh does not restore a stale focused chip', async (t) => {
+  const f = fixture(t);
+  f.data.set(
+    ASSET_ITEM_FAVORITES_KEY,
+    JSON.stringify([{ rootId: 'root-a', relativePath: 'same.svg' }]),
+  );
+  const view = f.mount();
+  await ready(view);
+  const pending = deferred();
+  f.setRefresh(() => pending.promise);
+  const chip = view.panel.querySelector('[data-quick-asset]');
+  chip.focus();
+  assert.equal(win.document.activeElement, chip);
+  chip.click();
+  await waitFor(() => view.root.disabled);
+
+  // Chromium may retain a disabled chip as active until a later focus step.
+  const originalActive = Object.getOwnPropertyDescriptor(win.document, 'activeElement');
+  const originalFocus = win.HTMLElement.prototype.focus;
+  const restored = [];
+  Object.defineProperty(win.document, 'activeElement', { configurable: true, get: () => chip });
+  win.HTMLElement.prototype.focus = function (...args) {
+    restored.push(this);
+    return originalFocus.apply(this, args);
+  };
+  try {
+    win.document.body.dispatchEvent(new win.Event('pointerdown', { bubbles: true }));
+    pending.resolve(listing(a));
+    await waitFor(() => !view.root.disabled);
+    await tick();
+    assert.equal(restored.length, 0);
+  } finally {
+    win.HTMLElement.prototype.focus = originalFocus;
+    if (originalActive) Object.defineProperty(win.document, 'activeElement', originalActive);
+    else delete win.document.activeElement;
+  }
+});
+
 test('native favorites survive remount, use exact IDs, and remove stale IDs without retargeting', async (t) => {
   const f = fixture(t);
   let view = f.mount();

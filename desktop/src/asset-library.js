@@ -187,6 +187,7 @@ export function mountAssetLibrary({
   const dragType = 'application/x-nect-library-ticket';
   let folderPickIntent = null;
   let pointerSequence = 0;
+  let assetFocusRequest = null;
   panel.addEventListener('compositionstart', (event) => composingInputs.add(event.target), true);
   panel.addEventListener('compositionend', (event) => composingInputs.delete(event.target), true);
   function guardComposingTransition(event) {
@@ -507,7 +508,11 @@ export function mountAssetLibrary({
       quick.append(openButton);
     }
     buttons();
-    if (focusedId) {
+    const focusInterrupted =
+      assetFocusRequest !== null &&
+      assetFocusRequest.key === focusedId &&
+      assetFocusRequest.pointerAtStart !== pointerSequence;
+    if (focusedId && !focusInterrupted) {
       const replacement = [...quick.querySelectorAll('button')].find(
         (button) => button.dataset[focusedAction] === focusedId && !button.disabled,
       );
@@ -846,6 +851,8 @@ export function mountAssetLibrary({
     rootSelect.value = entry.rootId;
     const request = refreshSequence + 1;
     const pointerAtStart = pointerSequence;
+    const focusRequest = { key, pointerAtStart };
+    assetFocusRequest = focusRequest;
     try {
       await refreshRoot();
       if (
@@ -881,6 +888,7 @@ export function mountAssetLibrary({
         );
         if (replacement && !replacement.disabled) replacement.focus({ preventScroll: true });
       }
+      if (assetFocusRequest === focusRequest) assetFocusRequest = null;
     }
   }
   function beginBrowserFolderPick(intent) {
