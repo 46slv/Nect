@@ -9,9 +9,12 @@ globalThis.document = win.document;
 globalThis.isTauri = true;
 let handler;
 mockIPC((command, payload) => handler(command, payload));
-const { mountAssetLibrary, closeAssetLibrary, ASSET_FOLDER_FAVORITES_KEY } = await import(
-  '../src/asset-library.js'
-);
+const {
+  mountAssetLibrary,
+  closeAssetLibrary,
+  ASSET_FOLDER_FAVORITES_KEY,
+  ASSET_ITEM_FAVORITES_KEY,
+} = await import('../src/asset-library.js');
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 async function waitFor(predicate) {
   for (let i = 0; i < 50 && !predicate(); i++) await tick();
@@ -113,6 +116,29 @@ async function ready(view) {
 function choose(view, id) {
   view.root.value = id;
   view.root.dispatchEvent(new win.Event('change', { bubbles: true }));
+}
+
+for (const [label, stored] of [
+  ['malformed', '{'],
+  ['unsafe path', JSON.stringify([{ rootId: 'root-a', relativePath: '../outside.svg' }])],
+  [
+    'duplicate',
+    JSON.stringify([
+      { rootId: 'root-a', relativePath: 'same.svg' },
+      { rootId: 'root-a', relativePath: 'same.svg' },
+    ]),
+  ],
+]) {
+  test(`invalid ${label} asset favorites are preserved without blocking folder pins`, async (t) => {
+    const f = fixture(t);
+    f.data.set(ASSET_ITEM_FAVORITES_KEY, stored);
+    const view = f.mount();
+    await ready(view);
+    assert.match(view.status.textContent, /Asset Quick access could not be loaded/);
+    view.pin().click();
+    assert.deepEqual(f.saved(), ['root-a']);
+    assert.equal(f.data.get(ASSET_ITEM_FAVORITES_KEY), stored);
+  });
 }
 
 test('native favorites survive remount, use exact IDs, and remove stale IDs without retargeting', async (t) => {

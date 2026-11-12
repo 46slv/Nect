@@ -149,11 +149,11 @@ copies untouched. Add the folder again after it contains selectable files. Nativ
 Refresh reads the registered directory directly and returns an empty catalog
 under the same root ID when the last source is removed.
 
-## Registered-folder quick access
+## Folder and asset quick access
 
 [REQ-160](https://app.notion.com/p/3e0fd279a6f3810eb02ddea3b14bfaf8) confirms
-favorites/Quick Access. This bounded slice pins registered folders only: a pin
-selects its exact root ID and follows the normal refresh and placement path.
+favorites/Quick Access. A folder pin selects its exact root ID and follows the
+normal refresh and placement path.
 Pinning and unpinning are workspace preferences; they do not change the Document,
 History, folder registration, or source files.
 
@@ -166,11 +166,19 @@ can be retried or unpinned. A registry read failure never prunes pins. Failed
 preference writes leave both the previously saved and displayed pins unchanged;
 unreadable or invalid preferences cannot be overwritten by a pin operation.
 
+Individual assets can also be pinned. An asset pin stores the exact registered
+root ID and validated relative path, not a name, list position, or document
+reference. Opening it refreshes that root and selects the current source at that
+path; normal placement still checks the source hash and embeds its provenance.
+A missing root or file remains removable, and a new registration at the same
+filesystem path does not inherit an old root's pins. Failed or invalid settings
+are not overwritten. Folder and asset pins have independent storage.
+
 Browser folder IDs and file permissions are temporary. Browser pins last across
 panel close/reopen in the same page, but are cleared by page reload or browser
 restart. A new selection is a new ID, even for a folder of the same name. This
 slice does not claim persistent browser directory access or implement favorites
-for other asset, effect, preset, or shortcut types.
+for effect, preset, or shortcut types.
 
 In isolated native acceptance mode, selected roots are canonicalized and checked
 against the canonical run root before admission. A parent junction inside the run
