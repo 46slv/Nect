@@ -255,6 +255,159 @@ test('AbortSignal cleanup cannot publish a stale prepared History or font bank',
   }
 });
 
+test('abort during staged History activation discards only the canceled bank', async () => {
+  const fixture = await makeSavedProject();
+  const { owner, bridge } = await openSaved(fixture, { macroProjectAdmission: () => false });
+  const controller = new AbortController(),
+    signal = controller.signal,
+    remove = signal.removeEventListener.bind(signal);
+  let trigger = false;
+  signal.removeEventListener = (...args) => {
+    remove(...args);
+    if (trigger) {
+      trigger = false;
+      controller.abort();
+    }
+  };
+  try {
+    owner.commitPreparedCompositionSwitch(
+      await owner.prepareCompositionSwitch(fixture.secondId, bridge),
+    );
+    owner.commitPrepared(
+      await owner.prepareCommand(
+        {
+          ...owner.state,
+          type: 'set-text-content',
+          payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AW' },
+        },
+        bridge,
+      ),
+    );
+    owner.commitPrepared(await owner.prepareCommand({ ...owner.state, type: 'undo' }, bridge));
+    const beforeProject = serializeCompositionProject(owner.projectSnapshot()),
+      beforeHistory = owner.historyState,
+      beforeBank = bridge.stats().active,
+      token = await owner.prepareCommand({ ...owner.state, type: 'redo' }, bridge, { signal });
+    assert.notEqual(bridge.stats().candidate, null);
+    trigger = true;
+    assert.throws(() => owner.commitPrepared(token), /STALE|CANCEL/);
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), beforeProject);
+    assert.deepEqual(owner.historyState, beforeHistory);
+    assert.deepEqual(bridge.stats().active, beforeBank);
+    assert.equal(bridge.stats().candidate, null);
+  } finally {
+    bridge.dispose();
+  }
+});
+
+test('cleanup of an older History ticket does not discard a newer ticket', async () => {
+  const fixture = await makeSavedProject();
+  const { owner, bridge } = await openSaved(fixture, { macroProjectAdmission: () => false });
+  const controller = new AbortController(),
+    signal = controller.signal,
+    remove = signal.removeEventListener.bind(signal);
+  let trigger = false,
+    newer;
+  signal.removeEventListener = (...args) => {
+    remove(...args);
+    if (trigger) {
+      trigger = false;
+      newer = bridge.prepareDocument(
+        activeCompositionDocument(owner.projectSnapshot(), fixture.firstId),
+      );
+    }
+  };
+  try {
+    owner.commitPreparedCompositionSwitch(
+      await owner.prepareCompositionSwitch(fixture.secondId, bridge),
+    );
+    owner.commitPrepared(
+      await owner.prepareCommand(
+        {
+          ...owner.state,
+          type: 'set-text-content',
+          payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AW' },
+        },
+        bridge,
+      ),
+    );
+    owner.commitPrepared(await owner.prepareCommand({ ...owner.state, type: 'undo' }, bridge));
+    const beforeProject = serializeCompositionProject(owner.projectSnapshot()),
+      beforeHistory = owner.historyState,
+      beforeBank = bridge.stats().active,
+      token = await owner.prepareCommand({ ...owner.state, type: 'redo' }, bridge, { signal });
+    trigger = true;
+    assert.throws(() => owner.commitPrepared(token), /STALE/);
+    const newTicket = await newer;
+    assert.doesNotThrow(() => bridge.assertFresh(newTicket));
+    assert.notEqual(bridge.stats().candidate, null);
+    assert.equal(serializeCompositionProject(owner.projectSnapshot()), beforeProject);
+    assert.deepEqual(owner.historyState, beforeHistory);
+    assert.deepEqual(bridge.stats().active, beforeBank);
+  } finally {
+    bridge.dispose();
+  }
+});
+
+test('prepared History captures its command before caller mutation and never invokes a getter', async () => {
+  const fixture = await makeSavedProject();
+  const { owner, bridge } = await openSaved(fixture, { macroProjectAdmission: () => false });
+  const controller = new AbortController();
+  try {
+    owner.commitPreparedCompositionSwitch(
+      await owner.prepareCompositionSwitch(fixture.secondId, bridge),
+    );
+    owner.commitPrepared(
+      await owner.prepareCommand(
+        {
+          ...owner.state,
+          type: 'set-text-content',
+          payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AW' },
+        },
+        bridge,
+      ),
+    );
+    const edited = exportSVG(owner.snapshot(), bridge.fonts());
+    owner.commitPrepared(await owner.prepareCommand({ ...owner.state, type: 'undo' }, bridge));
+    const command = { ...owner.state, type: 'redo' },
+      expected = command.expectedRevision,
+      token = await owner.prepareCommand(command, bridge, { signal: controller.signal });
+    let called = 0;
+    Object.defineProperty(command, 'expectedRevision', {
+      enumerable: true,
+      get() {
+        called++;
+        controller.abort();
+        return expected;
+      },
+    });
+    owner.commitPrepared(token);
+    assert.equal(called, 0);
+    assert.equal(controller.signal.aborted, false);
+    assert.equal(exportSVG(owner.snapshot(), bridge.fonts()), edited);
+    assert.equal(
+      owner
+        .projectSnapshot()
+        .compositions.find((item) => item.id === fixture.secondId)
+        .layers[0].nodes.find((item) => item.id === fixture.textB).text,
+      'AW',
+    );
+
+    const invalid = { ...owner.state, type: 'undo' };
+    Object.defineProperty(invalid, 'expectedRevision', {
+      enumerable: true,
+      get() {
+        called++;
+        return 0;
+      },
+    });
+    await assert.rejects(owner.prepareCommand(invalid, bridge), /prepared History command/i);
+    assert.equal(called, 0);
+  } finally {
+    bridge.dispose();
+  }
+});
+
 test('real variable Text in a second Composition opens, edits, round-trips and switches without History edits', async () => {
   const fixture = await makeSavedProject();
   const { owner, bridge } = await openSaved(fixture);

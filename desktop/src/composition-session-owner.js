@@ -35,6 +35,17 @@ function macroVersionAdmitted(classify, project) {
   return admitted;
 }
 
+function capturePreparedHistoryCommand(command) {
+  const captured = {};
+  for (const key of ['type', 'sessionId', 'expectedRevision']) {
+    const descriptor = Object.getOwnPropertyDescriptor(command, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value'))
+      throw Error('Invalid prepared History command');
+    captured[key] = descriptor.value;
+  }
+  return Object.freeze(captured);
+}
+
 // A Project cannot retain a reference to a removed Layer. Explain the affected
 // source and consumer before either the inner Session or Project commits.
 // A standalone Document Session intentionally permits a diagnosed missing target.
@@ -792,6 +803,14 @@ export class CompositionSessionOwner {
   }
 
   async prepareCommand(command, bridge, options = {}) {
+    const typeDescriptor =
+      command && typeof command === 'object'
+        ? Object.getOwnPropertyDescriptor(command, 'type')
+        : null;
+    if (typeDescriptor && !Object.hasOwn(typeDescriptor, 'value'))
+      throw Error('Invalid prepared command type');
+    if (['undo', 'redo'].includes(typeDescriptor?.value))
+      command = capturePreparedHistoryCommand(command);
     this.#assertCurrentCommand(command);
     this.#assertQuiescent();
     if (command.type === 'delete-color-slot')
@@ -896,11 +915,13 @@ export class CompositionSessionOwner {
         } catch (error) {
           if (this.#prepared === prepared) {
             this.#prepared = null;
-            try {
-              prepared.bridge.assertFresh(prepared.ticket);
-              prepared.bridge.cancel();
-            } catch {
-              // Do not cancel a newer ticket on the same bridge.
+            if (!prepared.bridge.discardStagedActivation(prepared.ticket)) {
+              try {
+                prepared.bridge.assertFresh(prepared.ticket);
+                prepared.bridge.cancel();
+              } catch {
+                // Do not cancel a newer ticket on the same bridge.
+              }
             }
           }
           throw error;

@@ -210,6 +210,14 @@ export function createVariableDocumentPreparer({
       activeUsage = pending.usage;
       pendingTicket = null;
     },
+    discardStagedActivation(ticket) {
+      const pending = pendingTicket;
+      if (!pending || pending.ticket !== ticket || !pending.detached) return false;
+      // The staged listener is already detached. Do not inspect an aborted
+      // signal or invalidate a newer ticket on the same bridge.
+      pendingTicket = null;
+      return true;
+    },
     activate(ticket) {
       this.assertFresh(ticket);
       currentFonts = pendingTicket.fonts;
