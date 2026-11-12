@@ -61,6 +61,8 @@ import { starDeclaration } from './star-node-declaration.js';
 import { evaluateStar } from './star-node-binding.js';
 import { circleDeclaration } from './circle-node-declaration.js';
 import { evaluateCircle } from './circle-node-binding.js';
+import { ellipseDeclaration } from './ellipse-node-declaration.js';
+import { evaluateEllipse } from './ellipse-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -153,4 +155,5 @@ export const builtinManifest = Object.freeze([
   entry(polygonDeclaration, { evaluate: evaluatePolygon }, 'Rectangle', 'Rectangle'),
   entry(starDeclaration, { evaluate: evaluateStar }, 'Polygon', 'Polygon'),
   entry(circleDeclaration, { evaluate: evaluateCircle }, 'Mask', 'Mask'),
+  entry(ellipseDeclaration, { evaluate: evaluateEllipse }, 'Circle', 'Circle'),
 ]);

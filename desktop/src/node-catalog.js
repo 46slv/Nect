@@ -70,14 +70,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Ellipse',
-    categoryId: 'create',
-    labelJa: '楕円',
-    aliases: ['楕円'],
-    description: '楕円',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Rectangle',
     categoryId: 'create',
     labelJa: '四角形',
