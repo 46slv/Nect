@@ -1,4 +1,18 @@
 // View state only. The apply owner must validate the captured target before editing.
+export const EFFECT_FAVORITES_KEY = 'nect.effect-favorites.v1';
+
+function validFavoriteIds(ids) {
+  return (
+    Array.isArray(ids) &&
+    ids.length <= 256 &&
+    ids.every(
+      (id) =>
+        typeof id === 'string' && id.length > 0 && id.length <= 256 && !/[\x00-\x1f]/.test(id),
+    ) &&
+    new Set(ids).size === ids.length
+  );
+}
+
 export function createEffectsPanel({
   document,
   getTarget,
@@ -6,11 +20,31 @@ export function createEffectsPanel({
   getEntries,
   onApply,
   onError = () => {},
+  storage,
 }) {
   let query = '',
     selectedId = null,
     composing = false,
-    currentView = null;
+    currentView = null,
+    favoriteIds = [],
+    favoriteStorage = storage,
+    favoriteError = '';
+
+  function readFavorites() {
+    try {
+      favoriteStorage ||= document.defaultView.localStorage;
+      const raw = favoriteStorage.getItem(EFFECT_FAVORITES_KEY);
+      const ids = raw === null ? [] : JSON.parse(raw);
+      if (!validFavoriteIds(ids)) throw Error('Invalid favorites');
+      favoriteIds = ids;
+      favoriteError = '';
+      return true;
+    } catch {
+      // Never replace unreadable saved preferences with a new empty list.
+      favoriteError = 'Effect favorites could not be read';
+      return false;
+    }
+  }
 
   const sameVersion = (a, b) =>
     Array.isArray(a) &&
@@ -29,6 +63,7 @@ export function createEffectsPanel({
   };
 
   function createView() {
+    readFavorites();
     let target = getTarget(),
       snapshot = target?.snapshot,
       reason = target?.reason,
@@ -60,17 +95,37 @@ export function createEffectsPanel({
     const status = document.createElement('output');
     status.dataset.effectsStatus = '';
     status.setAttribute('aria-live', 'polite');
+    const favoriteStatus = document.createElement('output');
+    favoriteStatus.dataset.effectsFavoriteStatus = '';
+    favoriteStatus.setAttribute('aria-live', 'polite');
+    const actions = document.createElement('div');
+    actions.className = 'effects-actions';
+    const favorite = document.createElement('button');
+    favorite.type = 'button';
+    favorite.dataset.effectsFavorite = '';
     const apply = document.createElement('button');
     apply.type = 'button';
     apply.dataset.effectsApply = '';
     apply.textContent = 'Apply';
-    panel.append(heading, targetLabel, search, list, status, apply);
+    actions.append(favorite, apply);
+    panel.append(heading, targetLabel, search, list, status, favoriteStatus, actions);
 
     function updateState() {
       targetLabel.textContent = target?.label || '';
       status.textContent =
         reason || (!target ? 'Select artwork' : !visibleCount ? 'No matching effects' : '');
       apply.disabled = !snapshot || !!reason || !selectedId || composing;
+      const entry = entries.find((item) => item.id === selectedId);
+      const pinned = !!entry && favoriteIds.includes(entry.id);
+      favorite.textContent = pinned ? '★' : '☆';
+      favorite.setAttribute('aria-pressed', String(pinned));
+      const favoriteLabel = entry
+        ? `${pinned ? 'Remove' : 'Add'} ${entry.label} ${pinned ? 'from' : 'to'} favorites`
+        : 'Add to favorites';
+      favorite.setAttribute('aria-label', favoriteLabel);
+      favorite.title = favoriteLabel;
+      favorite.disabled = !entry || composing;
+      favoriteStatus.textContent = favoriteError;
     }
     function refreshTarget() {
       if (!panel.isConnected || composing) return;
@@ -83,7 +138,9 @@ export function createEffectsPanel({
       updateState();
     }
     function refresh() {
-      const visible = entries.filter(matches);
+      const visible = entries
+        .filter(matches)
+        .sort((a, b) => Number(favoriteIds.includes(b.id)) - Number(favoriteIds.includes(a.id)));
       visibleCount = visible.length;
       if (!visible.some((entry) => entry.id === selectedId)) selectedId = visible[0]?.id || null;
       const existing = new Map([...list.children].map((row) => [row.dataset.effectId, row]));
@@ -101,6 +158,8 @@ export function createEffectsPanel({
           });
         }
         row.textContent = entry.label;
+        row.setAttribute('aria-label', entry.label);
+        row.dataset.favorite = String(favoriteIds.includes(entry.id));
         row.setAttribute('aria-pressed', String(entry.id === selectedId));
         if (list.children[index] !== row) list.insertBefore(row, list.children[index] || null);
         existing.delete(entry.id);
@@ -111,6 +170,7 @@ export function createEffectsPanel({
     search.addEventListener('compositionstart', () => {
       composing = true;
       apply.disabled = true;
+      favorite.disabled = true;
     });
     search.addEventListener('compositionend', () => {
       composing = false;
@@ -137,6 +197,39 @@ export function createEffectsPanel({
       },
       true,
     );
+    favorite.addEventListener('click', () => {
+      if (
+        currentView?.panel !== panel ||
+        !panel.isConnected ||
+        panel.closest('[hidden], [inert]') ||
+        favorite.disabled ||
+        composing
+      )
+        return;
+      const entry = entries.find((item) => item.id === selectedId);
+      const wasPinned = entry && favoriteIds.includes(entry.id);
+      if (!entry || !readFavorites()) {
+        updateState();
+        return;
+      }
+      // Another window may already have performed the requested change.
+      // Refresh the shown state instead of reversing that change.
+      if (favoriteIds.includes(entry.id) !== wasPinned) {
+        refresh();
+        return;
+      }
+      const next = favoriteIds.includes(entry.id)
+        ? favoriteIds.filter((id) => id !== entry.id)
+        : [...favoriteIds, entry.id];
+      try {
+        if (!validFavoriteIds(next)) throw Error('Invalid favorites');
+        favoriteStorage.setItem(EFFECT_FAVORITES_KEY, JSON.stringify(next));
+        favoriteIds = next;
+      } catch {
+        favoriteError = 'Effect favorites could not be saved';
+      }
+      refresh();
+    });
     apply.addEventListener('click', () => {
       if (!panel.isConnected || panel.closest('[hidden], [inert]') || apply.disabled || composing)
         return;

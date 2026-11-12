@@ -13,12 +13,19 @@ graph column; existing card positions, node and point IDs, paint, and unrelated
 connections remain intact. The result opens in the existing Inspector. Normal
 Save/Open stores ordinary nodes and connections.
 
+The selected effect can be added to or removed from Favorites with the star
+button. Favorites use the effect's stable entry ID and appear first in search
+results. They are workspace preferences in local storage, not Project edits or
+History entries. Unavailable effect IDs are retained; unreadable preferences or
+failed writes do not replace the saved list. Applying a favorite still uses the
+same selected-artwork and Session checks as every other effect.
+
 This is a partial REQ-22 route, not a complete effect library or Macro workflow.
 The existing named node presets retain their detached snapshot behavior; they are
 not registered Macro instances. Macro publication, controls, and cross-document
 reuse remain separate work.
 
-The focused browser test covers search, Apply, initial paint, Inspector editing,
+The focused browser test covers search, favorite persistence, Apply, initial paint, Inspector editing,
 canvas movement, Undo/Redo, Save/Open, and stale controls. Workspace and Session
 tests cover selection, composition, unavailable routes and guarded reentry.
 Native WebView2 and physical IME acceptance are not established by those tests.
