@@ -72,12 +72,19 @@ try {
   await panel.getByRole('button', { name: 'beta.svg', exact: true }).click();
   await panel.getByRole('button', { name: 'Pin asset', exact: true }).click();
   assert.equal(await panel.locator('[data-quick-asset]').count(), 2);
+  await panel.getByRole('button', { name: 'Unpin asset', exact: true }).click();
+  assert.equal(await panel.locator('[data-quick-asset]').count(), 1);
+  await panel.getByRole('button', { name: 'Pin asset', exact: true }).click();
   await panel.getByLabel('Search assets').fill('no matching file');
   await panel.locator('[data-quick-asset]').nth(0).focus();
   await page.keyboard.press('Enter');
   await ready(panel);
   assert.equal(await select().inputValue(), firstId);
   await panel.locator('[data-asset-place-layer]:enabled').waitFor();
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.hasAttribute('data-quick-asset')),
+    true,
+  );
   assert.equal(await panel.getByRole('button', { name: 'Unpin asset', exact: true }).count(), 1);
   await select().selectOption(secondId);
   await ready(panel);
@@ -435,6 +442,7 @@ try {
       invoke: async (command, args) => {
         if (command === 'list_asset_folders') return roots;
         if (command === 'refresh_asset_folder') {
+          if (args.rootId === 'root-b' && window.failRootB) throw Error('Folder unavailable');
           const response = {
             root: roots.find((root) => root.id === args.rootId),
             generation: 'test',
@@ -454,7 +462,10 @@ try {
         }
         if (command === 'open_asset_source') {
           const color = args.rootId === 'root-b' ? '#203fbf' : '#bf2020';
-          const source = `<svg width="20" height="20"><rect width="20" height="20" fill="${color}"/></svg>`;
+          const source =
+            args.rootId === 'root-b' && window.badAssetB
+              ? 'not an SVG'
+              : `<svg width="20" height="20"><rect width="20" height="20" fill="${color}"/></svg>`;
           return {
             bytes: [...new TextEncoder().encode(source)],
             sourceLocation: `${args.rootId}/same.svg`,
@@ -493,8 +504,38 @@ try {
       { rootId: 'root-b', relativePath: 'same.svg' },
     ],
   );
+  const itemLabels = await itemPanel.locator('[data-quick-asset]').allTextContents();
+  assert.match(itemLabels[0], /^1 · same\.svg/);
+  assert.match(itemLabels[1], /^2 · same\.svg/);
   await itemPage.evaluate(() => {
     window.deferItemRefresh = true;
+    window.finishItemRefresh = null;
+  });
+  await itemPanel.locator('[data-quick-asset]').first().focus();
+  await itemPage.keyboard.press('Enter');
+  await itemPage.waitForFunction(() => typeof window.finishItemRefresh === 'function');
+  await itemPage.evaluate(() => window.finishItemRefresh());
+  await itemPanel.locator('[data-asset-place-layer]:enabled').waitFor();
+  await itemPage.waitForFunction(
+    () => document.activeElement?.hasAttribute('data-quick-asset'),
+    null,
+    { timeout: 3000 },
+  );
+  await itemPage.evaluate(() => {
+    window.deferItemRefresh = true;
+    window.finishItemRefresh = null;
+  });
+  await itemPage.keyboard.press('Enter');
+  await itemPage.waitForFunction(() => typeof window.finishItemRefresh === 'function');
+  await itemPage.evaluate(() =>
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })),
+  );
+  await itemPage.evaluate(() => window.finishItemRefresh());
+  await itemPanel.locator('[data-asset-place-layer]:enabled').waitFor();
+  assert.equal(await itemPage.evaluate(() => document.activeElement === document.body), true);
+  await itemPage.evaluate(() => {
+    window.deferItemRefresh = true;
+    window.finishItemRefresh = null;
   });
   await itemPanel.locator('[data-quick-asset]').first().click();
   await itemPage.waitForFunction(() => typeof window.finishItemRefresh === 'function');
@@ -521,6 +562,34 @@ try {
     ),
     'root-a',
   );
+  await itemPage.evaluate(() => {
+    window.badAssetB = true;
+  });
+  await itemPanel.locator('[data-quick-asset]').last().click();
+  const unpinBadAsset = itemPanel.getByRole('button', { name: 'Unpin asset', exact: true });
+  await unpinBadAsset.waitFor();
+  assert.equal(await unpinBadAsset.isDisabled(), false);
+  await unpinBadAsset.click();
+  await itemPage.evaluate(() => {
+    window.badAssetB = false;
+  });
+  await itemPanel.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await ready(itemPanel);
+  await itemPanel.getByRole('button', { name: 'same.svg', exact: true }).click();
+  await itemPanel.getByRole('button', { name: 'Pin asset', exact: true }).click();
+  await itemPage.evaluate(() => {
+    window.failRootB = true;
+  });
+  await itemPanel.locator('[data-quick-asset]').last().click();
+  await itemPanel.locator('[data-quick-remove-asset]').waitFor({ timeout: 3000 });
+  await itemPanel.locator('[data-quick-remove-asset]').click();
+  await itemPage.evaluate(() => {
+    window.failRootB = false;
+  });
+  await itemPanel.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await ready(itemPanel);
+  await itemPanel.getByRole('button', { name: 'same.svg', exact: true }).click();
+  await itemPanel.getByRole('button', { name: 'Pin asset', exact: true }).click();
   await itemPage.evaluate(() => sessionStorage.setItem('replace-a', '1'));
   await itemPage.reload();
   await itemPage.waitForFunction(() => window.nect);
