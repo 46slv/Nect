@@ -116,6 +116,116 @@ async function openSaved(fixture, options = {}) {
   };
 }
 
+for (const mode of ['new-ticket', 'gesture']) {
+  test(`final signal freshness rejects ${mode} reentry before any prepared text publication`, async () => {
+    const fixture = await makeSavedProject();
+    const { owner, bridge } = await openSaved(fixture);
+    const controller = new AbortController(),
+      signal = controller.signal,
+      remove = signal.removeEventListener.bind(signal),
+      nativeAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted').get;
+    let armed = false,
+      detached = false,
+      reads = 0,
+      newer;
+    signal.removeEventListener = (...args) => {
+      remove(...args);
+      if (armed) detached = true;
+    };
+    Object.defineProperty(signal, 'aborted', {
+      get() {
+        const aborted = nativeAborted.call(this);
+        if (armed && detached && ++reads === 2) {
+          if (mode === 'new-ticket') newer = bridge.prepareDocument(owner.snapshot());
+          else
+            owner.dispatch({
+              ...owner.state,
+              type: 'begin-gesture',
+              payload: {
+                target: {
+                  kind: 'nodes-translate',
+                  layerId: fixture.layerB,
+                  nodeIds: [fixture.textB],
+                },
+              },
+            });
+        }
+        return aborted;
+      },
+    });
+    try {
+      owner.commitPreparedCompositionSwitch(
+        await owner.prepareCompositionSwitch(fixture.secondId, bridge),
+      );
+      const definition = {
+        format: 'nect.macro',
+        formatVersion: 1,
+        id: 'double',
+        revision: 1,
+        name: 'Double',
+        input: { type: 'Path', nodeId: 'a', socket: 'path' },
+        output: { type: 'Path', nodeId: 'b', port: null },
+        nodes: ['a', 'b'].map((id) => ({
+          id,
+          type: 'Transform',
+          params: { anchor: [0, 0], offset: [0, 0], scale: 1, rotation: 0 },
+        })),
+        edges: [{ sourceNodeId: 'a', sourcePort: null, targetNodeId: 'b', targetSocket: 'path' }],
+        parameters: [
+          {
+            id: 'scale',
+            label: 'Scale',
+            nodeId: 'a',
+            key: 'scale',
+            type: 'Scalar',
+            defaultValue: 1,
+          },
+        ],
+      };
+      owner.dispatch({
+        ...owner.state,
+        type: 'register-macro-definition',
+        payload: { definition },
+      });
+      const before = serializeCompositionProject(owner.projectSnapshot()),
+        state = owner.state,
+        history = owner.historyState,
+        bank = bridge.stats().active,
+        token = await owner.prepareCommand(
+          {
+            ...owner.state,
+            type: 'set-text-content',
+            payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AW' },
+          },
+          bridge,
+          { signal },
+        );
+      armed = true;
+      let failure;
+      try {
+        owner.commitPrepared(token);
+      } catch (error) {
+        failure = error;
+      }
+      const nextTicket = newer ? await newer : null;
+      assert.match(failure?.message ?? '', /STALE|GESTURE_ACTIVE/);
+      assert.equal(serializeCompositionProject(owner.projectSnapshot()) === before, true);
+      assert.deepEqual(owner.state, state);
+      assert.deepEqual(owner.historyState, history);
+      assert.deepEqual(bridge.stats().active, bank);
+      assert.equal(
+        owner.snapshot().layers[0].nodes.find((item) => item.id === fixture.textB).text,
+        'AV',
+      );
+      assert.equal(owner.hasGesture, mode === 'gesture');
+      if (nextTicket) assert.doesNotThrow(() => bridge.assertFresh(nextTicket));
+      else assert.equal(bridge.stats().candidate, null);
+    } finally {
+      bridge.dispose();
+    }
+  });
+}
+
 test('prepared Composition switch rejects teardown reentry before publishing its font bank', async () => {
   const fixture = await makeSavedProject();
   const { owner, bridge } = await openSaved(fixture);
