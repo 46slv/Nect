@@ -62,14 +62,64 @@ const skipGlobalIds = (owner, key) =>
 // A Text-local ID or opaque field must not accidentally be the only thing
 // preventing an imported node from reviving a missing same-layer reference.
 function reserveDanglingIncomingReferences(layers, occupied) {
+  const reserveMissing = (ids, owners) => {
+    if (!Array.isArray(ids)) return;
+    for (const id of ids) if (typeof id === 'string' && !owners.has(id)) occupied.add(id);
+  };
   for (const layer of layers) {
     const nodeIds = new Set(layer.nodes.map((node) => node.id));
     for (const id of danglingExpressionIds(layer.nodes)) occupied.add(id);
+    if (Array.isArray(layer.nodeGroups))
+      for (const group of layer.nodeGroups) reserveMissing(group?.nodeIds, nodeIds);
     for (const node of layer.nodes) {
       const target = node.reference?.nodeId;
       if (node.type === 'Reference' && target && !nodeIds.has(target)) occupied.add(target);
+      if (node.type !== 'Multi Path') continue;
+      const points = Array.isArray(node.points) ? node.points : [];
+      const contours = Array.isArray(node.contours) ? node.contours : [];
+      const units = Array.isArray(node.units) ? node.units : [];
+      const pointIds = new Set(points.map((point) => point?.id));
+      const contourIds = new Set(contours.map((contour) => contour?.id));
+      for (const contour of contours) reserveMissing(contour?.points, pointIds);
+      for (const unit of units) reserveMissing(unit?.contours, contourIds);
     }
   }
+}
+
+// The three reference arrays have distinct owners. Only rewrite members that
+// belong to that exact source Layer or Multi Path; unrelated arrays and missing
+// references stay literal.
+function remapIncomingReferenceArrays(sourceLayers, copiedLayers) {
+  sourceLayers.forEach((sourceLayer, layerIndex) => {
+    const copy = copiedLayers[layerIndex];
+    const nodes = new Map(sourceLayer.nodes.map((node, index) => [node.id, copy.nodes[index].id]));
+    if (Array.isArray(sourceLayer.nodeGroups))
+      sourceLayer.nodeGroups.forEach((group, index) => {
+        if (Array.isArray(group?.nodeIds))
+          copy.nodeGroups[index].nodeIds = group.nodeIds.map((id) => nodes.get(id) ?? id);
+      });
+    sourceLayer.nodes.forEach((node, nodeIndex) => {
+      if (node.type !== 'Multi Path') return;
+      const copiedNode = copy.nodes[nodeIndex];
+      const sourcePoints = Array.isArray(node.points) ? node.points : [];
+      const sourceContours = Array.isArray(node.contours) ? node.contours : [];
+      const sourceUnits = Array.isArray(node.units) ? node.units : [];
+      const points = new Map(
+        sourcePoints.map((point, index) => [point?.id, copiedNode.points[index]?.id]),
+      );
+      const contours = new Map(
+        sourceContours.map((contour, index) => [contour?.id, copiedNode.contours[index]?.id]),
+      );
+      sourceContours.forEach((contour, index) => {
+        if (Array.isArray(contour?.points))
+          copiedNode.contours[index].points = contour.points.map((id) => points.get(id) ?? id);
+      });
+      sourceUnits.forEach((unit, index) => {
+        if (Array.isArray(unit?.contours))
+          copiedNode.units[index].contours = unit.contours.map((id) => contours.get(id) ?? id);
+      });
+    });
+  });
 }
 
 export function reserveProjectImportReferences(project, occupied) {
@@ -136,6 +186,7 @@ export function remapIds(value, ids, occupied, sourceSchemaVersion) {
     skipGlobalIds,
   );
   const copiedLayers = Array.isArray(copy) ? copy : copy?.layers;
+  if (Array.isArray(sourceLayers)) remapIncomingReferenceArrays(sourceLayers, copiedLayers);
   if (Array.isArray(sourceLayers))
     sourceLayers.forEach((layer, index) =>
       remapExpressionReferences(
