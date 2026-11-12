@@ -123,8 +123,9 @@ artwork, artboard and other layers are retained; the whole import is one Undo.
 The named SVG instance is a Composition Reference with Position. Its hidden source
 Composition stores editable vector/paint nodes, so the original file is no longer
 needed. Open source, duplicate or add a paint-aware Transform using normal controls.
-**Import SVG document** instead replaces the document, with the existing unsaved-work
-guard and Undo. On Windows both actions use the native SVG file dialog.
+**Import SVG document** instead replaces the active Composition, retaining other
+Compositions and shared assets, with the existing unsaved-work guard and Undo.
+On Windows both actions use the native SVG file dialog.
 
 Supported: paths, ordinary rectangles/circles/ellipses, solid fills/strokes,
 fill/stroke alpha, nonzero holes and the existing bounded two-stop local gradients.
