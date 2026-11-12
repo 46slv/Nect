@@ -149,6 +149,7 @@ export const browserTestFiles = Object.freeze([
   'tests/effects-panel.e2e.js',
   'tests/asset-folder-favorites.e2e.js',
   'tests/node-foundation-fill.e2e.js',
+  'tests/color-coverage-opacity.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
