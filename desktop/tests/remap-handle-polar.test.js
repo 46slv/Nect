@@ -11,6 +11,12 @@ import {
 } from '../src/core.js';
 import * as core from '../src/core.js';
 import { isVector2 } from '../src/node-value-validation.js';
+import {
+  createRemapSnapshotGuard,
+  inspectRemapOutput,
+  remapOutputDelta,
+  remapOutputValue,
+} from '../src/remap-point-output.js';
 import { remapFixture } from './helpers/remap-fingerprint-fixture.js';
 
 test('Vector2 requires two own finite entries, including for Session input', () => {
@@ -63,6 +69,52 @@ function fixture(kind = 'raw') {
       .find((entry) => entry.id === first.id).handleB;
   return { session, send, target, output, remap, first, layer };
 }
+
+test('Remap snapshot guard reuses unchanged geometry and rechecks before commit', () => {
+  const f = fixture('raw'),
+    doc = f.session.historyView.doc,
+    font = {},
+    fonts = { default: font },
+    snapshot = inspectRemapOutput(doc, f.layer.id, f.remap.id, {}).get(f.first.id);
+  let reads = 0,
+    current = snapshot;
+  const guard = createRemapSnapshotGuard(doc, fonts, snapshot, () => {
+    reads++;
+    return current;
+  });
+  assert.equal(guard(doc, { default: font }), true);
+  assert.equal(guard(doc, { default: font }), true);
+  assert.equal(reads, 1);
+  assert.equal(guard(doc, { default: font }, true), true);
+  assert.equal(reads, 2);
+  current = { ...snapshot, offset: [9, 9] };
+  assert.equal(guard(doc, { default: font }, true), false);
+  current = snapshot;
+  assert.equal(guard(doc, { default: font }), false, 'a stale scope stays invalid');
+
+  const fontGuard = createRemapSnapshotGuard(doc, fonts, snapshot, () => snapshot);
+  assert.equal(fontGuard(doc, { default: {} }), false);
+  assert.equal(fontGuard(doc, { default: font }), false);
+  const documentGuard = createRemapSnapshotGuard(doc, fonts, snapshot, () => snapshot);
+  assert.equal(documentGuard(structuredClone(doc), fonts), false);
+  const mutableFonts = { default: font },
+    mapGuard = createRemapSnapshotGuard(doc, mutableFonts, snapshot, () => snapshot);
+  assert.equal(mapGuard(doc, mutableFonts), true);
+  mutableFonts.default = {};
+  assert.equal(mapGuard(doc, mutableFonts), false, 'replacement in the same font map is stale');
+});
+
+test('Remap snapshot guard detects an in-place font change at the final fresh check', () => {
+  const doc = {},
+    font = { offset: 1 },
+    fonts = { default: font },
+    read = () => ({ position: [font.offset, 0] }),
+    guard = createRemapSnapshotGuard(doc, fonts, read(), read);
+  assert.equal(guard(doc, fonts), true);
+  font.offset = 2;
+  assert.equal(guard(doc, fonts), true, 'drag reuse does not claim a fresh geometry read');
+  assert.equal(guard(doc, fonts, true), false, 'commit must reject changed geometry');
+});
 
 for (const kind of ['raw', 'typed'])
   test(`absolute Remap handle target creates exact zero in one Undo (${kind})`, () => {
@@ -190,4 +242,34 @@ test('absolute Remap value cannot address multiple selected points', () => {
   );
   f.send('cancel-gesture', token);
   assert.deepEqual(f.session.snapshot(), before);
+});
+
+test('Remap output values use source geometry and offset, preserving the other position delta', () => {
+  const f = fixture('raw'),
+    doc = f.session.snapshot(),
+    remap = doc.layers[0].nodes[1];
+  remap.params.offset.value = [15.3, -8];
+  remap.edits[0].position = [7, 9];
+  const snapshot = inspectRemapOutput(doc, f.layer.id, f.remap.id, {}).get(f.first.id);
+  assert.equal(remapOutputValue(snapshot, 'position', 'x'), 122.3);
+  assert.equal(remapOutputValue(snapshot, 'position', 'y'), 101);
+  assert.equal(remapOutputValue(snapshot, 'handleB', 'length'), 0.30000000000000004);
+  assert.deepEqual(remapOutputDelta(snapshot, 'position', 'x', 130), [14.700000000000003, 9]);
+  assert.deepEqual(remapOutputDelta(snapshot, 'handleB', 'length', 0), [-0.1, 0]);
+});
+
+test('Remap output rejects duplicate point identity and locks only the driven target', () => {
+  const f = fixture('typed'),
+    doc = f.session.snapshot(),
+    remap = doc.layers[0].nodes[1];
+  remap.edits[0].params.handleB.expression = '1; 2';
+  const snapshot = inspectRemapOutput(doc, f.layer.id, f.remap.id, {}).get(f.first.id);
+  assert.equal(snapshot.editable.handleB, false);
+  assert.equal(snapshot.editable.handleA, true);
+  assert.equal(snapshot.editable.position, true);
+  assert.throws(() => remapOutputDelta(snapshot, 'handleB', 'length', 20));
+  const geometry = { id: f.first.id, position: [1, 2], handleA: [0, 0], handleB: [1, 0] },
+    path = { contours: [{ id: 'same', points: [geometry, geometry] }] },
+    evaluation = { run: () => path, parameterValue: () => [0, 0] };
+  assert.equal(inspectRemapOutput(doc, f.layer.id, f.remap.id, {}, evaluation).size, 0);
 });

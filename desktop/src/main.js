@@ -81,6 +81,12 @@ import { captureFocus, restoreFocus } from './focus.js';
 import { graphemeDeletionRange, graphemeMovementCorrection } from './grapheme-editing.js';
 import { textToolGroup } from './text-tool.js';
 import { handlePolar, polarHandleValue, commitHandlePolar } from './handle-polar.js';
+import {
+  createRemapSnapshotGuard,
+  inspectRemapOutput,
+  remapOutputValue,
+  remapOutputDelta,
+} from './remap-point-output.js';
 import { selectedPointBounds, selectedPointArtboardBounds } from './selected-point-bounds.js';
 import './style.css';
 import { createNumericControlBehavior } from './numeric-control-behavior.js';
@@ -2667,11 +2673,266 @@ function numericControlTarget(input) {
     ? { commandTarget: { kind: 'numeric-command', command, payload, initial: Number(input.value) } }
     : null;
 }
+const remapOutputScopes = new WeakMap();
+let remapSelectionKey = '',
+  remapSelectionEpoch = 0;
+function syncRemapSelection() {
+  const next = JSON.stringify([
+    selected,
+    [...selection],
+    pointSelection.nodeId,
+    [...pointSelection.ids],
+    pointFocus?.nodeId,
+    pointFocus?.pointId,
+  ]);
+  if (next !== remapSelectionKey) {
+    remapSelectionKey = next;
+    remapSelectionEpoch++;
+  }
+  return remapSelectionEpoch;
+}
+function makeRemapOutputScope(input, snapshot) {
+  return {
+    owner: session,
+    envelope: session.state,
+    projectRevision: session.projectRevision,
+    compositionId: session.activeCompositionId,
+    layerId: current().id,
+    sourceEpoch,
+    selectionEpoch: syncRemapSelection(),
+    nodeId: input.dataset.node,
+    pointId: input.dataset.point,
+    key: input.dataset.remapOutput,
+    component: input.dataset.remapOutputComponent,
+    snapshot,
+    validSnapshot: createRemapSnapshotGuard(history.doc, activeFonts(), snapshot, () =>
+      currentRemapOutput(input),
+    ),
+  };
+}
+function currentRemapOutput(input) {
+  try {
+    return inspectRemapOutput(
+      history.doc,
+      current().id,
+      input.dataset.node,
+      resolveFonts(history.doc, activeFonts()),
+      null,
+      [input.dataset.point],
+    ).get(input.dataset.point);
+  } catch {
+    return null;
+  }
+}
+function refreshCleanRemapScope(input) {
+  if (input.value !== input.defaultValue || numericInputDrafts.has(input)) return;
+  const snapshot = currentRemapOutput(input);
+  if (snapshot) remapOutputScopes.set(input, makeRemapOutputScope(input, snapshot));
+}
+function validRemapOutputScope(input, scope, gesture = null, fresh = false) {
+  if (
+    !scope ||
+    scope.owner !== session ||
+    scope.owner.activeCompositionId !== scope.compositionId ||
+    scope.owner.state.sessionId !== scope.envelope.sessionId ||
+    scope.owner.state.expectedRevision !== scope.envelope.expectedRevision ||
+    scope.owner.projectRevision !== scope.projectRevision ||
+    current().id !== scope.layerId ||
+    sourceEpoch !== scope.sourceEpoch ||
+    syncRemapSelection() !== scope.selectionEpoch ||
+    selected !== scope.nodeId ||
+    !input.isConnected ||
+    input.disabled ||
+    input.readOnly ||
+    input.dataset.node !== scope.nodeId ||
+    input.dataset.point !== scope.pointId ||
+    input.dataset.remapOutput !== scope.key ||
+    input.dataset.remapOutputComponent !== scope.component ||
+    composing ||
+    penDraft ||
+    nameEdit ||
+    variableAction ||
+    scope.owner.hasTextComposition ||
+    document.querySelector('dialog[open]') ||
+    (scope.owner.hasGesture && !gesture)
+  )
+    return false;
+  return (
+    scope.snapshot.editable[scope.key] &&
+    (scope.component !== 'angle' || handlePolar(scope.snapshot.output[scope.key]).length > 0) &&
+    scope.validSnapshot(history.doc, activeFonts(), fresh)
+  );
+}
+function commitRemapOutput(input, scope, value) {
+  if (!validRemapOutputScope(input, scope)) throw Error('Point changed. Start the edit again.');
+  const before = selectionSnapshot(true),
+    delta = remapOutputDelta(scope.snapshot, scope.key, scope.component, value),
+    owner = scope.owner;
+  let gesture;
+  try {
+    gesture = owner.dispatch({
+      ...scope.envelope,
+      type: 'begin-gesture',
+      payload: {
+        target: {
+          kind: 'remap-point',
+          layerId: scope.layerId,
+          nodeId: scope.nodeId,
+          pointId: scope.pointId,
+          key: scope.key,
+        },
+      },
+    });
+    if (!validRemapOutputScope(input, scope, gesture))
+      throw Error('Point changed. Start the edit again.');
+    gesture = owner.dispatch({
+      ...owner.state,
+      type: 'update-gesture',
+      payload: { ...gesture, update: { value: delta } },
+    });
+    if (!validRemapOutputScope(input, scope, gesture, true))
+      throw Error('Point changed. Start the edit again.');
+    const result = owner.dispatch({ ...owner.state, type: 'commit-gesture', payload: gesture });
+    gesture = null;
+    if (result.changed) {
+      selectionHistory.set(history.past.at(-1), before);
+      selectionHistory.set(history.doc, selectionSnapshot(true));
+    }
+    return result;
+  } finally {
+    if (gesture && owner === session && owner.hasGesture)
+      owner.dispatch({
+        ...owner.state,
+        type: 'cancel-gesture',
+        payload: { gestureId: gesture.gestureId },
+      });
+  }
+}
+function remapOutputNumericBinding(input) {
+  if (input.dataset.remapOutput === undefined) return null;
+  refreshCleanRemapScope(input);
+  let scope = remapOutputScopes.get(input),
+    gesture = null,
+    beforeUI,
+    originalInput,
+    previewInput;
+  const valid = () => validRemapOutputScope(input, scope, gesture);
+  const onInput = () => {
+    if (drag?.capture !== input || !drag.behavior) return;
+    const typed = input.value;
+    cancelInteraction(false);
+    if (input.isConnected) input.value = typed;
+    updateCanvas(true);
+  };
+  return {
+    mode: 'live',
+    valid,
+    canHandoff(source) {
+      const other = remapOutputScopes.get(source);
+      return (
+        !gesture &&
+        valid() &&
+        source !== input &&
+        source.isConnected &&
+        source.value !== source.defaultValue &&
+        other?.owner === scope.owner &&
+        other.nodeId === scope.nodeId &&
+        other.pointId === scope.pointId &&
+        validRemapOutputScope(source, other)
+      );
+    },
+    acceptHandoff() {
+      const snapshot = currentRemapOutput(input);
+      if (!snapshot || !input.isConnected) return;
+      scope = makeRemapOutputScope(input, snapshot);
+      remapOutputScopes.set(input, scope);
+      input.value = String(
+        Number(remapOutputValue(snapshot, scope.key, scope.component).toFixed(3)),
+      );
+      input.defaultValue = input.value;
+    },
+    read() {
+      originalInput = input.value;
+      if (!originalInput.trim() || !Number.isFinite(Number(originalInput)))
+        throw Error('Expected a finite number');
+      if (input.value !== input.defaultValue) {
+        input.dispatchEvent(new window.Event('change', { bubbles: true }));
+        scope = remapOutputScopes.get(input);
+        if (!valid() || input.value !== input.defaultValue) throw Error('Point change cancelled');
+      }
+      return [remapOutputValue(scope.snapshot, scope.key, scope.component)];
+    },
+    step: () => Number(input.dataset.scrubStep),
+    bounds: () => [scope.component === 'length' ? 0 : -Number.MAX_VALUE, Number.MAX_VALUE],
+    begin() {
+      beforeUI = selectionSnapshot(true);
+      gesture = scope.owner.dispatch({
+        ...scope.envelope,
+        type: 'begin-gesture',
+        payload: {
+          target: {
+            kind: 'remap-point',
+            layerId: scope.layerId,
+            nodeId: scope.nodeId,
+            pointId: scope.pointId,
+            key: scope.key,
+          },
+        },
+      });
+      input.addEventListener('input', onInput);
+    },
+    preview([value]) {
+      if (!valid()) throw Error('Point changed. Start the edit again.');
+      const delta = remapOutputDelta(scope.snapshot, scope.key, scope.component, value);
+      gesture = scope.owner.dispatch({
+        ...scope.owner.state,
+        type: 'update-gesture',
+        payload: { ...gesture, update: { value: delta } },
+      });
+      drag.preview = scope.owner.previewSnapshot(gesture.gestureId).document;
+      input.value = String(value);
+      previewInput = input.value;
+      updateCanvas();
+    },
+    commit() {
+      input.removeEventListener('input', onInput);
+      if (!validRemapOutputScope(input, scope, gesture, true))
+        throw Error('Point changed. Start the edit again.');
+      const result = scope.owner.dispatch({
+        ...scope.owner.state,
+        type: 'commit-gesture',
+        payload: gesture,
+      });
+      gesture = null;
+      if (result.changed) {
+        selectionHistory.set(history.past.at(-1), beforeUI);
+        selectionHistory.set(history.doc, selectionSnapshot(true));
+      }
+      settleNumericControl(input, result);
+    },
+    cancel() {
+      input.removeEventListener('input', onInput);
+      if (gesture && scope.owner === session && scope.owner.hasGesture)
+        scope.owner.dispatch({
+          ...scope.owner.state,
+          type: 'cancel-gesture',
+          payload: { gestureId: gesture.gestureId },
+        });
+      gesture = null;
+      if (input.isConnected && input.value === previewInput) input.value = originalInput;
+    },
+  };
+}
+app.addEventListener('focusin', (event) => {
+  const input = event.target;
+  if (input.matches?.('[data-remap-output]')) refreshCleanRemapScope(input);
+});
 // Surface adapters retain their existing Session or staged-draft commit authority.
 // Unmigrated numeric surfaces keep their previous route.
 function numericBehaviorBinding(input) {
   return (
     alignmentSpacingNumericBinding(input) ||
+    remapOutputNumericBinding(input) ||
     remapIndividualNumericBinding(input) ||
     remapBatchNumericBinding(input) ||
     handlePolarNumericBinding(input) ||
@@ -5410,11 +5671,37 @@ function ownedPointFields(n) {
         .join(''),
   );
 }
-function prepareNumericInputs(root) {
+function prepareNumericInputs(root, evaluation = null) {
+  const remapSnapshots = new Map(),
+    remapInputs = [...root.querySelectorAll('input[data-remap-output]')];
   for (const input of root.querySelectorAll('input[type="number"]')) {
     if (!input.dataset.scrubStep)
       input.dataset.scrubStep = input.step && input.step !== 'any' ? input.step : '1';
     input.title ||= 'Drag horizontally to adjust; click to type';
+    if (input.dataset.remapOutput !== undefined && !remapOutputScopes.has(input)) {
+      const nodeId = input.dataset.node;
+      if (!remapSnapshots.has(nodeId)) {
+        try {
+          remapSnapshots.set(
+            nodeId,
+            inspectRemapOutput(
+              history.doc,
+              current().id,
+              nodeId,
+              resolveFonts(history.doc, activeFonts()),
+              evaluation,
+              remapInputs
+                .filter((item) => item.dataset.node === nodeId)
+                .map((item) => item.dataset.point),
+            ),
+          );
+        } catch {
+          remapSnapshots.set(nodeId, new Map());
+        }
+      }
+      const snapshot = remapSnapshots.get(nodeId).get(input.dataset.point);
+      if (snapshot) remapOutputScopes.set(input, makeRemapOutputScope(input, snapshot));
+    }
   }
 }
 function revealActivePointRow() {
@@ -5426,6 +5713,7 @@ function revealActivePointRow() {
 function refreshPointPanels() {
   // Do not rebuild the stage or disturb an active numeric/IME edit.
   if (composing) return;
+  syncRemapSelection();
   const result = evaluate(
     current(),
     resolveFonts(history.doc, activeFonts()),
@@ -5450,17 +5738,43 @@ function refreshPointPanels() {
   for (const panel of document.querySelectorAll(
     '.graph [data-point-panel], .inspector [data-point-panel]',
   ))
-    prepareNumericInputs(panel);
+    prepareNumericInputs(panel, result);
   revealActivePointRow();
   requestAnimationFrame(() => {
     updateGraphBounds();
     drawWires();
   });
 }
+function remapOutputFields(n, pointId, contourIndex, pointIndex, snapshot) {
+  if (!snapshot) return '';
+  return [
+    ['position', 'Position', ['x', 'y']],
+    ['handleA', 'Incoming', ['angle', 'length']],
+    ['handleB', 'Outgoing', ['angle', 'length']],
+  ]
+    .map(
+      ([key, label, components]) =>
+        `<div class="field handle-polar"><label>${label}</label><div class="field-controls">${components
+          .map((component) => {
+            const value = remapOutputValue(snapshot, key, component),
+              zeroAngle = component === 'angle' && !handlePolar(snapshot.output[key]).length,
+              disabled = !snapshot.editable[key] || zeroAngle,
+              caption =
+                component === 'angle'
+                  ? 'Angle°'
+                  : component === 'length'
+                    ? 'Length'
+                    : component.toUpperCase();
+            return `<label>${caption}<input type="number" step="any" ${component === 'length' ? 'min="0"' : ''} data-remap-output="${key}" data-remap-output-component="${component}" data-node="${esc(n.id)}" data-point="${esc(pointId)}" aria-label="Contour ${contourIndex + 1} point ${pointIndex + 1} ${label} ${caption}" title="${zeroAngle ? 'Set a non-zero length first' : disabled ? 'Point is locked, driven, suspended or unavailable' : 'Remap output before downstream nodes; drag to adjust'}" value="${Number(value.toFixed(3))}" ${disabled ? 'disabled' : ''}></label>`;
+          })
+          .join('')}</div></div>`,
+    )
+    .join('');
+}
 function remapFields(n, result, panelOnly = false) {
   let input;
   try {
-    if (n.params.path.source) input = result.run(n.params.path.source);
+    if (n.params.path.source) input = result.run(n.params.path.source, n.params.path.sourcePort);
   } catch {}
   if (!input) return '<p class="muted">Connect a path to edit its vertices.</p>';
   const batch = remapBatch(n.id);
@@ -5468,11 +5782,23 @@ function remapFields(n, result, panelOnly = false) {
   const panel = pointPanel(
     n,
     entries,
-    (rows) =>
-      rows
+    (rows) => {
+      if (!rows.length) return '';
+      let outputs = new Map();
+      try {
+        outputs = inspectRemapOutput(
+          history.doc,
+          current().id,
+          n.id,
+          fonts,
+          result,
+          rows.map(({ pt }) => pt.id),
+        );
+      } catch {}
+      return rows
         .map(
           ({ pt, ci, pi }) =>
-            `<details data-point-row="${pt.id}" class="${pointRowClass(n, pt.id)}" data-detail="remap-${pt.id}" open><summary><input type="checkbox" data-batch-point="${pt.id}" data-node="${n.id}" aria-label="Select contour ${ci + 1} point ${pi + 1} for batch edit" ${batch.selected.has(pt.id) ? 'checked' : ''}> <button class="mini" data-select-panel-point="${pt.id}" data-node="${n.id}" aria-pressed="${selectedPointIds(n).includes(pt.id)}">Contour ${ci + 1} · Point ${pi + 1}</button></summary>${[
+            `<details data-point-row="${pt.id}" class="${pointRowClass(n, pt.id)}" data-detail="remap-${pt.id}" open><summary><input type="checkbox" data-batch-point="${pt.id}" data-node="${n.id}" aria-label="Select contour ${ci + 1} point ${pi + 1} for batch edit" ${batch.selected.has(pt.id) ? 'checked' : ''}> <button class="mini" data-select-panel-point="${pt.id}" data-node="${n.id}" aria-pressed="${selectedPointIds(n).includes(pt.id)}">Contour ${ci + 1} · Point ${pi + 1}</button></summary>${remapOutputFields(n, pt.id, ci, pi, outputs.get(pt.id))}${[
               'position',
               'handleA',
               'handleB',
@@ -5486,7 +5812,8 @@ function remapFields(n, result, panelOnly = false) {
                 '',
               )}${n.edits.some((e) => e.pointId === pt.id && e.params) ? '' : `<button class="mini" data-enable-remap="${pt.id}" data-node="${n.id}">Enable typed point controls</button>`}${n.edits.some((e) => e.pointId === pt.id && input.unstable && !remapFingerprintMatches(input, e.fingerprint)) ? `<button class="mini danger" data-rebind-remap="${pt.id}" data-node="${n.id}">Rebind retained edit to this point</button>` : ''}</details>`,
         )
-        .join(''),
+        .join('');
+    },
     pointPanelSource(n, input),
   );
   if (panelOnly) return panel;
@@ -6219,7 +6546,7 @@ function mountSelectionViewers(doc, l, n, results) {
 function inspectorMarkup(n, l, result, results, move, duplication) {
   return `${n ? `<h3 class="inspector-node-title">${esc(nodeDisplayName(n))}</h3><p class="inspector-node-type">Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>` : ''}${sourceNavigationPanel()}${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
     n
-      ? `${bypassControl(n)}${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${polarControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${['Curve', 'Multi Path'].includes(n.type) ? ownedPointFields(n) : ''}${editorParameters(
+      ? `${bypassControl(n)}${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${polarControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${['Curve', 'Multi Path'].includes(n.type) ? ownedPointFields(n) : n.type === 'Path Remap' ? remapFields(n, result, true) : ''}${editorParameters(
           n,
         )
           .filter(
@@ -6269,6 +6596,7 @@ function prepareFontSearchControls(root) {
 }
 
 function refreshNodeControlInspector(afterFocus = false) {
+  syncRemapSelection();
   const inspector = app.querySelector('.inspector-body'),
     n = selectedNode();
   if (!inspector || !n || inspector.dataset.inspectorNode === n.id) return;
@@ -6308,7 +6636,7 @@ function refreshNodeControlInspector(afterFocus = false) {
   if (hint) hint.outerHTML = canvasSelectionHintMarkup(n, l, null);
   updateCanvas();
   retainTextFontDisclosures(inspector);
-  prepareNumericInputs(inspector);
+  prepareNumericInputs(inspector, result);
   prepareEditingRegion(inspector);
   prepareFontSearchControls(inspector);
   compactTextInspector();
@@ -6352,6 +6680,7 @@ function layerPanelRows(doc) {
 }
 
 function render(resetView = false, artworkResolution = null, graphScrollOverride = null) {
+  syncRemapSelection();
   if (closeFinalizing) {
     needsRender = true;
     return;
@@ -6388,7 +6717,9 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   if (drag?.type === 'graph-overview') cancelInteraction();
   graphOverviewObserver?.disconnect();
   const svgPartInput = svgPartPick ? app.querySelector('#svg-part-file') : null;
-  const focused = resetView ? null : captureFocus(app);
+  const focused = resetView ? null : captureFocus(app),
+    focusedRemapScope =
+      focused && !focused.cleanNumber ? remapOutputScopes.get(document.activeElement) : null;
   const tabSelectedNumber = !resetView && tabSelectedNumericInputs.has(document.activeElement);
   graphPanJoystick?.destroy();
   graphPanJoystick = null;
@@ -6541,7 +6872,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   const svgPrecision = app.querySelector('#svg-export-precision');
   if (svgPrecision) svgPrecision.value = svgExportPrecision;
   workspacePanels.attach(app);
-  prepareNumericInputs(app);
+  prepareNumericInputs(app, result);
   for (const row of app.querySelectorAll('.layer[data-layer]')) row.tabIndex = 0;
   // Keep controls and actionable states visible; put reference prose in
   // one optional help disclosure per editing region.
@@ -6605,6 +6936,8 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   restoringControlFocus = true;
   try {
     restoreFocus(app, focused);
+    if (focusedRemapScope && document.activeElement?.dataset.remapOutput !== undefined)
+      remapOutputScopes.set(document.activeElement, focusedRemapScope);
     if (tabSelectedNumber && document.activeElement?.matches('input[type="number"]')) {
       document.activeElement.select();
       tabSelectedNumericInputs.add(document.activeElement);
@@ -13172,6 +13505,31 @@ app.addEventListener('change', async (e) => {
     return;
   }
   if (drag?.type === 'numeric' && drag.started && el === drag.capture) return;
+  if (d.remapOutput !== undefined) {
+    try {
+      if (el.disabled || !el.value.trim()) throw Error('Expected an editable finite point value');
+      if (el.value === el.defaultValue) return;
+      const scope = remapOutputScopes.get(el),
+        pending =
+          drag?.type === 'numeric' && !drag.started && drag.binding?.canHandoff?.(el) ? drag : null,
+        result = commitRemapOutput(el, scope, Number(el.value)),
+        snapshot = currentRemapOutput(el);
+      if (snapshot) {
+        el.value = String(
+          Number(remapOutputValue(snapshot, scope.key, scope.component).toFixed(3)),
+        );
+        el.defaultValue = el.value;
+        remapOutputScopes.set(el, makeRemapOutputScope(el, snapshot));
+      } else remapOutputScopes.delete(el);
+      if (result.changed && drag === pending) pending?.binding.acceptHandoff();
+      if (result.changed) notify('Point updated');
+    } catch (error) {
+      el.value = el.defaultValue;
+      notify(error.message, true);
+    }
+    scheduleRender();
+    return;
+  }
   if (d.handlePolar) {
     try {
       if (el.disabled || !el.value.trim()) throw Error('Expected an editable finite handle value');
@@ -17595,7 +17953,7 @@ document.addEventListener('keydown', (e) => {
       }
       return;
     }
-    if (input.dataset.handlePolar) {
+    if (input.dataset.handlePolar || input.dataset.remapOutput !== undefined) {
       e.preventDefault();
       input.dispatchEvent(new window.Event('change', { bubbles: true }));
       return;
