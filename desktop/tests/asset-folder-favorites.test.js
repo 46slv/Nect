@@ -118,6 +118,11 @@ function choose(view, id) {
   view.root.dispatchEvent(new win.Event('change', { bubbles: true }));
 }
 
+const validSlot = {
+  number: 1,
+  sha256: 'a'.repeat(64),
+  metadata: { author: '', source: '', license: '' },
+};
 for (const [label, stored] of [
   ['malformed', '{'],
   ['unsafe path', JSON.stringify([{ rootId: 'root-a', relativePath: '../outside.svg' }])],
@@ -126,6 +131,19 @@ for (const [label, stored] of [
     JSON.stringify([
       { rootId: 'root-a', relativePath: 'same.svg' },
       { rootId: 'root-a', relativePath: 'same.svg' },
+    ]),
+  ],
+  [
+    'duplicate slot',
+    JSON.stringify([
+      { rootId: 'root-a', relativePath: 'a.svg', slot: validSlot },
+      { rootId: 'root-b', relativePath: 'b.svg', slot: validSlot },
+    ]),
+  ],
+  [
+    'invalid slot hash',
+    JSON.stringify([
+      { rootId: 'root-a', relativePath: 'a.svg', slot: { ...validSlot, sha256: 'bad' } },
     ]),
   ],
 ]) {

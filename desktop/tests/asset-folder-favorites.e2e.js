@@ -62,6 +62,9 @@ try {
   await panel.getByRole('button', { name: 'alpha.svg', exact: true }).click();
   await panel.getByRole('button', { name: 'Pin asset', exact: true }).click({ timeout: 3000 });
   assert.equal(await panel.locator('[data-quick-asset]').count(), 1);
+  await panel.getByLabel('Quick slot', { exact: true }).selectOption('1', { timeout: 3000 });
+  await panel.getByRole('button', { name: 'Assign slot', exact: true }).click();
+  await panel.getByRole('button', { name: 'Place slot 1: alpha.svg', exact: true }).waitFor();
   await panel.getByRole('button', { name: 'Pin folder', exact: true }).focus();
   await page.keyboard.press('Enter');
   assert.equal(await panel.locator('[data-quick-open]').count(), 1);
@@ -72,6 +75,64 @@ try {
   await panel.getByRole('button', { name: 'beta.svg', exact: true }).click();
   await panel.getByRole('button', { name: 'Pin asset', exact: true }).click();
   assert.equal(await panel.locator('[data-quick-asset]').count(), 2);
+  await panel.getByLabel('Quick slot', { exact: true }).selectOption('2');
+  await panel.getByRole('button', { name: 'Assign slot', exact: true }).click();
+  await panel.getByLabel('Quick slot', { exact: true }).selectOption('1');
+  await panel.getByRole('button', { name: 'Replace slot', exact: true }).click();
+  await panel.getByRole('button', { name: 'Place slot 1: beta.svg', exact: true }).waitFor();
+  await panel.getByLabel('Quick slot', { exact: true }).selectOption('2');
+  await panel.getByRole('button', { name: 'Move slot', exact: true }).click();
+  await select().selectOption(firstId);
+  await ready(panel);
+  await panel.getByRole('button', { name: 'alpha.svg', exact: true }).click();
+  await panel.getByLabel('Quick slot', { exact: true }).selectOption('1');
+  await panel.getByRole('button', { name: 'Assign slot', exact: true }).click();
+  const beforeSlot = await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot()));
+  await panel.getByRole('button', { name: 'Place slot 1: alpha.svg', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() =>
+    window.nect.document.layers.some((layer) => layer.nodes.some((node) => node.type === 'SVG')),
+  );
+  assert.equal(
+    await page.evaluate(
+      () =>
+        window.nect.document.layers
+          .flatMap((layer) => layer.nodes)
+          .find((node) => node.type === 'SVG').svgAsset.rootId,
+    ),
+    firstId,
+  );
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(
+    await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot())),
+    beforeSlot,
+  );
+  await panel
+    .getByRole('button', { name: 'Place slot 1: alpha.svg', exact: true })
+    .evaluate((button) => {
+      button.click();
+      button.click();
+    });
+  await page.waitForFunction(() =>
+    window.nect.document.layers.some((layer) => layer.nodes.some((node) => node.type === 'SVG')),
+  );
+  assert.equal(
+    await page.evaluate(
+      () =>
+        window.nect.document.layers
+          .flatMap((layer) => layer.nodes)
+          .filter((node) => node.type === 'SVG').length,
+    ),
+    1,
+  );
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(
+    await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot())),
+    beforeSlot,
+  );
+  await select().selectOption(secondId);
+  await ready(panel);
+  await panel.getByRole('button', { name: 'beta.svg', exact: true }).click();
   await panel.getByRole('button', { name: 'Unpin asset', exact: true }).click();
   assert.equal(await panel.locator('[data-quick-asset]').count(), 1);
   await panel.getByRole('button', { name: 'Pin asset', exact: true }).click();
@@ -177,6 +238,11 @@ try {
   await ready(panel);
   assert.equal(await panel.locator('[data-quick-open]').count(), 2);
   assert.equal(await panel.locator('[data-quick-asset]').count(), 2);
+  await panel.getByRole('button', { name: 'Place slot 1: alpha.svg', exact: true }).waitFor();
+  assert.equal(
+    await panel.getByRole('button', { name: 'Slot 2 empty', exact: true }).isDisabled(),
+    true,
+  );
   await panel.locator('[data-quick-open]').nth(1).click();
   await ready(panel);
   assert.equal(await select().inputValue(), secondId);
@@ -195,12 +261,22 @@ try {
   await panel.locator('[data-quick-open]').nth(0).click();
   await panel.locator('[data-quick-asset]').nth(0).click();
   await panel
+    .getByRole('button', { name: 'Place slot 1: alpha.svg', exact: true })
+    .evaluate((button) => button.click());
+  await panel
     .locator('[data-quick-open]')
     .nth(0)
     .evaluate((element) => element.click());
   assert.equal(await select().inputValue(), secondId);
   assert.equal(await search.inputValue(), '入力中');
   assert.equal(await search.evaluate((element) => element === document.activeElement), true);
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      document: window.nect.projectSnapshot(),
+      state: window.nect.commandState,
+    })),
+    afterPlacement,
+  );
   await search.evaluate((element) =>
     element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true })),
   );
@@ -208,7 +284,9 @@ try {
   await page.setViewportSize({ width: 420, height: 900 });
   const dimensions = await panel.evaluate((element) => {
     const bar = element.querySelector('[aria-label="Quick access"]');
+    const slotBar = element.querySelector('[aria-label="Quick slots"]');
     const rect = element.getBoundingClientRect();
+    const slotRect = slotBar.getBoundingClientRect();
     return {
       panelWidth: rect.width,
       panelClient: element.clientWidth,
@@ -216,11 +294,16 @@ try {
       barClient: bar.clientWidth,
       barScroll: bar.scrollWidth,
       barWidth: bar.getBoundingClientRect().width,
+      slotsFit: [...slotBar.querySelectorAll('button')].every((button) => {
+        const box = button.getBoundingClientRect();
+        return box.left >= slotRect.left - 1 && box.right <= slotRect.right + 1;
+      }),
     };
   });
   assert.ok(dimensions.panelWidth <= 420);
   assert.ok(dimensions.panelScroll <= dimensions.panelClient + 1, JSON.stringify(dimensions));
   assert.ok(dimensions.barWidth <= dimensions.panelClient);
+  assert.equal(dimensions.slotsFit, true);
   await page.screenshot({ path: out + '/browser-420.png' });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.screenshot({ path: out + '/browser-1280.png' });
@@ -247,6 +330,10 @@ try {
   if (!(await panel.isVisible().catch(() => false))) panel = await openPanel(page);
   assert.equal(await panel.locator('[data-quick-open]').count(), 0);
   assert.equal(await panel.locator('[data-quick-asset]').count(), 0);
+  assert.equal(
+    await panel.getByRole('group', { name: 'Quick slots', hidden: true }).isVisible(),
+    false,
+  );
   await addFolder(first);
   assert.notEqual(await select().inputValue(), firstId);
   assert.equal(await panel.locator('[data-quick-open]').count(), 0);
@@ -461,7 +548,12 @@ try {
           return response;
         }
         if (command === 'open_asset_source') {
-          const color = args.rootId === 'root-b' ? '#203fbf' : '#bf2020';
+          const color =
+            args.rootId === 'root-b'
+              ? sessionStorage.getItem('changed-b')
+                ? '#20bf20'
+                : '#203fbf'
+              : '#bf2020';
           const source =
             args.rootId === 'root-b' && window.badAssetB
               ? 'not an SVG'
@@ -590,6 +682,28 @@ try {
   await ready(itemPanel);
   await itemPanel.getByRole('button', { name: 'same.svg', exact: true }).click();
   await itemPanel.getByRole('button', { name: 'Pin asset', exact: true }).click();
+  await itemPanel.getByText('Asset details', { exact: true }).click();
+  await itemPanel.getByLabel('Asset author', { exact: true }).fill('Author');
+  await itemPanel.getByLabel('Quick slot', { exact: true }).selectOption('2');
+  const beforeFailedSlotWrite = await itemPage.evaluate(() =>
+    localStorage.getItem('nect.asset-item-favorites.v1'),
+  );
+  await itemPage.evaluate(() => {
+    window.failItemFavoriteSave = true;
+  });
+  await itemPanel.getByRole('button', { name: 'Assign slot', exact: true }).click();
+  assert.equal(
+    await itemPage.evaluate(() => localStorage.getItem('nect.asset-item-favorites.v1')),
+    beforeFailedSlotWrite,
+  );
+  assert.equal(
+    await itemPanel.getByRole('button', { name: 'Slot 2 empty', exact: true }).isDisabled(),
+    true,
+  );
+  await itemPage.evaluate(() => {
+    window.failItemFavoriteSave = false;
+  });
+  await itemPanel.getByRole('button', { name: 'Assign slot', exact: true }).click();
   await itemPage.evaluate(() => sessionStorage.setItem('replace-a', '1'));
   await itemPage.reload();
   await itemPage.waitForFunction(() => window.nect);
@@ -598,10 +712,155 @@ try {
   await ready(itemPanel);
   assert.equal(await itemPanel.locator('[data-quick-remove-asset]').count(), 1);
   assert.equal(await itemPanel.locator('[data-quick-asset]').count(), 1);
+  await itemPanel.getByRole('button', { name: 'Place slot 2: same.svg', exact: true }).waitFor();
   await itemPanel.locator('[data-quick-remove-asset]').click();
-  assert.deepEqual(
-    await itemPage.evaluate(() => JSON.parse(localStorage.getItem('nect.asset-item-favorites.v1'))),
-    [{ rootId: 'root-b', relativePath: 'same.svg' }],
+  const savedItems = await itemPage.evaluate(() =>
+    JSON.parse(localStorage.getItem('nect.asset-item-favorites.v1')),
+  );
+  assert.equal(savedItems.length, 1);
+  assert.equal(savedItems[0].rootId, 'root-b');
+  assert.equal(savedItems[0].relativePath, 'same.svg');
+  assert.equal(savedItems[0].slot.number, 2);
+  assert.match(savedItems[0].slot.sha256, /^[a-f0-9]{64}$/);
+  assert.equal(savedItems[0].slot.metadata.author, 'Author');
+  await itemPage.evaluate(() => sessionStorage.setItem('changed-b', '1'));
+  const beforeChangedSource = await itemPage.evaluate(() =>
+    JSON.stringify(window.nect.projectSnapshot()),
+  );
+  await itemPanel.getByRole('button', { name: 'Place slot 2: same.svg', exact: true }).click();
+  await itemPage.waitForFunction(() =>
+    document
+      .querySelector('[data-asset-status]')
+      ?.textContent.includes('Asset changed; update its slot'),
+  );
+  assert.equal(
+    await itemPage.evaluate(() => JSON.stringify(window.nect.projectSnapshot())),
+    beforeChangedSource,
+  );
+  await itemPanel.locator('[data-quick-asset]').click();
+  await itemPanel.getByText('Asset details', { exact: true }).click();
+  await itemPanel.getByLabel('Asset author', { exact: true }).fill('Author');
+  await itemPanel.getByRole('button', { name: 'Update slot', exact: true }).click();
+  const updatedSlot = await itemPage.evaluate(
+    () => JSON.parse(localStorage.getItem('nect.asset-item-favorites.v1'))[0].slot,
+  );
+  assert.notEqual(updatedSlot.sha256, savedItems[0].slot.sha256);
+  await itemPanel.getByRole('button', { name: 'Place slot 2: same.svg', exact: true }).click();
+  await itemPage.waitForFunction(() =>
+    window.nect.document.layers.some((layer) => layer.nodes.some((node) => node.type === 'SVG')),
+  );
+  assert.equal(
+    await itemPage.evaluate(
+      () =>
+        window.nect.document.layers
+          .flatMap((layer) => layer.nodes)
+          .find((node) => node.type === 'SVG').svgAsset.author,
+    ),
+    'Author',
+  );
+  await itemPage.locator('[data-action="undo"]').click();
+  assert.equal(
+    await itemPage.evaluate(() => JSON.stringify(window.nect.projectSnapshot())),
+    beforeChangedSource,
+  );
+  await itemPage.evaluate(() => sessionStorage.removeItem('changed-b'));
+  await itemPanel.locator('[data-quick-asset]').click();
+  await itemPanel.getByLabel('Asset author', { exact: true }).fill('Author');
+  await itemPanel.getByRole('button', { name: 'Update slot', exact: true }).click();
+  await itemPage.evaluate(() => {
+    window.deferItemRefresh = true;
+    window.finishItemRefresh = null;
+  });
+  await itemPanel.getByRole('button', { name: 'Place slot 2: same.svg', exact: true }).click();
+  await itemPage.waitForFunction(() => typeof window.finishItemRefresh === 'function');
+  await itemPage.evaluate(() => {
+    const id = window.nect.activeCompositionId;
+    const current = window.nect.projectSnapshot().compositions.find((item) => item.id === id);
+    window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'rename-composition',
+      payload: {
+        compositionId: id,
+        name: 'Changed while loading',
+        expectedName: current.name,
+        expectedProjectRevision: window.nect.projectRevision,
+      },
+    });
+  });
+  const afterRename = await itemPage.evaluate(() => JSON.stringify(window.nect.projectSnapshot()));
+  await itemPage.evaluate(() => window.finishItemRefresh());
+  await itemPage.waitForTimeout(100);
+  assert.equal(
+    await itemPage.evaluate(() => JSON.stringify(window.nect.projectSnapshot())),
+    afterRename,
+  );
+  await itemPage.evaluate(() => {
+    window.deferItemRefresh = true;
+    window.finishItemRefresh = null;
+  });
+  await itemPanel.getByRole('button', { name: 'Place slot 2: same.svg', exact: true }).click();
+  await itemPage.waitForFunction(() => typeof window.finishItemRefresh === 'function');
+  await itemPanel.evaluate((panel) => {
+    panel.hidden = true;
+    panel.inert = true;
+    panel.hidden = false;
+    panel.inert = false;
+  });
+  await itemPage.evaluate(() => window.finishItemRefresh());
+  await itemPage.waitForTimeout(100);
+  assert.equal(
+    await itemPage.evaluate(() => JSON.stringify(window.nect.projectSnapshot())),
+    afterRename,
+  );
+  await itemPage.evaluate(() => {
+    window.deferItemRefresh = true;
+    window.finishItemRefresh = null;
+  });
+  await itemPanel.getByRole('button', { name: 'Place slot 2: same.svg', exact: true }).click();
+  await itemPage.waitForFunction(() => typeof window.finishItemRefresh === 'function');
+  await itemPage.evaluate(() => {
+    const dialog = document.createElement('dialog');
+    dialog.open = true;
+    document.body.append(dialog);
+    dialog.remove();
+  });
+  await itemPage.evaluate(() => window.finishItemRefresh());
+  await itemPage.waitForTimeout(100);
+  assert.equal(
+    await itemPage.evaluate(() => JSON.stringify(window.nect.projectSnapshot())),
+    afterRename,
+  );
+  await itemPage.evaluate(() => {
+    window.failRootB = true;
+  });
+  await itemPanel.getByRole('button', { name: 'Place slot 2: same.svg', exact: true }).click();
+  await itemPage.waitForFunction(() =>
+    document.querySelector('[data-asset-status]')?.textContent.includes('Folder unavailable'),
+  );
+  assert.equal(
+    await itemPage.evaluate(() => JSON.stringify(window.nect.projectSnapshot())),
+    afterRename,
+  );
+  await itemPage.evaluate(() => {
+    window.failRootB = false;
+  });
+  await itemPanel.getByRole('button', { name: 'Place slot 2: same.svg', exact: true }).click();
+  await itemPage.waitForFunction(() =>
+    window.nect.document.layers.some((layer) => layer.nodes.some((node) => node.type === 'SVG')),
+  );
+  assert.equal(
+    await itemPage.evaluate(
+      () =>
+        window.nect.document.layers
+          .flatMap((layer) => layer.nodes)
+          .find((node) => node.type === 'SVG').svgAsset.rootId,
+    ),
+    'root-b',
+  );
+  await itemPage.locator('[data-action="undo"]').click();
+  assert.equal(
+    await itemPage.evaluate(() => JSON.stringify(window.nect.projectSnapshot())),
+    afterRename,
   );
   await itemPage.evaluate(() => sessionStorage.setItem('missing-b', '1'));
   await itemPanel.locator('[data-quick-asset]').click();
@@ -615,6 +874,13 @@ try {
     nativeStubPersistence: true,
     exactRootAndPath: true,
     missingAndRecovery: true,
+  };
+  results.quickSlots = {
+    assignMoveReplace: true,
+    oneUndoPlacement: true,
+    changedSourceRefusedUntilUpdated: true,
+    staleSessionAndHiddenPanelRefused: true,
+    nativeStubPersistence: true,
   };
   console.log(JSON.stringify(results, null, 2));
 } finally {

@@ -180,6 +180,27 @@ restart. A new selection is a new ID, even for a folder of the same name. This
 slice does not claim persistent browser directory access or implement favorites
 for effect, preset, or shortcut types.
 
+## Asset quick slots
+
+A pinned asset can be assigned to one of three quick slots. Activating a slot by
+click or keyboard places one new layer through the existing Session command, so
+one Undo removes the placement. Assigning an occupied slot explicitly replaces
+its prior assignment; moving or clearing a slot keeps the underlying pin.
+Removing a pin also removes its slot.
+
+Each slot stores the registered root ID, relative path, source SHA-256, and the
+author/source/license fields captured when assigned. A changed source is not
+placed until the asset is previewed and its slot explicitly updated. Missing
+roots and files never retarget a replacement registration. The slot uses the
+same native preference and browser-session lifetime as asset pins; failed writes
+leave the previous assignments intact.
+
+The command captures the destination Session before refresh and checks the slot,
+source, visibility, input and document state before inserting. Closing or hiding
+the panel, opening a dialog, editing while loading, or changing the document
+cancels the pending placement. Quick slots do not register global keybindings;
+their buttons retain normal keyboard focus and Enter activation.
+
 In isolated native acceptance mode, selected roots are canonicalized and checked
 against the canonical run root before admission. A parent junction inside the run
 root cannot register an ordinary descendant whose actual directory is outside.
