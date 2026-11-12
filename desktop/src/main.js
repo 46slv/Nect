@@ -6322,6 +6322,41 @@ function refreshNodeControlInspector(afterFocus = false) {
   workspacePanels.refresh();
 }
 
+function layerFolderActionState(doc, folder, selectedIds) {
+  const memberIds = new Set(folder.members.map((member) => member.layerId)),
+    indices = doc.layers.flatMap((layer, index) => (memberIds.has(layer.id) ? [index] : [])),
+    locked = indices.some((index) => doc.layers[index].locked),
+    busy = deletionBusy() || !!variableAction;
+  return {
+    busy,
+    add: !!selectedIds.length && selectedIds.some((id) => !memberIds.has(id)),
+    out: !!selectedIds.length && selectedIds.every((id) => memberIds.has(id)),
+    forward: !!indices.length && !locked && indices.at(-1) < doc.layers.length - 1,
+    backward: !!indices.length && !locked && indices[0] > 0,
+  };
+}
+function refreshLayerFolderActions() {
+  const doc = history.doc,
+    folders = new Map((doc.editor?.layerFolders || []).map((folder) => [folder.id, folder])),
+    selectedIds = [...artworkSelection];
+  for (const row of app.querySelectorAll('[data-layer-folder]')) {
+    const folder = folders.get(row.dataset.layerFolder),
+      state = folder && layerFolderActionState(doc, folder, selectedIds);
+    for (const button of row.querySelectorAll(
+      '[data-folder-add], [data-folder-out], [data-folder-order], [data-folder-dissolve]',
+    )) {
+      const action =
+        button.dataset.folderAdd !== undefined
+          ? 'add'
+          : button.dataset.folderOut !== undefined
+            ? 'out'
+            : button.dataset.folderOrder !== undefined
+              ? button.dataset.folderDirection
+              : 'dissolve';
+      button.disabled = !state || state.busy || (action !== 'dissolve' && !state[action]);
+    }
+  }
+}
 function layerPanelRows(doc) {
   const folders = doc.editor?.layerFolders || [];
   const collapsed = collapsedLayerFolders.get(session.activeCompositionId) || new Set();
@@ -6334,23 +6369,13 @@ function layerPanelRows(doc) {
   );
   const header = (folder) => {
     const expanded = !collapsed.has(folder.id),
-      busy = deletionBusy() || !!variableAction,
-      memberIds = new Set(folder.members.map((member) => member.layerId)),
-      indices = doc.layers.flatMap((layer, index) => (memberIds.has(layer.id) ? [index] : [])),
-      locked = indices.some((index) => doc.layers[index].locked);
-    const canAdd = selectedIds.length && selectedIds.some((id) => owner.get(id)?.id !== folder.id);
-    const canRemove =
-      selectedIds.length && selectedIds.every((id) => owner.get(id)?.id === folder.id);
+      state = layerFolderActionState(doc, folder, selectedIds);
     const orderButtons = ['forward', 'backward']
       .map((direction) => {
-        const available =
-          indices.length &&
-          !locked &&
-          (direction === 'forward' ? indices.at(-1) < doc.layers.length - 1 : indices[0] > 0);
-        return `<button class="mini" data-folder-order="${esc(folder.id)}" data-folder-direction="${direction}" aria-label="Move Folder ${esc(folder.name)} ${direction}" title="Move Folder ${direction}" ${busy || !available ? 'disabled' : ''}>${direction === 'forward' ? '↑' : '↓'}</button>`;
+        return `<button class="mini" data-folder-order="${esc(folder.id)}" data-folder-direction="${direction}" aria-label="Move Folder ${esc(folder.name)} ${direction}" title="Move Folder ${direction}" ${state.busy || !state[direction] ? 'disabled' : ''}>${direction === 'forward' ? '↑' : '↓'}</button>`;
       })
       .join('');
-    return `<div class="layer-folder" data-layer-folder="${esc(folder.id)}"><button class="layer-folder-toggle" data-folder-toggle="${esc(folder.id)}" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} Folder: ${esc(folder.name)}">${expanded ? '▾' : '▸'}</button>${nameEdit?.folderId === folder.id ? nameInput('folder', folder.id) : `<button class="layer-folder-name" data-folder-name="${esc(folder.id)}" title="Double-click or F2 to rename">${esc(folder.name)}</button>`}${orderButtons}<button class="mini" data-folder-add="${esc(folder.id)}" aria-label="Move selected Layers to ${esc(folder.name)}" title="Move selected Layers here" ${busy || !canAdd ? 'disabled' : ''}>Move here</button><button class="mini" data-folder-out="${esc(folder.id)}" aria-label="Move selected Layers out of ${esc(folder.name)}" title="Move selected Layers out" ${busy || !canRemove ? 'disabled' : ''}>Move out</button><button class="mini" data-folder-dissolve="${esc(folder.id)}" aria-label="Ungroup ${esc(folder.name)}" title="Ungroup Folder" ${busy ? 'disabled' : ''}>Ungroup</button></div>`;
+    return `<div class="layer-folder" data-layer-folder="${esc(folder.id)}"><button class="layer-folder-toggle" data-folder-toggle="${esc(folder.id)}" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} Folder: ${esc(folder.name)}">${expanded ? '▾' : '▸'}</button>${nameEdit?.folderId === folder.id ? nameInput('folder', folder.id) : `<button class="layer-folder-name" data-folder-name="${esc(folder.id)}" title="Double-click or F2 to rename">${esc(folder.name)}</button>`}${orderButtons}<button class="mini" data-folder-add="${esc(folder.id)}" aria-label="Move selected Layers to ${esc(folder.name)}" title="Move selected Layers here" ${state.busy || !state.add ? 'disabled' : ''}>Move here</button><button class="mini" data-folder-out="${esc(folder.id)}" aria-label="Move selected Layers out of ${esc(folder.name)}" title="Move selected Layers out" ${state.busy || !state.out ? 'disabled' : ''}>Move out</button><button class="mini" data-folder-dissolve="${esc(folder.id)}" aria-label="Ungroup ${esc(folder.name)}" title="Ungroup Folder" ${state.busy ? 'disabled' : ''}>Ungroup</button></div>`;
   };
   const rows = folders
     .filter((folder) => !folder.members.length)
@@ -10318,7 +10343,7 @@ function moveSelectionForFolder(folderId, out = false, direction = null) {
       notify(
         ordering ? 'Folder moved' : out ? 'Layers moved out of Folder' : 'Layers moved to Folder',
       );
-    }
+    } else refreshLayerFolderActions();
     if (session !== owner || documents.generation !== generation) return;
     if (!committed) {
       try {

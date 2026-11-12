@@ -111,6 +111,9 @@ export async function verifyFolderBlockOrder(page) {
   assert.match(await dialog().locator('[role="alert"]').innerText(), /changed/i);
   assert.deepEqual(await project(), intervening);
   await dialog().locator('[data-cancel]').click();
+  assert.equal(await orderButton('forward').isEnabled(), true);
+  await orderButton('forward').click();
+  await dialog().locator('[data-cancel]').click();
   await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'undo' }));
   assert.deepEqual(await project(), before);
 
@@ -123,6 +126,9 @@ export async function verifyFolderBlockOrder(page) {
   assert.match(await dialog().locator('[role="alert"]').innerText(), /selection changed/i);
   assert.deepEqual(await project(), before);
   await dialog().locator('[data-cancel]').click();
+  assert.equal(await orderButton('forward').isEnabled(), true);
+  await orderButton('forward').click();
+  await dialog().locator('[data-cancel]').click();
   await page.locator(`[data-select-layer="${ids[0]}"]`).click();
 
   await orderButton('forward').click();
@@ -133,7 +139,9 @@ export async function verifyFolderBlockOrder(page) {
     await dialog().locator('[data-cancel]').click();
   }
   assert.deepEqual(await project(), before);
-  await ensureWorkspacePanel(page, 'layers');
+  assert.equal(await orderButton('forward').isEnabled(), true);
+  await orderButton('forward').click();
+  await dialog().locator('[data-cancel]').click();
   if ((await folder().locator('[data-folder-toggle]').getAttribute('aria-expanded')) === 'true')
     await folder().locator('[data-folder-toggle]').click();
 
