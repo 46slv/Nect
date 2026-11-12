@@ -96,6 +96,39 @@ test('transition Save/Discard/Cancel and in-flight editing never silently discar
   await assert.rejects(d.save(), /Finish or cancel/);
 });
 
+test('file-only pending work blocks saving and is rechecked across an asynchronous transition', async () => {
+  let text = 'saved',
+    pending = false,
+    choose,
+    finishWrite;
+  const d = new DocumentLifecycle({
+    read: () => text,
+    write: () => new Promise((resolve) => (finishWrite = resolve)),
+    choose: () => new Promise((resolve) => (choose = resolve)),
+    hasLifecycleDraft: () => pending,
+  });
+  await d.replace({ saved: true });
+  pending = true;
+  assert.equal(d.hasDraft(), false, 'file-only work does not become a general editor draft');
+  await assert.rejects(d.save(), /Finish or cancel/);
+  await assert.rejects(d.guard('new'), /Finish or cancel/);
+  pending = false;
+  text = 'changed';
+  const discarding = d.guard('new');
+  pending = true;
+  choose('discard');
+  assert.equal(await discarding, false, 'work starting during the choice blocks replacement');
+  pending = false;
+  const saving = d.guard('new');
+  choose('save');
+  await Promise.resolve();
+  assert.equal(typeof finishWrite, 'function');
+  pending = true;
+  finishWrite({ token: 'saved' });
+  assert.equal(await saving, false, 'work starting during Save blocks replacement');
+  assert.equal(d.saved, 'changed', 'the completed save still records its actual snapshot');
+});
+
 test('close approval is captured before the guard promise exposes a later edit', async () => {
   const f = fixture(),
     d = f.lifecycle;

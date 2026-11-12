@@ -1562,6 +1562,7 @@ const documents = new DocumentLifecycle({
   write: writeProject,
   release: releaseProject,
   choose: chooseUnsaved,
+  hasLifecycleDraft: () => !!variableAction,
   hasDraft: () =>
     !!(
       closeInputBlocked() ||
@@ -8828,6 +8829,10 @@ function pickKeyerInputColor(nodeId) {
 function deleteArtwork(layerId) {
   // Reject before taking a history snapshot or touching any detached draft.
   if (deletionBusy()) return;
+  if (variableAction) {
+    notify('Finish or cancel variable font preparation before deleting a layer', true);
+    return;
+  }
   try {
     const target = history.doc.layers.find((layer) => layer.id === layerId);
     if (!target) throw Error('Layer is unavailable; select it again');
@@ -9433,7 +9438,7 @@ function adoptSVGPart(text, name, request) {
   if (request.id !== svgPartRequest) return;
   if (
     request.generation !== documents.generation ||
-    documents.hasDraft() ||
+    documents.hasPendingEdits() ||
     readDocument() !== request.before
   )
     throw Error('Document changed while reading; add the SVG again');
@@ -9469,7 +9474,7 @@ async function importDesktopSVG() {
     notify('SVG selection cancelled');
     return;
   }
-  if (documents.hasDraft() || readDocument() !== before)
+  if (documents.hasPendingEdits() || readDocument() !== before)
     throw Error('Document changed while reading; import the SVG again');
   const source = readSVGSource(opened.contents);
   const result = session.dispatch({ ...envelope, type: 'import-svg', payload: { source } });
@@ -9564,7 +9569,11 @@ async function showRecoveryCopies(startup = false) {
     if (!startup) notify('No recovery copies');
     return;
   }
-  if (generation !== documents.generation || before !== readDocument() || documents.hasDraft())
+  if (
+    generation !== documents.generation ||
+    before !== readDocument() ||
+    documents.hasPendingEdits()
+  )
     return;
   const dialog = document.createElement('dialog');
   dialog.dataset.recoveryDialog = '';
@@ -9586,13 +9595,21 @@ async function showRecoveryCopies(startup = false) {
     dialog.showModal();
   });
   if (!chosen) return;
-  if (generation !== documents.generation || before !== readDocument() || documents.hasDraft())
+  if (
+    generation !== documents.generation ||
+    before !== readDocument() ||
+    documents.hasPendingEdits()
+  )
     throw Error('Document changed; choose the recovery copy again');
   if (!startup && !(await confirmReplace('restoring a recovery copy'))) return;
   const contents = await readRecovery(chosen.id),
     next = deserializeProject(contents);
   await preflightImages(next);
-  if (generation !== documents.generation || before !== readDocument() || documents.hasDraft())
+  if (
+    generation !== documents.generation ||
+    before !== readDocument() ||
+    documents.hasPendingEdits()
+  )
     throw Error('Document changed; current document preserved');
   await prepareOpenDocument(next);
   render(true);
@@ -10540,7 +10557,7 @@ app.addEventListener('click', async (e) => {
   }
   if (
     /^(new|open|import-svg|add-svg-part|save|save-as)$/.test(d.action || '') &&
-    documents.hasDraft()
+    documents.hasPendingEdits()
   ) {
     notify('Finish or cancel the active edit before changing documents.', true);
     return;
@@ -10935,7 +10952,7 @@ app.addEventListener('click', async (e) => {
                 if (
                   request !== openRequest ||
                   generation !== documents.generation ||
-                  documents.hasDraft() ||
+                  documents.hasPendingEdits() ||
                   readDocument() !== before
                 )
                   throw Error('Document changed while reading; open the file again');
@@ -13024,7 +13041,7 @@ app.addEventListener('change', async (e) => {
         next = source ? null : deserializeProject(text);
       if (next) await preflightImages(next);
       if (request !== openRequest || generation !== documents.generation) return;
-      if (documents.hasDraft() || readDocument() !== before)
+      if (documents.hasPendingEdits() || readDocument() !== before)
         throw Error('Document changed while reading; open the file again');
       if (el.id === 'open-file') await prepareOpenDocument(next, { saved: true });
       else {
@@ -17656,7 +17673,11 @@ void document.fonts?.ready?.then(() => {
   if (canvasFit && !navigationBusy()) fitCanvas();
 });
 window.addEventListener('beforeunload', (e) => {
-  if (!desktop && (documents.hasDraft() || documents.dirty || documents.saving)) {
+  const pendingName = nameEdit && (nameEdit.composing || nameEdit.value !== nameEdit.original);
+  if (
+    !desktop &&
+    (documents.hasPendingEdits() || pendingName || documents.dirty || documents.saving)
+  ) {
     e.preventDefault();
     e.returnValue = '';
   }
