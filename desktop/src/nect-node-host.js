@@ -1,5 +1,5 @@
 import { joinSlotsProtocol } from './join-slots-protocol.js';
-import { isVector2 } from './node-value-validation.js';
+import { isColor, isVector2 } from './node-value-validation.js';
 
 // Trusted host adapters: declaration structure is separate from authored Document validation.
 const scalar = Object.freeze({
@@ -17,6 +17,7 @@ export const nectNodeHost = Object.freeze({
         validateOutput: () => true,
       }),
     ],
+    ['Color', Object.freeze({ validateDefault: isColor, validateOutput: () => true })],
     [
       'PaintedPath',
       Object.freeze({ validateDefault: (value) => value === null, validateOutput: () => true }),

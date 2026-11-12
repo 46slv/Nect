@@ -55,7 +55,7 @@ import { signature } from './path-signature.js';
 export { signature } from './path-signature.js';
 import { builtinNodeRegistry, registeredNodes } from './builtin-node-registry.js';
 import { placeRegistered } from './registered-node-projections.js';
-import { isVector2 } from './node-value-validation.js';
+import { isColor, isVector2 } from './node-value-validation.js';
 import { nectOutputPort } from './nect-node-host.js';
 import {
   KEY_COLOR_RECIPE_DOCUMENT_SCHEMA_VERSION,
@@ -691,7 +691,6 @@ const legacyDefinitions = {
     points: p('Path', null),
     alignTangent: p('Boolean', false),
   },
-  Color: { value: p('Color', { hex: '#36434e', alpha: 1 }) },
   Reference: {},
   SVG: { position: p('Vector2', [0, 0]) },
   'Composition Reference': { position: p('Vector2', [0, 0]) },
@@ -1069,7 +1068,6 @@ export function outputType(n, port) {
     ].includes(n.type)
   )
     return 'PaintedPath';
-  if (n.type === 'Color') return 'Color';
   if (
     n.type === 'Image' ||
     n.type === 'Image Output' ||
@@ -2652,18 +2650,7 @@ export function expressionReferenceTargetsForProject(
 }
 
 function assertValue(type, value) {
-  if (
-    type === 'Color' &&
-    (!value ||
-      typeof value !== 'object' ||
-      Array.isArray(value) ||
-      Object.keys(value).length !== 2 ||
-      typeof value.hex !== 'string' ||
-      !/^#[0-9a-fA-F]{6}$/.test(value.hex) ||
-      !Number.isFinite(value.alpha) ||
-      value.alpha < 0 ||
-      value.alpha > 1)
-  )
+  if (type === 'Color' && !isColor(value))
     throw Error('Expected Color with hex #RRGGBB and alpha from 0 to 1');
   if (type === 'Scalar' && !Number.isFinite(value)) throw Error('Expected finite Scalar');
   if (type === 'Vector2' && !isVector2(value)) throw Error('Expected Vector2');
@@ -3786,7 +3773,6 @@ export function evaluate(
         result = clone(run(n.reference.nodeId, referencePort(n.reference)));
         assertValue('Vector2', result);
       } else if (positionOutput) result = read('position');
-      else if (n.type === 'Color') result = read('value');
       else if (n.type === 'Vector Transform')
         result = transformVector(transformValues(n, read), read('vector'));
       else if (builtinNodeRegistry.get(n.type)) {
