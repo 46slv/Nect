@@ -239,6 +239,7 @@ try {
   await load(project);
   await copy('clipboard-layer');
   await activateCommand(page, 'new');
+  await page.locator('.new-project-dialog button[type="submit"]').click();
   const discardForNew = page.locator('dialog[open] button[value="discard"]');
   if (await discardForNew.isVisible()) await discardForNew.click();
   await page.waitForFunction(
