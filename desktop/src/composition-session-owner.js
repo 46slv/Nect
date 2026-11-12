@@ -9,6 +9,9 @@ import {
   assertNoLegacyCompositionPropertyReferencePromotion,
   assertNoLegacyCompositionPropertyDocumentPromotion,
   assertNoLegacyHandleReferencePromotion,
+  validateMacroProjectAdmission,
+  validateMacroProjectCandidate,
+  validateMacroProjectTransition,
 } from './composition-project-model.js';
 import { keyColorRecipeInitializationSlotIds } from './key-color-recipe-document.js';
 import { assertColorSlotUnused } from './color-slots.js';
@@ -25,6 +28,12 @@ import {
   reserveDanglingArtworkReferenceIds,
 } from './curve-point-reference.js';
 const PROJECT_HISTORY_TOKEN = Symbol('project history token');
+
+function macroVersionAdmitted(classify, project) {
+  const admitted = classify(project.schemaVersion);
+  if (typeof admitted !== 'boolean') throw Error('Invalid Macro admission classifier');
+  return admitted;
+}
 
 // A Project cannot retain a reference to a removed Layer. Explain the affected
 // source and consumer before either the inner Session or Project commits.
@@ -226,6 +235,7 @@ export class CompositionSessionOwner {
   #historyView = null;
   #prepared = null;
   #preparedCompositionSwitch = null;
+  #macroProjectAdmission;
 
   constructor(
     project,
@@ -245,6 +255,8 @@ export class CompositionSessionOwner {
       fonts = () => ({}),
       busy = () => false,
       onCommitted,
+      // Candidate-only classifier. Normal product construction does not pass it.
+      macroProjectAdmission = null,
     } = {},
   ) {
     if (
@@ -258,7 +270,11 @@ export class CompositionSessionOwner {
       typeof validateDocument !== 'function'
     )
       throw Error('Composition Session runtime adapters are required');
+    if (macroProjectAdmission !== null && typeof macroProjectAdmission !== 'function')
+      throw Error('Invalid Macro admission classifier');
     validateCompositionProject(project);
+    if (macroProjectAdmission && macroVersionAdmitted(macroProjectAdmission, project))
+      validateMacroProjectCandidate(project);
     this.#History = History;
     this.#CommandSession = CommandSession;
     this.#blankDocument = blankDocument;
@@ -275,6 +291,7 @@ export class CompositionSessionOwner {
     this.#fonts = fonts;
     this.#busy = busy;
     this.#onCommitted = onCommitted;
+    this.#macroProjectAdmission = macroProjectAdmission;
     this.#activeCompositionId = activeCompositionId ?? this.#history.doc.compositions[0].id;
     this.#session = this.#makeSession(this.#history.doc, this.#activeCompositionId);
     // Validate inactive Documents too; a broken tab must not remain hidden until
@@ -342,6 +359,46 @@ export class CompositionSessionOwner {
     }
   }
 
+  #assertMacroOwnerCurrent(session, compositionId, revision, before) {
+    if (
+      this.#session !== session ||
+      this.#activeCompositionId !== compositionId ||
+      this.#history.revision !== revision ||
+      this.#history.doc !== before
+    )
+      throw Error('STALE_REVISION: document changed');
+  }
+
+  #assertMacroProjectTransition(before, candidate, session, compositionId, revision) {
+    const classify = this.#macroProjectAdmission;
+    if (!classify) return;
+    const assertCurrent = () =>
+      this.#assertMacroOwnerCurrent(session, compositionId, revision, before);
+    const admitted = (project) => {
+      const result = macroVersionAdmitted(classify, project);
+      assertCurrent();
+      return result;
+    };
+    assertCurrent();
+    const previousAdmitted = admitted(before),
+      candidateAdmitted = admitted(candidate);
+    if (!previousAdmitted && !candidateAdmitted) return;
+    if (previousAdmitted && !candidateAdmitted) throw Error('Cannot remove Macro admission');
+    if (!previousAdmitted && Object.hasOwn(before, 'macroDefinitions'))
+      throw Error('Cannot replace opaque Macro definitions');
+    const retainedDefinitionSets = [];
+    for (const project of [...this.#history.past, ...this.#history.future])
+      if (admitted(project)) {
+        validateMacroProjectCandidate(project);
+        retainedDefinitionSets.push(project.macroDefinitions ?? []);
+        assertCurrent();
+      }
+    if (previousAdmitted)
+      validateMacroProjectTransition(before, candidate, { retainedDefinitionSets });
+    else validateMacroProjectAdmission(candidate, { retainedDefinitionSets });
+    assertCurrent();
+  }
+
   #compositionFor(project) {
     return project.compositions.some((entry) => entry.id === this.#activeCompositionId)
       ? this.#activeCompositionId
@@ -401,13 +458,22 @@ export class CompositionSessionOwner {
       beforeCandidateCommit: (before, candidate, preparedFonts = {}) => {
         assertNoRemovedLayerConsumers(before, candidate);
         assertProjectIdentityChangeSafe(this.#history.doc, compositionId, before, candidate);
+        const project = this.#history.doc,
+          revision = this.#history.revision;
         // Validate the whole projection before the inner Session commits;
         // a new identity or reference can affect an inactive Composition.
-        const next = this.#projectWithDocument(this.#history.doc, compositionId, candidate);
-        this.#assertProjectReferenceTransition(this.#history.doc, next, {
-          ...this.#fonts(),
-          ...preparedFonts,
-        });
+        const next = this.#projectWithDocument(project, compositionId, candidate);
+        this.#assertMacroProjectTransition(project, next, session, compositionId, revision);
+        this.#assertProjectReferenceTransition(
+          this.#macroProjectAdmission ? project : this.#history.doc,
+          next,
+          {
+            ...this.#fonts(),
+            ...preparedFonts,
+          },
+        );
+        if (this.#macroProjectAdmission)
+          this.#assertMacroOwnerCurrent(session, compositionId, revision, project);
       },
     });
     return session;
@@ -457,19 +523,26 @@ export class CompositionSessionOwner {
     const session = this.#session,
       revision = this.#history.revision,
       compositionId = this.#activeCompositionId,
+      before = this.#history.doc,
       assertClipboard = retainClipboard ? session.captureNodeClipboardFreshness?.() : null;
     const assertCurrent = () => {
-      if (!retainClipboard) return;
+      if (!retainClipboard && !this.#macroProjectAdmission) return;
       if (
         this.#session !== session ||
         this.#history.revision !== revision ||
-        this.#activeCompositionId !== compositionId
+        this.#activeCompositionId !== compositionId ||
+        (this.#macroProjectAdmission && this.#history.doc !== before)
       )
         throw Error('STALE_REVISION: document changed');
       assertClipboard?.();
     };
     validateCompositionProject(candidate);
-    this.#assertProjectReferenceTransition(this.#history.doc, candidate, this.#fonts());
+    this.#assertMacroProjectTransition(before, candidate, session, compositionId, revision);
+    this.#assertProjectReferenceTransition(
+      this.#macroProjectAdmission ? before : this.#history.doc,
+      candidate,
+      this.#fonts(),
+    );
     assertCurrent();
     if (!candidate.compositions.some((entry) => entry.id === activeCompositionId))
       throw Error('Unknown active Composition ID');
@@ -531,6 +604,12 @@ export class CompositionSessionOwner {
     if (!candidate)
       return { ...this.state, changed: false, projectRevision: this.#history.revision };
     validateCompositionProject(candidate);
+    if (this.#macroProjectAdmission) {
+      const admitted = macroVersionAdmitted(this.#macroProjectAdmission, candidate);
+      assertCurrent();
+      if (admitted) validateMacroProjectCandidate(candidate);
+      assertCurrent();
+    }
     const activeCompositionId = candidate.compositions.some(
       (entry) => entry.id === this.#activeCompositionId,
     )
@@ -789,14 +868,16 @@ export class CompositionSessionOwner {
     const revision = prepared.session.state.expectedRevision;
     try {
       const result = prepared.session.commitPrepared(prepared.innerToken);
-      if (prepared.layerClipboardSnapshot) this.#assertPrepared(token);
+      if (prepared.layerClipboardSnapshot || this.#macroProjectAdmission)
+        this.#assertPrepared(token);
       if (prepared.session.state.expectedRevision !== revision) {
         const candidate = this.#projectWithDocument(
           this.#history.doc,
           prepared.compositionId,
           prepared.session.snapshot(),
         );
-        if (prepared.layerClipboardSnapshot) this.#assertPrepared(token);
+        if (prepared.layerClipboardSnapshot || this.#macroProjectAdmission)
+          this.#assertPrepared(token);
         this.#applyProjectEdit((history) => {
           replaceRecord(history, candidate);
         });
@@ -808,7 +889,7 @@ export class CompositionSessionOwner {
     } catch (error) {
       if (
         prepared.session.state.expectedRevision !== revision &&
-        (!prepared.layerClipboardSnapshot ||
+        ((!prepared.layerClipboardSnapshot && !this.#macroProjectAdmission) ||
           (prepared.session === this.#session &&
             prepared.compositionId === this.#activeCompositionId &&
             prepared.projectRevision === this.#history.revision))
@@ -1078,6 +1159,7 @@ export class CompositionSessionOwner {
         session.gestureState?.kind === 'artwork-translate');
     const guardedTransfer =
       artworkMove ||
+      this.#macroProjectAdmission !== null ||
       [
         'paste-nodes',
         'paste-layer-snapshot',

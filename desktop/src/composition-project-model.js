@@ -572,16 +572,28 @@ export function validateMacroProjectCandidate(project) {
   return project;
 }
 
-export function validateMacroProjectTransition(before, candidate, options) {
+function retainedMacroDefinitions(options) {
   const retained =
     options && typeof options === 'object'
       ? Object.getOwnPropertyDescriptor(options, 'retainedDefinitionSets')
       : null;
   if (!retained || !Object.hasOwn(retained, 'value'))
     throw Error('Retained Macro definition sets must be supplied');
+  return retained.value;
+}
+
+export function validateMacroProjectAdmission(candidate, options) {
+  const retained = retainedMacroDefinitions(options);
+  validateMacroProjectCandidate(candidate);
+  assertMacroProjectDefinitionTransition({}, candidate, retained);
+  return candidate;
+}
+
+export function validateMacroProjectTransition(before, candidate, options) {
+  const retained = retainedMacroDefinitions(options);
   validateMacroProjectCandidate(before);
   validateMacroProjectCandidate(candidate);
-  assertMacroProjectDefinitionTransition(before, candidate, retained.value);
+  assertMacroProjectDefinitionTransition(before, candidate, retained);
   return candidate;
 }
 
