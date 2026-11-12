@@ -238,6 +238,39 @@ test('workspace refresh updates a changed target without rebuilding an unchanged
   assert.equal(view.querySelector('[data-effect-id]'), row);
 });
 
+test('entry selection captures its own target and refreshes registered entries on revision change', (t) => {
+  const win = new Window();
+  t.after(() => win.happyDOM.abort());
+  let revision = 1,
+    entries = [
+      { id: 'transform', label: 'Transform' },
+      { id: 'macro:one', label: 'Macro one' },
+    ];
+  const applied = [],
+    panel = createEffectsPanel({
+      document: win.document,
+      getTargetVersion: () => [revision],
+      getTarget: (id) => ({ label: 'Rectangle', snapshot: { id, revision } }),
+      getEntries: () => entries,
+      onApply: (id, snapshot) => applied.push({ id, snapshot }),
+    }),
+    view = panel.createView();
+  win.document.body.append(view);
+  view.querySelector('[data-effect-id="macro:one"]').click();
+  view.querySelector('[data-effects-apply]').click();
+  assert.deepEqual(applied[0], { id: 'macro:one', snapshot: { id: 'macro:one', revision: 1 } });
+  entries = [
+    { id: 'transform', label: 'Transform' },
+    { id: 'macro:two', label: 'Macro two' },
+  ];
+  revision++;
+  panel.refreshTarget();
+  assert.equal(view.querySelector('[data-effect-id="macro:one"]'), null);
+  view.querySelector('[data-effect-id="macro:two"]').click();
+  view.querySelector('[data-effects-apply]').click();
+  assert.deepEqual(applied[1], { id: 'macro:two', snapshot: { id: 'macro:two', revision: 2 } });
+});
+
 test('hidden or inert effects views cannot be activated through a retained control', (t) => {
   const f = fixture(t);
   const view = f.mount(),

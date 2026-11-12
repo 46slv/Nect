@@ -64,16 +64,20 @@ export function createEffectsPanel({
 
   function createView() {
     readFavorites();
-    let target = getTarget(),
-      snapshot = target?.snapshot,
-      reason = target?.reason,
-      targetVersion = getTargetVersion?.(),
+    const readEntries = () =>
+      getEntries().map((entry) => ({
+        id: entry.id,
+        label: entry.label,
+        aliases: [...(entry.aliases || [])],
+      }));
+    let entries = readEntries(),
+      target = null,
+      snapshot = null,
+      reason = null,
+      targetVersion,
+      targetSelectedId,
+      targetInitialized = false,
       visibleCount = 0;
-    const entries = getEntries().map((entry) => ({
-      id: entry.id,
-      label: entry.label,
-      aliases: [...(entry.aliases || [])],
-    }));
     const panel = document.createElement('section');
     panel.className = 'effects-panel';
     panel.setAttribute('aria-label', 'Effects');
@@ -127,22 +131,33 @@ export function createEffectsPanel({
       favorite.disabled = !entry || composing;
       favoriteStatus.textContent = favoriteError;
     }
-    function refreshTarget() {
-      if (!panel.isConnected || composing) return;
-      const version = getTargetVersion?.();
-      if (getTargetVersion && sameVersion(version, targetVersion)) return;
-      target = getTarget();
+    function captureTarget() {
+      target = getTarget(selectedId);
       snapshot = target?.snapshot;
       reason = target?.reason;
       targetVersion = getTargetVersion?.();
-      updateState();
+      targetSelectedId = selectedId;
+      targetInitialized = true;
     }
-    function refresh() {
+    function refreshTarget() {
+      if (!panel.isConnected || composing) return;
+      const version = getTargetVersion?.();
+      if (
+        getTargetVersion &&
+        sameVersion(version, targetVersion) &&
+        targetSelectedId === selectedId
+      )
+        return;
+      entries = readEntries();
+      refresh(true);
+    }
+    function refresh(forceTarget = false) {
       const visible = entries
         .filter(matches)
         .sort((a, b) => Number(favoriteIds.includes(b.id)) - Number(favoriteIds.includes(a.id)));
       visibleCount = visible.length;
       if (!visible.some((entry) => entry.id === selectedId)) selectedId = visible[0]?.id || null;
+      if (forceTarget || !targetInitialized || selectedId !== targetSelectedId) captureTarget();
       const existing = new Map([...list.children].map((row) => [row.dataset.effectId, row]));
       for (const [index, entry] of visible.entries()) {
         let row = existing.get(entry.id);
@@ -152,6 +167,7 @@ export function createEffectsPanel({
           row.dataset.effectId = entry.id;
           row.addEventListener('click', () => {
             selectedId = entry.id;
+            captureTarget();
             for (const button of list.querySelectorAll('[data-effect-id]'))
               button.setAttribute('aria-pressed', String(button.dataset.effectId === selectedId));
             updateState();
