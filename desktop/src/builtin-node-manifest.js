@@ -39,6 +39,8 @@ import { autoHandlesDeclaration } from './auto-handles-declaration.js';
 import { evaluateAutoHandles } from './auto-handles-binding.js';
 import { polarTransformDeclaration } from './polar-transform-declaration.js';
 import { evaluatePolarTransform } from './polar-transform-binding.js';
+import { smoothPathDeclaration } from './smooth-path-declaration.js';
+import { evaluateSmoothPath } from './smooth-path-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -99,5 +101,11 @@ export const builtinManifest = Object.freeze([
     { evaluate: evaluatePolarTransform },
     'Twist Points',
     'Angular Gradient Fill',
+  ),
+  entry(
+    smoothPathDeclaration,
+    { evaluate: evaluateSmoothPath },
+    'Vector Transform',
+    'Corner Round',
   ),
 ]);
