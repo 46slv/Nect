@@ -16,6 +16,7 @@ import {
 } from '../src/core.js';
 import { makeVariableFontAsset, parseFont } from '../src/fonts.js';
 import { createNodeVariableWorkerTransport } from '../cli/variable-font-node.js';
+import { migrateLegacyDocumentToCompositionProject } from '../src/composition-project-model.js';
 
 const exec = promisify(execFile);
 const cli = fileURLToPath(new URL('../cli/export.js', import.meta.url));
@@ -63,6 +64,25 @@ async function temp(t) {
   return dir;
 }
 const run = (input, output) => exec(process.execPath, [cli, input, output], { timeout: 15000 });
+
+test('Composition CLI retains variable-font preparation for an explicitly selected document', async (t) => {
+  const dir = await temp(t);
+  const variableDoc = scene({ wght: 900, wdth: 75 });
+  const project = migrateLegacyDocumentToCompositionProject(variableDoc);
+  project.compositions[0].id = 'variable-composition';
+  const other = migrateLegacyDocumentToCompositionProject(scene()).compositions[0];
+  other.id = 'static-composition';
+  project.compositions.unshift(other);
+  const input = path.join(dir, 'compositions.json');
+  const output = path.join(dir, 'selected.svg');
+  const text = JSON.stringify(project);
+  await fs.writeFile(input, text);
+  await exec(process.execPath, [cli, '--composition', 'variable-composition', input, output], {
+    timeout: 15000,
+  });
+  assert.equal(await fs.readFile(output, 'utf8'), await oracle(variableDoc));
+  assert.equal(await fs.readFile(input, 'utf8'), text);
+});
 
 test('cold CLI prepares real weight/width axes exactly and exits; repeated export is deterministic', async (t) => {
   const dir = await temp(t),
