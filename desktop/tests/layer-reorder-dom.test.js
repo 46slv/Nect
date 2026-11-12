@@ -308,7 +308,7 @@ test('Layer name drags follow visual order and retain transaction boundaries', a
     },
   );
   await t.test('Folder move does not blur or interrupt an active name composition', () => {
-    for (const direction of ['add', 'out']) {
+    for (const direction of ['add', 'out', 'order']) {
       const [a, b, c] = seed();
       win.nect.dispatch({
         ...win.nect.commandState,
@@ -316,7 +316,7 @@ test('Layer name drags follow visual order and retain transaction boundaries', a
         payload: {
           folderId: 'destination',
           name: 'Destination',
-          layerIds: direction === 'add' ? [a] : [a, b, c],
+          layerIds: direction === 'add' ? [a] : direction === 'order' ? [a, b] : [a, b, c],
         },
       });
       flush();
@@ -335,7 +335,11 @@ test('Layer name drags follow visual order and retain transaction boundaries', a
           pointerId: 3,
           button: 0,
         });
-      $(`[data-folder-${direction}="destination"]`).dispatchEvent(attempt);
+      const control =
+        direction === 'order'
+          ? '[data-folder-order="destination"][data-folder-direction="forward"]'
+          : `[data-folder-${direction}="destination"]`;
+      $(control).dispatchEvent(attempt);
       assert.equal(attempt.defaultPrevented, true, direction);
       assert.equal(document.activeElement, input, direction);
       assert.equal(input.value, 'Pending destination', direction);
