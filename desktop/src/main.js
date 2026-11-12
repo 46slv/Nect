@@ -1563,7 +1563,9 @@ const documents = new DocumentLifecycle({
   write: writeProject,
   release: releaseProject,
   choose: chooseUnsaved,
-  hasLifecycleDraft: () => !!variableAction,
+  hasLifecycleDraft: () =>
+    !!variableAction ||
+    !!(nameEdit && (nameEdit.composing || nameEdit.value !== nameEdit.original)),
   hasDraft: () =>
     !!(
       closeInputBlocked() ||

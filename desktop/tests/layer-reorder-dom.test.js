@@ -3,14 +3,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
-import { serialize } from '../src/core.js';
+import { blankDocument, serialize } from '../src/core.js';
 import { orderingDocument } from './fixtures/artwork-ordering.js';
 
 test('Layer name drags follow visual order and retain transaction boundaries', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
   let pending = [];
-  for (const key of ['window', 'document', 'HTMLElement']) globalThis[key] = win[key];
+  for (const key of ['window', 'document', 'HTMLElement', 'DOMParser']) globalThis[key] = win[key];
   globalThis.MutationObserver = win.MutationObserver;
   globalThis.requestAnimationFrame = (fn) => {
     pending.push(fn);
@@ -305,6 +305,88 @@ test('Layer name drags follow visual order and retain transaction boundaries', a
       move(b, c, 'above');
       assert.deepEqual(ids(), [a, c, b]);
       assert.equal(ui().past, past + 1);
+    },
+  );
+  await t.test(
+    'pending Open and SVG reads preserve changed Folder, Layer and Node name drafts',
+    async () => {
+      for (const [kind, inputId, changed] of [
+        ['folder', 'open-file', true],
+        ['folder', 'import-svg-file', true],
+        ['layer', 'open-file', true],
+        ['node', 'open-file', true],
+        ['folder', 'open-file', 'ime'],
+        ['folder', 'open-file', false],
+      ]) {
+        const [a] = seed();
+        if (kind === 'folder') {
+          win.nect.dispatch({
+            ...win.nect.commandState,
+            type: 'create-layer-folder',
+            payload: {
+              name: 'Folder',
+              layerIds: [],
+            },
+          });
+          flush();
+        }
+        const before = win.nect.projectSnapshot();
+        let finishRead;
+        const pendingRead = new Promise((resolve) => {
+          finishRead = resolve;
+        });
+        const input = document.querySelector(`#${inputId}`);
+        Object.defineProperty(input, 'files', {
+          configurable: true,
+          value: [{ size: 500, name: 'input', text: () => pendingRead }],
+        });
+        input.dispatchEvent(new win.Event('change', { bubbles: true }));
+        const title =
+          kind === 'folder'
+            ? $('[data-folder-name]')
+            : kind === 'layer'
+              ? $(`[data-select-layer="${a}"]`)
+              : $('[data-rename-node]');
+        title.focus();
+        key(title, 'F2');
+        const name = $('[data-rename-name]');
+        assert.ok(name, `${kind} rename opened`);
+        if (changed === 'ime') {
+          name.dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
+        } else if (changed) {
+          name.value = 'Uncommitted name';
+          name.dispatchEvent(new win.Event('input', { bubbles: true }));
+        }
+        assert.deepEqual(win.nect.projectSnapshot(), before);
+        const replacement = blankDocument();
+        replacement.name = 'Replacement';
+        finishRead(
+          inputId === 'open-file'
+            ? serialize(replacement)
+            : '<svg width="20" height="20"><rect width="20" height="20"/></svg>',
+        );
+        for (let i = 0; i < 30; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          flush();
+          if (
+            changed
+              ? /changed while reading/i.test($('.status .message').textContent)
+              : win.nect.document.name === 'Replacement'
+          )
+            break;
+        }
+        if (changed) {
+          assert.match($('.status .message').textContent, /changed while reading/i, kind);
+          assert.deepEqual(win.nect.projectSnapshot(), before, kind);
+          assert.equal(
+            $('[data-rename-name]').value,
+            changed === 'ime' ? 'Folder' : 'Uncommitted name',
+            kind,
+          );
+        } else {
+          assert.equal(win.nect.document.name, 'Replacement');
+        }
+      }
     },
   );
   await win.happyDOM.close();
