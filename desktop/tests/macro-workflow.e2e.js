@@ -95,13 +95,13 @@ try {
   await send('register-macro-definition', { definition: duplicateName });
   const reservedName = structuredClone(definition);
   reservedName.id = 'reserved-name-definition';
-  reservedName.name = 'Double · 1';
+  reservedName.name = 'Double  · 1';
   await send('register-macro-definition', { definition: reservedName });
   await page.locator('.artboard .shape').first().click();
   await page.getByRole('button', { name: 'Toggle Effects panel', exact: true }).click();
-  assert.equal(await page.getByRole('button', { name: 'Double · 1', exact: true }).count(), 1);
-  assert.equal(await page.getByRole('button', { name: 'Double · 2', exact: true }).count(), 1);
-  assert.equal(await page.getByRole('button', { name: 'Double · 3', exact: true }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: '1 · Double', exact: true }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: '2 · Double', exact: true }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: '3 · Double · 1', exact: true }).count(), 1);
   await page.locator(`[data-effect-id="macro.${definition.id}.${definition.revision}"]`).click();
   await page.locator('[data-effects-apply]').click();
   assert.equal(

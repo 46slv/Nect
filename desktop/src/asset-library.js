@@ -8,8 +8,12 @@ import { exportSVG } from './core.js';
 const browserRoots = new Map();
 // Browser directory access and its opaque IDs last only for this page session.
 const browserFavorites = new Set();
+const browserAssetFavorites = new Map();
 export const ASSET_FOLDER_FAVORITES_KEY = 'nect.asset-folder-favorites.v1';
+export const ASSET_ITEM_FAVORITES_KEY = 'nect.asset-item-favorites.v1';
 const MAX_FAVORITES = 128;
+const QUICK_SLOT_COUNT = 3;
+const METADATA_KEYS = ['author', 'source', 'license'];
 // Presentation only: root IDs still own registration, refresh and placement.
 const rootDisplayNumbers = new Map();
 let nextRootDisplayNumber = 1;
@@ -34,6 +38,63 @@ function relativePath(path) {
   )
     throw Error('Invalid library relative path');
   return path;
+}
+function assetFavoriteKey(rootId, path) {
+  return JSON.stringify([rootId, path]);
+}
+function validQuickSlot(slot) {
+  return (
+    slot &&
+    typeof slot === 'object' &&
+    !Array.isArray(slot) &&
+    Number.isInteger(slot.number) &&
+    slot.number >= 1 &&
+    slot.number <= QUICK_SLOT_COUNT &&
+    typeof slot.sha256 === 'string' &&
+    /^[a-f0-9]{64}$/.test(slot.sha256) &&
+    slot.metadata &&
+    typeof slot.metadata === 'object' &&
+    !Array.isArray(slot.metadata) &&
+    METADATA_KEYS.every(
+      (key) => typeof slot.metadata[key] === 'string' && slot.metadata[key].length <= 2048,
+    )
+  );
+}
+function copyAssetFavorite(entry) {
+  return {
+    rootId: entry.rootId,
+    relativePath: entry.relativePath,
+    ...(entry.slot
+      ? {
+          slot: {
+            number: entry.slot.number,
+            sha256: entry.slot.sha256,
+            metadata: Object.fromEntries(
+              METADATA_KEYS.map((key) => [key, entry.slot.metadata[key]]),
+            ),
+          },
+        }
+      : {}),
+  };
+}
+function validAssetFavorite(value) {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    typeof value.rootId !== 'string' ||
+    !value.rootId ||
+    value.rootId.length > 256 ||
+    /[\u0000-\u001f]/.test(value.rootId)
+  )
+    return false;
+  if (value.slot !== undefined && !validQuickSlot(value.slot)) return false;
+  try {
+    relativePath(value.relativePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 export async function svgAssetContent(contents) {
   if (typeof contents !== 'string' || new TextEncoder().encode(contents).length > MAX_FILE)
@@ -106,12 +167,17 @@ export function mountAssetLibrary({
     refreshSequence = 0,
     checkingRoots = true,
     favorites = [],
+    assetFavorites = [],
     favoriteStorage = null,
     favoriteStorageError = null,
     favoriteReadFailed = false,
+    assetFavoriteStorageError = null,
+    assetFavoriteReadFailed = false,
+    assetFavoritesVersion = 0,
     shown = 48,
     choiceSequence = 0;
   const failedRoots = new Set();
+  const failedAssets = new Set();
   if (desktop) {
     try {
       favoriteStorage = panel.ownerDocument.defaultView.localStorage;
@@ -131,14 +197,49 @@ export function mountAssetLibrary({
       favoriteReadFailed = true;
       favoriteStorageError = 'Quick access could not be loaded';
     }
-  } else favorites = [...browserFavorites];
+    try {
+      favoriteStorage ||= panel.ownerDocument.defaultView.localStorage;
+      const stored = favoriteStorage.getItem(ASSET_ITEM_FAVORITES_KEY);
+      const saved = stored === null ? [] : JSON.parse(stored);
+      if (
+        !Array.isArray(saved) ||
+        saved.length > MAX_FAVORITES ||
+        saved.some((entry) => !validAssetFavorite(entry)) ||
+        new Set(saved.map((entry) => assetFavoriteKey(entry.rootId, entry.relativePath))).size !==
+          saved.length ||
+        new Set(saved.filter((entry) => entry.slot).map((entry) => entry.slot.number)).size !==
+          saved.filter((entry) => entry.slot).length
+      )
+        throw Error('Invalid asset Quick access settings');
+      assetFavorites = saved.map(copyAssetFavorite);
+    } catch {
+      assetFavoriteReadFailed = true;
+      assetFavoriteStorageError = 'Asset Quick access could not be loaded';
+    }
+  } else {
+    favorites = [...browserFavorites];
+    assetFavorites = [...browserAssetFavorites.values()].map(copyAssetFavorite);
+  }
   const prepared = new Map();
   let dragTicket = null;
   const dragType = 'application/x-nect-library-ticket';
   let folderPickIntent = null;
-  panel.addEventListener('compositionstart', (event) => composingInputs.add(event.target), true);
+  let pointerSequence = 0;
+  let keyboardSequence = 0;
+  let assetFocusRequest = null;
+  let slotDraftKey = null;
+  let slotDraftValue = '';
+  panel.addEventListener(
+    'compositionstart',
+    (event) => {
+      keyboardSequence++;
+      composingInputs.add(event.target);
+    },
+    true,
+  );
   panel.addEventListener('compositionend', (event) => composingInputs.delete(event.target), true);
   function guardComposingTransition(event) {
+    if (event.type === 'pointerdown') pointerSequence++;
     if (canDeactivateAssetLibrary()) return;
     const target = event.target;
     if (
@@ -175,6 +276,34 @@ export function mountAssetLibrary({
     maxWidth: '100%',
     minWidth: '0',
     overflowX: 'auto',
+  });
+  const slots = element('div', undefined, { role: 'group', 'aria-label': 'Quick slots' });
+  Object.assign(slots.style, { display: 'flex', gap: '6px', minWidth: '0' });
+  slots.hidden = true;
+  const slotClearButtons = [];
+  const slotButtons = Array.from({ length: QUICK_SLOT_COUNT }, (_, index) => {
+    const group = element('div');
+    Object.assign(group.style, { display: 'flex', flex: '1 1 0', minWidth: '0' });
+    const button = element('button', String(index + 1), { 'data-quick-slot': String(index + 1) });
+    Object.assign(button.style, {
+      flex: '1 1 0',
+      minWidth: '0',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      padding: '2px 3px',
+      minHeight: '28px',
+    });
+    const clear = element('button', '×', {
+      'aria-label': `Clear slot ${index + 1}`,
+      title: `Clear slot ${index + 1}`,
+    });
+    Object.assign(clear.style, { flex: '0 0 20px', width: '20px', padding: '0' });
+    clear.hidden = true;
+    slotClearButtons.push(clear);
+    group.append(button, clear);
+    slots.append(group);
+    return button;
   });
   const search = element('input', undefined, {
     type: 'search',
@@ -213,10 +342,16 @@ export function mountAssetLibrary({
   const joinLabel = element('label', undefined, { class: 'asset-library-join' });
   const join = element('input', undefined, { type: 'checkbox' });
   joinLabel.append(join, document.createTextNode('Join before Out'));
+  const pinAsset = element('button', 'Pin asset', { 'aria-pressed': 'false' });
+  const slotSelect = element('select', undefined, { 'aria-label': 'Quick slot' });
+  slotSelect.append(element('option', 'No slot', { value: '' }));
+  for (let number = 1; number <= QUICK_SLOT_COUNT; number++)
+    slotSelect.append(element('option', `Slot ${number}`, { value: String(number) }));
+  const slotAssign = element('button', 'Assign slot');
   const place = element('button', 'Place in new layer', { 'data-asset-place-layer': '' });
   const graph = element('button', 'Add to this graph', { 'data-asset-place-graph': '' });
   const actions = element('div', undefined, { class: 'asset-library-actions' });
-  actions.append(place, graph, joinLabel);
+  actions.append(pinAsset, slotSelect, slotAssign, place, graph, joinLabel);
   detail.append(actions, metadata);
   detail.hidden = true;
   const picker = element('input', undefined, {
@@ -227,12 +362,80 @@ export function mountAssetLibrary({
     'data-asset-folder-input': '',
   });
   picker.hidden = true;
-  panel.append(header, folders, quick, filters, status, warnings, grid, more, detail, picker);
+  panel.append(
+    header,
+    folders,
+    slots,
+    quick,
+    filters,
+    status,
+    warnings,
+    grid,
+    more,
+    detail,
+    picker,
+  );
   document.body.append(panel);
+  const MutationObserver = panel.ownerDocument.defaultView.MutationObserver;
+  const visibilityWatches = new Set();
+  function hasDialogChange(records) {
+    return records.some((record) => {
+      if (record.type === 'attributes') return record.target.localName === 'dialog';
+      return [...record.addedNodes, ...record.removedNodes].some(
+        (node) =>
+          node.nodeType === 1 && (node.localName === 'dialog' || !!node.querySelector('dialog')),
+      );
+    });
+  }
+  function watchQuickSlotVisibility() {
+    let sequence = 0;
+    const panelObserver = new MutationObserver(() => sequence++);
+    const dialogObserver = new MutationObserver((records) => {
+      if (hasDialogChange(records)) sequence++;
+    });
+    panelObserver.observe(panel, { attributes: true, attributeFilter: ['hidden', 'inert'] });
+    dialogObserver.observe(panel.ownerDocument.documentElement, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+      attributeFilter: ['open'],
+    });
+    const watch = {
+      version() {
+        const panelChanges = panelObserver.takeRecords();
+        const dialogChanges = dialogObserver.takeRecords();
+        if (panelChanges.length || hasDialogChange(dialogChanges)) sequence++;
+        return sequence;
+      },
+      close() {
+        panelObserver.disconnect();
+        dialogObserver.disconnect();
+        visibilityWatches.delete(watch);
+      },
+    };
+    visibilityWatches.add(watch);
+    return watch;
+  }
+  function canUseQuickSlot() {
+    return (
+      alive &&
+      panel.isConnected &&
+      !panel.hidden &&
+      !panel.inert &&
+      !folderPickIntent &&
+      !dragTicket &&
+      canDeactivateAssetLibrary() &&
+      !panel.ownerDocument.querySelector('dialog[open]')
+    );
+  }
   function message(text, error = false) {
     // Automatic bootstrap/refresh must not erase a failed registration. A
     // subsequent explicit interaction clears it and can report its own state.
-    const persistent = [folderRegistrationError, favoriteStorageError].filter(Boolean);
+    const persistent = [
+      folderRegistrationError,
+      favoriteStorageError,
+      assetFavoriteStorageError,
+    ].filter(Boolean);
     if (persistent.length) {
       if (error && !persistent.includes(text)) persistent.push(text);
       text = persistent.join(' · ');
@@ -240,6 +443,12 @@ export function mountAssetLibrary({
     }
     status.textContent = text;
     status.dataset.error = String(error);
+  }
+  function currentMetadata() {
+    return Object.fromEntries(METADATA_KEYS.map((key) => [key, fields[key].value]));
+  }
+  function sameMetadata(left, right) {
+    return METADATA_KEYS.every((key) => left[key] === right[key]);
   }
   function buttons() {
     const choosingFolder = folderPickIntent !== null;
@@ -259,8 +468,75 @@ export function mountAssetLibrary({
     pin.disabled = blocked || favoriteReadFailed || !roots.some((root) => root.id === rootId);
     pin.textContent = favorites.includes(rootId) ? 'Unpin folder' : 'Pin folder';
     pin.setAttribute('aria-pressed', String(favorites.includes(rootId)));
+    const selectedRef =
+      selected && listing?.root?.id === rootId
+        ? { rootId, relativePath: selected.relativePath }
+        : null;
+    const assetKey = validAssetFavorite(selectedRef)
+      ? assetFavoriteKey(rootId, selected.relativePath)
+      : null;
+    const assetEntry =
+      assetKey === null
+        ? null
+        : assetFavorites.find(
+            (entry) => assetFavoriteKey(entry.rootId, entry.relativePath) === assetKey,
+          );
+    const assetPinned = !!assetEntry;
+    pinAsset.disabled =
+      blocked || assetFavoriteReadFailed || !assetKey || (!!selected?.error && !assetPinned);
+    pinAsset.textContent = assetPinned ? 'Unpin asset' : 'Pin asset';
+    pinAsset.setAttribute('aria-pressed', String(assetPinned));
+    if (slotDraftKey !== assetKey) {
+      slotDraftKey = assetKey;
+      slotDraftValue = assetEntry?.slot ? String(assetEntry.slot.number) : '';
+    }
+    slotSelect.value = slotDraftValue;
+    slotSelect.disabled = blocked || assetFavoriteReadFailed || !assetEntry;
+    const desiredSlot = slotDraftValue ? Number(slotDraftValue) : 0;
+    const currentSlot = assetEntry?.slot?.number || 0;
+    const occupied = assetFavorites.find((entry) => entry.slot?.number === desiredSlot);
+    const replacing = !!occupied && occupied !== assetEntry;
+    const unchanged =
+      desiredSlot === currentSlot &&
+      (!desiredSlot ||
+        (selected?.sha256 === assetEntry.slot.sha256 &&
+          sameMetadata(currentMetadata(), assetEntry.slot.metadata)));
+    slotAssign.disabled =
+      slotSelect.disabled ||
+      unchanged ||
+      (desiredSlot > 0 && (!!selected?.error || !/^[a-f0-9]{64}$/.test(selected?.sha256 || '')));
+    slotAssign.textContent = !desiredSlot
+      ? 'Clear slot'
+      : replacing
+        ? 'Replace slot'
+        : currentSlot && desiredSlot !== currentSlot
+          ? 'Move slot'
+          : currentSlot === desiredSlot
+            ? 'Update slot'
+            : 'Assign slot';
+    slots.hidden = assetFavorites.length === 0;
+    slots.style.display = slots.hidden ? 'none' : 'flex';
+    slotButtons.forEach((button, index) => {
+      const number = index + 1;
+      const entry = assetFavorites.find((item) => item.slot?.number === number);
+      const filename = entry?.relativePath.split('/').at(-1);
+      button.textContent = entry ? `${number} · ${filename}` : `${number} · —`;
+      button.setAttribute(
+        'aria-label',
+        entry ? `Place slot ${number}: ${filename}` : `Slot ${number} empty`,
+      );
+      button.title = entry ? `${entry.rootId} / ${entry.relativePath}` : `Slot ${number} empty`;
+      button.disabled = blocked || assetFavoriteReadFailed || !entry;
+      const clear = slotClearButtons[index];
+      clear.hidden = !entry;
+      clear.style.display = entry ? '' : 'none';
+      clear.disabled = blocked || assetFavoriteReadFailed || !entry;
+    });
     for (const button of quick.querySelectorAll('button')) {
-      button.disabled = blocked || (button.hasAttribute('data-quick-remove') && favoriteReadFailed);
+      button.disabled =
+        blocked ||
+        (button.hasAttribute('data-quick-remove') && favoriteReadFailed) ||
+        (button.hasAttribute('data-quick-remove-asset') && assetFavoriteReadFailed);
       if (button.hasAttribute('data-quick-open')) {
         const active = button.dataset.quickOpen === rootId;
         button.setAttribute('aria-pressed', String(active));
@@ -268,11 +544,18 @@ export function mountAssetLibrary({
         button.style.backgroundColor = active ? '#e8f1fa' : '';
         button.style.boxShadow = active ? 'inset 0 0 0 1px #326aa2' : '';
       }
+      if (button.hasAttribute('data-quick-asset')) {
+        const active = button.dataset.quickAsset === assetKey;
+        button.setAttribute('aria-pressed', String(active));
+        button.style.borderColor = active ? '#326aa2' : '';
+        button.style.backgroundColor = active ? '#e8f1fa' : '';
+      }
     }
   }
   function closePanel() {
     if (!alive) return;
     alive = false;
+    for (const watch of visibilityWatches) watch.close();
     epoch++;
     panel.remove();
     mounted = null;
@@ -288,6 +571,7 @@ export function mountAssetLibrary({
   }
   closeMounted = closePanel;
   function keydown(e) {
+    keyboardSequence++;
     if (!canDeactivateAssetLibrary()) {
       if (e.key === 'Tab' && !e.defaultPrevented) {
         e.preventDefault();
@@ -314,11 +598,13 @@ export function mountAssetLibrary({
   function drawFavorites() {
     if (!alive) return;
     const focused = panel.ownerDocument.activeElement;
-    const focusedId = focused?.dataset?.quickOpen || focused?.dataset?.quickRemove;
-    const focusedAction = focused?.hasAttribute?.('data-quick-open') ? 'quickOpen' : 'quickRemove';
+    const focusedAction = ['quickOpen', 'quickRemove', 'quickAsset', 'quickRemoveAsset'].find(
+      (action) => focused?.dataset?.[action] !== undefined,
+    );
+    const focusedId = focusedAction && focused.dataset[focusedAction];
     quick.replaceChildren();
-    quick.style.display = favorites.length ? 'flex' : 'none';
-    if (favorites.length) {
+    quick.style.display = favorites.length || assetFavorites.length ? 'flex' : 'none';
+    if (favorites.length || assetFavorites.length) {
       const label = element('span', 'Pinned');
       label.style.whiteSpace = 'nowrap';
       quick.append(label);
@@ -380,8 +666,54 @@ export function mountAssetLibrary({
       };
       quick.append(openButton);
     }
+    for (const [index, entry] of assetFavorites.entries()) {
+      const key = assetFavoriteKey(entry.rootId, entry.relativePath);
+      const root = roots.find((item) => item.id === entry.rootId);
+      const option = [...rootSelect.options].find((item) => item.value === entry.rootId);
+      const context = `${root ? option?.textContent || root.name : entry.rootId} / ${entry.relativePath}`;
+      const filename = entry.relativePath.split('/').at(-1);
+      const label = `${assetFavorites.length > 1 ? `${index + 1} · ` : ''}${filename}`;
+      if (!root || failedRoots.has(entry.rootId) || failedAssets.has(key)) {
+        const state = !root && checkingRoots ? 'Checking' : 'Unavailable';
+        const unpin = element('button', `${state} ${label} ×`, {
+          'data-quick-remove-asset': key,
+          'aria-label': `Remove ${state} ${context} from Quick access`,
+          title: `Remove ${state} ${context} from Quick access`,
+        });
+        Object.assign(unpin.style, {
+          flex: '0 0 auto',
+          maxWidth: 'min(13rem, calc(100% - 50px))',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        });
+        unpin.onclick = () => changeAssetFavorites(assetFavorites.filter((item) => item !== entry));
+        quick.append(unpin);
+        continue;
+      }
+      const openButton = element('button', label, {
+        'data-quick-asset': key,
+        'aria-label': `Open ${context}`,
+        'aria-pressed': 'false',
+        title: context,
+      });
+      Object.assign(openButton.style, {
+        flex: '0 0 auto',
+        maxWidth: '13rem',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      });
+      openButton.onclick = () =>
+        void openAssetFavorite(entry, panel.ownerDocument.activeElement === openButton);
+      quick.append(openButton);
+    }
     buttons();
-    if (focusedId) {
+    const focusInterrupted =
+      assetFocusRequest !== null &&
+      assetFocusRequest.key === focusedId &&
+      assetFocusRequest.pointerAtStart !== pointerSequence;
+    if (focusedId && !focusInterrupted) {
       const replacement = [...quick.querySelectorAll('button')].find(
         (button) => button.dataset[focusedAction] === focusedId && !button.disabled,
       );
@@ -412,6 +744,122 @@ export function mountAssetLibrary({
     drawFavorites();
     message('Quick access updated');
   }
+  function changeAssetFavorites(next) {
+    if (!alive || busy || folderPickIntent || assetFavoriteReadFailed) return false;
+    if (next.length > MAX_FAVORITES) {
+      message('Asset Quick access is full', true);
+      return false;
+    }
+    if (next.some((entry) => !validAssetFavorite(entry))) {
+      message('Asset cannot be pinned', true);
+      return false;
+    }
+    const identities = next.map((entry) => assetFavoriteKey(entry.rootId, entry.relativePath));
+    const assignedSlots = next.filter((entry) => entry.slot).map((entry) => entry.slot.number);
+    if (
+      new Set(identities).size !== identities.length ||
+      new Set(assignedSlots).size !== assignedSlots.length
+    ) {
+      message('Asset cannot be pinned', true);
+      return false;
+    }
+    try {
+      if (desktop) favoriteStorage.setItem(ASSET_ITEM_FAVORITES_KEY, JSON.stringify(next));
+      else {
+        browserAssetFavorites.clear();
+        for (const entry of next)
+          browserAssetFavorites.set(
+            assetFavoriteKey(entry.rootId, entry.relativePath),
+            copyAssetFavorite(entry),
+          );
+      }
+    } catch {
+      assetFavoriteStorageError = 'Asset Quick access could not be saved';
+      message(assetFavoriteStorageError, true);
+      return false;
+    }
+    assetFavorites = next.map(copyAssetFavorite);
+    assetFavoritesVersion++;
+    slotDraftKey = null;
+    assetFavoriteStorageError = null;
+    drawFavorites();
+    message('Quick access updated');
+    return true;
+  }
+  slotSelect.onchange = () => {
+    if (
+      !canUseQuickSlot() ||
+      slotSelect.disabled ||
+      !['', '1', '2', '3'].includes(slotSelect.value)
+    ) {
+      slotSelect.value = slotDraftValue;
+      return;
+    }
+    slotDraftValue = slotSelect.value;
+    buttons();
+  };
+  slotClearButtons.forEach((button, index) => {
+    button.onclick = () => {
+      if (button.disabled || busy || !canUseQuickSlot()) return;
+      const number = index + 1;
+      if (!assetFavorites.some((entry) => entry.slot?.number === number)) return;
+      const hadFocus = panel.ownerDocument.activeElement === button;
+      const changed = changeAssetFavorites(
+        assetFavorites.map((entry) => {
+          if (entry.slot?.number !== number) return entry;
+          const { slot, ...favorite } = entry;
+          return favorite;
+        }),
+      );
+      const active = panel.ownerDocument.activeElement;
+      if (changed && hadFocus && (active === button || active === panel.ownerDocument.body))
+        (rootSelect.disabled ? add : rootSelect).focus({ preventScroll: true });
+    };
+  });
+  for (const field of Object.values(fields)) field.addEventListener('input', buttons);
+  slotAssign.onclick = () => {
+    if (!canUseQuickSlot() || slotAssign.disabled || !selected || !listing) return;
+    const key = assetFavoriteKey(listing.root.id, selected.relativePath);
+    const selectedEntry = assetFavorites.find(
+      (entry) => assetFavoriteKey(entry.rootId, entry.relativePath) === key,
+    );
+    if (!selectedEntry || rootSelect.value !== selectedEntry.rootId) return;
+    const number = slotDraftValue ? Number(slotDraftValue) : 0;
+    const slot = number
+      ? {
+          number,
+          sha256:
+            selectedEntry.slot && selectedEntry.slot.number !== number
+              ? selectedEntry.slot.sha256
+              : selected.sha256,
+          metadata: currentMetadata(),
+        }
+      : null;
+    if (slot && (selected.error || !validQuickSlot(slot))) return;
+    changeAssetFavorites(
+      assetFavorites.map((entry) => {
+        const isSelected = assetFavoriteKey(entry.rootId, entry.relativePath) === key;
+        if (!isSelected && (!number || entry.slot?.number !== number)) return entry;
+        const { slot: previousSlot, ...favorite } = entry;
+        return isSelected && slot ? { ...favorite, slot } : favorite;
+      }),
+    );
+  };
+  pinAsset.onclick = () => {
+    if (!alive || busy || folderPickIntent || !selected || !listing) return;
+    const entry = { rootId: listing.root.id, relativePath: selected.relativePath };
+    if (!validAssetFavorite(entry) || rootSelect.value !== entry.rootId) return;
+    const key = assetFavoriteKey(entry.rootId, entry.relativePath);
+    const pinned = assetFavorites.some(
+      (item) => assetFavoriteKey(item.rootId, item.relativePath) === key,
+    );
+    if (selected.error && !pinned) return;
+    changeAssetFavorites(
+      pinned
+        ? assetFavorites.filter((item) => assetFavoriteKey(item.rootId, item.relativePath) !== key)
+        : [...assetFavorites, entry],
+    );
+  };
   pin.onclick = () => {
     if (!alive || busy || folderPickIntent) return;
     const id = rootSelect.value;
@@ -482,7 +930,10 @@ export function mountAssetLibrary({
     const value = await prepare(item);
     if (!alive || token !== epoch || choice !== choiceSequence) return;
     selected = { ...item, ...value };
-    for (const field of Object.values(fields)) field.value = '';
+    const assigned = assetFavorites.find(
+      (entry) => entry.rootId === listing?.root?.id && entry.relativePath === item.relativePath,
+    )?.slot?.metadata;
+    for (const key of METADATA_KEYS) fields[key].value = assigned?.[key] ?? '';
     detail.hidden = false;
     name.textContent = item.relativePath;
     location.textContent = value.sourceLocation || '';
@@ -585,6 +1036,10 @@ export function mountAssetLibrary({
   }
   function acceptListing(value) {
     listing = value;
+    const presentPaths = new Set(listing.items.map((item) => item.relativePath));
+    for (const entry of assetFavorites)
+      if (entry.rootId === listing.root.id && presentPaths.has(entry.relativePath))
+        failedAssets.delete(assetFavoriteKey(entry.rootId, entry.relativePath));
     warnings.replaceChildren(element('summary', `Folder warnings (${listing.warnings.length})`));
     for (const warning of listing.warnings) warnings.append(element('div', warning));
     warnings.hidden = listing.warnings.length === 0;
@@ -660,6 +1115,56 @@ export function mountAssetLibrary({
         searchDuringRefresh = false;
         drawFavorites();
       }
+    }
+  }
+  async function openAssetFavorite(entry, restoreFocus) {
+    if (!alive || busy || folderPickIntent || !roots.some((root) => root.id === entry.rootId))
+      return;
+    const key = assetFavoriteKey(entry.rootId, entry.relativePath);
+    if (!assetFavorites.some((item) => assetFavoriteKey(item.rootId, item.relativePath) === key))
+      return;
+    folderRegistrationError = null;
+    rootSelect.value = entry.rootId;
+    const request = refreshSequence + 1;
+    const pointerAtStart = pointerSequence;
+    const focusRequest = { key, pointerAtStart };
+    assetFocusRequest = focusRequest;
+    try {
+      await refreshRoot();
+      if (
+        !alive ||
+        request !== refreshSequence ||
+        currentRootId !== entry.rootId ||
+        listing?.root?.id !== entry.rootId
+      )
+        return;
+      const item = listing.items.find((value) => value.relativePath === entry.relativePath);
+      if (!item) {
+        failedAssets.add(key);
+        drawFavorites();
+        message('Asset unavailable; refresh the folder or remove it from Quick access', true);
+        return;
+      }
+      failedAssets.delete(key);
+      search.value = entry.relativePath;
+      hierarchy.value = '';
+      shown = 48;
+      drawItems();
+      await choose(item, epoch);
+    } finally {
+      if (
+        restoreFocus &&
+        alive &&
+        request === refreshSequence &&
+        pointerAtStart === pointerSequence &&
+        panel.ownerDocument.activeElement === panel.ownerDocument.body
+      ) {
+        const replacement = [...quick.querySelectorAll('button')].find(
+          (button) => button.dataset.quickAsset === key || button.dataset.quickRemoveAsset === key,
+        );
+        if (replacement && !replacement.disabled) replacement.focus({ preventScroll: true });
+      }
+      if (assetFocusRequest === focusRequest) assetFocusRequest = null;
     }
   }
   function beginBrowserFolderPick(intent) {
@@ -865,12 +1370,115 @@ export function mountAssetLibrary({
   }
   document.addEventListener('dragover', dragover);
   document.addEventListener('drop', drop);
+  async function placeQuickSlot(number, restoreFocus) {
+    if (busy || !canUseQuickSlot()) return;
+    const entry = assetFavorites.find((item) => item.slot?.number === number);
+    if (!entry) return;
+    if (!roots.some((root) => root.id === entry.rootId)) {
+      message('Folder unavailable', true);
+      return;
+    }
+    const key = assetFavoriteKey(entry.rootId, entry.relativePath);
+    const expectedVersion = assetFavoritesVersion;
+    const pointerAtStart = pointerSequence;
+    const keyboardAtStart = keyboardSequence;
+    const epochAtStart = epoch;
+    const refreshAtStart = refreshSequence;
+    const visibility = watchQuickSlotVisibility();
+    const visibilityAtStart = visibility.version();
+    let request;
+    try {
+      request = capture();
+    } catch (error) {
+      visibility.close();
+      if (alive) message(String(error.message || error), true);
+      return;
+    }
+    if (
+      busy ||
+      !canUseQuickSlot() ||
+      expectedVersion !== assetFavoritesVersion ||
+      pointerAtStart !== pointerSequence ||
+      keyboardAtStart !== keyboardSequence ||
+      epochAtStart !== epoch ||
+      refreshAtStart !== refreshSequence ||
+      visibilityAtStart !== visibility.version()
+    ) {
+      visibility.close();
+      return;
+    }
+    const refreshRequest = refreshAtStart + 1;
+    const stillCurrent = () => {
+      const current = assetFavorites.find(
+        (item) => assetFavoriteKey(item.rootId, item.relativePath) === key,
+      );
+      return (
+        canUseQuickSlot() &&
+        expectedVersion === assetFavoritesVersion &&
+        pointerAtStart === pointerSequence &&
+        keyboardAtStart === keyboardSequence &&
+        visibilityAtStart === visibility.version() &&
+        refreshRequest === refreshSequence &&
+        current?.slot?.number === number &&
+        current.slot.sha256 === entry.slot.sha256
+      );
+    };
+    try {
+      rootSelect.value = entry.rootId;
+      await refreshRoot();
+      if (!stillCurrent() || listing?.root?.id !== entry.rootId) return;
+      const generation = listing.generation;
+      const item = listing.items.find((value) => value.relativePath === entry.relativePath);
+      if (!item) {
+        failedAssets.add(key);
+        drawFavorites();
+        message('Asset unavailable; refresh the folder or remove it from Quick access', true);
+        return;
+      }
+      const value = await prepare(item);
+      if (!stillCurrent() || listing?.generation !== generation) return;
+      if (value.error) {
+        message(value.error, true);
+        return;
+      }
+      if (value.sha256 !== entry.slot.sha256) {
+        message('Asset changed; update its slot', true);
+        return;
+      }
+      const ticket = {
+        item: { ...item, ...value },
+        request,
+        epoch,
+        metadata: { ...entry.slot.metadata },
+        validate: () => stillCurrent() && listing?.generation === generation,
+      };
+      await placeAsset('layer', {}, ticket);
+    } finally {
+      const visibilityUnchanged = visibilityAtStart === visibility.version();
+      visibility.close();
+      const button = slotButtons[number - 1];
+      if (
+        restoreFocus &&
+        canUseQuickSlot() &&
+        visibilityUnchanged &&
+        pointerAtStart === pointerSequence &&
+        keyboardAtStart === keyboardSequence &&
+        panel.ownerDocument.activeElement === panel.ownerDocument.body &&
+        !button.disabled
+      )
+        button.focus({ preventScroll: true });
+    }
+  }
+  slotButtons.forEach((button, index) => {
+    button.onclick = () =>
+      void placeQuickSlot(index + 1, panel.ownerDocument.activeElement === button);
+  });
   async function placeAsset(route, placement = {}, ticket = null) {
     const chosen = ticket?.item || selected;
-    if (!chosen || chosen.error || busy) return;
+    if (!chosen || chosen.error || busy || (ticket?.validate && !ticket.validate())) return;
     const item = chosen,
       root = listing.root,
-      request = ticket?.request || capture(),
+      request = ticket ? ticket.request : capture(),
       token = ticket?.epoch ?? epoch;
     busy = true;
     buttons();
@@ -880,7 +1488,7 @@ export function mountAssetLibrary({
       // ticket and compare content, then guard the original Session envelope.
       const opened = await open(item);
       const value = await prepareContent(opened, item.relativePath);
-      if (!alive || token !== epoch) return;
+      if (!alive || token !== epoch || (ticket?.validate && !ticket.validate())) return;
       if (value.sha256 !== item.sha256) throw Error('Asset changed; refresh the library folder');
       const provenance = {
         version: 1,

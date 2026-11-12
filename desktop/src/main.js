@@ -1211,28 +1211,13 @@ const effectsPanel = createEffectsPanel({
       ...(history.doc.schemaVersion >= MACRO_SCHEMA_VERSION
         ? history.doc.macroDefinitions || []
         : []
-      ).map((definition) => ({
+      ).map((definition, index) => ({
         id: macroEffectId(definition),
-        label: definition.name,
-        aliases: [],
+        label: `${index + 1} · ${definition.name}`,
+        aliases: [definition.name],
       })),
     ];
-    const key = (label) => label.trim().normalize('NFKC').toLowerCase(),
-      totals = new Map(),
-      ordinals = new Map(),
-      reserved = new Set(entries.map((item) => key(item.label)));
-    for (const item of entries) totals.set(key(item.label), (totals.get(key(item.label)) || 0) + 1);
-    return entries.map((item) => {
-      const name = key(item.label);
-      if (totals.get(name) <= 1) return item;
-      let ordinal = ordinals.get(name) || 0,
-        label;
-      do label = `${item.label} · ${++ordinal}`;
-      while (reserved.has(key(label)));
-      ordinals.set(name, ordinal);
-      reserved.add(key(label));
-      return { ...item, label, aliases: [...item.aliases, item.label] };
-    });
+    return entries;
   },
   onApply: applyArtworkEffect,
   onError: (error) => notify(error.message, true),

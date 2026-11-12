@@ -9,9 +9,12 @@ globalThis.document = win.document;
 globalThis.isTauri = true;
 let handler;
 mockIPC((command, payload) => handler(command, payload));
-const { mountAssetLibrary, closeAssetLibrary, ASSET_FOLDER_FAVORITES_KEY } = await import(
-  '../src/asset-library.js'
-);
+const {
+  mountAssetLibrary,
+  closeAssetLibrary,
+  ASSET_FOLDER_FAVORITES_KEY,
+  ASSET_ITEM_FAVORITES_KEY,
+} = await import('../src/asset-library.js');
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 async function waitFor(predicate) {
   for (let i = 0; i < 50 && !predicate(); i++) await tick();
@@ -29,7 +32,7 @@ const a = { id: 'root-a', name: 'assets', path: 'C:\\A\\assets' };
 const b = { id: 'root-b', name: 'assets', path: 'C:\\B\\assets' };
 const replacement = { id: 'root-new', name: 'assets', path: 'C:\\A\\assets' };
 const listing = (root) => ({ root, generation: 'test', items: [], warnings: [] });
-function fixture(t, initial = []) {
+function fixture(t, initial = [], overrides = {}) {
   const data = new Map([[ASSET_FOLDER_FAVORITES_KEY, JSON.stringify(initial)]]);
   let failRead = false;
   let failWrite = false;
@@ -47,20 +50,22 @@ function fixture(t, initial = []) {
   let roots = [a, b];
   let listRoots = () => roots;
   let refresh = (id) => listing(roots.find((root) => root.id === id));
+  let removeRoot = (id) => {
+    roots = roots.filter((root) => root.id !== id);
+    return roots;
+  };
   const calls = [];
   handler = (command, payload) => {
     calls.push({ command, payload });
     if (command === 'list_asset_folders') return listRoots();
     if (command === 'refresh_asset_folder') return refresh(payload.rootId);
-    if (command === 'remove_asset_folder') {
-      roots = roots.filter((root) => root.id !== payload.rootId);
-      return roots;
-    }
+    if (command === 'remove_asset_folder') return removeRoot(payload.rootId);
     throw Error(`Unexpected IPC ${command}`);
   };
   const options = {
     capture: () => assert.fail('folder preferences must not capture document state'),
     insert: () => assert.fail('folder preferences must not insert artwork'),
+    ...overrides,
   };
   const mount = () => {
     const panel = mountAssetLibrary(options);
@@ -96,6 +101,9 @@ function fixture(t, initial = []) {
     setRefresh(value) {
       refresh = value;
     },
+    setRemove(value) {
+      removeRoot = value;
+    },
     failRead(value) {
       failRead = value;
     },
@@ -114,6 +122,156 @@ function choose(view, id) {
   view.root.value = id;
   view.root.dispatchEvent(new win.Event('change', { bubbles: true }));
 }
+
+const validSlot = {
+  number: 1,
+  sha256: 'a'.repeat(64),
+  metadata: { author: '', source: '', license: '' },
+};
+for (const [label, stored] of [
+  ['malformed', '{'],
+  ['unsafe path', JSON.stringify([{ rootId: 'root-a', relativePath: '../outside.svg' }])],
+  [
+    'duplicate',
+    JSON.stringify([
+      { rootId: 'root-a', relativePath: 'same.svg' },
+      { rootId: 'root-a', relativePath: 'same.svg' },
+    ]),
+  ],
+  [
+    'duplicate slot',
+    JSON.stringify([
+      { rootId: 'root-a', relativePath: 'a.svg', slot: validSlot },
+      { rootId: 'root-b', relativePath: 'b.svg', slot: validSlot },
+    ]),
+  ],
+  [
+    'invalid slot hash',
+    JSON.stringify([
+      { rootId: 'root-a', relativePath: 'a.svg', slot: { ...validSlot, sha256: 'bad' } },
+    ]),
+  ],
+]) {
+  test(`invalid ${label} asset favorites are preserved without blocking folder pins`, async (t) => {
+    const f = fixture(t);
+    f.data.set(ASSET_ITEM_FAVORITES_KEY, stored);
+    const view = f.mount();
+    await ready(view);
+    assert.match(view.status.textContent, /Asset Quick access could not be loaded/);
+    view.pin().click();
+    assert.deepEqual(f.saved(), ['root-a']);
+    assert.equal(f.data.get(ASSET_ITEM_FAVORITES_KEY), stored);
+  });
+}
+
+test('a pointer transition during asset refresh does not restore a stale focused chip', async (t) => {
+  const f = fixture(t);
+  f.data.set(
+    ASSET_ITEM_FAVORITES_KEY,
+    JSON.stringify([{ rootId: 'root-a', relativePath: 'same.svg' }]),
+  );
+  const view = f.mount();
+  await ready(view);
+  const pending = deferred();
+  f.setRefresh(() => pending.promise);
+  const chip = view.panel.querySelector('[data-quick-asset]');
+  chip.focus();
+  assert.equal(win.document.activeElement, chip);
+  chip.click();
+  await waitFor(() => view.root.disabled);
+
+  // Chromium may retain a disabled chip as active until a later focus step.
+  const originalActive = Object.getOwnPropertyDescriptor(win.document, 'activeElement');
+  const originalFocus = win.HTMLElement.prototype.focus;
+  const restored = [];
+  Object.defineProperty(win.document, 'activeElement', { configurable: true, get: () => chip });
+  win.HTMLElement.prototype.focus = function (...args) {
+    restored.push(this);
+    return originalFocus.apply(this, args);
+  };
+  try {
+    win.document.body.dispatchEvent(new win.Event('pointerdown', { bubbles: true }));
+    pending.resolve(listing(a));
+    await waitFor(() => !view.root.disabled);
+    await tick();
+    assert.equal(restored.length, 0);
+  } finally {
+    win.HTMLElement.prototype.focus = originalFocus;
+    if (originalActive) Object.defineProperty(win.document, 'activeElement', originalActive);
+    else delete win.document.activeElement;
+  }
+});
+
+test('slot reassignment during destination capture cannot start an old placement', async (t) => {
+  let view;
+  const f = fixture(t, [], {
+    capture() {
+      view.panel.querySelector('[aria-label="Clear slot 1"]').click();
+      return {};
+    },
+  });
+  f.data.set(
+    ASSET_ITEM_FAVORITES_KEY,
+    JSON.stringify([{ rootId: 'root-a', relativePath: 'same.svg', slot: validSlot }]),
+  );
+  view = f.mount();
+  await ready(view);
+  const refreshes = () => f.calls.filter((call) => call.command === 'refresh_asset_folder').length;
+  const before = refreshes();
+  view.panel.querySelector('[data-quick-slot="1"]').click();
+  await tick();
+  assert.equal(refreshes(), before);
+  assert.equal(JSON.parse(f.data.get(ASSET_ITEM_FAVORITES_KEY))[0].slot, undefined);
+});
+
+test('a panel hidden and shown during destination capture cancels the slot action', async (t) => {
+  let view;
+  const f = fixture(t, [], {
+    capture() {
+      view.panel.hidden = true;
+      view.panel.hidden = false;
+      return {};
+    },
+  });
+  f.data.set(
+    ASSET_ITEM_FAVORITES_KEY,
+    JSON.stringify([{ rootId: 'root-a', relativePath: 'same.svg', slot: validSlot }]),
+  );
+  view = f.mount();
+  await ready(view);
+  const refreshes = () => f.calls.filter((call) => call.command === 'refresh_asset_folder').length;
+  const before = refreshes();
+  view.panel.querySelector('[data-quick-slot="1"]').click();
+  await tick();
+  assert.equal(refreshes(), before);
+});
+
+test('a folder removal started during destination capture prevents an old slot refresh', async (t) => {
+  let view;
+  const f = fixture(t, [], {
+    capture() {
+      [...view.panel.querySelectorAll('button')]
+        .find((button) => button.textContent === 'Remove')
+        .click();
+      return {};
+    },
+  });
+  f.data.set(
+    ASSET_ITEM_FAVORITES_KEY,
+    JSON.stringify([{ rootId: 'root-a', relativePath: 'same.svg', slot: validSlot }]),
+  );
+  view = f.mount();
+  await ready(view);
+  const pending = deferred();
+  f.setRemove(() => pending.promise);
+  const refreshes = () => f.calls.filter((call) => call.command === 'refresh_asset_folder').length;
+  const before = refreshes();
+  view.panel.querySelector('[data-quick-slot="1"]').click();
+  await tick();
+  assert.equal(refreshes(), before);
+  pending.resolve([b]);
+  await waitFor(() => !view.root.disabled);
+});
 
 test('native favorites survive remount, use exact IDs, and remove stale IDs without retargeting', async (t) => {
   const f = fixture(t);

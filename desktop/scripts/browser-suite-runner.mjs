@@ -148,6 +148,7 @@ export const browserTestFiles = Object.freeze([
   'tests/node-foundation-convert-to-path.e2e.js',
   'tests/effects-panel.e2e.js',
   'tests/asset-folder-favorites.e2e.js',
+  'tests/node-foundation-fill.e2e.js',
   'tests/macro-workflow.e2e.js',
 ]);
 

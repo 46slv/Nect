@@ -38,8 +38,8 @@ or extended Transform inputs are not captured by this first slice.
 
 The Effects drawer lists the Project's registered definitions by stable ID and
 revision. Applying one to a supported Rectangle adds a single Macro instance;
-the Inspector edits or resets its published Scalar values. Equal display names
-receive temporary list numbers without changing the underlying identity.
+the Inspector edits or resets its published Scalar values. List numbers distinguish
+entries without changing their stored names or underlying identities.
 
 The Session can insert a registered, revision-pinned two-Transform Macro into a
 single `Rectangle → Transform → Fill → Output` route and edit its published Scalar
