@@ -271,6 +271,7 @@ export class CompositionSessionOwner {
   #historyView = null;
   #prepared = null;
   #preparingHistory = null;
+  #prepareSequence = 0;
   #preparedCompositionSwitch = null;
   #macroProjectAdmission;
 
@@ -850,6 +851,7 @@ export class CompositionSessionOwner {
       compositionId: this.#activeCompositionId,
       prepared: this.#prepared,
       preparedSwitch: this.#preparedCompositionSwitch,
+      sequence: this.#prepareSequence,
       bridgeEpoch: bridge.preparationEpoch?.(),
     };
     options = captureVariablePreparationOptions(options);
@@ -861,7 +863,8 @@ export class CompositionSessionOwner {
         this.#history.revision !== beforeOptions.revision ||
         this.#activeCompositionId !== beforeOptions.compositionId ||
         this.#prepared !== beforeOptions.prepared ||
-        this.#preparedCompositionSwitch !== beforeOptions.preparedSwitch
+        this.#preparedCompositionSwitch !== beforeOptions.preparedSwitch ||
+        this.#prepareSequence !== beforeOptions.sequence
       )
         throw Error('STALE_REVISION: document changed');
     };
@@ -885,6 +888,10 @@ export class CompositionSessionOwner {
       command.type === 'paste-layer-snapshot'
         ? resolveLayerClipboardToken(command.payload?.token, this, compositionId)
         : null;
+    // Quiescence and clipboard callbacks may have aborted this replacement.
+    // Keep the old request owned and cancellable until the new one is valid.
+    captureVariablePreparationOptions(options);
+    assertBeforePrepare();
     const previousHistory = this.#preparingHistory;
     this.#preparingHistory = null;
     if (previousHistory) {
@@ -898,12 +905,20 @@ export class CompositionSessionOwner {
       throw error;
     }
     if (command.type === 'undo' || command.type === 'redo') {
-      const project =
-        (command.type === 'undo' ? this.#history.past : this.#history.future).at(-1) ||
-        this.#history.doc;
-      const targetCompositionId = this.#compositionFor(project);
-      const document = this.#documentFor(project, targetCompositionId);
-      assertBeforePrepare();
+      let document;
+      try {
+        const project =
+          (command.type === 'undo' ? this.#history.past : this.#history.future).at(-1) ||
+          this.#history.doc;
+        const targetCompositionId = this.#compositionFor(project);
+        document = this.#documentFor(project, targetCompositionId);
+        captureVariablePreparationOptions(options);
+        assertBeforePrepare();
+      } catch (error) {
+        previousHistory?.child.controller.abort();
+        throw error;
+      }
+      const sequence = ++this.#prepareSequence;
       const child = createVariablePreparationChild(options.signal),
         request = { bridge, child, ticket: null };
       this.#preparingHistory = request;
@@ -913,6 +928,7 @@ export class CompositionSessionOwner {
         });
         if (
           this.#preparingHistory !== request ||
+          this.#prepareSequence !== sequence ||
           this.#session !== session ||
           this.#activeCompositionId !== compositionId ||
           this.#history.revision !== projectRevision
@@ -945,6 +961,7 @@ export class CompositionSessionOwner {
     }
 
     assertBeforePrepare();
+    const sequence = ++this.#prepareSequence;
     let innerToken;
     try {
       innerToken = await session.prepareCommand(command, bridge, options);
@@ -955,7 +972,8 @@ export class CompositionSessionOwner {
     if (
       this.#session !== session ||
       this.#activeCompositionId !== compositionId ||
-      this.#history.revision !== projectRevision
+      this.#history.revision !== projectRevision ||
+      this.#prepareSequence !== sequence
     ) {
       session.discardPrepared?.(innerToken);
       throw Error('STALE_REVISION: document changed');
@@ -970,9 +988,11 @@ export class CompositionSessionOwner {
       if (
         this.#session !== session ||
         this.#activeCompositionId !== compositionId ||
-        this.#history.revision !== projectRevision
+        this.#history.revision !== projectRevision ||
+        this.#prepareSequence !== sequence
       )
         throw Error('STALE_REVISION: document changed');
+      session.assertPrepared?.(innerToken);
     } catch (error) {
       session.discardPrepared?.(innerToken);
       throw error;

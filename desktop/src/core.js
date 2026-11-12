@@ -7444,11 +7444,21 @@ export class CommandSession {
       .find((l) => l.id === payload.layerId)
       ?.nodes.find((n) => n.id === payload.nodeId);
     if (target?.locked) throw Error('Text node is locked');
+    // Busy checks and payload access can call user code. Reject an aborted
+    // replacement before invalidating any preparation already in flight.
+    captureVariablePreparationOptions(options);
+    bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+    if (
+      this.#history.doc !== beforeOptions.document ||
+      this.#history.revision !== beforeOptions.revision ||
+      this.#prepareSequence !== beforeOptions.sequence ||
+      this.#prepared !== beforeOptions.prepared ||
+      this.#nodeClipboard !== beforeOptions.clipboard
+    )
+      throw Error('STALE_REVISION: document changed');
     const previous = this.#prepared,
-      previousRequest = this.#preparing,
-      sequence = ++this.#prepareSequence;
-    this.#prepared = null;
-    previous?.child?.unlink();
+      previousRequest = this.#preparing;
+    let sequence = this.#prepareSequence;
     const snapshotPaste = type === 'paste-layer-snapshot';
     const entry = {
       document: this.#history.doc,
@@ -7500,10 +7510,20 @@ export class CommandSession {
       ? layerSnapshotPreparationDocument(entry.document, captured)
       : candidate;
     if (snapshotPaste) assertCurrent();
+    captureVariablePreparationOptions(options);
     bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
+    assertLocal();
+    if (this.#prepared !== previous || this.#preparing !== previousRequest)
+      throw Error('STALE_REVISION: document changed');
     const child = createVariablePreparationChild(options.signal),
       request = { bridge, child, ticket: null };
+    sequence = ++this.#prepareSequence;
+    this.#prepared = null;
     this.#preparing = request;
+    const assertPreparing = () => {
+      assertLocal();
+      if (this.#preparing !== request) throw Error('STALE_REVISION: document changed');
+    };
     try {
       previous?.child?.unlink();
       if (previous && previous.bridge !== bridge)
@@ -7515,8 +7535,7 @@ export class CommandSession {
       bridge.assertPreparationEpoch?.(beforeOptions.bridgeEpoch);
       const ticket = await bridge.prepareDocument(input, { signal: child.controller.signal });
       request.ticket = ticket;
-      assertLocal();
-      if (this.#preparing !== request) throw Error('STALE_REVISION: document changed');
+      assertPreparing();
       if (snapshotPaste) assertCurrent();
       const fonts = { ...this.#fonts(), ...bridge.preparedFonts(ticket) };
       if (snapshotPaste) {
@@ -7543,6 +7562,8 @@ export class CommandSession {
           this.#history.doc,
         );
       if (snapshotPaste) assertCurrent();
+      bridge.assertFresh(ticket);
+      assertPreparing();
       const token = Object.freeze({});
       this.#preparing = null;
       this.#prepared = {
@@ -7564,8 +7585,32 @@ export class CommandSession {
       child.unlink();
       child.controller.abort();
       if (request.ticket) bridge.discardActivation(request.ticket);
+      previous?.child?.unlink();
+      if (previous) {
+        previous.bridge.discardActivation(previous.ticket);
+        previous.child.controller.abort();
+      }
+      previousRequest?.child.unlink();
+      previousRequest?.child.controller.abort();
       throw error;
     }
+  }
+  assertPrepared(token) {
+    const p = this.#prepared;
+    if (
+      !p ||
+      p.token !== token ||
+      p.expectedRevision !== this.#history.revision ||
+      p.sequence !== this.#prepareSequence
+    )
+      throw Error('STALE_REVISION: document changed');
+    p.bridge.assertFresh(p.ticket);
+    if (
+      this.#prepared !== p ||
+      p.expectedRevision !== this.#history.revision ||
+      p.sequence !== this.#prepareSequence
+    )
+      throw Error('STALE_REVISION: document changed');
   }
   preparedSnapshot(token) {
     const p = this.#prepared;

@@ -148,7 +148,7 @@ async function openWithBlockedWorker(fixture) {
   return { bridge, blocked, owner: makeOwner(), anotherOwner: makeOwner() };
 }
 
-async function openWithBlockedEdit(fixture) {
+async function openWithBlockedEdit(fixture, options = {}) {
   const project = deserializeCompositionProject(fixture.json, deserialize);
   let hold = false,
     reachedWorker;
@@ -176,6 +176,7 @@ async function openWithBlockedEdit(fixture) {
   const owner = createCompositionSessionOwner(project, {
     activeCompositionId: fixture.secondId,
     fonts: () => bridge.fonts(),
+    ...options,
   });
   const token = await owner.prepareCommand(
     {
@@ -540,6 +541,64 @@ test('a rejected edit replacement cancels the superseded History Worker', async 
     bridge.dispose();
   }
 });
+
+for (const kind of ['owner-history', 'owner-edit', 'standalone-edit']) {
+  test(`an already-aborted replacement keeps the previous ${kind} cancellable`, async () => {
+    const fixture = await makeSavedProject(),
+      replacement = createVariablePreparationController(),
+      parent = createVariablePreparationController();
+    let armed = false;
+    const busy = () => {
+        if (armed) {
+          armed = false;
+          replacement.abort();
+        }
+        return false;
+      },
+      { bridge, blocked, owner } = await openWithBlockedEdit(fixture, { busy }),
+      session =
+        kind === 'standalone-edit'
+          ? new CommandSession(owner.snapshot(), { fonts: () => bridge.fonts(), busy })
+          : owner,
+      before = snapshot(owner, bridge),
+      oldCommand =
+        kind === 'owner-history'
+          ? { ...session.state, type: 'undo' }
+          : {
+              ...session.state,
+              type: 'set-text-content',
+              payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AX' },
+            };
+    try {
+      const pending = session.prepareCommand(oldCommand, bridge, { signal: parent.signal }),
+        result = pending.then(
+          () => null,
+          (error) => error,
+        );
+      await blocked;
+      armed = true;
+      await assert.rejects(
+        session.prepareCommand(
+          {
+            ...session.state,
+            type: 'set-text-content',
+            payload: { layerId: fixture.layerB, nodeId: fixture.textB, text: 'AZ' },
+          },
+          bridge,
+          { signal: replacement.signal },
+        ),
+        /CANCELLED/,
+      );
+      session.cancelPrepared(bridge);
+      assert.match((await result).message, /CANCEL|STALE/);
+      assert.equal(bridge.stats().pending, false);
+      assert.equal(parent.signal.aborted, false);
+      assert.deepEqual(snapshot(owner, bridge), before);
+    } finally {
+      bridge.dispose();
+    }
+  });
+}
 
 test('parent cancellation is checked even if native abort dispatch is intercepted', async () => {
   const fixture = await makeSavedProject(),
