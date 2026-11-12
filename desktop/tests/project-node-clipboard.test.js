@@ -72,6 +72,10 @@ function bridge() {
     },
     preparedFonts: () => ({}),
     activate() {},
+    stageActivation() {},
+    assertFreshForPublication() {},
+    publishActivation() {},
+    discardActivation() {},
     cancel() {},
   };
 }
