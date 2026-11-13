@@ -51,8 +51,8 @@ const requiredString = (value, label) => {
   if (typeof value !== 'string' || !value.trim()) throw Error(`Invalid ${label}`);
   return value;
 };
-function uniqueIds(items, label) {
-  if (!Array.isArray(items) || !items.length) throw Error(`Invalid ${label}`);
+function uniqueIds(items, label, allowEmpty = false) {
+  if (!Array.isArray(items) || (!allowEmpty && !items.length)) throw Error(`Invalid ${label}`);
   const ids = new Set();
   for (const item of items) {
     const id = requiredString(item?.id, `${label} id`);
@@ -106,7 +106,7 @@ export function createNodeRegistry(declarations, bindings, host) {
       requiredString(declaration.factoryName, 'factory name');
     if (!Array.isArray(declaration.capabilities) || declaration.capabilities.length)
       throw Error('Unsupported semantic capability');
-    const parameterIds = uniqueIds(declaration.parameters, 'parameter');
+    const parameterIds = uniqueIds(declaration.parameters, 'parameter', true);
     for (const parameter of declaration.parameters) {
       const typeId = requiredString(parameter.type, 'parameter type');
       const adapter = host.types.get(typeId);

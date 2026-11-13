@@ -513,7 +513,6 @@ export function sameDocument(a, b) {
 export const uid = (prefix = 'id') => `${prefix}-${globalThis.crypto.randomUUID()}`;
 const p = (type, value) => ({ type, value, expression: '', locked: false });
 const legacyDefinitions = {
-  'Multi Path': {},
   Boolean: { a: p('Path', null), b: p('Path', null) },
   'Path Remap': { path: p('Path', null), offset: p('Vector2', [0, 0]) },
   Transform: {
@@ -2820,6 +2819,7 @@ export function evaluate(
                 n.type === 'Fill' ? layer.fill : null,
                 n.type === 'Output' ? [layer.output, layer.allowEmptyOutput] : null,
                 n.points,
+                n.contours,
                 n.operation,
                 n.edits,
                 n.text,
@@ -2929,6 +2929,10 @@ export function evaluate(
         const strokeStyle = () => validateStrokeStyle(n);
         const imageAssetId = () => n.asset;
         const mapPointIds = (project) => n.points.map((point) => project(point.id));
+        const mapContours = (project) =>
+          n.contours.map((contour) =>
+            project({ ...contour, points: contour.points.map((id) => id) }),
+          );
         const pointReader = () => {
           const indexed = indexParameters(n);
           return (id, key) => readParameter(n, `${id}.${key}`, indexed);
@@ -2955,6 +2959,7 @@ export function evaluate(
               strokeStyle,
               imageAssetId,
               mapPointIds,
+              mapContours,
               pointReader,
               pathBounds,
               imageAssets,
@@ -2977,6 +2982,7 @@ export function evaluate(
               strokeStyle,
               imageAssetId,
               mapPointIds,
+              mapContours,
               pointReader,
               pathBounds,
               imageAssets,
@@ -2998,28 +3004,6 @@ export function evaluate(
           },
           imageAssets,
         );
-      } else if (n.type === 'Multi Path') {
-        const indexed = indexParameters(n);
-        const points = new Map(
-          n.points.map((pt) => [
-            pt.id,
-            {
-              id: pt.id,
-              position: read(`${pt.id}.position`, indexed),
-              handleA: read(`${pt.id}.handleA`, indexed),
-              handleB: read(`${pt.id}.handleB`, indexed),
-            },
-          ]),
-        );
-        result = {
-          contours: n.contours.map((contour) => ({
-            ...contour,
-            points: contour.points.map((id) => points.get(id)),
-          })),
-        };
-        // Preserve Text's fingerprint contract for existing downstream Remap edits.
-        result.unstable = true;
-        result.fingerprint = signature(result);
       } else if (n.type === 'Text' && n.osFont) {
         result = osFontTextPath(n, read('position'), read('size'), pathBounds);
         if (n.osFont.outline.wrapOverflow)

@@ -46,14 +46,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Multi Path',
-    categoryId: 'create',
-    labelJa: '複数パス',
-    aliases: ['複数パス'],
-    description: '複数パス',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Imported Path',
     categoryId: 'create',
     labelJa: '読み込みパス',
