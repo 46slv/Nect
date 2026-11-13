@@ -89,6 +89,8 @@ import { angularGradientDeclaration } from './angular-gradient-fill-declaration.
 import { evaluateAngularGradient } from './angular-gradient-fill-binding.js';
 import { keyerDeclaration } from './keyer-node-declaration.js';
 import { evaluateKeyer } from './keyer-node-binding.js';
+import { imageOutputDeclaration } from './image-output-declaration.js';
+import { evaluateImageOutput } from './image-output-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -215,4 +217,5 @@ export const builtinManifest = Object.freeze([
   ),
   entry(fillDeclaration, { evaluate: evaluateFill }, 'Expression', 'Color'),
   entry(keyerDeclaration, { evaluate: evaluateKeyer }, 'Image Output', 'Luminance to Points'),
+  entry(imageOutputDeclaration, { evaluate: evaluateImageOutput }, 'Image', null, 'private'),
 ]);
