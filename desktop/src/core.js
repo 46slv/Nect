@@ -94,7 +94,6 @@ import { OPENTYPE_SCHEMA_VERSION, validateTextFeatures } from './opentype-featur
 import { imageAssetFor, ditheredImage, keyerSettings, MAX_ACTIVE_KEYERS } from './image-keyer.js';
 import { MAX_ACTIVE_IMAGE_DITHERS } from './image-dither.js';
 import {
-  maskAppearance,
   maskFeather,
   featherMaskSVG,
   imageAlphaMaskSVG,
@@ -514,10 +513,6 @@ export function sameDocument(a, b) {
 export const uid = (prefix = 'id') => `${prefix}-${globalThis.crypto.randomUUID()}`;
 const p = (type, value) => ({ type, value, expression: '', locked: false });
 const legacyDefinitions = {
-  Image: { position: p('Vector2', [100, 100]), size: p('Vector2', [320, 240]) },
-  Mask: { path: p('PaintedPath', null), mask: p('Path', null), invert: p('Boolean', false) },
-  Curve: { closed: p('Boolean', true) },
-  'Multi Path': {},
   Boolean: { a: p('Path', null), b: p('Path', null) },
   'Path Remap': { path: p('Path', null), offset: p('Vector2', [0, 0]) },
   Transform: {
@@ -576,7 +571,6 @@ const legacyDefinitions = {
     points: p('Path', null),
     alignTangent: p('Boolean', false),
   },
-  Reference: {},
   SVG: { position: p('Vector2', [0, 0]) },
   'Composition Reference': { position: p('Vector2', [0, 0]) },
   Halftone: {
@@ -619,20 +613,12 @@ const legacyDefinitions = {
     gridOrigin: p('Vector2', [0, 0]),
     tonePower: p('Scalar', 1),
   },
-  Stroke: {
-    path: p('PaintedPath', null),
-    color: p('Color', { hex: '#36434e', alpha: 1 }),
-    width: p('Scalar', 2),
-    miterLimit: p('Scalar', 4),
-    dashOffset: p('Scalar', 0),
-  },
   Text: {
     position: p('Vector2', [200, 300]),
     size: p('Scalar', 100),
     letterSpacing: p('Scalar', 0),
     lineSpacing: p('Scalar', 1.2),
   },
-  'Imported Path': {},
 };
 export const definitions = Object.fromEntries(
   placeRegistered(Object.entries(legacyDefinitions), registeredNodes, 'definitionAfter', (row) =>
@@ -840,15 +826,10 @@ export function outputType(n, port) {
       .outputs.find((output) => nectOutputPort(output) === port)?.type;
   if (n.type === 'Text' && port === 'position') return 'Vector2';
   if (port !== undefined) return undefined;
-  if (
-    ['Halftone', 'Ordered Dither', 'Error Diffusion Dither', 'Line Screen', 'Stroke'].includes(
-      n.type,
-    )
-  )
+  if (['Halftone', 'Ordered Dither', 'Error Diffusion Dither', 'Line Screen'].includes(n.type))
     return 'PaintedPath';
-  if (n.type === 'Image' || isImageDither(n.type)) return 'Image';
-  if (n.type === 'Mask') return 'PaintedPath';
-  return n.type === 'Reference' ? 'Vector2' : 'Path';
+  if (isImageDither(n.type)) return 'Image';
+  return 'Path';
 }
 // Deliberate identity contracts. Never guess the first socket of a new node type.
 const bypassInputs = Object.freeze({
@@ -859,7 +840,6 @@ const bypassInputs = Object.freeze({
   ),
   'Ordered Dither Image': 'path',
   'Error Diffusion Dither Image': 'path',
-  Mask: 'path',
   Boolean: 'a',
   Transform: 'path',
   'Path Remap': 'path',
@@ -870,7 +850,6 @@ const bypassInputs = Object.freeze({
   'Ordered Dither': 'path',
   'Error Diffusion Dither': 'path',
   'Line Screen': 'path',
-  Stroke: 'path',
 });
 export function bypassContract(n, layer) {
   const input = bypassInputs[n?.type];
@@ -2838,6 +2817,7 @@ export function evaluate(
                 n.type === 'Fill' ? layer.fill : null,
                 n.type === 'Output' ? [layer.output, layer.allowEmptyOutput] : null,
                 n.points,
+                n.contours,
                 n.operation,
                 n.edits,
                 n.text,
@@ -2922,9 +2902,6 @@ export function evaluate(
           position,
           external.path,
         ]);
-      } else if (n.type === 'Reference') {
-        result = clone(run(n.reference.nodeId, referencePort(n.reference)));
-        assertValue('Vector2', result);
       } else if (positionOutput) result = read('position');
       else if (builtinNodeRegistry.get(n.type)) {
         const registered = builtinNodeRegistry.get(n.type);
@@ -2944,11 +2921,25 @@ export function evaluate(
             paint,
             Object.fromEntries(keys.map((key) => [key, parameterColorSlot(n.params[key])])),
           );
+        const strokeStyle = () => validateStrokeStyle(n);
+        const imageAssetId = () => n.asset;
+        const parsePathData = () => parsePath(n.rawPath, nodeId);
+        const referencedVector = () => clone(run(n.reference.nodeId, referencePort(n.reference)));
+        const mapPointIds = (project) => n.points.map((point) => project(point.id));
+        const mapContours = (project) =>
+          n.contours.map((contour) =>
+            project({ ...contour, points: contour.points.map((id) => id) }),
+          );
+        const pointReader = () => {
+          const indexed = indexParameters(n);
+          return (id, key) => readParameter(n, `${id}.${key}`, indexed);
+        };
         const nodeHasEmptyOutput = () => hasEmptyOutput(layer, n);
         const identity = Object.freeze({
           provenance: (currentEra) => provenance(nodeId, undefined, currentEra),
           fingerprint: evaluatedFingerprint,
           setFingerprint: setEvaluationFingerprint,
+          copy: copyEvaluationIdentity,
         });
         const shape = registered.hasShape ? registered.snapshot(n) : undefined;
         const context = shape
@@ -2962,6 +2953,14 @@ export function evaluate(
               sourceOutputType,
               recordPaintSlot,
               recordPaintStops,
+              strokeStyle,
+              imageAssetId,
+              parsePathData,
+              referencedVector,
+              mapPointIds,
+              mapContours,
+              pointReader,
+              pathBounds,
               imageAssets,
               hasEmptyOutput: nodeHasEmptyOutput,
               paintedGroup: (inputs) => {
@@ -2979,17 +2978,19 @@ export function evaluate(
               sourceOutputType,
               recordPaintSlot,
               recordPaintStops,
+              strokeStyle,
+              imageAssetId,
+              parsePathData,
+              referencedVector,
+              mapPointIds,
+              mapContours,
+              pointReader,
+              pathBounds,
               imageAssets,
               hasEmptyOutput: nodeHasEmptyOutput,
             });
         result = registered.evaluate(n.operation, read, context);
         assertValue(registered.interface(n.operation, shape).resultType, result);
-      } else if (n.type === 'Image') {
-        if (!Object.hasOwn(imageAssets, n.asset)) throw Error('Missing image asset');
-        const size = read('size');
-        if (size.some((v) => v <= 0 || v > 100000))
-          throw Error('Image size must be positive and at most 100000');
-        result = { kind: 'image', asset: n.asset, position: read('position'), size };
       } else if (isImageDither(n.type)) {
         const { pitch, invert, gridOrigin, tonePower } = luminanceModifierSettings(read);
         result = ditheredImage(
@@ -3004,56 +3005,6 @@ export function evaluate(
           },
           imageAssets,
         );
-      } else if (n.type === 'Mask') {
-        const source = read('path'),
-          shape = read('mask');
-        if (!source || !shape) throw Error('Connect appearance and closed Path or Image to Mask');
-        result = maskAppearance(source, shape, {
-          invert: read('invert'),
-          feather: read('feather'),
-          luminance: read('luminance'),
-          prefix: n.id,
-          bounds: pathBounds(source),
-        });
-        copyEvaluationIdentity(source, result.children[0]);
-      } else if (n.type === 'Curve') {
-        const indexed = indexParameters(n);
-        result = {
-          contours: [
-            {
-              id: n.id,
-              closed: read('closed'),
-              points: n.points.map((pt) => ({
-                id: pt.id,
-                position: read(`${pt.id}.position`, indexed),
-                handleA: read(`${pt.id}.handleA`, indexed),
-                handleB: read(`${pt.id}.handleB`, indexed),
-              })),
-            },
-          ],
-        };
-      } else if (n.type === 'Multi Path') {
-        const indexed = indexParameters(n);
-        const points = new Map(
-          n.points.map((pt) => [
-            pt.id,
-            {
-              id: pt.id,
-              position: read(`${pt.id}.position`, indexed),
-              handleA: read(`${pt.id}.handleA`, indexed),
-              handleB: read(`${pt.id}.handleB`, indexed),
-            },
-          ]),
-        );
-        result = {
-          contours: n.contours.map((contour) => ({
-            ...contour,
-            points: contour.points.map((id) => points.get(id)),
-          })),
-        };
-        // Preserve Text's fingerprint contract for existing downstream Remap edits.
-        result.unstable = true;
-        result.fingerprint = signature(result);
       } else if (n.type === 'Text' && n.osFont) {
         result = osFontTextPath(n, read('position'), read('size'), pathBounds);
         if (n.osFont.outline.wrapOverflow)
@@ -3543,10 +3494,6 @@ export function evaluate(
           null,
           `Canvas character editing is unavailable through ${n.type}; edit upstream Text`,
         );
-      } else if (n.type === 'Imported Path') {
-        result = parsePath(n.rawPath, n.id);
-        result.unstable = true;
-        result.fingerprint = signature(result);
       } else if (n.type === 'Boolean') {
         const keys = booleanInputKeys(n),
           inputs = keys.filter((key) => n.params[key].source).map((key) => [key, read(key)]),
@@ -3600,19 +3547,6 @@ export function evaluate(
         result = cloneEvaluated(result);
         if (isPaintedGroup(result))
           throw Error('Edit paint in the source Composition, or use Convert to Path');
-        if (n.type === 'Stroke') {
-          const width = read('width');
-          if (width < 0 || width > 100000) throw Error('Stroke width must be from 0 to 100000 px');
-          const style = validateStrokeStyle(n),
-            miterLimit = n.params.miterLimit ? read('miterLimit') : 4,
-            dashOffset = n.params.dashOffset ? read('dashOffset') : 0;
-          if (miterLimit < 1 || miterLimit > 10000)
-            throw Error('Miter limit must be from 1 to 10000');
-          if (Math.abs(dashOffset) > 100000)
-            throw Error('Dash offset must be from -100000 to 100000 px');
-          result.stroke = { ...read('color'), width, ...style, miterLimit, dashOffset };
-          setEvaluatedPaintSlot(result, 'stroke', parameterColorSlot(n.params.color));
-        }
         if (n.type === 'Path Remap') {
           result.characterOccurrences = routeCharacters(
             result,

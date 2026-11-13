@@ -87,10 +87,24 @@ import { radialGradientDeclaration } from './radial-gradient-fill-declaration.js
 import { evaluateRadialGradient } from './radial-gradient-fill-binding.js';
 import { angularGradientDeclaration } from './angular-gradient-fill-declaration.js';
 import { evaluateAngularGradient } from './angular-gradient-fill-binding.js';
+import { strokeDeclaration } from './stroke-node-declaration.js';
+import { evaluateStroke } from './stroke-node-binding.js';
 import { keyerDeclaration } from './keyer-node-declaration.js';
 import { evaluateKeyer } from './keyer-node-binding.js';
 import { imageOutputDeclaration } from './image-output-declaration.js';
 import { evaluateImageOutput } from './image-output-binding.js';
+import { imageDeclaration } from './image-node-declaration.js';
+import { evaluateImage } from './image-node-binding.js';
+import { maskDeclaration } from './mask-node-declaration.js';
+import { evaluateMask } from './mask-node-binding.js';
+import { curveDeclaration } from './curve-node-declaration.js';
+import { evaluateCurve } from './curve-node-binding.js';
+import { multiPathDeclaration } from './multi-path-node-declaration.js';
+import { evaluateMultiPath } from './multi-path-node-binding.js';
+import { importedPathDeclaration } from './imported-path-node-declaration.js';
+import { evaluateImportedPath } from './imported-path-node-binding.js';
+import { referenceDeclaration } from './reference-node-declaration.js';
+import { evaluateReference } from './reference-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -216,6 +230,34 @@ export const builtinManifest = Object.freeze([
     Object.freeze({ before: 'Luminance to Points' }),
   ),
   entry(fillDeclaration, { evaluate: evaluateFill }, 'Expression', 'Color'),
+  entry(strokeDeclaration, { evaluate: evaluateStroke }, 'Line Screen', 'Fill'),
   entry(keyerDeclaration, { evaluate: evaluateKeyer }, 'Image Output', 'Luminance to Points'),
   entry(imageOutputDeclaration, { evaluate: evaluateImageOutput }, 'Image', null, 'private'),
+  entry(
+    imageDeclaration,
+    { evaluate: evaluateImage },
+    Object.freeze({ before: 'Mask' }),
+    null,
+    'private',
+  ),
+  entry(maskDeclaration, { evaluate: evaluateMask }, Object.freeze({ before: 'Curve' }), 'Keyer'),
+  entry(
+    curveDeclaration,
+    { evaluate: evaluateCurve },
+    Object.freeze({ before: 'Multi Path' }),
+    'Star',
+  ),
+  entry(
+    multiPathDeclaration,
+    { evaluate: evaluateMultiPath },
+    Object.freeze({ before: 'Boolean' }),
+    'Curve',
+  ),
+  entry(importedPathDeclaration, { evaluate: evaluateImportedPath }, 'Text to Path', 'Multi Path'),
+  entry(
+    referenceDeclaration,
+    { evaluate: evaluateReference },
+    Object.freeze({ before: 'SVG' }),
+    'Composition Reference',
+  ),
 ]);
