@@ -514,7 +514,6 @@ export function sameDocument(a, b) {
 export const uid = (prefix = 'id') => `${prefix}-${globalThis.crypto.randomUUID()}`;
 const p = (type, value) => ({ type, value, expression: '', locked: false });
 const legacyDefinitions = {
-  Image: { position: p('Vector2', [100, 100]), size: p('Vector2', [320, 240]) },
   Mask: { path: p('PaintedPath', null), mask: p('Path', null), invert: p('Boolean', false) },
   Curve: { closed: p('Boolean', true) },
   'Multi Path': {},
@@ -835,7 +834,7 @@ export function outputType(n, port) {
   if (port !== undefined) return undefined;
   if (['Halftone', 'Ordered Dither', 'Error Diffusion Dither', 'Line Screen'].includes(n.type))
     return 'PaintedPath';
-  if (n.type === 'Image' || isImageDither(n.type)) return 'Image';
+  if (isImageDither(n.type)) return 'Image';
   if (n.type === 'Mask') return 'PaintedPath';
   return n.type === 'Reference' ? 'Vector2' : 'Path';
 }
@@ -2933,6 +2932,7 @@ export function evaluate(
             Object.fromEntries(keys.map((key) => [key, parameterColorSlot(n.params[key])])),
           );
         const strokeStyle = () => validateStrokeStyle(n);
+        const imageAssetId = () => n.asset;
         const nodeHasEmptyOutput = () => hasEmptyOutput(layer, n);
         const identity = Object.freeze({
           provenance: (currentEra) => provenance(nodeId, undefined, currentEra),
@@ -2952,6 +2952,7 @@ export function evaluate(
               recordPaintSlot,
               recordPaintStops,
               strokeStyle,
+              imageAssetId,
               imageAssets,
               hasEmptyOutput: nodeHasEmptyOutput,
               paintedGroup: (inputs) => {
@@ -2970,17 +2971,12 @@ export function evaluate(
               recordPaintSlot,
               recordPaintStops,
               strokeStyle,
+              imageAssetId,
               imageAssets,
               hasEmptyOutput: nodeHasEmptyOutput,
             });
         result = registered.evaluate(n.operation, read, context);
         assertValue(registered.interface(n.operation, shape).resultType, result);
-      } else if (n.type === 'Image') {
-        if (!Object.hasOwn(imageAssets, n.asset)) throw Error('Missing image asset');
-        const size = read('size');
-        if (size.some((v) => v <= 0 || v > 100000))
-          throw Error('Image size must be positive and at most 100000');
-        result = { kind: 'image', asset: n.asset, position: read('position'), size };
       } else if (isImageDither(n.type)) {
         const { pitch, invert, gridOrigin, tonePower } = luminanceModifierSettings(read);
         result = ditheredImage(
