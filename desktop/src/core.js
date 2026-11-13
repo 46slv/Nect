@@ -163,7 +163,6 @@ import {
   hasRepeaterStrokeAuthorship,
   assertRepeaterRoute,
 } from './repeater.js';
-import { instancePointsGeometry } from './instance-points-geometry.js';
 import { sampleLuminanceGrid } from './luminance-field.js';
 import { sampleImageLuminanceGrid } from './image-luminance-field.js';
 import { generateLuminanceMarks } from './luminance-marks.js';
@@ -553,11 +552,6 @@ const legacyDefinitions = {
     minRotation: p('Scalar', 0),
     maxRotation: p('Scalar', 90),
   },
-  'Instance on Points': {
-    path: p('Path', null),
-    points: p('Path', null),
-    alignTangent: p('Boolean', false),
-  },
   SVG: { position: p('Vector2', [0, 0]) },
   'Composition Reference': { position: p('Vector2', [0, 0]) },
   Halftone: {
@@ -815,7 +809,6 @@ const bypassInputs = Object.freeze({
   Boolean: 'a',
   Transform: 'path',
   'Geometry Repeater': 'path',
-  'Instance on Points': 'path',
   'Luminance Instances': 'motif',
   Halftone: 'path',
   'Ordered Dither': 'path',
@@ -2879,6 +2872,7 @@ export function evaluate(
         const nodeId = n.id;
         const warn = (message) => warnings.push(`${n.name}: ${message}`);
         const hasParameter = (key) => !!n.params[key];
+        const hasConnectedInput = (key) => !!n.params[key]?.source;
         const sourceOutputType = (key) => {
           const input = n.params[key],
             source = input?.source ? byId.get(input.source) : undefined;
@@ -2933,6 +2927,7 @@ export function evaluate(
               cloneEvaluated,
               identity,
               hasParameter,
+              hasConnectedInput,
               sourceOutputType,
               recordPaintSlot,
               recordPaintStops,
@@ -2959,6 +2954,7 @@ export function evaluate(
               cloneEvaluated,
               identity,
               hasParameter,
+              hasConnectedInput,
               sourceOutputType,
               recordPaintSlot,
               recordPaintStops,
@@ -3265,69 +3261,6 @@ export function evaluate(
           ...(tonePower !== 1 ? [tonePower] : []),
           cells,
           signature(motif),
-          signature(result),
-        ]);
-      } else if (n.type === 'Instance on Points') {
-        if (!n.params.path.source || !n.params.points.source)
-          throw Error('Connect both Source and Points Path inputs');
-        const source = read('path'),
-          targets = read('points'),
-          alignTangent = read('alignTangent');
-        if (!source || !targets) throw Error('Connect both Source and Points Path inputs');
-
-        // Keep malformed or over-budget geometry away from Paper bounds work.
-        // The geometry helper remains the authoritative structural validator.
-        const cheapPointCount = (path) => {
-          if (!Array.isArray(path?.contours)) return null;
-          if (path.contours.length > 10000)
-            throw Error('Instance on Points exceeds geometry budget');
-          let count = 0;
-          for (const contour of path.contours) {
-            count += Array.isArray(contour?.points) ? contour.points.length : 0;
-            if (count > 100000) throw Error('Instance on Points exceeds geometry budget');
-          }
-          return count;
-        };
-        const sourcePoints = cheapPointCount(source),
-          targetPoints = cheapPointCount(targets);
-        if (sourcePoints === null || targetPoints === null) {
-          result = instancePointsGeometry(source, targets, {
-            prefix: fingerprint(n.id),
-            alignTangent,
-          });
-        } else if (sourcePoints === 0 || targetPoints === 0) {
-          // Empty inputs produce empty geometry without constructing Paper bounds.
-          result = instancePointsGeometry(source, targets, {
-            prefix: fingerprint(n.id),
-            alignTangent,
-          });
-        } else {
-          if (targetPoints > 256) throw Error('Instance on Points exceeds instance budget');
-          const sourceGroups = new Set(source.contours.map((contour) => contour?.group ?? ''));
-          if (
-            source.contours.length * targetPoints > 10000 ||
-            sourcePoints * targetPoints > 100000 ||
-            sourceGroups.size * targetPoints > 256
-          )
-            throw Error('Instance on Points exceeds geometry budget');
-          const bounds = pathBounds(source),
-            pivot = [bounds[0][1], bounds[1][1]],
-            prefix = fingerprint(n.id);
-          result = instancePointsGeometry(source, targets, { pivot, prefix, alignTangent });
-        }
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Instance on Points; edit the source Text',
-        );
-        result.unstable = true;
-        setEvaluationFingerprint(result, (currentEra) => [
-          provenance(n.id, undefined, currentEra),
-          evaluatedFingerprint(source, currentEra) || null,
-          signature(source),
-          alignTangent,
-          targets.contours.flatMap((contour) => contour.points.map((point) => point.position)),
           signature(result),
         ]);
       } else if (
