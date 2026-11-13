@@ -61,14 +61,6 @@ const legacyNodeCatalog = [
     description: '輪郭を演算して合成する',
     creationRoute: 'add',
   },
-  {
-    typeId: 'Geometry Repeater',
-    categoryId: 'repeat',
-    labelJa: '繰り返し',
-    aliases: ['繰り返し', '複製'],
-    description: '繰り返し 複製',
-    creationRoute: 'add',
-  },
 ];
 export const nodeCatalog = placeRegistered(
   legacyNodeCatalog.map((entry) => [entry.typeId, entry]),
