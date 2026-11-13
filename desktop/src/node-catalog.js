@@ -46,14 +46,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Curve',
-    categoryId: 'create',
-    labelJa: '曲線',
-    aliases: ['曲線', 'ベジェ'],
-    description: '曲線 ベジェ',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Multi Path',
     categoryId: 'create',
     labelJa: '複数パス',

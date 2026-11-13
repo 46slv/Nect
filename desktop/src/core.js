@@ -513,7 +513,6 @@ export function sameDocument(a, b) {
 export const uid = (prefix = 'id') => `${prefix}-${globalThis.crypto.randomUUID()}`;
 const p = (type, value) => ({ type, value, expression: '', locked: false });
 const legacyDefinitions = {
-  Curve: { closed: p('Boolean', true) },
   'Multi Path': {},
   Boolean: { a: p('Path', null), b: p('Path', null) },
   'Path Remap': { path: p('Path', null), offset: p('Vector2', [0, 0]) },
@@ -2929,6 +2928,11 @@ export function evaluate(
           );
         const strokeStyle = () => validateStrokeStyle(n);
         const imageAssetId = () => n.asset;
+        const mapPointIds = (project) => n.points.map((point) => project(point.id));
+        const pointReader = () => {
+          const indexed = indexParameters(n);
+          return (id, key) => readParameter(n, `${id}.${key}`, indexed);
+        };
         const nodeHasEmptyOutput = () => hasEmptyOutput(layer, n);
         const identity = Object.freeze({
           provenance: (currentEra) => provenance(nodeId, undefined, currentEra),
@@ -2950,6 +2954,8 @@ export function evaluate(
               recordPaintStops,
               strokeStyle,
               imageAssetId,
+              mapPointIds,
+              pointReader,
               pathBounds,
               imageAssets,
               hasEmptyOutput: nodeHasEmptyOutput,
@@ -2970,6 +2976,8 @@ export function evaluate(
               recordPaintStops,
               strokeStyle,
               imageAssetId,
+              mapPointIds,
+              pointReader,
               pathBounds,
               imageAssets,
               hasEmptyOutput: nodeHasEmptyOutput,
@@ -2990,22 +2998,6 @@ export function evaluate(
           },
           imageAssets,
         );
-      } else if (n.type === 'Curve') {
-        const indexed = indexParameters(n);
-        result = {
-          contours: [
-            {
-              id: n.id,
-              closed: read('closed'),
-              points: n.points.map((pt) => ({
-                id: pt.id,
-                position: read(`${pt.id}.position`, indexed),
-                handleA: read(`${pt.id}.handleA`, indexed),
-                handleB: read(`${pt.id}.handleB`, indexed),
-              })),
-            },
-          ],
-        };
       } else if (n.type === 'Multi Path') {
         const indexed = indexParameters(n);
         const points = new Map(
