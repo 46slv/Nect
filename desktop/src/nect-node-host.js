@@ -43,10 +43,7 @@ export const nectNodeHost = Object.freeze({
       (output) =>
         typeof output.label === 'string' &&
         (output.legacyDefault === undefined || output.legacyDefault === true),
-    ) &&
-    (outputs.some((output) => output.legacyDefault === true)
-      ? outputs.length === 1
-      : outputs.every((output) => output.legacyDefault === undefined)),
+    ) && outputs.filter((output) => output.legacyDefault === true).length <= 1,
 });
 export function nectOutputPort(output) {
   return output.legacyDefault ? undefined : output.id;

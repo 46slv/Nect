@@ -36,18 +36,8 @@ export const nodeCategories = [
     label: '値・制御',
   },
 ];
-const legacyNodeCatalog = [
-  {
-    typeId: 'Text',
-    categoryId: 'create',
-    labelJa: '文字',
-    aliases: ['文字', 'テキスト'],
-    description: '文字 テキスト',
-    creationRoute: 'add',
-  },
-];
 export const nodeCatalog = placeRegistered(
-  legacyNodeCatalog.map((entry) => [entry.typeId, entry]),
+  [],
   registeredNodes.filter((row) => row.exposure === 'public'),
   'catalogAfter',
   (row) => ({ typeId: row.resolved.declaration.typeId, ...row.resolved.declaration.catalog }),
