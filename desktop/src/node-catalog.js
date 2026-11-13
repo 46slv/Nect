@@ -134,14 +134,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Stroke',
-    categoryId: 'paint',
-    labelJa: '線',
-    aliases: ['線', 'ストローク'],
-    description: '線 ストローク',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Halftone',
     categoryId: 'image',
     labelJa: '網点',

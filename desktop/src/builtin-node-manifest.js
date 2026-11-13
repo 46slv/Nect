@@ -87,6 +87,8 @@ import { radialGradientDeclaration } from './radial-gradient-fill-declaration.js
 import { evaluateRadialGradient } from './radial-gradient-fill-binding.js';
 import { angularGradientDeclaration } from './angular-gradient-fill-declaration.js';
 import { evaluateAngularGradient } from './angular-gradient-fill-binding.js';
+import { strokeDeclaration } from './stroke-node-declaration.js';
+import { evaluateStroke } from './stroke-node-binding.js';
 import { keyerDeclaration } from './keyer-node-declaration.js';
 import { evaluateKeyer } from './keyer-node-binding.js';
 
@@ -214,5 +216,6 @@ export const builtinManifest = Object.freeze([
     Object.freeze({ before: 'Luminance to Points' }),
   ),
   entry(fillDeclaration, { evaluate: evaluateFill }, 'Expression', 'Color'),
+  entry(strokeDeclaration, { evaluate: evaluateStroke }, 'Line Screen', 'Fill'),
   entry(keyerDeclaration, { evaluate: evaluateKeyer }, 'Image Output', 'Luminance to Points'),
 ]);

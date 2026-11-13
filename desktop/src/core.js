@@ -620,13 +620,6 @@ const legacyDefinitions = {
     gridOrigin: p('Vector2', [0, 0]),
     tonePower: p('Scalar', 1),
   },
-  Stroke: {
-    path: p('PaintedPath', null),
-    color: p('Color', { hex: '#36434e', alpha: 1 }),
-    width: p('Scalar', 2),
-    miterLimit: p('Scalar', 4),
-    dashOffset: p('Scalar', 0),
-  },
   Text: {
     position: p('Vector2', [200, 300]),
     size: p('Scalar', 100),
@@ -841,11 +834,7 @@ export function outputType(n, port) {
       .outputs.find((output) => nectOutputPort(output) === port)?.type;
   if (n.type === 'Text' && port === 'position') return 'Vector2';
   if (port !== undefined) return undefined;
-  if (
-    ['Halftone', 'Ordered Dither', 'Error Diffusion Dither', 'Line Screen', 'Stroke'].includes(
-      n.type,
-    )
-  )
+  if (['Halftone', 'Ordered Dither', 'Error Diffusion Dither', 'Line Screen'].includes(n.type))
     return 'PaintedPath';
   if (n.type === 'Image' || n.type === 'Image Output' || isImageDither(n.type)) return 'Image';
   if (n.type === 'Mask') return 'PaintedPath';
@@ -871,7 +860,6 @@ const bypassInputs = Object.freeze({
   'Ordered Dither': 'path',
   'Error Diffusion Dither': 'path',
   'Line Screen': 'path',
-  Stroke: 'path',
 });
 export function bypassContract(n, layer) {
   const input = bypassInputs[n?.type];
@@ -2945,6 +2933,7 @@ export function evaluate(
             paint,
             Object.fromEntries(keys.map((key) => [key, parameterColorSlot(n.params[key])])),
           );
+        const strokeStyle = () => validateStrokeStyle(n);
         const nodeHasEmptyOutput = () => hasEmptyOutput(layer, n);
         const identity = Object.freeze({
           provenance: (currentEra) => provenance(nodeId, undefined, currentEra),
@@ -2963,6 +2952,7 @@ export function evaluate(
               sourceOutputType,
               recordPaintSlot,
               recordPaintStops,
+              strokeStyle,
               imageAssets,
               hasEmptyOutput: nodeHasEmptyOutput,
               paintedGroup: (inputs) => {
@@ -2980,6 +2970,7 @@ export function evaluate(
               sourceOutputType,
               recordPaintSlot,
               recordPaintStops,
+              strokeStyle,
               imageAssets,
               hasEmptyOutput: nodeHasEmptyOutput,
             });
@@ -3601,19 +3592,6 @@ export function evaluate(
         result = cloneEvaluated(result);
         if (isPaintedGroup(result))
           throw Error('Edit paint in the source Composition, or use Convert to Path');
-        if (n.type === 'Stroke') {
-          const width = read('width');
-          if (width < 0 || width > 100000) throw Error('Stroke width must be from 0 to 100000 px');
-          const style = validateStrokeStyle(n),
-            miterLimit = n.params.miterLimit ? read('miterLimit') : 4,
-            dashOffset = n.params.dashOffset ? read('dashOffset') : 0;
-          if (miterLimit < 1 || miterLimit > 10000)
-            throw Error('Miter limit must be from 1 to 10000');
-          if (Math.abs(dashOffset) > 100000)
-            throw Error('Dash offset must be from -100000 to 100000 px');
-          result.stroke = { ...read('color'), width, ...style, miterLimit, dashOffset };
-          setEvaluatedPaintSlot(result, 'stroke', parameterColorSlot(n.params.color));
-        }
         if (n.type === 'Path Remap') {
           result.characterOccurrences = routeCharacters(
             result,
