@@ -14,13 +14,30 @@ export function placeRegistered(legacy, rows, location, project) {
       if (anchor === null) {
         output.push([id, project(row)]);
       } else {
-        if (typeof anchor !== 'string' || !anchor) throw Error('Invalid placement');
-        const at = output.findIndex(([key]) => key === anchor);
+        let target = anchor,
+          before = false;
+        if (anchor && typeof anchor === 'object') {
+          const proto = Object.getPrototypeOf(anchor),
+            descriptor = Object.getOwnPropertyDescriptor(anchor, 'before');
+          if (
+            Array.isArray(anchor) ||
+            (proto !== Object.prototype && proto !== null) ||
+            Reflect.ownKeys(anchor).length !== 1 ||
+            !descriptor ||
+            !Object.hasOwn(descriptor, 'value') ||
+            !descriptor.enumerable
+          )
+            throw Error('Invalid placement');
+          target = descriptor.value;
+          before = true;
+        }
+        if (typeof target !== 'string' || !target) throw Error('Invalid placement');
+        const at = output.findIndex(([key]) => key === target);
         if (at < 0) {
           i++;
           continue;
         }
-        output.splice(at + 1, 0, [id, project(row)]);
+        output.splice(at + (before ? 0 : 1), 0, [id, project(row)]);
       }
       ids.add(id);
       pending.splice(i, 1);
