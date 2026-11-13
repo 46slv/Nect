@@ -101,6 +101,8 @@ import { curveDeclaration } from './curve-node-declaration.js';
 import { evaluateCurve } from './curve-node-binding.js';
 import { multiPathDeclaration } from './multi-path-node-declaration.js';
 import { evaluateMultiPath } from './multi-path-node-binding.js';
+import { importedPathDeclaration } from './imported-path-node-declaration.js';
+import { evaluateImportedPath } from './imported-path-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -249,4 +251,5 @@ export const builtinManifest = Object.freeze([
     Object.freeze({ before: 'Boolean' }),
     'Curve',
   ),
+  entry(importedPathDeclaration, { evaluate: evaluateImportedPath }, 'Text to Path', 'Multi Path'),
 ]);

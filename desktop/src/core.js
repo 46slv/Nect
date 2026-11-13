@@ -620,7 +620,6 @@ const legacyDefinitions = {
     letterSpacing: p('Scalar', 0),
     lineSpacing: p('Scalar', 1.2),
   },
-  'Imported Path': {},
 };
 export const definitions = Object.fromEntries(
   placeRegistered(Object.entries(legacyDefinitions), registeredNodes, 'definitionAfter', (row) =>
@@ -2928,6 +2927,7 @@ export function evaluate(
           );
         const strokeStyle = () => validateStrokeStyle(n);
         const imageAssetId = () => n.asset;
+        const parsePathData = () => parsePath(n.rawPath, nodeId);
         const mapPointIds = (project) => n.points.map((point) => project(point.id));
         const mapContours = (project) =>
           n.contours.map((contour) =>
@@ -2958,6 +2958,7 @@ export function evaluate(
               recordPaintStops,
               strokeStyle,
               imageAssetId,
+              parsePathData,
               mapPointIds,
               mapContours,
               pointReader,
@@ -2981,6 +2982,7 @@ export function evaluate(
               recordPaintStops,
               strokeStyle,
               imageAssetId,
+              parsePathData,
               mapPointIds,
               mapContours,
               pointReader,
@@ -3493,10 +3495,6 @@ export function evaluate(
           null,
           `Canvas character editing is unavailable through ${n.type}; edit upstream Text`,
         );
-      } else if (n.type === 'Imported Path') {
-        result = parsePath(n.rawPath, n.id);
-        result.unstable = true;
-        result.fingerprint = signature(result);
       } else if (n.type === 'Boolean') {
         const keys = booleanInputKeys(n),
           inputs = keys.filter((key) => n.params[key].source).map((key) => [key, read(key)]),
