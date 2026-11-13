@@ -113,6 +113,11 @@ import { instancePointsDeclaration } from './instance-points-node-declaration.js
 import { evaluateInstancePoints } from './instance-points-node-binding.js';
 import { luminanceInstancesDeclaration } from './luminance-instances-node-declaration.js';
 import { evaluateLuminanceInstances } from './luminance-instances-node-binding.js';
+import {
+  compositionReferenceDeclaration,
+  svgReferenceDeclaration,
+} from './composition-reference-node-declarations.js';
+import { evaluateCompositionReference } from './composition-reference-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -287,4 +292,12 @@ export const builtinManifest = Object.freeze([
     'Geometry Repeater',
     'Instance on Points',
   ),
+  entry(
+    svgReferenceDeclaration,
+    { evaluate: evaluateCompositionReference },
+    'Null',
+    null,
+    'private',
+  ),
+  entry(compositionReferenceDeclaration, { evaluate: evaluateCompositionReference }, 'SVG', 'Null'),
 ]);

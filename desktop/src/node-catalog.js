@@ -117,14 +117,6 @@ const legacyNodeCatalog = [
     description: '線スクリーン',
     creationRoute: 'add',
   },
-  {
-    typeId: 'Composition Reference',
-    categoryId: 'combine',
-    labelJa: 'Composition参照',
-    aliases: ['コンポジション参照', 'コンポ', 'composition output', 'parts'],
-    description: '別Compositionの出力を配置',
-    creationRoute: 'add',
-  },
 ];
 export const nodeCatalog = placeRegistered(
   legacyNodeCatalog.map((entry) => [entry.typeId, entry]),
