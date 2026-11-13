@@ -70,14 +70,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Instance on Points',
-    categoryId: 'repeat',
-    labelJa: '点に配置',
-    aliases: ['点に配置'],
-    description: '点に配置',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Luminance Instances',
     categoryId: 'repeat',
     labelJa: '輝度による配置',

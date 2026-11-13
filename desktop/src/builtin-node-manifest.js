@@ -109,6 +109,8 @@ import { pathRemapDeclaration } from './path-remap-node-declaration.js';
 import { evaluatePathRemap } from './path-remap-node-binding.js';
 import { luminancePointsDeclaration } from './luminance-points-node-declaration.js';
 import { evaluateLuminancePoints } from './luminance-points-node-binding.js';
+import { instancePointsDeclaration } from './instance-points-node-declaration.js';
+import { evaluateInstancePoints } from './instance-points-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -270,5 +272,11 @@ export const builtinManifest = Object.freeze([
     { evaluate: evaluateLuminancePoints },
     'Luminance Instances',
     Object.freeze({ before: 'Text' }),
+  ),
+  entry(
+    instancePointsDeclaration,
+    { evaluate: evaluateInstancePoints },
+    'Luminance to Points',
+    'Geometry Repeater',
   ),
 ]);
