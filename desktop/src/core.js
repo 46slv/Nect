@@ -142,17 +142,14 @@ import { luminanceInstanceSettings } from './luminance-instances.js';
 import { polarSettings } from './polar-transform.js';
 import { dashIntervals } from './dash-intervals.js';
 import {
-  repeatGeometry,
   repeaterSettings,
   assertRepeaterControls,
   REPEATER_KEYS,
   REPEATER_SCHEMA_VERSION,
   REPEATER_ALTERNATE_SCHEMA_VERSION,
   REPEATER_FILL_SCHEMA_VERSION,
-  REPEATER_FILL_DEFAULT,
   hasRepeaterFillAuthorship,
   REPEATER_STROKE_SCHEMA_VERSION,
-  REPEATER_STROKE_DEFAULT,
   hasRepeaterStrokeAuthorship,
   assertRepeaterRoute,
 } from './repeater.js';
@@ -508,27 +505,6 @@ const legacyDefinitions = {
     scale: p('Scalar', 1),
     rotation: p('Scalar', 0),
   },
-  'Geometry Repeater': {
-    path: p('Path', null),
-    count: p('Scalar', 6),
-    step: p('Vector2', [60, 0]),
-    center: p('Vector2', [480, 270]),
-    startAngle: p('Scalar', 0),
-    angle: p('Scalar', 360),
-    offset: p('Scalar', 0),
-    anchor: p('Vector2', [0, 0]),
-    position: p('Vector2', [60, 0]),
-    scale: p('Vector2', [100, 100]),
-    alternateScale: p('Scalar', 100),
-    alternateFill: p('Boolean', false),
-    alternateColor: p('Color', { ...REPEATER_FILL_DEFAULT }),
-    alternateStroke: p('Boolean', false),
-    alternateStrokeColor: p('Color', { ...REPEATER_STROKE_DEFAULT }),
-    rotation: p('Scalar', 0),
-    startOpacity: p('Scalar', 100),
-    endOpacity: p('Scalar', 100),
-    copiesAbove: p('Boolean', true),
-  },
   Text: {
     position: p('Vector2', [200, 300]),
     size: p('Scalar', 100),
@@ -603,11 +579,9 @@ export function node(type, x = 40, y = 40) {
       ? 'square'
       : type === 'Line Screen'
         ? 'horizontal'
-        : type === 'Geometry Repeater'
-          ? 'linear'
-          : builtinNodeRegistry.get(type)?.declaration.defaultOperation
-            ? builtinNodeRegistry.get(type).declaration.defaultOperation
-            : 'subtract',
+        : builtinNodeRegistry.get(type)?.declaration.defaultOperation
+          ? builtinNodeRegistry.get(type).declaration.defaultOperation
+          : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -732,7 +706,6 @@ const bypassInputs = Object.freeze({
   ),
   Boolean: 'a',
   Transform: 'path',
-  'Geometry Repeater': 'path',
 });
 export function bypassContract(n, layer) {
   const input = bypassInputs[n?.type];
@@ -1404,7 +1377,6 @@ export function parameters(n) {
   return entries;
 }
 export const operationOptions = {
-  'Geometry Repeater': ['linear', 'radial-fit', 'radial-step', 'ae-2d'],
   Boolean: ['union', 'subtract', 'intersect', 'difference'],
   ...Object.fromEntries(
     registeredNodes
@@ -1419,15 +1391,6 @@ export function activeParameters(n) {
   const entries = parameters(n);
   if (n.type === 'Pucker & Bloat' && n.params.autoCenter.value && !n.params.autoCenter.source)
     return entries.filter(([key]) => key !== 'center');
-  if (n.type === 'Geometry Repeater')
-    return entries.filter(([key]) =>
-      (n.operation === 'ae-2d'
-        ? ['path', 'count', ...REPEATER_KEYS]
-        : n.operation === 'linear'
-          ? ['path', 'count', 'step']
-          : ['path', 'count', 'center', 'startAngle', 'angle']
-      ).includes(key),
-    );
   if (
     isTransform(n) &&
     (!n.params.uniformScale ||
@@ -3018,79 +2981,6 @@ export function evaluate(
           prefix: n.id,
         });
         setEvaluationFingerprint(result, (currentEra) => [n.id, source, result.matrix]);
-      } else if (n.type === 'Geometry Repeater') {
-        const source = read('path');
-        if (!source) throw Error('Connect a Path input');
-        if (n.operation === 'ae-2d') {
-          result = repeatGeometry(source, { ...repeaterSettings(read), prefix: fingerprint(n.id) });
-        } else {
-          const count = read('count');
-          if (!Number.isInteger(count) || count < 1 || count > 256)
-            throw Error('Repeater count must be an integer from 1 to 256');
-          if (
-            source.contours.length * count > 10000 ||
-            source.contours.reduce((sum, c) => sum + c.points.length, 0) * count > 100000
-          )
-            throw Error('Repeater exceeds geometry budget');
-          const grouped = source.contours.some((c) => c.group !== undefined);
-          const groups = grouped
-            ? new Map(contourGroups(source).map((group, i) => [group[0].group ?? '', i]))
-            : null;
-          if (grouped && groups.size * count > 256)
-            throw Error('Repeater exceeds 256 independent groups');
-          const linear = n.operation === 'linear';
-          if (!operationOptions['Geometry Repeater'].includes(n.operation))
-            throw Error('Invalid repeater operation');
-          const step = linear ? read('step') : [0, 0];
-          const center = linear ? [0, 0] : read('center');
-          const start = linear ? 0 : read('startAngle');
-          const angle = linear ? 0 : read('angle');
-          if (n.operation === 'radial-fit' && Math.abs(angle) > 360)
-            throw Error('Fit arc must be between -360 and 360 degrees');
-          const increment =
-            n.operation === 'radial-fit'
-              ? angle / (Math.abs(angle) === 360 ? count : Math.max(1, count - 1))
-              : angle;
-          result = { contours: [] };
-          const prefix = fingerprint(n.id);
-          for (let copy = 0; copy < count; copy++) {
-            const radians = (((start + increment * copy) % 360) * Math.PI) / 180;
-            const cos = Math.cos(radians),
-              sin = Math.sin(radians);
-            function transform(v, handle = false) {
-              const x = v[0] - (handle ? 0 : center[0]),
-                y = v[1] - (handle ? 0 : center[1]);
-              const next = [
-                x * cos - y * sin + (handle ? 0 : center[0] + step[0] * copy),
-                x * sin + y * cos + (handle ? 0 : center[1] + step[1] * copy),
-              ];
-              assertValue('Vector2', next);
-              return next;
-            }
-            for (const [ci, c] of source.contours.entries())
-              result.contours.push({
-                id: `${prefix}:copy${copy}:c${ci}`,
-                ...(grouped
-                  ? { group: `${prefix}:copy${copy}:g${groups.get(c.group ?? '')}` }
-                  : {}),
-                closed: c.closed,
-                points: c.points.map((pt, pi) => ({
-                  id: `${prefix}:copy${copy}:c${ci}:p${pi}`,
-                  position: transform(pt.position),
-                  handleA: transform(pt.handleA, true),
-                  handleB: transform(pt.handleB, true),
-                })),
-              });
-          }
-        }
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Geometry Repeater',
-        );
-        result.unstable = true;
-        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Boolean') {
         const keys = booleanInputKeys(n),
           inputs = keys.filter((key) => n.params[key].source).map((key) => [key, read(key)]),
