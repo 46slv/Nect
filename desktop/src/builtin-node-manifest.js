@@ -103,6 +103,8 @@ import { multiPathDeclaration } from './multi-path-node-declaration.js';
 import { evaluateMultiPath } from './multi-path-node-binding.js';
 import { importedPathDeclaration } from './imported-path-node-declaration.js';
 import { evaluateImportedPath } from './imported-path-node-binding.js';
+import { referenceDeclaration } from './reference-node-declaration.js';
+import { evaluateReference } from './reference-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -252,4 +254,10 @@ export const builtinManifest = Object.freeze([
     'Curve',
   ),
   entry(importedPathDeclaration, { evaluate: evaluateImportedPath }, 'Text to Path', 'Multi Path'),
+  entry(
+    referenceDeclaration,
+    { evaluate: evaluateReference },
+    Object.freeze({ before: 'SVG' }),
+    'Composition Reference',
+  ),
 ]);

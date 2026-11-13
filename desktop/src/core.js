@@ -571,7 +571,6 @@ const legacyDefinitions = {
     points: p('Path', null),
     alignTangent: p('Boolean', false),
   },
-  Reference: {},
   SVG: { position: p('Vector2', [0, 0]) },
   'Composition Reference': { position: p('Vector2', [0, 0]) },
   Halftone: {
@@ -830,7 +829,7 @@ export function outputType(n, port) {
   if (['Halftone', 'Ordered Dither', 'Error Diffusion Dither', 'Line Screen'].includes(n.type))
     return 'PaintedPath';
   if (isImageDither(n.type)) return 'Image';
-  return n.type === 'Reference' ? 'Vector2' : 'Path';
+  return 'Path';
 }
 // Deliberate identity contracts. Never guess the first socket of a new node type.
 const bypassInputs = Object.freeze({
@@ -2903,9 +2902,6 @@ export function evaluate(
           position,
           external.path,
         ]);
-      } else if (n.type === 'Reference') {
-        result = clone(run(n.reference.nodeId, referencePort(n.reference)));
-        assertValue('Vector2', result);
       } else if (positionOutput) result = read('position');
       else if (builtinNodeRegistry.get(n.type)) {
         const registered = builtinNodeRegistry.get(n.type);
@@ -2928,6 +2924,7 @@ export function evaluate(
         const strokeStyle = () => validateStrokeStyle(n);
         const imageAssetId = () => n.asset;
         const parsePathData = () => parsePath(n.rawPath, nodeId);
+        const referencedVector = () => clone(run(n.reference.nodeId, referencePort(n.reference)));
         const mapPointIds = (project) => n.points.map((point) => project(point.id));
         const mapContours = (project) =>
           n.contours.map((contour) =>
@@ -2959,6 +2956,7 @@ export function evaluate(
               strokeStyle,
               imageAssetId,
               parsePathData,
+              referencedVector,
               mapPointIds,
               mapContours,
               pointReader,
@@ -2983,6 +2981,7 @@ export function evaluate(
               strokeStyle,
               imageAssetId,
               parsePathData,
+              referencedVector,
               mapPointIds,
               mapContours,
               pointReader,

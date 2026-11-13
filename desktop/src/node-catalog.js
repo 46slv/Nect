@@ -157,14 +157,6 @@ const legacyNodeCatalog = [
     description: '別Compositionの出力を配置',
     creationRoute: 'add',
   },
-  {
-    typeId: 'Reference',
-    categoryId: 'value',
-    labelJa: '参照',
-    aliases: ['参照'],
-    description: '参照',
-    creationRoute: 'add',
-  },
 ];
 export const nodeCatalog = placeRegistered(
   legacyNodeCatalog.map((entry) => [entry.typeId, entry]),
