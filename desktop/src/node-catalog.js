@@ -62,14 +62,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Path Remap',
-    categoryId: 'transform',
-    labelJa: 'パス再配置',
-    aliases: ['パス再配置'],
-    description: 'パス再配置',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Boolean',
     categoryId: 'combine',
     labelJa: '結合',

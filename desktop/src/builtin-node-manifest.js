@@ -105,6 +105,8 @@ import { importedPathDeclaration } from './imported-path-node-declaration.js';
 import { evaluateImportedPath } from './imported-path-node-binding.js';
 import { referenceDeclaration } from './reference-node-declaration.js';
 import { evaluateReference } from './reference-node-binding.js';
+import { pathRemapDeclaration } from './path-remap-node-declaration.js';
+import { evaluatePathRemap } from './path-remap-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -260,4 +262,5 @@ export const builtinManifest = Object.freeze([
     Object.freeze({ before: 'SVG' }),
     'Composition Reference',
   ),
+  entry(pathRemapDeclaration, { evaluate: evaluatePathRemap }, 'Closed Path Offset', 'Transform'),
 ]);
