@@ -70,14 +70,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Luminance Instances',
-    categoryId: 'repeat',
-    labelJa: '輝度による配置',
-    aliases: ['輝度による配置'],
-    description: '輝度による配置',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Halftone',
     categoryId: 'image',
     labelJa: '網点',

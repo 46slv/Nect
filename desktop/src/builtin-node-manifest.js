@@ -111,6 +111,8 @@ import { luminancePointsDeclaration } from './luminance-points-node-declaration.
 import { evaluateLuminancePoints } from './luminance-points-node-binding.js';
 import { instancePointsDeclaration } from './instance-points-node-declaration.js';
 import { evaluateInstancePoints } from './instance-points-node-binding.js';
+import { luminanceInstancesDeclaration } from './luminance-instances-node-declaration.js';
+import { evaluateLuminanceInstances } from './luminance-instances-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -278,5 +280,11 @@ export const builtinManifest = Object.freeze([
     { evaluate: evaluateInstancePoints },
     'Luminance to Points',
     'Geometry Repeater',
+  ),
+  entry(
+    luminanceInstancesDeclaration,
+    { evaluate: evaluateLuminanceInstances },
+    'Geometry Repeater',
+    'Instance on Points',
   ),
 ]);
