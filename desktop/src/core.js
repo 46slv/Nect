@@ -535,8 +535,6 @@ const legacyDefinitions = {
     endOpacity: p('Scalar', 100),
     copiesAbove: p('Boolean', true),
   },
-  SVG: { position: p('Vector2', [0, 0]) },
-  'Composition Reference': { position: p('Vector2', [0, 0]) },
   Halftone: {
     path: p('PaintedPath', null),
     pitch: p('Scalar', 16),
@@ -766,8 +764,7 @@ export function outputPorts(n) {
     : [{ id: undefined, label: '', type: outputType(n) }];
 }
 export function outputType(n, port) {
-  if (['Composition Reference', 'SVG'].includes(n.type) || n.paintMode)
-    return port === undefined ? 'PaintedPath' : undefined;
+  if (n.paintMode) return port === undefined ? 'PaintedPath' : undefined;
   const registered = builtinNodeRegistry.get(n.type);
   if (registered)
     return registered
@@ -2836,18 +2833,6 @@ export function evaluate(
         if (result === null) throw Error(`Connect ${bypassInput(n)} to bypass ${n.type}`);
         if (n.type === 'Mask') result = evaluatedPaintedGroup([result], { prefix: n.id });
         assertValue(outputType(n), result);
-      } else if (['Composition Reference', 'SVG'].includes(n.type)) {
-        const position = read('position');
-        result = evaluatedPaintedGroup([external.path], {
-          matrix: [1, 0, 0, 1, ...position],
-          prefix: n.id,
-        });
-        setEvaluationFingerprint(result, (currentEra) => [
-          n.compositionReference,
-          n.id,
-          position,
-          external.path,
-        ]);
       } else if (positionOutput) result = read('position');
       else if (builtinNodeRegistry.get(n.type)) {
         const registered = builtinNodeRegistry.get(n.type);
@@ -2872,6 +2857,10 @@ export function evaluate(
         const imageAssetId = () => n.asset;
         const parsePathData = () => parsePath(n.rawPath, nodeId);
         const referencedVector = () => clone(run(n.reference.nodeId, referencePort(n.reference)));
+        const compositionInput = () =>
+          Object.freeze({ reference: clone(n.compositionReference), appearance: external.path });
+        const groupAppearance = (values, matrix) =>
+          evaluatedPaintedGroup(values, { matrix, prefix: nodeId });
         const mapPointIds = (project) => n.points.map((point) => project(point.id));
         const mapContours = (project) =>
           n.contours.map((contour) =>
@@ -2917,6 +2906,8 @@ export function evaluate(
               imageAssetId,
               parsePathData,
               referencedVector,
+              compositionInput,
+              groupAppearance,
               mapPointIds,
               mapContours,
               forEachPointEdit,
@@ -2944,6 +2935,8 @@ export function evaluate(
               imageAssetId,
               parsePathData,
               referencedVector,
+              compositionInput,
+              groupAppearance,
               mapPointIds,
               mapContours,
               forEachPointEdit,
