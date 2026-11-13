@@ -118,6 +118,18 @@ import {
   svgReferenceDeclaration,
 } from './composition-reference-node-declarations.js';
 import { evaluateCompositionReference } from './composition-reference-node-binding.js';
+import {
+  halftoneDeclaration,
+  orderedDitherDeclaration,
+  errorDiffusionDeclaration,
+  lineScreenDeclaration,
+} from './luminance-marks-node-declarations.js';
+import {
+  evaluateHalftone,
+  evaluateOrderedDither,
+  evaluateErrorDiffusion,
+  evaluateLineScreen,
+} from './luminance-marks-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -300,4 +312,23 @@ export const builtinManifest = Object.freeze([
     'private',
   ),
   entry(compositionReferenceDeclaration, { evaluate: evaluateCompositionReference }, 'SVG', 'Null'),
+  entry(
+    halftoneDeclaration,
+    { evaluate: evaluateHalftone },
+    'Angular Gradient Fill',
+    'Radial Gradient Fill',
+  ),
+  entry(orderedDitherDeclaration, { evaluate: evaluateOrderedDither }, 'Halftone', 'Halftone'),
+  entry(
+    errorDiffusionDeclaration,
+    { evaluate: evaluateErrorDiffusion },
+    'Ordered Dither',
+    'Ordered Dither',
+  ),
+  entry(
+    lineScreenDeclaration,
+    { evaluate: evaluateLineScreen },
+    'Error Diffusion Dither',
+    'Error Diffusion Dither Image',
+  ),
 ]);

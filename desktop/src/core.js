@@ -137,7 +137,6 @@ import {
   isDither,
   hasDotControls,
   readDotSettings,
-  dotFingerprint,
   migrateDither,
 } from './dither-controls.js';
 import { luminanceInstanceSettings } from './luminance-instances.js';
@@ -158,10 +157,6 @@ import {
   hasRepeaterStrokeAuthorship,
   assertRepeaterRoute,
 } from './repeater.js';
-import { sampleLuminanceGrid } from './luminance-field.js';
-import { sampleImageLuminanceGrid } from './image-luminance-field.js';
-import { generateLuminanceMarks } from './luminance-marks.js';
-import { prepareLuminanceMask, clipLuminanceMarks } from './luminance-mask.js';
 export { hitPathSegment } from './path-point-insertion.js';
 export { pointControlTargets, hitPointControl } from './point-controls.js';
 export { scrubNumericValues } from './numeric-scrub.js';
@@ -535,46 +530,6 @@ const legacyDefinitions = {
     endOpacity: p('Scalar', 100),
     copiesAbove: p('Boolean', true),
   },
-  Halftone: {
-    path: p('PaintedPath', null),
-    pitch: p('Scalar', 16),
-    dotSize: p('Scalar', 16),
-    dotSides: p('Scalar', 4),
-    dotRotation: p('Scalar', 0),
-    starInnerRatio: p('Scalar', 0.25),
-    invert: p('Boolean', false),
-    gridOrigin: p('Vector2', [0, 0]),
-    tonePower: p('Scalar', 1),
-  },
-  'Ordered Dither': {
-    path: p('PaintedPath', null),
-    pitch: p('Scalar', 16),
-    dotSize: p('Scalar', 16),
-    dotSides: p('Scalar', 4),
-    dotRotation: p('Scalar', 0),
-    starInnerRatio: p('Scalar', 0.25),
-    invert: p('Boolean', false),
-    gridOrigin: p('Vector2', [0, 0]),
-    tonePower: p('Scalar', 1),
-  },
-  'Error Diffusion Dither': {
-    path: p('PaintedPath', null),
-    pitch: p('Scalar', 16),
-    dotSize: p('Scalar', 16),
-    dotSides: p('Scalar', 4),
-    dotRotation: p('Scalar', 0),
-    starInnerRatio: p('Scalar', 0.25),
-    invert: p('Boolean', false),
-    gridOrigin: p('Vector2', [0, 0]),
-    tonePower: p('Scalar', 1),
-  },
-  'Line Screen': {
-    path: p('PaintedPath', null),
-    pitch: p('Scalar', 16),
-    invert: p('Boolean', false),
-    gridOrigin: p('Vector2', [0, 0]),
-    tonePower: p('Scalar', 1),
-  },
   Text: {
     position: p('Vector2', [200, 300]),
     size: p('Scalar', 100),
@@ -772,8 +727,6 @@ export function outputType(n, port) {
       .outputs.find((output) => nectOutputPort(output) === port)?.type;
   if (n.type === 'Text' && port === 'position') return 'Vector2';
   if (port !== undefined) return undefined;
-  if (['Halftone', 'Ordered Dither', 'Error Diffusion Dither', 'Line Screen'].includes(n.type))
-    return 'PaintedPath';
   if (isImageDither(n.type)) return 'Image';
   return 'Path';
 }
@@ -789,10 +742,6 @@ const bypassInputs = Object.freeze({
   Boolean: 'a',
   Transform: 'path',
   'Geometry Repeater': 'path',
-  Halftone: 'path',
-  'Ordered Dither': 'path',
-  'Error Diffusion Dither': 'path',
-  'Line Screen': 'path',
 });
 export function bypassContract(n, layer) {
   const input = bypassInputs[n?.type];
@@ -1464,13 +1413,9 @@ export function parameters(n) {
   return entries;
 }
 export const operationOptions = {
-  Halftone: ['subtract', 'square', 'circle', 'polygon', 'star'],
-  'Ordered Dither': ['square', 'circle', 'polygon', 'star'],
-  'Error Diffusion Dither': ['square', 'circle', 'polygon', 'star'],
   'Ordered Dither Image': ['square', 'circle', 'polygon', 'star'],
   'Error Diffusion Dither Image': ['square', 'circle', 'polygon', 'star'],
   'Geometry Repeater': ['linear', 'radial-fit', 'radial-step', 'ae-2d'],
-  'Line Screen': ['horizontal', 'vertical'],
   Boolean: ['union', 'subtract', 'intersect', 'difference'],
   ...Object.fromEntries(
     registeredNodes
@@ -1505,7 +1450,12 @@ export function activeParameters(n) {
   const registered = builtinNodeRegistry.get(n.type);
   if (!registered?.declaration.operations) return entries;
   const active = registered.interface(n.operation).active;
-  return entries.filter(([key]) => active.includes(key));
+  // Some authored nodes retain host-provided point/edit inputs across all operations.
+  return entries.filter(
+    ([key]) =>
+      active.includes(key) ||
+      (registered.declaration.preserveSupplementalInputs === true && !Object.hasOwn(n.params, key)),
+  );
 }
 export function setOperation(layer, nodeId, operation) {
   const n = layer.nodes.find((n) => n.id === nodeId);
@@ -3166,131 +3116,6 @@ export function evaluate(
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
-      } else if (
-        ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type)
-      ) {
-        const source = read('path');
-        if (!source) throw Error(`Connect a PaintedPath input to ${n.type}`);
-        if (source.kind !== 'image' && (source.fill === null || source.fill === undefined))
-          throw Error(`${n.type} requires a filled source; stroke-only inputs are unsupported`);
-        if (source.kind !== 'image') {
-          if (!Array.isArray(source.contours) || source.contours.length > 10000)
-            throw Error(`${n.type} exceeds the 100000-vertex geometry budget`);
-          let inputVertices = 0;
-          for (const contour of source.contours) {
-            inputVertices += Array.isArray(contour?.points) ? contour.points.length : 0;
-            if (inputVertices > 100000)
-              throw Error(`${n.type} exceeds the 100000-vertex geometry budget`);
-          }
-        }
-        const { pitch, invert, gridOrigin, tonePower } = luminanceModifierSettings(read),
-          origin = { x: gridOrigin[0], y: gridOrigin[1] },
-          mode =
-            n.type === 'Halftone'
-              ? 'halftone'
-              : n.type === 'Ordered Dither'
-                ? 'dither'
-                : n.type === 'Error Diffusion Dither'
-                  ? 'error-diffusion'
-                  : 'lines',
-          orientation = mode === 'lines' ? n.operation : undefined,
-          dots = readDotSettings(n, read);
-        if (mode === 'lines' && !operationOptions[n.type].includes(orientation))
-          throw Error('Line Screen orientation must be horizontal or vertical');
-        if (source.kind === 'image') {
-          const field = sampleImageLuminanceGrid(
-              imageAssetFor(source, imageAssets),
-              source.position,
-              source.size,
-              { pitch, origin, invert, tonePower },
-            ),
-            [x, y] = source.position,
-            [width, height] = source.size,
-            mask = prepareLuminanceMask({
-              contours: [
-                {
-                  id: `${n.id}:image-mask`,
-                  closed: true,
-                  points: [
-                    [x, y],
-                    [x + width, y],
-                    [x + width, y + height],
-                    [x, y + height],
-                  ].map((position, index) => ({
-                    id: `${n.id}:image-mask:${index}`,
-                    position,
-                    handleA: [0, 0],
-                    handleB: [0, 0],
-                  })),
-                },
-              ],
-            }),
-            generated = generateLuminanceMarks({
-              cells: field.cells,
-              pitch,
-              mode,
-              orientation,
-              ...dots,
-            });
-          result = clipLuminanceMarks(
-            mask,
-            generated.marks.map((mark) => mark.vertices),
-            fingerprint(n.id),
-          );
-          result.fill = { hex: '#000000', alpha: 1 };
-        } else if (source.contours.length === 0) {
-          // A valid empty painted path (for example, Boolean A−A) remains an
-          // empty black fill. Still validate its paint and node settings.
-          sampleLuminanceGrid(
-            source.fill,
-            { minX: 0, minY: 0, maxX: 0, maxY: 0 },
-            { pitch, origin, invert, tonePower },
-          );
-          result = { contours: [], fill: { hex: '#000000', alpha: 1 } };
-        } else {
-          const mask = prepareLuminanceMask(source),
-            field = sampleLuminanceGrid(source.fill, mask.bounds, {
-              pitch,
-              origin,
-              invert,
-              tonePower,
-            }),
-            generated = generateLuminanceMarks({
-              cells: field.cells,
-              pitch,
-              mode,
-              orientation,
-              ...dots,
-            }),
-            polygons = generated.marks.map((mark) => mark.vertices);
-          result = clipLuminanceMarks(mask, polygons, fingerprint(n.id));
-          result.fill = { hex: '#000000', alpha: 1 };
-        }
-        result.unstable = true;
-        setEvaluationFingerprint(result, (currentEra) => [
-          provenance(n.id, undefined, currentEra),
-          mode,
-          ...(mode === 'lines' ? [orientation] : []),
-          pitch,
-          invert,
-          // Preserve schema-14 provenance when the migrated default is unchanged.
-          // Non-default origins participate so downstream edits invalidate correctly.
-          ...(gridOrigin[0] || gridOrigin[1] ? [gridOrigin] : []),
-          ...(tonePower !== 1 ? [tonePower] : []),
-          ...dotFingerprint(dots, pitch),
-          source.fill,
-          evaluatedFingerprint(source, currentEra) || null,
-          source.kind === 'image'
-            ? JSON.stringify([source.kind, source.asset, source.position, source.size])
-            : signature(source),
-          signature(result),
-        ]);
-        result.characterOccurrences = routeCharacters(
-          source,
-          n.id,
-          null,
-          `Canvas character editing is unavailable through ${n.type}; edit upstream Text`,
-        );
       } else if (n.type === 'Boolean') {
         const keys = booleanInputKeys(n),
           inputs = keys.filter((key) => n.params[key].source).map((key) => [key, read(key)]),
