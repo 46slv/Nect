@@ -514,7 +514,6 @@ export const uid = (prefix = 'id') => `${prefix}-${globalThis.crypto.randomUUID(
 const p = (type, value) => ({ type, value, expression: '', locked: false });
 const legacyDefinitions = {
   Boolean: { a: p('Path', null), b: p('Path', null) },
-  'Path Remap': { path: p('Path', null), offset: p('Vector2', [0, 0]) },
   Transform: {
     path: p('Path', null),
     anchor: p('Vector2', [0, 0]),
@@ -842,7 +841,6 @@ const bypassInputs = Object.freeze({
   'Error Diffusion Dither Image': 'path',
   Boolean: 'a',
   Transform: 'path',
-  'Path Remap': 'path',
   'Geometry Repeater': 'path',
   'Instance on Points': 'path',
   'Luminance Instances': 'motif',
@@ -2930,6 +2928,17 @@ export function evaluate(
           n.contours.map((contour) =>
             project({ ...contour, points: contour.points.map((id) => id) }),
           );
+        const forEachPointEdit = (visit) => {
+          for (const edit of n.edits)
+            visit(
+              Object.freeze({
+                pointId: edit.pointId,
+                fingerprint: edit.fingerprint,
+                hasParameter: (key) => !!edit.params?.[key],
+                directValue: (key) => clone(edit[key]),
+              }),
+            );
+        };
         const pointReader = () => {
           const indexed = indexParameters(n);
           return (id, key) => readParameter(n, `${id}.${key}`, indexed);
@@ -2940,6 +2949,7 @@ export function evaluate(
           fingerprint: evaluatedFingerprint,
           setFingerprint: setEvaluationFingerprint,
           copy: copyEvaluationIdentity,
+          matchesFingerprint: remapFingerprintMatches,
         });
         const shape = registered.hasShape ? registered.snapshot(n) : undefined;
         const context = shape
@@ -2959,6 +2969,7 @@ export function evaluate(
               referencedVector,
               mapPointIds,
               mapContours,
+              forEachPointEdit,
               pointReader,
               pathBounds,
               imageAssets,
@@ -2984,6 +2995,7 @@ export function evaluate(
               referencedVector,
               mapPointIds,
               mapContours,
+              forEachPointEdit,
               pointReader,
               pathBounds,
               imageAssets,
@@ -3547,31 +3559,7 @@ export function evaluate(
         result = cloneEvaluated(result);
         if (isPaintedGroup(result))
           throw Error('Edit paint in the source Composition, or use Convert to Path');
-        if (n.type === 'Path Remap') {
-          result.characterOccurrences = routeCharacters(
-            result,
-            n.id,
-            null,
-            'Canvas character editing is unavailable through Path Remap',
-          );
-          let offset = read('offset');
-          for (const contour of result.contours)
-            for (const pt of contour.points) pt.position = pt.position.map((v, i) => v + offset[i]);
-          for (const edit of n.edits) {
-            let pt = result.contours.flatMap((c) => c.points).find((p) => p.id === edit.pointId);
-            if (!pt || (result.unstable && !remapFingerprintMatches(result, edit.fingerprint))) {
-              result.remapSuspended = true;
-              warnings.push(
-                `${n.name}: vertex edit suspended because its source changed. Rebind explicitly.`,
-              );
-              continue;
-            }
-            for (const key of ['position', 'handleA', 'handleB']) {
-              const delta = edit.params?.[key] ? read(`remap.${edit.pointId}.${key}`) : edit[key];
-              if (delta) pt[key] = pt[key].map((v, i) => v + delta[i]);
-            }
-          }
-        } else if (n.type === 'Transform') {
+        if (n.type === 'Transform') {
           let obj = toPaper(result);
           const state = transformValues(n, read);
           obj.transform(new scope.Matrix(...state.matrix));
