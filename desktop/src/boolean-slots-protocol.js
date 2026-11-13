@@ -2,6 +2,10 @@ import { joinSlotsProtocol } from './join-slots-protocol.js';
 
 // Boolean shares the bounded slot shape, but its spare is authored only on use.
 export const booleanSlotsProtocol = Object.freeze({
+  staticOutputs: true,
+  staticOutputType: 'Path',
+  allShapeInputsActive: true,
+  parameterKeys: (node) => node.booleanInputOrder ?? ['a', 'b'],
   validateDeclaration: (shape) =>
     !!shape &&
     Object.keys(shape).length === 2 &&

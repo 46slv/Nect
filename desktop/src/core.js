@@ -668,10 +668,12 @@ export function outputPorts(n) {
 export function outputType(n, port) {
   if (n.paintMode) return port === undefined ? 'PaintedPath' : undefined;
   const registered = builtinNodeRegistry.get(n.type);
-  if (registered)
-    return registered
-      .interface(n.operation, registered.hasShape ? registered.snapshot(n) : undefined)
-      .outputs.find((output) => nectOutputPort(output) === port)?.type;
+  if (registered) {
+    const outputs = registered.hasStaticOutputs
+      ? registered.outputsWithoutShape(n.operation)
+      : registered.interface(n.operation, registered.snapshot(n)).outputs;
+    return outputs.find((output) => nectOutputPort(output) === port)?.type;
+  }
   if (port !== undefined) return undefined;
   return 'Path';
 }
@@ -1331,11 +1333,12 @@ function normalizeBooleanInputs(n, compact = false) {
   } else n.booleanInputOrder = keys;
 }
 export function parameters(n) {
-  const entries = builtinNodeRegistry.get(n.type)?.hasShape
-    ? builtinNodeRegistry
-        .get(n.type)
-        .snapshot(n)
-        .slots.map(({ id }) => [id, n.params[id]])
+  const registered = builtinNodeRegistry.get(n.type);
+  const entries = registered?.hasShape
+    ? (registered.parameterKeys
+        ? registered.parameterKeys(n)
+        : registered.snapshot(n).slots.map(({ id }) => id)
+      ).map((id) => [id, n.params[id]])
     : Object.entries(n.params);
   if (n.type === 'Mask' && !Object.hasOwn(n.params, 'feather'))
     entries.push(['feather', p('Scalar', 0)]);
@@ -1374,14 +1377,19 @@ export function activeParameters(n) {
     return entries.filter(([key]) => key !== 'scaleWidth');
   const registered = builtinNodeRegistry.get(n.type);
   if (!registered?.declaration.operations) return entries;
+  if (registered.allParametersActive) {
+    registered.assertOperation(n.operation);
+    return entries;
+  }
   const active = registered.interface(
     n.operation,
     registered.hasShape ? registered.snapshot(n) : undefined,
   ).active;
   // Some authored nodes retain host-provided point/edit inputs across all operations.
+  const activeIds = new Set(active);
   return entries.filter(
     ([key]) =>
-      active.includes(key) ||
+      activeIds.has(key) ||
       (registered.declaration.preserveSupplementalInputs === true && !Object.hasOwn(n.params, key)),
   );
 }

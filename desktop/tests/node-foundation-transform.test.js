@@ -30,6 +30,7 @@ test('Transform registration preserves defaults, metadata and placement', () => 
   assert.equal(outputType(current), 'Path');
   assert.deepEqual(outputPorts(current), [{ id: undefined, label: '', type: 'Path' }]);
   assert.equal(bypassContract(current).input, 'path');
+  assert.throws(() => registered.outputsWithoutShape(current.operation), /Shape required/);
   assert.equal(types[types.indexOf('Transform') - 1], 'Path Remap');
   assert.equal(catalog[catalog.indexOf('Transform') - 1], 'Dash Path');
 });
