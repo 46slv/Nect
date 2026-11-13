@@ -53,14 +53,6 @@ const legacyNodeCatalog = [
     description: '形状の移動・回転・拡大縮小',
     creationRoute: 'add',
   },
-  {
-    typeId: 'Boolean',
-    categoryId: 'combine',
-    labelJa: '結合',
-    aliases: ['結合', 'ブーリアン', 'シルエット'],
-    description: '輪郭を演算して合成する',
-    creationRoute: 'add',
-  },
 ];
 export const nodeCatalog = placeRegistered(
   legacyNodeCatalog.map((entry) => [entry.typeId, entry]),

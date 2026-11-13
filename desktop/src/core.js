@@ -225,6 +225,7 @@ export {
   setLayoutGrid,
 } from './guides.js';
 import { fromPaper, getPaperScope, toPaper } from './paper-runtime.js';
+import { booleanOperand } from './boolean-operand.js';
 import {
   validateFontAssets,
   resolveFonts,
@@ -497,7 +498,6 @@ export function sameDocument(a, b) {
 export const uid = (prefix = 'id') => `${prefix}-${globalThis.crypto.randomUUID()}`;
 const p = (type, value) => ({ type, value, expression: '', locked: false });
 const legacyDefinitions = {
-  Boolean: { a: p('Path', null), b: p('Path', null) },
   Transform: {
     path: p('Path', null),
     anchor: p('Vector2', [0, 0]),
@@ -704,7 +704,6 @@ const bypassInputs = Object.freeze({
       .filter((row) => row.resolved.declaration.bypassInput !== undefined)
       .map((row) => [row.resolved.declaration.typeId, row.resolved.declaration.bypassInput]),
   ),
-  Boolean: 'a',
   Transform: 'path',
 });
 export function bypassContract(n, layer) {
@@ -1360,9 +1359,7 @@ export function parameters(n) {
         .get(n.type)
         .snapshot(n)
         .slots.map(({ id }) => [id, n.params[id]])
-    : n.type === 'Boolean'
-      ? booleanInputKeys(n).map((key) => [key, n.params[key]])
-      : Object.entries(n.params);
+    : Object.entries(n.params);
   if (n.type === 'Mask' && !Object.hasOwn(n.params, 'feather'))
     entries.push(['feather', p('Scalar', 0)]);
   if (n.type === 'Mask' && !Object.hasOwn(n.params, 'luminance'))
@@ -1377,7 +1374,6 @@ export function parameters(n) {
   return entries;
 }
 export const operationOptions = {
-  Boolean: ['union', 'subtract', 'intersect', 'difference'],
   ...Object.fromEntries(
     registeredNodes
       .filter((row) => row.resolved.declaration.operations)
@@ -1401,7 +1397,10 @@ export function activeParameters(n) {
     return entries.filter(([key]) => key !== 'scaleWidth');
   const registered = builtinNodeRegistry.get(n.type);
   if (!registered?.declaration.operations) return entries;
-  const active = registered.interface(n.operation).active;
+  const active = registered.interface(
+    n.operation,
+    registered.hasShape ? registered.snapshot(n) : undefined,
+  ).active;
   // Some authored nodes retain host-provided point/edit inputs across all operations.
   return entries.filter(
     ([key]) =>
@@ -2212,23 +2211,6 @@ function assertValue(type, value) {
   if (type === 'Vector2' && !isVector2(value)) throw Error('Expected Vector2');
   if (type === 'Boolean' && typeof value !== 'boolean') throw Error('Expected Boolean');
 }
-function booleanOperand(path) {
-  if (!path.contours.some((c) => c.group !== undefined)) return toPaper(path);
-  let result = null;
-  for (const contours of contourGroups(path)) {
-    const item = toPaper({ contours });
-    if (!result) {
-      result = item;
-      continue;
-    }
-    const union = result.unite(item, { insert: false });
-    result.remove();
-    item.remove();
-    result = union;
-  }
-  return result || toPaper({ contours: [] });
-}
-
 export function parsePath(data, prefix = 'imported') {
   if (
     typeof data !== 'string' ||
@@ -2981,53 +2963,6 @@ export function evaluate(
           prefix: n.id,
         });
         setEvaluationFingerprint(result, (currentEra) => [n.id, source, result.matrix]);
-      } else if (n.type === 'Boolean') {
-        const keys = booleanInputKeys(n),
-          inputs = keys.filter((key) => n.params[key].source).map((key) => [key, read(key)]),
-          a = inputs.find(([key]) => key === 'a')?.[1],
-          b = inputs.find(([key]) => key === 'b')?.[1];
-        if (!a || !b) throw Error('Connect both Boolean paths');
-        if (inputs.some(([, path]) => path.contours.some((contour) => !contour.closed)))
-          throw Error('Boolean requires closed contours');
-        const op = {
-          union: 'unite',
-          subtract: 'subtract',
-          intersect: 'intersect',
-          difference: 'exclude',
-        }[n.operation];
-        if (!op) throw Error('Unknown Boolean operation');
-        const liveOperands = new Set();
-        try {
-          let combined;
-          for (const [, path] of inputs) {
-            const next = booleanOperand(path);
-            liveOperands.add(next);
-            if (!combined) {
-              combined = next;
-              continue;
-            }
-            const previous = combined;
-            combined = previous[op](next, { insert: false });
-            liveOperands.add(combined);
-            previous.remove();
-            liveOperands.delete(previous);
-            next.remove();
-            liveOperands.delete(next);
-          }
-          result = fromPaper(combined, n.id);
-          result.characterOccurrences = inputs.flatMap(([key, path]) =>
-            routeCharacters(
-              path,
-              n.id + ':' + key,
-              null,
-              'Canvas character editing is unavailable through Boolean',
-            ),
-          );
-          result.unstable = true;
-          result.fingerprint = signature(result);
-        } finally {
-          for (const item of liveOperands) item.remove();
-        }
       } else {
         result = read('path');
         if (!result) throw Error(`Connect a ${n.params.path.type} input`);
