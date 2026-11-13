@@ -93,6 +93,8 @@ import { keyerDeclaration } from './keyer-node-declaration.js';
 import { evaluateKeyer } from './keyer-node-binding.js';
 import { imageOutputDeclaration } from './image-output-declaration.js';
 import { evaluateImageOutput } from './image-output-binding.js';
+import { imageDeclaration } from './image-node-declaration.js';
+import { evaluateImage } from './image-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -221,4 +223,11 @@ export const builtinManifest = Object.freeze([
   entry(strokeDeclaration, { evaluate: evaluateStroke }, 'Line Screen', 'Fill'),
   entry(keyerDeclaration, { evaluate: evaluateKeyer }, 'Image Output', 'Luminance to Points'),
   entry(imageOutputDeclaration, { evaluate: evaluateImageOutput }, 'Image', null, 'private'),
+  entry(
+    imageDeclaration,
+    { evaluate: evaluateImage },
+    Object.freeze({ before: 'Mask' }),
+    null,
+    'private',
+  ),
 ]);
