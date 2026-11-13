@@ -226,11 +226,8 @@ import { renderLinearGradientFill } from './linear-gradient.js';
 import { linearGradientSettings } from './linear-gradient-fill-binding.js';
 import { renderRadialGradientFill } from './radial-gradient.js';
 import { radialGradientSettings } from './radial-gradient-fill-binding.js';
-import {
-  ANGULAR_KEYS,
-  createAngularGradientFill,
-  renderAngularGradientFill,
-} from './angular-gradient.js';
+import { renderAngularGradientFill } from './angular-gradient.js';
+import { angularGradientSettings } from './angular-gradient-fill-binding.js';
 export {
   guideDefaults,
   guideSettings,
@@ -583,18 +580,6 @@ const legacyDefinitions = {
   Reference: {},
   SVG: { position: p('Vector2', [0, 0]) },
   'Composition Reference': { position: p('Vector2', [0, 0]) },
-  'Angular Gradient Fill': {
-    path: p('PaintedPath', null),
-    center: p('Vector2', [480, 270]),
-    angle: p('Scalar', -90),
-    clockwise: p('Boolean', true),
-    startColor: p('Color', { hex: '#ff0000', alpha: 1 }),
-    color1: p('Color', { hex: '#00ff00', alpha: 1 }),
-    position1: p('Scalar', 1 / 3),
-    color2: p('Color', { hex: '#0000ff', alpha: 1 }),
-    position2: p('Scalar', 2 / 3),
-    endColor: p('Color', { hex: '#ff0000', alpha: 1 }),
-  },
   Halftone: {
     path: p('PaintedPath', null),
     pitch: p('Scalar', 16),
@@ -666,9 +651,7 @@ for (const type of imageDitherTypes) {
   definitions[type] = { ...structuredClone(definitions[shapeType]), path: p('Image', null) };
 }
 export { linearGradientSettings };
-export function angularGradientSettings(read) {
-  return createAngularGradientFill(Object.fromEntries(ANGULAR_KEYS.map((key) => [key, read(key)])));
-}
+export { angularGradientSettings };
 export { radialGradientSettings };
 export function luminanceModifierSettings(read) {
   const pitch = read('pitch'),
@@ -859,14 +842,9 @@ export function outputType(n, port) {
   if (n.type === 'Text' && port === 'position') return 'Vector2';
   if (port !== undefined) return undefined;
   if (
-    [
-      'Angular Gradient Fill',
-      'Halftone',
-      'Ordered Dither',
-      'Error Diffusion Dither',
-      'Line Screen',
-      'Stroke',
-    ].includes(n.type)
+    ['Halftone', 'Ordered Dither', 'Error Diffusion Dither', 'Line Screen', 'Stroke'].includes(
+      n.type,
+    )
   )
     return 'PaintedPath';
   if (n.type === 'Image' || n.type === 'Image Output' || isImageDither(n.type)) return 'Image';
@@ -889,7 +867,6 @@ const bypassInputs = Object.freeze({
   'Geometry Repeater': 'path',
   'Instance on Points': 'path',
   'Luminance Instances': 'motif',
-  'Angular Gradient Fill': 'path',
   Halftone: 'path',
   'Ordered Dither': 'path',
   'Error Diffusion Dither': 'path',
@@ -3624,16 +3601,6 @@ export function evaluate(
         result = cloneEvaluated(result);
         if (isPaintedGroup(result))
           throw Error('Edit paint in the source Composition, or use Convert to Path');
-        if (n.type === 'Angular Gradient Fill') setEvaluatedPaintSlot(result, 'fill', null);
-        if (n.type === 'Angular Gradient Fill') {
-          result.fill = angularGradientSettings(read);
-          setEvaluatedPaintSlot(result, 'fill', {
-            startColor: parameterColorSlot(n.params.startColor),
-            color1: parameterColorSlot(n.params.color1),
-            color2: parameterColorSlot(n.params.color2),
-            endColor: parameterColorSlot(n.params.endColor),
-          });
-        }
         if (n.type === 'Stroke') {
           const width = read('width');
           if (width < 0 || width > 100000) throw Error('Stroke width must be from 0 to 100000 px');
