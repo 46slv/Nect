@@ -19,6 +19,10 @@ export const nectNodeHost = Object.freeze({
     ],
     ['Color', Object.freeze({ validateDefault: isColor, validateOutput: () => true })],
     [
+      'Image',
+      Object.freeze({ validateDefault: (value) => value === null, validateOutput: () => true }),
+    ],
+    [
       'PaintedPath',
       Object.freeze({ validateDefault: (value) => value === null, validateOutput: () => true }),
     ],

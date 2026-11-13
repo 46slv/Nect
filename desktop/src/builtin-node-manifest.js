@@ -81,6 +81,8 @@ import { convertToPathDeclaration } from './convert-to-path-declaration.js';
 import { evaluateConvertToPath } from './convert-to-path-binding.js';
 import { fillDeclaration } from './fill-node-declaration.js';
 import { evaluateFill } from './fill-node-binding.js';
+import { keyerDeclaration } from './keyer-node-declaration.js';
+import { evaluateKeyer } from './keyer-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -193,4 +195,5 @@ export const builtinManifest = Object.freeze([
   entry(dashPathDeclaration, { evaluate: evaluateDashPath }, 'Smooth Path', 'Auto Handles'),
   entry(convertToPathDeclaration, { evaluate: evaluateConvertToPath }, 'Join Geometry', 'Text'),
   entry(fillDeclaration, { evaluate: evaluateFill }, 'Expression', 'Color'),
+  entry(keyerDeclaration, { evaluate: evaluateKeyer }, 'Image Output', 'Luminance to Points'),
 ]);
