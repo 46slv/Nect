@@ -46,14 +46,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Mask',
-    categoryId: 'image',
-    labelJa: 'マスク',
-    aliases: ['Mask', '切り抜き', 'クリップ'],
-    description: '画像・Compositionを閉じたパスで切り抜く。',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Curve',
     categoryId: 'create',
     labelJa: '曲線',
