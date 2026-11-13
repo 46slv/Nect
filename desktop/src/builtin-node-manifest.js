@@ -83,6 +83,8 @@ import { fillDeclaration } from './fill-node-declaration.js';
 import { evaluateFill } from './fill-node-binding.js';
 import { keyerDeclaration } from './keyer-node-declaration.js';
 import { evaluateKeyer } from './keyer-node-binding.js';
+import { imageOutputDeclaration } from './image-output-declaration.js';
+import { evaluateImageOutput } from './image-output-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -196,4 +198,5 @@ export const builtinManifest = Object.freeze([
   entry(convertToPathDeclaration, { evaluate: evaluateConvertToPath }, 'Join Geometry', 'Text'),
   entry(fillDeclaration, { evaluate: evaluateFill }, 'Expression', 'Color'),
   entry(keyerDeclaration, { evaluate: evaluateKeyer }, 'Image Output', 'Luminance to Points'),
+  entry(imageOutputDeclaration, { evaluate: evaluateImageOutput }, 'Image', null, 'private'),
 ]);
