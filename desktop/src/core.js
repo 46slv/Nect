@@ -91,7 +91,7 @@ import { appendSVGPart } from './svg-part.js';
 import { svgRootAttributes } from './artboard-units.js';
 import { formatSvgExtent, formatSvgNumber, validateSvgPrecision } from './svg-number-format.js';
 import { OPENTYPE_SCHEMA_VERSION, validateTextFeatures } from './opentype-features.js';
-import { imageAssetFor, ditheredImage, keyerSettings, MAX_ACTIVE_KEYERS } from './image-keyer.js';
+import { imageAssetFor, keyerSettings, MAX_ACTIVE_KEYERS } from './image-keyer.js';
 import { MAX_ACTIVE_IMAGE_DITHERS } from './image-dither.js';
 import {
   maskFeather,
@@ -132,7 +132,6 @@ import { luminanceModifierSettings } from './luminance-modifier-settings.js';
 import {
   DITHER_SCHEMA_VERSION,
   IMAGE_DITHER_SCHEMA_VERSION,
-  imageDitherTypes,
   isImageDither,
   isDither,
   hasDotControls,
@@ -547,11 +546,6 @@ export const definitions = Object.fromEntries(
     ),
   ),
 );
-for (const type of imageDitherTypes) {
-  if (Object.hasOwn(definitions, type)) throw Error(`Duplicate projected type: ${type}`);
-  const shapeType = type.replace(/ Image$/, '');
-  definitions[type] = { ...structuredClone(definitions[shapeType]), path: p('Image', null) };
-}
 export { linearGradientSettings };
 export { angularGradientSettings };
 export { radialGradientSettings };
@@ -727,7 +721,6 @@ export function outputType(n, port) {
       .outputs.find((output) => nectOutputPort(output) === port)?.type;
   if (n.type === 'Text' && port === 'position') return 'Vector2';
   if (port !== undefined) return undefined;
-  if (isImageDither(n.type)) return 'Image';
   return 'Path';
 }
 // Deliberate identity contracts. Never guess the first socket of a new node type.
@@ -737,8 +730,6 @@ const bypassInputs = Object.freeze({
       .filter((row) => row.resolved.declaration.bypassInput !== undefined)
       .map((row) => [row.resolved.declaration.typeId, row.resolved.declaration.bypassInput]),
   ),
-  'Ordered Dither Image': 'path',
-  'Error Diffusion Dither Image': 'path',
   Boolean: 'a',
   Transform: 'path',
   'Geometry Repeater': 'path',
@@ -1413,8 +1404,6 @@ export function parameters(n) {
   return entries;
 }
 export const operationOptions = {
-  'Ordered Dither Image': ['square', 'circle', 'polygon', 'star'],
-  'Error Diffusion Dither Image': ['square', 'circle', 'polygon', 'star'],
   'Geometry Repeater': ['linear', 'radial-fit', 'radial-step', 'ae-2d'],
   Boolean: ['union', 'subtract', 'intersect', 'difference'],
   ...Object.fromEntries(
@@ -2897,20 +2886,6 @@ export function evaluate(
             });
         result = registered.evaluate(n.operation, read, context);
         assertValue(registered.interface(n.operation, shape).resultType, result);
-      } else if (isImageDither(n.type)) {
-        const { pitch, invert, gridOrigin, tonePower } = luminanceModifierSettings(read);
-        result = ditheredImage(
-          read('path'),
-          {
-            mode: n.type === 'Ordered Dither Image' ? 'dither' : 'error-diffusion',
-            pitch,
-            invert,
-            origin: { x: gridOrigin[0], y: gridOrigin[1] },
-            tonePower,
-            ...readDotSettings(n, read),
-          },
-          imageAssets,
-        );
       } else if (n.type === 'Text' && n.osFont) {
         result = osFontTextPath(n, read('position'), read('size'), pathBounds);
         if (n.osFont.outline.wrapOverflow)
