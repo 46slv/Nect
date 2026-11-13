@@ -124,6 +124,11 @@ export function createNodeRegistry(declarations, bindings, host) {
         : declaration.defaultOperation !== undefined
     )
       throw Error('Invalid operation default');
+    if (
+      declaration.preserveSupplementalInputs !== undefined &&
+      (typeof declaration.preserveSupplementalInputs !== 'boolean' || !operationIds)
+    )
+      throw Error('Invalid supplemental input policy');
     if (declaration.bypassInput !== undefined && !parameterIds.has(declaration.bypassInput))
       throw Error('Invalid bypass default');
     const dynamicResult = declaration.resultType === undefined;
