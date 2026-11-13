@@ -38,14 +38,6 @@ export const nodeCategories = [
 ];
 const legacyNodeCatalog = [
   {
-    typeId: 'Angular Gradient Fill',
-    categoryId: 'paint',
-    labelJa: '角度グラデーション',
-    aliases: ['Conic Gradient', 'Angle Gradient', 'Angular Gradient Fill', '円錐', '角度', '塗り'],
-    description: '中心の周りを4色で巡る角度グラデーション。',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Luminance to Points',
     categoryId: 'image',
     labelJa: '輝度をポイントへ',

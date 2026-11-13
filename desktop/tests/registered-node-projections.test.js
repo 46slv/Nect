@@ -43,6 +43,50 @@ test('registered projections use anchors, preserve legacy order and fail closed 
     /cyclic/,
   );
 });
+test('before anchors preserve order, resolve registered targets and reject ambiguous descriptors', () => {
+  const rows = [row('first', { before: 'second' }), row('second', { before: 'legacy' })];
+  assert.deepEqual(
+    placeRegistered(
+      [['legacy', 1]],
+      rows,
+      'definitionAfter',
+      (x) => x.resolved.declaration.typeId,
+    ).map(([id]) => id),
+    ['first', 'second', 'legacy'],
+  );
+  assert.deepEqual(
+    placeRegistered(
+      [['legacy', 1]],
+      [row('a', { before: 'legacy' }), row('b', { before: 'legacy' })],
+      'definitionAfter',
+      () => 0,
+    ).map(([id]) => id),
+    ['a', 'b', 'legacy'],
+  );
+  let called = false;
+  const accessor = {
+    get before() {
+      called = true;
+      return 'legacy';
+    },
+  };
+  for (const invalid of [[], {}, { before: '' }, { before: 'legacy', after: 'legacy' }, accessor])
+    assert.throws(
+      () => placeRegistered([['legacy', 1]], [row('x', invalid)], 'definitionAfter', () => 0),
+      /Invalid placement/,
+    );
+  assert.equal(called, false);
+  assert.throws(
+    () =>
+      placeRegistered(
+        [['legacy', 1]],
+        [row('x', { before: 'y' }), row('y', { before: 'x' })],
+        'definitionAfter',
+        () => 0,
+      ),
+    /cyclic/,
+  );
+});
 test('manifest exposure and implementation ambiguity are checked, same trusted function may be reused', () => {
   const fn = () => 1,
     first = {
