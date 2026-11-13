@@ -1,0 +1,28 @@
+export const angularGradientDeclaration = {
+  typeId: 'Angular Gradient Fill',
+  revision: 1,
+  implementationId: 'builtin.angular-gradient-fill.v1',
+  capabilities: [],
+  resultType: 'PaintedPath',
+  bypassInput: 'path',
+  parameters: [
+    { id: 'path', type: 'PaintedPath', default: null },
+    { id: 'center', type: 'Vector2', default: [480, 270] },
+    { id: 'angle', type: 'Scalar', default: -90 },
+    { id: 'clockwise', type: 'Boolean', default: true },
+    { id: 'startColor', type: 'Color', default: { hex: '#ff0000', alpha: 1 } },
+    { id: 'color1', type: 'Color', default: { hex: '#00ff00', alpha: 1 } },
+    { id: 'position1', type: 'Scalar', default: 1 / 3 },
+    { id: 'color2', type: 'Color', default: { hex: '#0000ff', alpha: 1 } },
+    { id: 'position2', type: 'Scalar', default: 2 / 3 },
+    { id: 'endColor', type: 'Color', default: { hex: '#ff0000', alpha: 1 } },
+  ],
+  outputs: [{ id: 'default', label: '', type: 'PaintedPath', legacyDefault: true }],
+  catalog: {
+    categoryId: 'paint',
+    labelJa: '角度グラデーション',
+    aliases: ['Conic Gradient', 'Angle Gradient', 'Angular Gradient Fill', '円錐', '角度', '塗り'],
+    description: '中心の周りを4色で巡る角度グラデーション。',
+    creationRoute: 'add',
+  },
+};
