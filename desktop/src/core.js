@@ -94,7 +94,6 @@ import { OPENTYPE_SCHEMA_VERSION, validateTextFeatures } from './opentype-featur
 import { imageAssetFor, ditheredImage, keyerSettings, MAX_ACTIVE_KEYERS } from './image-keyer.js';
 import { MAX_ACTIVE_IMAGE_DITHERS } from './image-dither.js';
 import {
-  maskAppearance,
   maskFeather,
   featherMaskSVG,
   imageAlphaMaskSVG,
@@ -514,7 +513,6 @@ export function sameDocument(a, b) {
 export const uid = (prefix = 'id') => `${prefix}-${globalThis.crypto.randomUUID()}`;
 const p = (type, value) => ({ type, value, expression: '', locked: false });
 const legacyDefinitions = {
-  Mask: { path: p('PaintedPath', null), mask: p('Path', null), invert: p('Boolean', false) },
   Curve: { closed: p('Boolean', true) },
   'Multi Path': {},
   Boolean: { a: p('Path', null), b: p('Path', null) },
@@ -835,7 +833,6 @@ export function outputType(n, port) {
   if (['Halftone', 'Ordered Dither', 'Error Diffusion Dither', 'Line Screen'].includes(n.type))
     return 'PaintedPath';
   if (isImageDither(n.type)) return 'Image';
-  if (n.type === 'Mask') return 'PaintedPath';
   return n.type === 'Reference' ? 'Vector2' : 'Path';
 }
 // Deliberate identity contracts. Never guess the first socket of a new node type.
@@ -847,7 +844,6 @@ const bypassInputs = Object.freeze({
   ),
   'Ordered Dither Image': 'path',
   'Error Diffusion Dither Image': 'path',
-  Mask: 'path',
   Boolean: 'a',
   Transform: 'path',
   'Path Remap': 'path',
@@ -2938,6 +2934,7 @@ export function evaluate(
           provenance: (currentEra) => provenance(nodeId, undefined, currentEra),
           fingerprint: evaluatedFingerprint,
           setFingerprint: setEvaluationFingerprint,
+          copy: copyEvaluationIdentity,
         });
         const shape = registered.hasShape ? registered.snapshot(n) : undefined;
         const context = shape
@@ -2953,6 +2950,7 @@ export function evaluate(
               recordPaintStops,
               strokeStyle,
               imageAssetId,
+              pathBounds,
               imageAssets,
               hasEmptyOutput: nodeHasEmptyOutput,
               paintedGroup: (inputs) => {
@@ -2972,6 +2970,7 @@ export function evaluate(
               recordPaintStops,
               strokeStyle,
               imageAssetId,
+              pathBounds,
               imageAssets,
               hasEmptyOutput: nodeHasEmptyOutput,
             });
@@ -2991,18 +2990,6 @@ export function evaluate(
           },
           imageAssets,
         );
-      } else if (n.type === 'Mask') {
-        const source = read('path'),
-          shape = read('mask');
-        if (!source || !shape) throw Error('Connect appearance and closed Path or Image to Mask');
-        result = maskAppearance(source, shape, {
-          invert: read('invert'),
-          feather: read('feather'),
-          luminance: read('luminance'),
-          prefix: n.id,
-          bounds: pathBounds(source),
-        });
-        copyEvaluationIdentity(source, result.children[0]);
       } else if (n.type === 'Curve') {
         const indexed = indexParameters(n);
         result = {

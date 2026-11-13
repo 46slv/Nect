@@ -95,6 +95,8 @@ import { imageOutputDeclaration } from './image-output-declaration.js';
 import { evaluateImageOutput } from './image-output-binding.js';
 import { imageDeclaration } from './image-node-declaration.js';
 import { evaluateImage } from './image-node-binding.js';
+import { maskDeclaration } from './mask-node-declaration.js';
+import { evaluateMask } from './mask-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -230,4 +232,5 @@ export const builtinManifest = Object.freeze([
     null,
     'private',
   ),
+  entry(maskDeclaration, { evaluate: evaluateMask }, Object.freeze({ before: 'Curve' }), 'Keyer'),
 ]);
