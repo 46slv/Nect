@@ -46,14 +46,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Imported Path',
-    categoryId: 'create',
-    labelJa: '読み込みパス',
-    aliases: ['読み込みパス'],
-    description: '読み込んだパス形状',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Text',
     categoryId: 'create',
     labelJa: '文字',
