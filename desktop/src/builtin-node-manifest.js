@@ -130,6 +130,14 @@ import {
   evaluateErrorDiffusion,
   evaluateLineScreen,
 } from './luminance-marks-node-binding.js';
+import {
+  orderedImageDitherDeclaration,
+  errorDiffusionImageDitherDeclaration,
+} from './image-dither-node-declarations.js';
+import {
+  evaluateOrderedImageDither,
+  evaluateErrorDiffusionImageDither,
+} from './image-dither-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -330,5 +338,17 @@ export const builtinManifest = Object.freeze([
     { evaluate: evaluateLineScreen },
     'Error Diffusion Dither',
     'Error Diffusion Dither Image',
+  ),
+  entry(
+    orderedImageDitherDeclaration,
+    { evaluate: evaluateOrderedImageDither },
+    'Imported Path',
+    'Error Diffusion Dither',
+  ),
+  entry(
+    errorDiffusionImageDitherDeclaration,
+    { evaluate: evaluateErrorDiffusionImageDither },
+    'Ordered Dither Image',
+    'Ordered Dither Image',
   ),
 ]);
