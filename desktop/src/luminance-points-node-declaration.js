@@ -1,0 +1,26 @@
+export const luminancePointsDeclaration = {
+  typeId: 'Luminance to Points',
+  revision: 1,
+  implementationId: 'builtin.luminance-points.v1',
+  capabilities: [],
+  resultType: 'Path',
+  parameters: [
+    { id: 'path', type: 'PaintedPath', default: null },
+    { id: 'pitch', type: 'Scalar', default: 32 },
+    { id: 'invert', type: 'Boolean', default: false },
+    { id: 'gridOrigin', type: 'Vector2', default: [0, 0] },
+    { id: 'tonePower', type: 'Scalar', default: 1 },
+    { id: 'minScale', type: 'Scalar', default: 0 },
+    { id: 'maxScale', type: 'Scalar', default: 1 },
+    { id: 'minRotation', type: 'Scalar', default: 0 },
+    { id: 'maxRotation', type: 'Scalar', default: 0 },
+  ],
+  outputs: [{ id: 'default', label: '', type: 'Path', legacyDefault: true }],
+  catalog: {
+    categoryId: 'image',
+    labelJa: '輝度をポイントへ',
+    aliases: ['Luminance to Points', '輝度', 'ポイント', '網点'],
+    description: '輝度からサイズと回転を持つ点を生成。Instance on Pointsに接続。',
+    creationRoute: 'add',
+  },
+};

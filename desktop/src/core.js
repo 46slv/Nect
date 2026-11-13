@@ -128,7 +128,7 @@ import {
   COLOR_OPERATIONS_SCHEMA_VERSION,
   COLOR_OPERATIONS_VERSION,
 } from './color-operations.js';
-import { validateTonePower } from './luminance-tone.js';
+import { luminanceModifierSettings } from './luminance-modifier-settings.js';
 import {
   DITHER_SCHEMA_VERSION,
   IMAGE_DITHER_SCHEMA_VERSION,
@@ -167,7 +167,6 @@ import { instancePointsGeometry } from './instance-points-geometry.js';
 import { sampleLuminanceGrid } from './luminance-field.js';
 import { sampleImageLuminanceGrid } from './image-luminance-field.js';
 import { generateLuminanceMarks } from './luminance-marks.js';
-import { luminanceToPoints } from './luminance-points.js';
 import { prepareLuminanceMask, clipLuminanceMarks } from './luminance-mask.js';
 export { hitPathSegment } from './path-point-insertion.js';
 export { pointControlTargets, hitPointControl } from './point-controls.js';
@@ -554,17 +553,6 @@ const legacyDefinitions = {
     minRotation: p('Scalar', 0),
     maxRotation: p('Scalar', 90),
   },
-  'Luminance to Points': {
-    path: p('PaintedPath', null),
-    pitch: p('Scalar', 32),
-    invert: p('Boolean', false),
-    gridOrigin: p('Vector2', [0, 0]),
-    tonePower: p('Scalar', 1),
-    minScale: p('Scalar', 0),
-    maxScale: p('Scalar', 1),
-    minRotation: p('Scalar', 0),
-    maxRotation: p('Scalar', 0),
-  },
   'Instance on Points': {
     path: p('Path', null),
     points: p('Path', null),
@@ -637,22 +625,7 @@ for (const type of imageDitherTypes) {
 export { linearGradientSettings };
 export { angularGradientSettings };
 export { radialGradientSettings };
-export function luminanceModifierSettings(read) {
-  const pitch = read('pitch'),
-    invert = read('invert'),
-    gridOrigin = read('gridOrigin'),
-    tonePower = validateTonePower(read('tonePower'));
-  if (!Number.isFinite(pitch) || pitch < 1 || pitch > 1024)
-    throw Error('Luminance pitch must be from 1 to 1024 px');
-  if (typeof invert !== 'boolean') throw Error('Luminance invert must be boolean');
-  if (
-    !Array.isArray(gridOrigin) ||
-    gridOrigin.length !== 2 ||
-    !gridOrigin.every((value) => Number.isFinite(value) && Math.abs(value) <= 100000)
-  )
-    throw Error('Luminance grid origin components must be finite and within ±100000 px');
-  return { pitch, invert, gridOrigin, tonePower };
-}
+export { luminanceModifierSettings };
 export function parseStrokeDash(value) {
   const raw = value.trim();
   if (!raw || raw === 'none') return [];
@@ -3222,30 +3195,6 @@ export function evaluate(
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Luminance to Points') {
-        const source = read('path');
-        const { pitch, invert, gridOrigin, tonePower } = luminanceModifierSettings(read);
-        const settings = luminanceInstanceSettings(read);
-        result = luminanceToPoints(source, {
-          ...settings,
-          pitch,
-          invert,
-          tonePower,
-          origin: { x: gridOrigin[0], y: gridOrigin[1] },
-          prefix: fingerprint(n.id),
-          asset: source?.kind === 'image' ? imageAssetFor(source, imageAssets) : undefined,
-        });
-        result.unstable = true;
-        setEvaluationFingerprint(result, (currentEra) => [
-          provenance(n.id, undefined, currentEra),
-          evaluatedFingerprint(source, currentEra) || null,
-          settings,
-          pitch,
-          invert,
-          gridOrigin,
-          tonePower,
-          result.contours,
-        ]);
       } else if (n.type === 'Luminance Instances') {
         if (!n.params.path.source || !n.params.motif.source)
           throw Error('Connect both Source fill and Motif inputs');
