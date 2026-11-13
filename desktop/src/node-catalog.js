@@ -45,14 +45,6 @@ const legacyNodeCatalog = [
     description: '文字 テキスト',
     creationRoute: 'add',
   },
-  {
-    typeId: 'Transform',
-    categoryId: 'transform',
-    labelJa: '移動',
-    aliases: ['移動', '回転', '拡大縮小'],
-    description: '形状の移動・回転・拡大縮小',
-    creationRoute: 'add',
-  },
 ];
 export const nodeCatalog = placeRegistered(
   legacyNodeCatalog.map((entry) => [entry.typeId, entry]),

@@ -498,13 +498,6 @@ export function sameDocument(a, b) {
 export const uid = (prefix = 'id') => `${prefix}-${globalThis.crypto.randomUUID()}`;
 const p = (type, value) => ({ type, value, expression: '', locked: false });
 const legacyDefinitions = {
-  Transform: {
-    path: p('Path', null),
-    anchor: p('Vector2', [0, 0]),
-    offset: p('Vector2', [0, 0]),
-    scale: p('Scalar', 1),
-    rotation: p('Scalar', 0),
-  },
   Text: {
     position: p('Vector2', [200, 300]),
     size: p('Scalar', 100),
@@ -704,7 +697,6 @@ const bypassInputs = Object.freeze({
       .filter((row) => row.resolved.declaration.bypassInput !== undefined)
       .map((row) => [row.resolved.declaration.typeId, row.resolved.declaration.bypassInput]),
   ),
-  Transform: 'path',
 });
 export function bypassContract(n, layer) {
   const input = bypassInputs[n?.type];
@@ -2955,44 +2947,12 @@ export function evaluate(
         result.unstable = true;
         result.fingerprint = signature(result);
         item.remove();
-      } else if (n.type === 'Transform' && n.paintMode) {
-        const source = read('path');
-        if (!source) throw Error('Connect a PaintedPath input');
-        result = evaluatedPaintedGroup([source], {
-          matrix: transformValues(n, read).matrix,
-          prefix: n.id,
-        });
-        setEvaluationFingerprint(result, (currentEra) => [n.id, source, result.matrix]);
       } else {
         result = read('path');
         if (!result) throw Error(`Connect a ${n.params.path.type} input`);
         result = cloneEvaluated(result);
         if (isPaintedGroup(result))
           throw Error('Edit paint in the source Composition, or use Convert to Path');
-        if (n.type === 'Transform') {
-          let obj = toPaper(result);
-          const state = transformValues(n, read);
-          obj.transform(new scope.Matrix(...state.matrix));
-          let transformed = fromPaper(obj, n.id);
-          transformed.contours.forEach((c, ci) => {
-            c.id = result.contours[ci].id;
-            if (result.contours[ci].group !== undefined) c.group = result.contours[ci].group;
-            if (result.contours[ci].repeaterOpacity !== undefined)
-              c.repeaterOpacity = result.contours[ci].repeaterOpacity;
-            if (result.contours[ci].repeaterFill !== undefined)
-              c.repeaterFill = clone(result.contours[ci].repeaterFill);
-            if (result.contours[ci].repeaterStroke !== undefined)
-              c.repeaterStroke = clone(result.contours[ci].repeaterStroke);
-            c.points.forEach((p, pi) => (p.id = result.contours[ci].points[pi].id));
-          });
-          transformed.characterOccurrences = routeCharacters(result, n.id, state.matrix);
-          transformed.unstable = result.unstable;
-          transformed.remapSuspended = result.remapSuspended;
-          transformed.fingerprint = result.fingerprint;
-          copyEvaluationIdentity(result, transformed);
-          result = transformed;
-          obj.remove();
-        }
       }
       if (
         ['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star', 'Image'].includes(n.type) &&

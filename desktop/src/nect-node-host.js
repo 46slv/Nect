@@ -1,5 +1,6 @@
 import { joinSlotsProtocol } from './join-slots-protocol.js';
 import { booleanSlotsProtocol } from './boolean-slots-protocol.js';
+import { transformModeProtocol } from './transform-mode-protocol.js';
 import { isColor, isVector2 } from './node-value-validation.js';
 
 // Trusted host adapters: declaration structure is separate from authored Document validation.
@@ -11,6 +12,7 @@ export const nectNodeHost = Object.freeze({
   shapeProtocols: new Map([
     ['nect.join-slots', joinSlotsProtocol],
     ['nect.boolean-slots', booleanSlotsProtocol],
+    ['nect.transform-mode', transformModeProtocol],
   ]),
   types: new Map([
     ['Scalar', scalar],
