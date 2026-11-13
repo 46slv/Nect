@@ -515,7 +515,6 @@ export const uid = (prefix = 'id') => `${prefix}-${globalThis.crypto.randomUUID(
 const p = (type, value) => ({ type, value, expression: '', locked: false });
 const legacyDefinitions = {
   Image: { position: p('Vector2', [100, 100]), size: p('Vector2', [320, 240]) },
-  'Image Output': { path: p('Image', null) },
   Mask: { path: p('PaintedPath', null), mask: p('Path', null), invert: p('Boolean', false) },
   Curve: { closed: p('Boolean', true) },
   'Multi Path': {},
@@ -836,7 +835,7 @@ export function outputType(n, port) {
   if (port !== undefined) return undefined;
   if (['Halftone', 'Ordered Dither', 'Error Diffusion Dither', 'Line Screen'].includes(n.type))
     return 'PaintedPath';
-  if (n.type === 'Image' || n.type === 'Image Output' || isImageDither(n.type)) return 'Image';
+  if (n.type === 'Image' || isImageDither(n.type)) return 'Image';
   if (n.type === 'Mask') return 'PaintedPath';
   return n.type === 'Reference' ? 'Vector2' : 'Path';
 }
