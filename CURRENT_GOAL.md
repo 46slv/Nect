@@ -16,20 +16,20 @@ Coarse route: panels and color → remaining adopted Session, document, shape an
 
 ## ACTIVE CHECKPOINT — Node Foundation migration
 
-Goal: replace remaining legacy built-in node declarations and evaluator dispatch with trusted Node Foundation bindings while preserving current authored documents, stable IDs, Session commands, Undo/Redo, pixels and product defaults. The user requested that this task work alone; earlier tasks remain stopped.
+Goal: replace remaining legacy built-in node declarations and evaluator dispatch with trusted Node Foundation bindings while preserving current authored documents, stable IDs, Session commands, Undo/Redo, pixels and product defaults. This task works alone; earlier tasks remain stopped.
 
-Current phase: resumed on 2026-11-13. Keyer PR #301 was merged at `7267d4e9328bee8ecc6e37eed6bbcf3a99f7e06b` after all exact-head CI passed, the existing independent review found no issues, and current-main integration tree `e99ff13ad41bda6f553bdf4f56c41173ccf233c2` passed 346 focused tests, build and Chrome Keyer/Color checks. The next bounded candidate migrates the private Image Output endpoint.
+Current phase: as observed on 2026-11-13, all 70 current node types are registered in code commit `55993f0e7f10c0eb4187d1a51d27b46339c74e68`. PR #323 contains Boolean, Transform and Text together with the measured Boolean query-performance repair. Earlier candidates #301, #303–#320 were integrated; final #323 integration is not assumed by this record.
 
-Proven: the Image Output candidate preserves the definitions/catalog projection hash `801e189b0021426e8fd778b311e8bb5c817b74bb1d439bb5b8d179533693ff32`, existing Keyer RGBA and bypass behavior. Its 31 focused files / 197 tests, build, format, production CSP and headless Chrome image import, pixel, history and SVG/PNG flows passed. Native WebView2 and physical input are not claimed.
+Proven: pre/post definition, catalog and representative runtime/output comparisons matched. The 1,024-input Boolean active-query sample returned from roughly 3.17 ms to 0.04 ms after repair, versus about 0.05 ms before migration. Focused tests, build and production-CSP Chrome flows passed, including Text / Boolean / Join / Transform / Repeater / Fill / Output edits, Undo/Redo, project save/reopen and matching canvas/SVG/PNG pixels. Four optional tests using absent local DejaVu styles were skipped. Individual evidence, exact heads and CI status are in PRs #301–#323 and checkpoint branch `codex/mission-node-migration-20261113`.
 
-Next task: publish the Image Output candidate, check exact-head CI, compare its prospective merge tree against the live main and integrate only after applicable checks and review. Continue with the next eligible existing node in this same task when safe.
+Next task: verify PR #323 exact-head CI, live main, GitHub mergeability and the prospective integration tree; merge the combined candidate only after all checks pass, then read back main and the #321/#322 statuses. If that has already occurred, verify the recorded PR and commit before selecting further work. Do not restart earlier tasks.
 
-Approach: one writer in isolated D: worktrees; preserve existing node semantics and unsupported behavior. Test the real Session/evaluator and production renderer paths. Do not restart earlier tasks or perform work solely for old-version compatibility.
+Approach: one writer in the task-owned D: worktree; retain current Session/evaluator and production-renderer contracts. Native WebView2, native dialogs, physical IME/input and native OS-font discovery remain untested by this checkpoint.
 
-Done for next: coherent commit and non-force push, required checks and applicable review, matching current-main integration evidence, and a post-merge tree readback.
+Done for next: successful required checks, matching prospective and actual main trees, normal non-force integration and remote readback. A local test or PR alone is not main integration.
 
-State: base `7267d4e9328bee8ecc6e37eed6bbcf3a99f7e06b`; candidate branch `codex/node-foundation-image-output-20261113`. Existing image and Color worktrees and the unrelated running development server are not owned by this task. The prior stopped checkpoint is preserved at `codex/mission-checkpoint-20261112` / `0f777b890646c99d91e2104ab2df778b86878ba5`.
+State: last observed main before final #323 integration was `a38141effca2db5f834cb9cf4b26098533bfea4f`, tree `6972841ac585ad6884ebeae24677080f8326824b`. The final code and checkpoint travel in PR #323; use its current head and merge state as the live pointer. Other shared worktrees and the unrelated running development server are not owned by this task. The earlier stopped checkpoint remains `codex/mission-checkpoint-20261112` / `0f777b890646c99d91e2104ab2df778b86878ba5`.
 
-Authority: the user's 2026-11-13 instruction resumes this task alone and authorizes scoped node migration and ordinary validated Git integration. Preserve the earlier automatic-review refusal for #296 and the Field denial; do not retry either through another route. Release, added billing, force/shared-history rewrite and unrelated data changes remain outside scope.
+Authority: the user's 2026-11-13 instruction authorizes this task alone to perform scoped node migration and ordinary validated Git integration. Preserve the earlier automatic-review refusal for #296 and the Field denial; do not retry either through another route. Release, added billing, force/shared-history rewrite and unrelated data changes remain outside scope.
 
 Handoff: CONTINUE_CURRENT_TASK.
