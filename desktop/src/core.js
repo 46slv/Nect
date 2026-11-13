@@ -222,8 +222,10 @@ import {
   guideDefaults,
   setLayoutGrid,
 } from './guides.js';
-import { createLinearGradientFill, renderLinearGradientFill } from './linear-gradient.js';
-import { createRadialGradientFill, renderRadialGradientFill } from './radial-gradient.js';
+import { renderLinearGradientFill } from './linear-gradient.js';
+import { linearGradientSettings } from './linear-gradient-fill-binding.js';
+import { renderRadialGradientFill } from './radial-gradient.js';
+import { radialGradientSettings } from './radial-gradient-fill-binding.js';
 import {
   ANGULAR_KEYS,
   createAngularGradientFill,
@@ -581,20 +583,6 @@ const legacyDefinitions = {
   Reference: {},
   SVG: { position: p('Vector2', [0, 0]) },
   'Composition Reference': { position: p('Vector2', [0, 0]) },
-  'Linear Gradient Fill': {
-    path: p('PaintedPath', null),
-    start: p('Vector2', [200, 250]),
-    end: p('Vector2', [500, 250]),
-    startColor: p('Color', { hex: '#ff6b35', alpha: 1 }),
-    endColor: p('Color', { hex: '#6554c0', alpha: 1 }),
-  },
-  'Radial Gradient Fill': {
-    path: p('PaintedPath', null),
-    center: p('Vector2', [350, 250]),
-    radius: p('Scalar', 150),
-    startColor: p('Color', { hex: '#fff3b0', alpha: 1 }),
-    endColor: p('Color', { hex: '#d94862', alpha: 1 }),
-  },
   'Angular Gradient Fill': {
     path: p('PaintedPath', null),
     center: p('Vector2', [480, 270]),
@@ -677,21 +665,11 @@ for (const type of imageDitherTypes) {
   const shapeType = type.replace(/ Image$/, '');
   definitions[type] = { ...structuredClone(definitions[shapeType]), path: p('Image', null) };
 }
-export function linearGradientSettings(read) {
-  return createLinearGradientFill(
-    Object.fromEntries(['start', 'end', 'startColor', 'endColor'].map((key) => [key, read(key)])),
-  );
-}
+export { linearGradientSettings };
 export function angularGradientSettings(read) {
   return createAngularGradientFill(Object.fromEntries(ANGULAR_KEYS.map((key) => [key, read(key)])));
 }
-export function radialGradientSettings(read) {
-  return createRadialGradientFill(
-    Object.fromEntries(
-      ['center', 'radius', 'startColor', 'endColor'].map((key) => [key, read(key)]),
-    ),
-  );
-}
+export { radialGradientSettings };
 export function luminanceModifierSettings(read) {
   const pitch = read('pitch'),
     invert = read('invert'),
@@ -882,8 +860,6 @@ export function outputType(n, port) {
   if (port !== undefined) return undefined;
   if (
     [
-      'Linear Gradient Fill',
-      'Radial Gradient Fill',
       'Angular Gradient Fill',
       'Halftone',
       'Ordered Dither',
@@ -913,8 +889,6 @@ const bypassInputs = Object.freeze({
   'Geometry Repeater': 'path',
   'Instance on Points': 'path',
   'Luminance Instances': 'motif',
-  'Linear Gradient Fill': 'path',
-  'Radial Gradient Fill': 'path',
   'Angular Gradient Fill': 'path',
   Halftone: 'path',
   'Ordered Dither': 'path',
@@ -2988,6 +2962,12 @@ export function evaluate(
         };
         const recordPaintSlot = (value, paint, key) =>
           setEvaluatedPaintSlot(value, paint, parameterColorSlot(n.params[key]));
+        const recordPaintStops = (value, paint, keys) =>
+          setEvaluatedPaintSlot(
+            value,
+            paint,
+            Object.fromEntries(keys.map((key) => [key, parameterColorSlot(n.params[key])])),
+          );
         const nodeHasEmptyOutput = () => hasEmptyOutput(layer, n);
         const identity = Object.freeze({
           provenance: (currentEra) => provenance(nodeId, undefined, currentEra),
@@ -3005,6 +2985,7 @@ export function evaluate(
               hasParameter,
               sourceOutputType,
               recordPaintSlot,
+              recordPaintStops,
               imageAssets,
               hasEmptyOutput: nodeHasEmptyOutput,
               paintedGroup: (inputs) => {
@@ -3021,6 +3002,7 @@ export function evaluate(
               hasParameter,
               sourceOutputType,
               recordPaintSlot,
+              recordPaintStops,
               imageAssets,
               hasEmptyOutput: nodeHasEmptyOutput,
             });
@@ -3642,24 +3624,7 @@ export function evaluate(
         result = cloneEvaluated(result);
         if (isPaintedGroup(result))
           throw Error('Edit paint in the source Composition, or use Convert to Path');
-        if (
-          ['Linear Gradient Fill', 'Radial Gradient Fill', 'Angular Gradient Fill'].includes(n.type)
-        )
-          setEvaluatedPaintSlot(result, 'fill', null);
-        if (n.type === 'Linear Gradient Fill') {
-          result.fill = linearGradientSettings(read);
-          setEvaluatedPaintSlot(result, 'fill', {
-            startColor: parameterColorSlot(n.params.startColor),
-            endColor: parameterColorSlot(n.params.endColor),
-          });
-        }
-        if (n.type === 'Radial Gradient Fill') {
-          result.fill = radialGradientSettings(read);
-          setEvaluatedPaintSlot(result, 'fill', {
-            startColor: parameterColorSlot(n.params.startColor),
-            endColor: parameterColorSlot(n.params.endColor),
-          });
-        }
+        if (n.type === 'Angular Gradient Fill') setEvaluatedPaintSlot(result, 'fill', null);
         if (n.type === 'Angular Gradient Fill') {
           result.fill = angularGradientSettings(read);
           setEvaluatedPaintSlot(result, 'fill', {

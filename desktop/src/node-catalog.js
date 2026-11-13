@@ -150,22 +150,6 @@ const legacyNodeCatalog = [
     creationRoute: 'add',
   },
   {
-    typeId: 'Linear Gradient Fill',
-    categoryId: 'paint',
-    labelJa: '線形グラデーション',
-    aliases: ['線形グラデーション', '塗り'],
-    description: '線形グラデーション 塗り',
-    creationRoute: 'add',
-  },
-  {
-    typeId: 'Radial Gradient Fill',
-    categoryId: 'paint',
-    labelJa: '放射グラデーション',
-    aliases: ['放射グラデーション', '塗り'],
-    description: '放射グラデーション 塗り',
-    creationRoute: 'add',
-  },
-  {
     typeId: 'Halftone',
     categoryId: 'image',
     labelJa: '網点',

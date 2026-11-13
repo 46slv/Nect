@@ -81,6 +81,10 @@ import { convertToPathDeclaration } from './convert-to-path-declaration.js';
 import { evaluateConvertToPath } from './convert-to-path-binding.js';
 import { fillDeclaration } from './fill-node-declaration.js';
 import { evaluateFill } from './fill-node-binding.js';
+import { linearGradientDeclaration } from './linear-gradient-fill-declaration.js';
+import { evaluateLinearGradient } from './linear-gradient-fill-binding.js';
+import { radialGradientDeclaration } from './radial-gradient-fill-declaration.js';
+import { evaluateRadialGradient } from './radial-gradient-fill-binding.js';
 import { keyerDeclaration } from './keyer-node-declaration.js';
 import { evaluateKeyer } from './keyer-node-binding.js';
 
@@ -194,6 +198,13 @@ export const builtinManifest = Object.freeze([
   entry(setPathStartDeclaration, { evaluate: evaluateSetPathStart }, 'Trim Path', 'Trim Path'),
   entry(dashPathDeclaration, { evaluate: evaluateDashPath }, 'Smooth Path', 'Auto Handles'),
   entry(convertToPathDeclaration, { evaluate: evaluateConvertToPath }, 'Join Geometry', 'Text'),
+  entry(linearGradientDeclaration, { evaluate: evaluateLinearGradient }, 'Fill', 'Stroke'),
+  entry(
+    radialGradientDeclaration,
+    { evaluate: evaluateRadialGradient },
+    'Linear Gradient Fill',
+    'Linear Gradient Fill',
+  ),
   entry(fillDeclaration, { evaluate: evaluateFill }, 'Expression', 'Color'),
   entry(keyerDeclaration, { evaluate: evaluateKeyer }, 'Image Output', 'Luminance to Points'),
 ]);
