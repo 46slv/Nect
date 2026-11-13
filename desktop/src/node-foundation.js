@@ -97,7 +97,22 @@ export function createNodeRegistry(declarations, bindings, host) {
       throw Error('Unsupported shape protocol');
     const snapshot = shapeProtocol?.snapshot,
       resolveShape = shapeProtocol?.resolve,
-      initialFields = shapeProtocol?.initialFields;
+      initialFields = shapeProtocol?.initialFields,
+      parameterKeys = shapeProtocol?.parameterKeys,
+      staticOutputs = shapeProtocol?.staticOutputs === true,
+      staticOutputType = shapeProtocol?.staticOutputType,
+      allShapeInputsActive = shapeProtocol?.allShapeInputsActive === true;
+    if (
+      (parameterKeys !== undefined && typeof parameterKeys !== 'function') ||
+      (shapeProtocol?.staticOutputs !== undefined &&
+        typeof shapeProtocol.staticOutputs !== 'boolean') ||
+      (staticOutputs &&
+        (typeof staticOutputType !== 'string' || !host.types.has(staticOutputType))) ||
+      (!staticOutputs && staticOutputType !== undefined) ||
+      (shapeProtocol?.allShapeInputsActive !== undefined &&
+        typeof shapeProtocol.allShapeInputsActive !== 'boolean')
+    )
+      throw Error('Unsupported shape protocol');
     const shapeOutputsValidator = host.validateOutputs;
     const shapeTypeValidators = new Map(
       [...host.types].map(([id, adapter]) => [id, adapter?.validateOutput]),
@@ -162,6 +177,12 @@ export function createNodeRegistry(declarations, bindings, host) {
       const outputs = declaration.outputs.map((output) =>
         Object.freeze(output.result === true ? { ...output, type: resultType } : { ...output }),
       );
+      if (
+        staticOutputs &&
+        (resultType !== staticOutputType ||
+          outputs.some((output) => output.type !== staticOutputType))
+      )
+        throw Error('Shape changes static outputs');
       for (const output of outputs) {
         const typeId = requiredString(output.type, 'output type');
         const adapter = host.types.get(typeId);
@@ -199,9 +220,16 @@ export function createNodeRegistry(declarations, bindings, host) {
     )
       throw Error('Invalid projection');
     const outputIds = new Set(declaration.outputs.map(({ id }) => id));
+    const assertOperation = (operation) => {
+      if (operationIds && !operationIds.has(operation)) throw Error('Invalid operation');
+    };
     const resolved = Object.freeze({
       declaration,
       hasShape: !!shapeProtocol,
+      hasStaticOutputs: !resolveShape || staticOutputs,
+      allParametersActive: allShapeInputsActive && declaration.preserveSupplementalInputs === true,
+      ...(parameterKeys ? { parameterKeys } : {}),
+      assertOperation,
       initialFields() {
         return initialFields ? initialFields() : {};
       },
@@ -209,14 +237,41 @@ export function createNodeRegistry(declarations, bindings, host) {
         if (!snapshot) throw Error('Unsupported shape');
         return snapshot(node);
       },
+      outputsWithoutShape(operation) {
+        assertOperation(operation);
+        if (resolveShape && !staticOutputs) throw Error('Shape required for outputs');
+        return interfaces.get(operationIds ? operation : undefined).outputs;
+      },
       interface(operation, shape) {
-        if (operationIds && !operationIds.has(operation)) throw Error('Invalid operation');
+        assertOperation(operation);
         const base = interfaces.get(operationIds ? operation : undefined);
         if (!resolveShape) {
           if (shape !== undefined) throw Error('Unsupported shape');
           return base;
         }
         const derived = resolveShape(shape, base.outputs);
+        if (
+          staticOutputs &&
+          (derived.resultType !== base.resultType ||
+            derived.outputs.length !== base.outputs.length ||
+            derived.outputs.some((output, index) => {
+              const expected = base.outputs[index];
+              return (
+                output.id !== expected.id ||
+                output.label !== expected.label ||
+                output.type !== expected.type ||
+                output.legacyDefault !== expected.legacyDefault
+              );
+            }))
+        )
+          throw Error('Shape changes static outputs');
+        if (allShapeInputsActive) {
+          if (!Array.isArray(derived.active) || !Array.isArray(shape?.slots))
+            throw Error('Shape omits active inputs');
+          const activeIds = new Set(derived.active);
+          if (shape.slots.some(({ id }) => !activeIds.has(id)))
+            throw Error('Shape omits active inputs');
+        }
         if (
           typeof shapeTypeValidators.get(derived.resultType) !== 'function' ||
           derived.outputs.some(
@@ -230,7 +285,7 @@ export function createNodeRegistry(declarations, bindings, host) {
         return derived;
       },
       evaluate(operation, read, context) {
-        if (operationIds && !operationIds.has(operation)) throw Error('Invalid operation');
+        assertOperation(operation);
         return evaluate(operation, read, context);
       },
       project(output, value) {

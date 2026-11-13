@@ -111,7 +111,7 @@ import {
 export { compositionReferenceTargets } from './composition-reference.js';
 import { splitPathSegment } from './path-point-insertion.js';
 import { osOutlineGeometry } from './os-font-outline.js';
-import { validateOsFontText, osFontTextPath } from './os-font-text.js';
+import { validateOsFontText } from './os-font-text.js';
 import { desktopTextIntent, desktopOsReference, desktopFontTextPath } from './desktop-font-text.js';
 import { PRIVATE_FONT_SCHEMA_VERSION } from './private-font-source.js';
 import {
@@ -225,6 +225,7 @@ export {
   setLayoutGrid,
 } from './guides.js';
 import { fromPaper, getPaperScope, toPaper } from './paper-runtime.js';
+import { booleanOperand } from './boolean-operand.js';
 import {
   validateFontAssets,
   resolveFonts,
@@ -233,9 +234,9 @@ import {
   MAX_PROJECT_BYTES,
   utf8ByteLength,
 } from './fonts.js';
-import { layoutText, validateLeading } from './text-layout.js';
+import { validateLeading } from './text-layout.js';
 import { validateTextWrap, withWrapExtent } from './text-wrap.js';
-import { validateTextPathAttachment, validateTextPathMode, projectTextPath } from './text-path.js';
+import { validateTextPathAttachment, validateTextPathMode } from './text-path.js';
 import { OffsetError } from './closed-offset.js';
 import { closedOffsetSettings } from './closed-offset-node-settings.js';
 export { OFFSET_EDITOR_LIMITS } from './closed-offset.js';
@@ -271,7 +272,6 @@ export {
   transformParameter,
   anchorFromOutputDelta,
 } from './transform-affine.js';
-import { identityMatrix, characterTransform, routeCharacters } from './character-geometry.js';
 import { radialSettings } from './radial-geometry.js';
 export { radialSettings } from './radial-geometry.js';
 export * from './character-identity.js';
@@ -496,24 +496,8 @@ export function sameDocument(a, b) {
 }
 export const uid = (prefix = 'id') => `${prefix}-${globalThis.crypto.randomUUID()}`;
 const p = (type, value) => ({ type, value, expression: '', locked: false });
-const legacyDefinitions = {
-  Boolean: { a: p('Path', null), b: p('Path', null) },
-  Transform: {
-    path: p('Path', null),
-    anchor: p('Vector2', [0, 0]),
-    offset: p('Vector2', [0, 0]),
-    scale: p('Scalar', 1),
-    rotation: p('Scalar', 0),
-  },
-  Text: {
-    position: p('Vector2', [200, 300]),
-    size: p('Scalar', 100),
-    letterSpacing: p('Scalar', 0),
-    lineSpacing: p('Scalar', 1.2),
-  },
-};
 export const definitions = Object.fromEntries(
-  placeRegistered(Object.entries(legacyDefinitions), registeredNodes, 'definitionAfter', (row) =>
+  placeRegistered([], registeredNodes, 'definitionAfter', (row) =>
     Object.fromEntries(
       row.resolved.declaration.parameters.map(({ id, type, default: value }) => [
         id,
@@ -679,21 +663,17 @@ export function outputPorts(n) {
       const port = nectOutputPort({ id, legacyDefault });
       return { id: port, label, type: legacyDefault ? outputType(n, port) : type };
     });
-  return n.type === 'Text'
-    ? [
-        { id: undefined, label: 'Path', type: 'Path' },
-        { id: 'position', label: 'Position', type: 'Vector2' },
-      ]
-    : [{ id: undefined, label: '', type: outputType(n) }];
+  return [{ id: undefined, label: '', type: outputType(n) }];
 }
 export function outputType(n, port) {
   if (n.paintMode) return port === undefined ? 'PaintedPath' : undefined;
   const registered = builtinNodeRegistry.get(n.type);
-  if (registered)
-    return registered
-      .interface(n.operation, registered.hasShape ? registered.snapshot(n) : undefined)
-      .outputs.find((output) => nectOutputPort(output) === port)?.type;
-  if (n.type === 'Text' && port === 'position') return 'Vector2';
+  if (registered) {
+    const outputs = registered.hasStaticOutputs
+      ? registered.outputsWithoutShape(n.operation)
+      : registered.interface(n.operation, registered.snapshot(n)).outputs;
+    return outputs.find((output) => nectOutputPort(output) === port)?.type;
+  }
   if (port !== undefined) return undefined;
   return 'Path';
 }
@@ -704,8 +684,6 @@ const bypassInputs = Object.freeze({
       .filter((row) => row.resolved.declaration.bypassInput !== undefined)
       .map((row) => [row.resolved.declaration.typeId, row.resolved.declaration.bypassInput]),
   ),
-  Boolean: 'a',
-  Transform: 'path',
 });
 export function bypassContract(n, layer) {
   const input = bypassInputs[n?.type];
@@ -1355,14 +1333,13 @@ function normalizeBooleanInputs(n, compact = false) {
   } else n.booleanInputOrder = keys;
 }
 export function parameters(n) {
-  const entries = builtinNodeRegistry.get(n.type)?.hasShape
-    ? builtinNodeRegistry
-        .get(n.type)
-        .snapshot(n)
-        .slots.map(({ id }) => [id, n.params[id]])
-    : n.type === 'Boolean'
-      ? booleanInputKeys(n).map((key) => [key, n.params[key]])
-      : Object.entries(n.params);
+  const registered = builtinNodeRegistry.get(n.type);
+  const entries = registered?.hasShape
+    ? (registered.parameterKeys
+        ? registered.parameterKeys(n)
+        : registered.snapshot(n).slots.map(({ id }) => id)
+      ).map((id) => [id, n.params[id]])
+    : Object.entries(n.params);
   if (n.type === 'Mask' && !Object.hasOwn(n.params, 'feather'))
     entries.push(['feather', p('Scalar', 0)]);
   if (n.type === 'Mask' && !Object.hasOwn(n.params, 'luminance'))
@@ -1377,7 +1354,6 @@ export function parameters(n) {
   return entries;
 }
 export const operationOptions = {
-  Boolean: ['union', 'subtract', 'intersect', 'difference'],
   ...Object.fromEntries(
     registeredNodes
       .filter((row) => row.resolved.declaration.operations)
@@ -1401,11 +1377,19 @@ export function activeParameters(n) {
     return entries.filter(([key]) => key !== 'scaleWidth');
   const registered = builtinNodeRegistry.get(n.type);
   if (!registered?.declaration.operations) return entries;
-  const active = registered.interface(n.operation).active;
+  if (registered.allParametersActive) {
+    registered.assertOperation(n.operation);
+    return entries;
+  }
+  const active = registered.interface(
+    n.operation,
+    registered.hasShape ? registered.snapshot(n) : undefined,
+  ).active;
   // Some authored nodes retain host-provided point/edit inputs across all operations.
+  const activeIds = new Set(active);
   return entries.filter(
     ([key]) =>
-      active.includes(key) ||
+      activeIds.has(key) ||
       (registered.declaration.preserveSupplementalInputs === true && !Object.hasOwn(n.params, key)),
   );
 }
@@ -2212,23 +2196,6 @@ function assertValue(type, value) {
   if (type === 'Vector2' && !isVector2(value)) throw Error('Expected Vector2');
   if (type === 'Boolean' && typeof value !== 'boolean') throw Error('Expected Boolean');
 }
-function booleanOperand(path) {
-  if (!path.contours.some((c) => c.group !== undefined)) return toPaper(path);
-  let result = null;
-  for (const contours of contourGroups(path)) {
-    const item = toPaper({ contours });
-    if (!result) {
-      result = item;
-      continue;
-    }
-    const union = result.unite(item, { insert: false });
-    result.remove();
-    item.remove();
-    result = union;
-  }
-  return result || toPaper({ contours: [] });
-}
-
 export function parsePath(data, prefix = 'imported') {
   if (
     typeof data !== 'string' ||
@@ -2783,6 +2750,14 @@ export function evaluate(
           const indexed = indexParameters(n);
           return (id, key) => readParameter(n, `${id}.${key}`, indexed);
         };
+        const textAuthorship = () => clone(n);
+        const textPathSource = (targetId) => {
+          const sourceNode = byId.get(targetId);
+          if (!sourceNode || outputType(sourceNode) !== 'Path')
+            throw Error('TEXT_PATH_SOURCE: Select a Path output in the same layer');
+          return run(targetId);
+        };
+        const recordTextLayout = (layout) => textLayouts.set(nodeId, layout);
         const nodeHasEmptyOutput = () => hasEmptyOutput(layer, n);
         const identity = Object.freeze({
           provenance: (currentEra) => provenance(nodeId, undefined, currentEra),
@@ -2845,219 +2820,20 @@ export function evaluate(
               pointReader,
               pathBounds,
               imageAssets,
+              textAuthorship,
+              textFonts: fonts,
+              textPathSource,
+              recordTextLayout,
               hasEmptyOutput: nodeHasEmptyOutput,
             });
         result = registered.evaluate(n.operation, read, context);
         assertValue(registered.interface(n.operation, shape).resultType, result);
-      } else if (n.type === 'Text' && n.osFont) {
-        result = osFontTextPath(n, read('position'), read('size'), pathBounds);
-        if (n.osFont.outline.wrapOverflow)
-          warnings.push(`${n.name}: Wrap overflow; all artwork is retained without clipping`);
-        const reason =
-          'OS font Text character adjustments and canvas caret editing are not supported; edit Text in Inspector';
-        textLayouts.set(n.id, {
-          outlineUnits: [{ id: `${n.id}:osu0`, contours: result.contours.map((c) => c.id) }],
-          characters: [],
-          glyphAdvances: {},
-          placements: [],
-          lines: [],
-          pairKerning: {},
-          arrangementEligibility: { eligible: false, reason },
-          reason,
-        });
-        result.characterOccurrences = [
-          { source: n.id, route: n.id, matrix: identityMatrix(), reason },
-        ];
-        result.unstable = true;
-        result.fingerprint = signature(result);
-      } else if (n.type === 'Text') {
-        let font = fonts[n.font];
-        if (!font) throw Error('Font is still loading or unavailable');
-        const attachment = n.pathAttachment;
-        validateTextWrap(n.textWrap, n.writingMode, attachment);
-        if (attachment) {
-          validateTextPathAttachment(attachment);
-          validateTextPathMode(n.text, n.writingMode);
-        }
-        let layout = layoutText(font, n.text, {
-          position: attachment ? [0, 0] : read('position'),
-          characterPositions: n.characterPositions,
-          characterArrangement: n.characterArrangement,
-          pathAttachment: attachment,
-          fonts,
-          fontId: n.font,
-          variation: n.variation,
-          fontFeatures: n.fontFeatures,
-          size: read('size'),
-          writingMode: n.writingMode,
-          alignment: attachment ? 'start' : n.alignment,
-          referenceBounds: attachment ? 'advance' : n.referenceBounds,
-          crossAlignment: attachment ? 'origin' : n.crossAlignment,
-          kerning: n.kerning,
-          leading: n.leading,
-          textWrap: n.textWrap,
-          letterSpacing: n.params.letterSpacing ? read('letterSpacing') : 0,
-          lineSpacing: n.params.lineSpacing ? read('lineSpacing') : 1.2,
-        });
-        if (attachment) {
-          const sourceNode = byId.get(attachment.nodeId);
-          if (!sourceNode || outputType(sourceNode) !== 'Path')
-            throw Error('TEXT_PATH_SOURCE: Select a Path output in the same layer');
-          const source = run(attachment.nodeId);
-          if (source.unstable)
-            throw Error(
-              'TEXT_PATH_UNSTABLE: Generated contour identities are unsupported; use a Curve or stable primitive',
-            );
-          if (source.remapSuspended)
-            throw Error('TEXT_PATH_REMAP: Rebind suspended Path Remap edits before attaching');
-          const contour = source.contours.find((c) => c.id === attachment.contourId);
-          if (!contour)
-            throw Error(
-              'TEXT_PATH_CONTOUR: Selected contour is missing; detach or choose an explicit contour',
-            );
-          layout = projectTextPath(layout, contour, attachment, n.alignment || 'start');
-        }
-        warnings.push(...layout.warnings.map((warning) => `${n.name}: ${warning}`));
-        const d = layout.path.toPathData(5);
-        let item = new scope.CompoundPath({ pathData: d, insert: false });
-        result = fromPaper(item, n.id);
-        // Glyph command ranges are layout provenance, not character/contour guesses.
-        // Keep grouping separate from paint groups to preserve overlapping fills.
-        const unitCounts = layout.glyphs.map(
-          (glyph) =>
-            layout.path.commands
-              .slice(glyph.commandStart, glyph.commandEnd)
-              .filter((command) => command.type === 'M').length,
-        );
-        let contourOffset = 0;
-        const outlineUnits =
-          unitCounts.reduce((sum, count) => sum + count, 0) === result.contours.length
-            ? unitCounts.flatMap((count, index) => {
-                const contours = result.contours
-                  .slice(contourOffset, contourOffset + count)
-                  .map((c) => c.id);
-                contourOffset += count;
-                return count ? [{ id: `${n.id}:u${index}`, contours }] : [];
-              })
-            : [{ id: `${n.id}:u0`, contours: result.contours.map((c) => c.id) }];
-        textLayouts.set(n.id, {
-          outlineUnits,
-          arrangementStatus: layout.arrangementStatus,
-          arrangementEligibility: layout.arrangementEligibility,
-          characters: layout.characters,
-          glyphAdvances: Object.fromEntries(
-            layout.glyphs.map((glyph) => [glyph.sourceIndex, glyph.advance]),
-          ),
-          attachment: layout.attachment,
-          placements: layout.placements,
-          lineOffsets: layout.lineOffsets,
-          lines: layout.lines,
-          pairKerning: layout.pairKerning,
-          reason: layout.characterReason,
-          suspended: layout.characterSuspended,
-        });
-        result.characterOccurrences = [
-          {
-            source: n.id,
-            route: n.id,
-            matrix: identityMatrix(),
-            reason:
-              layout.characterReason ||
-              (attachment
-                ? 'Canvas character dragging is unavailable on Type on Path; use numeric local XY/rotation/scale'
-                : null),
-            arrangementStatus: layout.arrangementStatus,
-            suspended: layout.characterSuspended,
-          },
-        ];
-        result.unstable = true;
-        result.fingerprint = signature(result);
-        item.remove();
-      } else if (n.type === 'Transform' && n.paintMode) {
-        const source = read('path');
-        if (!source) throw Error('Connect a PaintedPath input');
-        result = evaluatedPaintedGroup([source], {
-          matrix: transformValues(n, read).matrix,
-          prefix: n.id,
-        });
-        setEvaluationFingerprint(result, (currentEra) => [n.id, source, result.matrix]);
-      } else if (n.type === 'Boolean') {
-        const keys = booleanInputKeys(n),
-          inputs = keys.filter((key) => n.params[key].source).map((key) => [key, read(key)]),
-          a = inputs.find(([key]) => key === 'a')?.[1],
-          b = inputs.find(([key]) => key === 'b')?.[1];
-        if (!a || !b) throw Error('Connect both Boolean paths');
-        if (inputs.some(([, path]) => path.contours.some((contour) => !contour.closed)))
-          throw Error('Boolean requires closed contours');
-        const op = {
-          union: 'unite',
-          subtract: 'subtract',
-          intersect: 'intersect',
-          difference: 'exclude',
-        }[n.operation];
-        if (!op) throw Error('Unknown Boolean operation');
-        const liveOperands = new Set();
-        try {
-          let combined;
-          for (const [, path] of inputs) {
-            const next = booleanOperand(path);
-            liveOperands.add(next);
-            if (!combined) {
-              combined = next;
-              continue;
-            }
-            const previous = combined;
-            combined = previous[op](next, { insert: false });
-            liveOperands.add(combined);
-            previous.remove();
-            liveOperands.delete(previous);
-            next.remove();
-            liveOperands.delete(next);
-          }
-          result = fromPaper(combined, n.id);
-          result.characterOccurrences = inputs.flatMap(([key, path]) =>
-            routeCharacters(
-              path,
-              n.id + ':' + key,
-              null,
-              'Canvas character editing is unavailable through Boolean',
-            ),
-          );
-          result.unstable = true;
-          result.fingerprint = signature(result);
-        } finally {
-          for (const item of liveOperands) item.remove();
-        }
       } else {
         result = read('path');
         if (!result) throw Error(`Connect a ${n.params.path.type} input`);
         result = cloneEvaluated(result);
         if (isPaintedGroup(result))
           throw Error('Edit paint in the source Composition, or use Convert to Path');
-        if (n.type === 'Transform') {
-          let obj = toPaper(result);
-          const state = transformValues(n, read);
-          obj.transform(new scope.Matrix(...state.matrix));
-          let transformed = fromPaper(obj, n.id);
-          transformed.contours.forEach((c, ci) => {
-            c.id = result.contours[ci].id;
-            if (result.contours[ci].group !== undefined) c.group = result.contours[ci].group;
-            if (result.contours[ci].repeaterOpacity !== undefined)
-              c.repeaterOpacity = result.contours[ci].repeaterOpacity;
-            if (result.contours[ci].repeaterFill !== undefined)
-              c.repeaterFill = clone(result.contours[ci].repeaterFill);
-            if (result.contours[ci].repeaterStroke !== undefined)
-              c.repeaterStroke = clone(result.contours[ci].repeaterStroke);
-            c.points.forEach((p, pi) => (p.id = result.contours[ci].points[pi].id));
-          });
-          transformed.characterOccurrences = routeCharacters(result, n.id, state.matrix);
-          transformed.unstable = result.unstable;
-          transformed.remapSuspended = result.remapSuspended;
-          transformed.fingerprint = result.fingerprint;
-          copyEvaluationIdentity(result, transformed);
-          result = transformed;
-          obj.remove();
-        }
       }
       if (
         ['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star', 'Image'].includes(n.type) &&

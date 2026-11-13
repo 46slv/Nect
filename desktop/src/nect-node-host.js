@@ -1,4 +1,6 @@
 import { joinSlotsProtocol } from './join-slots-protocol.js';
+import { booleanSlotsProtocol } from './boolean-slots-protocol.js';
+import { transformModeProtocol } from './transform-mode-protocol.js';
 import { isColor, isVector2 } from './node-value-validation.js';
 
 // Trusted host adapters: declaration structure is separate from authored Document validation.
@@ -7,7 +9,11 @@ const scalar = Object.freeze({
   validateOutput: () => true,
 });
 export const nectNodeHost = Object.freeze({
-  shapeProtocols: new Map([['nect.join-slots', joinSlotsProtocol]]),
+  shapeProtocols: new Map([
+    ['nect.join-slots', joinSlotsProtocol],
+    ['nect.boolean-slots', booleanSlotsProtocol],
+    ['nect.transform-mode', transformModeProtocol],
+  ]),
   types: new Map([
     ['Scalar', scalar],
     [
@@ -37,10 +43,7 @@ export const nectNodeHost = Object.freeze({
       (output) =>
         typeof output.label === 'string' &&
         (output.legacyDefault === undefined || output.legacyDefault === true),
-    ) &&
-    (outputs.some((output) => output.legacyDefault === true)
-      ? outputs.length === 1
-      : outputs.every((output) => output.legacyDefault === undefined)),
+    ) && outputs.filter((output) => output.legacyDefault === true).length <= 1,
 });
 export function nectOutputPort(output) {
   return output.legacyDefault ? undefined : output.id;

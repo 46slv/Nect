@@ -140,6 +140,12 @@ import {
 } from './image-dither-node-binding.js';
 import { repeaterNodeDeclaration } from './repeater-node-declaration.js';
 import { evaluateRepeater } from './repeater-node-binding.js';
+import { booleanNodeDeclaration } from './boolean-node-declaration.js';
+import { evaluateBoolean } from './boolean-node-binding.js';
+import { transformNodeDeclaration } from './transform-node-declaration.js';
+import { evaluateTransform } from './transform-node-binding.js';
+import { textNodeDeclaration } from './text-node-declaration.js';
+import { evaluateText, projectTextOutput } from './text-node-binding.js';
 
 // One trusted row per built-in: behavior, placement and exposure are captured at startup.
 const entry = (declaration, binding, definitionAfter, catalogAfter, exposure = 'public') =>
@@ -354,4 +360,17 @@ export const builtinManifest = Object.freeze([
     'Ordered Dither Image',
   ),
   entry(repeaterNodeDeclaration, { evaluate: evaluateRepeater }, 'Mirror', 'Join Geometry'),
+  entry(
+    booleanNodeDeclaration,
+    { evaluate: evaluateBoolean },
+    Object.freeze({ before: 'Transform' }),
+    'Roughen',
+  ),
+  entry(
+    transformNodeDeclaration,
+    { evaluate: evaluateTransform },
+    Object.freeze({ before: 'Text' }),
+    'Dash Path',
+  ),
+  entry(textNodeDeclaration, { evaluate: evaluateText, project: projectTextOutput }, null, null),
 ]);
