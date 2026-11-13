@@ -1,0 +1,28 @@
+export const luminanceInstancesDeclaration = {
+  typeId: 'Luminance Instances',
+  revision: 1,
+  implementationId: 'builtin.luminance-instances.v1',
+  capabilities: [],
+  resultType: 'Path',
+  bypassInput: 'motif',
+  parameters: [
+    { id: 'path', type: 'PaintedPath', default: null },
+    { id: 'motif', type: 'Path', default: null },
+    { id: 'pitch', type: 'Scalar', default: 32 },
+    { id: 'invert', type: 'Boolean', default: false },
+    { id: 'gridOrigin', type: 'Vector2', default: [0, 0] },
+    { id: 'tonePower', type: 'Scalar', default: 1 },
+    { id: 'minScale', type: 'Scalar', default: 0.2 },
+    { id: 'maxScale', type: 'Scalar', default: 1 },
+    { id: 'minRotation', type: 'Scalar', default: 0 },
+    { id: 'maxRotation', type: 'Scalar', default: 90 },
+  ],
+  outputs: [{ id: 'default', label: '', type: 'Path', legacyDefault: true }],
+  catalog: {
+    categoryId: 'repeat',
+    labelJa: '輝度による配置',
+    aliases: ['輝度による配置'],
+    description: '輝度による配置',
+    creationRoute: 'add',
+  },
+};

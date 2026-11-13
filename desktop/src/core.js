@@ -140,12 +140,7 @@ import {
   dotFingerprint,
   migrateDither,
 } from './dither-controls.js';
-import {
-  luminanceInstanceSettings,
-  luminanceInstancesGeometry,
-  selectLuminanceCenters,
-} from './luminance-instances.js';
-import { validateInstancePath } from './instance-points-geometry.js';
+import { luminanceInstanceSettings } from './luminance-instances.js';
 import { polarSettings } from './polar-transform.js';
 import { dashIntervals } from './dash-intervals.js';
 import {
@@ -540,18 +535,6 @@ const legacyDefinitions = {
     endOpacity: p('Scalar', 100),
     copiesAbove: p('Boolean', true),
   },
-  'Luminance Instances': {
-    path: p('PaintedPath', null),
-    motif: p('Path', null),
-    pitch: p('Scalar', 32),
-    invert: p('Boolean', false),
-    gridOrigin: p('Vector2', [0, 0]),
-    tonePower: p('Scalar', 1),
-    minScale: p('Scalar', 0.2),
-    maxScale: p('Scalar', 1),
-    minRotation: p('Scalar', 0),
-    maxRotation: p('Scalar', 90),
-  },
   SVG: { position: p('Vector2', [0, 0]) },
   'Composition Reference': { position: p('Vector2', [0, 0]) },
   Halftone: {
@@ -809,7 +792,6 @@ const bypassInputs = Object.freeze({
   Boolean: 'a',
   Transform: 'path',
   'Geometry Repeater': 'path',
-  'Luminance Instances': 'motif',
   Halftone: 'path',
   'Ordered Dither': 'path',
   'Error Diffusion Dither': 'path',
@@ -3191,78 +3173,6 @@ export function evaluate(
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
-      } else if (n.type === 'Luminance Instances') {
-        if (!n.params.path.source || !n.params.motif.source)
-          throw Error('Connect both Source fill and Motif inputs');
-        const source = read('path'),
-          motif = read('motif');
-        if (!source || !motif) throw Error('Connect both Source fill and Motif inputs');
-        const motifInfo = validateInstancePath(motif, 'Luminance Instances motif');
-        const settings = luminanceInstanceSettings(read),
-          { pitch, invert, gridOrigin, tonePower } = luminanceModifierSettings(read);
-        const options = {
-          pitch,
-          invert,
-          tonePower,
-          origin: { x: gridOrigin[0], y: gridOrigin[1] },
-        };
-        let field, mask;
-        if (source.kind === 'image') {
-          field = sampleImageLuminanceGrid(
-            imageAssetFor(source, imageAssets),
-            source.position,
-            source.size,
-            options,
-          );
-        } else {
-          if (!source.fill) throw Error('Luminance Instances requires a filled source');
-          if (source.contours?.length === 0)
-            field = sampleLuminanceGrid(
-              source.fill,
-              { minX: 0, minY: 0, maxX: 0, maxY: 0 },
-              options,
-            );
-          else {
-            mask = prepareLuminanceMask(source);
-            field = sampleLuminanceGrid(source.fill, mask.bounds, options);
-          }
-        }
-        const cells = selectLuminanceCenters(
-          field.cells,
-          mask,
-          source.kind === 'image' ? source : null,
-        );
-        // Validate cardinality and transformed options before expensive exact bounds work.
-        const prefix = fingerprint(n.id);
-        luminanceInstancesGeometry(motif, cells, { ...settings, pivot: [0, 0], prefix });
-        const bounds = motifInfo.pointCount ? pathBounds(motif) : null;
-        result = luminanceInstancesGeometry(motif, cells, {
-          ...settings,
-          pivot: bounds ? [bounds[0][1], bounds[1][1]] : [0, 0],
-          prefix,
-        });
-        delete result.fill;
-        delete result.stroke;
-        result.characterOccurrences = routeCharacters(
-          motif,
-          n.id,
-          null,
-          'Canvas character editing is unavailable through Luminance Instances; edit the source Text',
-        );
-        result.unstable = true;
-        setEvaluationFingerprint(result, (currentEra) => [
-          provenance(n.id, undefined, currentEra),
-          evaluatedFingerprint(source, currentEra) || null,
-          evaluatedFingerprint(motif, currentEra) || null,
-          settings,
-          pitch,
-          invert,
-          gridOrigin,
-          ...(tonePower !== 1 ? [tonePower] : []),
-          cells,
-          signature(motif),
-          signature(result),
-        ]);
       } else if (
         ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type)
       ) {
