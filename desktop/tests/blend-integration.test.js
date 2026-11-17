@@ -110,3 +110,30 @@ test('Blend step edits update output and survive undo and redo', async () => {
   send('redo');
   assert.equal(count(), 5);
 });
+
+test('Blend of different point counts evaluates and survives SVG and project roundtrip', () => {
+  const doc = document(),
+    layer = doc.layers[0];
+  const a = node('Curve'),
+    b = node('Rectangle'),
+    fa = node('Fill'),
+    fb = node('Fill'),
+    blend = node('Blend'),
+    out = node('Output');
+  blend.params.steps.value = 1;
+  layer.nodes = [a, b, fa, fb, blend, out];
+  layer.output = out.id;
+  connect(layer, a.id, fa.id, 'path');
+  connect(layer, b.id, fb.id, 'path');
+  connect(layer, fa.id, blend.id, 'a');
+  connect(layer, fb.id, blend.id, 'b');
+  connect(layer, blend.id, out.id, 'path');
+  const result = evaluate(layer, {}, doc.imageAssets, doc);
+  assert.equal(result.error, null);
+  assert.deepEqual(
+    result.path.children.map((child) => child.contours[0].points.length),
+    [3, 12, 4],
+  );
+  const svg = exportSVG(doc);
+  assert.equal(exportSVG(deserialize(serialize(doc))), svg);
+});
