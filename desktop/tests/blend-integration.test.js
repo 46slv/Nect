@@ -42,3 +42,35 @@ test('Blend is available through node graph, serializes and exports colored geom
   assert.equal(next.path.children[1].fill.hex, '#bc0000');
   assert.match(exportSVG(doc), /#bc0000/i);
 });
+test('real Stroke nodes blend and export', () => {
+  const doc = document(),
+    l = doc.layers[0],
+    a = node('Rectangle'),
+    b = node('Rectangle'),
+    fa = node('Fill'),
+    fb = node('Fill'),
+    sa = node('Stroke'),
+    sb = node('Stroke'),
+    blend = node('Blend'),
+    out = node('Output');
+  a.params.center.value = [10, 10];
+  b.params.center.value = [110, 10];
+  sa.params.color.value = { hex: '#000000', alpha: 1 };
+  sb.params.color.value = { hex: '#ffffff', alpha: 1 };
+  sa.params.width.value = 2;
+  sb.params.width.value = 6;
+  blend.params.steps.value = 1;
+  l.nodes = [a, b, fa, fb, sa, sb, blend, out];
+  l.output = out.id;
+  connect(l, a.id, fa.id, 'path');
+  connect(l, b.id, fb.id, 'path');
+  connect(l, fa.id, sa.id, 'path');
+  connect(l, fb.id, sb.id, 'path');
+  connect(l, sa.id, blend.id, 'a');
+  connect(l, sb.id, blend.id, 'b');
+  connect(l, blend.id, out.id, 'path');
+  const result = evaluate(l, {}, doc.imageAssets, doc);
+  assert.equal(result.error, null);
+  assert.equal(result.path.children[1].stroke.width, 4);
+  assert.match(exportSVG(doc), /stroke-width="4"/);
+});

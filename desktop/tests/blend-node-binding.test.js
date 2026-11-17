@@ -66,3 +66,32 @@ test('interpolates compatible solid strokes', () => {
     /compatible/,
   );
 });
+test('rejects dashed, non-solid and oversized strokes', () => {
+  const base = {
+    hex: '#000000',
+    alpha: 1,
+    width: 2,
+    cap: 'round',
+    join: 'round',
+    dash: [],
+    miterLimit: 4,
+    dashOffset: 0,
+  };
+  for (const stroke of [
+    { ...base, dash: [2, 5] },
+    { ...base, kind: 'linear-gradient' },
+    { ...base, width: 100001 },
+  ])
+    assert.throws(() => run(1, { ...a, stroke }, { ...b, stroke }), /compatible/);
+  const reordered = {
+    width: 2,
+    alpha: 1,
+    hex: '#000000',
+    join: 'round',
+    cap: 'round',
+    dash: [],
+    dashOffset: 0,
+    miterLimit: 4,
+  };
+  assert.equal(run(1, { ...a, stroke: base }, { ...b, stroke: reordered }).children.length, 3);
+});

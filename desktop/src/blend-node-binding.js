@@ -30,9 +30,25 @@ export function evaluateBlend(_operation, read, context) {
     if (
       !Number.isFinite(aw) ||
       aw < 0 ||
+      aw > 100000 ||
       !Number.isFinite(bw) ||
       bw < 0 ||
-      JSON.stringify(as) !== JSON.stringify(bs)
+      bw > 100000 ||
+      [as, bs].some(
+        (style) =>
+          (style.kind !== undefined && style.kind !== 'solid') ||
+          (style.dash && (!Array.isArray(style.dash) || style.dash.length)),
+      ) ||
+      JSON.stringify(
+        Object.keys(as)
+          .sort()
+          .map((key) => [key, as[key]]),
+      ) !==
+        JSON.stringify(
+          Object.keys(bs)
+            .sort()
+            .map((key) => [key, bs[key]]),
+        )
     )
       throw Error('Blend requires compatible solid strokes');
     strokeA = { hex: ah, alpha: aa };
