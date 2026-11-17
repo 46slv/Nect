@@ -35,7 +35,7 @@ test('steps create intermediate geometry and linear-light color without source m
 });
 test('rejects unsupported paint and invalid steps', () => {
   assert.throws(() => run(255), /steps/);
-  assert.throws(() => run(1, { ...a, stroke: { width: 2 } }), /without stroke/);
+  assert.throws(() => run(1, { ...a, stroke: { width: 2 } }), /matching stroke/);
 });
 test('preserves export blockers and rejects per-copy paint or oversized result', () => {
   assert.deepEqual(run(1, { ...a, exportBlockers: ['pending'] }).exportBlockers, ['pending']);
@@ -54,4 +54,15 @@ test('refuses per-contour overrides and authored character metadata', () => {
   overridden.contours[0].repeaterOpacity = 0;
   assert.throws(() => run(1, overridden), /per-copy/);
   assert.throws(() => run(1, { ...a, characterOccurrences: [{ suspended: true }] }), /per-copy/);
+});
+test('interpolates compatible solid strokes', () => {
+  const sa = { hex: '#000000', alpha: 1, width: 2, cap: 'round', join: 'round' },
+    sb = { ...sa, hex: '#ffffff', width: 6 };
+  const result = run(1, { ...a, stroke: sa }, { ...b, stroke: sb });
+  assert.equal(result.children[1].stroke.width, 4);
+  assert.equal(result.children[1].stroke.hex, '#bcbcbc');
+  assert.throws(
+    () => run(1, { ...a, stroke: sa }, { ...b, stroke: { ...sb, cap: 'butt' } }),
+    /compatible/,
+  );
 });
