@@ -159,3 +159,36 @@ test('Blend of different point counts evaluates and survives SVG and project rou
   send('redo');
   assert.equal(exportSVG(session.snapshot()), editedSvg);
 });
+
+test('stroke-only closed paths blend without introducing fill and survive reopen', () => {
+  const doc = document(),
+    l = doc.layers[0],
+    a = node('Rectangle'),
+    b = node('Rectangle'),
+    sa = node('Stroke'),
+    sb = node('Stroke'),
+    blend = node('Blend'),
+    out = node('Output');
+  a.params.center.value = [10, 10];
+  b.params.center.value = [110, 10];
+  sa.params.color.value = { hex: '#000000', alpha: 1 };
+  sb.params.color.value = { hex: '#ffffff', alpha: 1 };
+  sa.params.width.value = 2;
+  sb.params.width.value = 6;
+  blend.params.steps.value = 1;
+  l.nodes = [a, b, sa, sb, blend, out];
+  l.output = out.id;
+  connect(l, a.id, sa.id, 'path');
+  connect(l, b.id, sb.id, 'path');
+  connect(l, sa.id, blend.id, 'a');
+  connect(l, sb.id, blend.id, 'b');
+  connect(l, blend.id, out.id, 'path');
+  const result = evaluate(l, {}, doc.imageAssets, doc);
+  assert.equal(result.error, null);
+  assert.equal(result.path.children[1].stroke.width, 4);
+  assert.ok(result.path.children.every((child) => child.fill == null));
+  const svg = exportSVG(doc);
+  assert.match(svg, /stroke-width="4"/);
+  assert.match(svg, /fill="none"/);
+  assert.equal(exportSVG(deserialize(serialize(doc))), svg);
+});

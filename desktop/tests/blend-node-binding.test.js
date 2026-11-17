@@ -95,3 +95,17 @@ test('rejects dashed, non-solid and oversized strokes', () => {
   };
   assert.equal(run(1, { ...a, stroke: base }, { ...b, stroke: reordered }).children.length, 3);
 });
+
+test('stroke-only blending preserves absent fill and validates appearance compatibility', () => {
+  const stroke = { hex: '#000000', alpha: 1, width: 2 };
+  const first = { ...a, fill: null, stroke };
+  const second = { ...b, fill: null, stroke: { ...stroke, width: 6, alpha: 0.5 } };
+  const before = JSON.stringify([first, second]);
+  const result = run(1, first, second);
+  assert.ok(result.children.every((child) => child.fill == null));
+  assert.equal(result.children[1].stroke.width, 4);
+  assert.equal(result.children[1].stroke.alpha, 0.75);
+  assert.equal(JSON.stringify([first, second]), before);
+  assert.throws(() => run(1, first, { ...second, fill: b.fill }), /matching fill/);
+  assert.throws(() => run(1, { ...first, stroke: null }, { ...second, stroke: null }), /paint/);
+});

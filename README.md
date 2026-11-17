@@ -168,6 +168,13 @@ lossless projection. Full AE blend parity remains unsupported. SVG retains vecto
 clips, Group opacity and CSS blend/isolation, so the reader must support those
 SVG/CSS features. `examples/colour-cut.nect` demonstrates the retained workflow.
 
+**Blend** creates live intermediate objects between two single closed contours.
+Steps controls the number between the unchanged endpoints. Solid fills and compatible
+solid stroke colors, opacity and widths interpolate; both sources may also be stroke-only,
+in which case the output keeps no fill. Fill/stroke presence must match on both inputs.
+Compound paths, open paths, gradients, dashed or incompatible strokes and masks remain
+unsupported. This bounded implementation is not full Illustrator Blend parity.
+
 **Offset Paths** in Add or Shape stack expands/contracts a retained closed outline.
 Amount supports links and expressions; Miter/Round/Bevel and the fill rule are
 editable. Reorder it around Repeater to change local distance behavior. Earlier

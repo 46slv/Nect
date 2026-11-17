@@ -1,7 +1,7 @@
 import { blendPointCount, prepareClosedContourBlend } from './blend-geometry.js';
 import { colorOperation, publicColor } from './color-operations.js';
 
-// First vertical: one solid-filled closed contour per source. Complex painted
+// First vertical: one closed contour with matching solid fill/stroke presence. Complex painted
 // groups and incompatible strokes must not silently lose their appearance.
 export function evaluateBlend(_operation, read, context) {
   const a = read('a'),
@@ -11,8 +11,8 @@ export function evaluateBlend(_operation, read, context) {
   if (!Number.isInteger(steps) || steps < 0 || steps > 254)
     throw Error('Blend steps must be an integer from 0 to 254');
   for (const value of [a, b]) {
-    if (value.kind || value.mask || value.contours?.length !== 1 || !value.fill)
-      throw Error('Blend currently supports single solid-filled contours without mask');
+    if (value.kind || value.mask || value.contours?.length !== 1)
+      throw Error('Blend currently supports single closed contours without mask');
     if (
       [value, value.contours[0]].some((item) =>
         Object.keys(item).some((key) => key.startsWith('repeater')),
@@ -20,8 +20,10 @@ export function evaluateBlend(_operation, read, context) {
       value.characterOccurrences?.length
     )
       throw Error('Blend does not support per-copy appearance');
-    publicColor(colorOperation('mix', [value.fill, value.fill, 0]));
+    if (value.fill != null) publicColor(colorOperation('mix', [value.fill, value.fill, 0]));
+    if (value.fill == null && !value.stroke) throw Error('Blend requires visible paint slots');
   }
+  if ((a.fill != null) !== (b.fill != null)) throw Error('Blend requires matching fill presence');
   if (!!a.stroke !== !!b.stroke) throw Error('Blend requires matching stroke presence');
   let strokeA, strokeB, strokeStyle;
   if (a.stroke) {
@@ -68,7 +70,7 @@ export function evaluateBlend(_operation, read, context) {
     const t = i / (steps + 1);
     values.push({
       contours: [interpolate(t, `${context.nodeId}:blend:${i}`)],
-      fill: publicColor(colorOperation('mix', [a.fill, b.fill, t])),
+      fill: a.fill == null ? null : publicColor(colorOperation('mix', [a.fill, b.fill, t])),
       ...(a.stroke
         ? {
             stroke: {
