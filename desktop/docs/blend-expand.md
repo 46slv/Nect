@@ -14,3 +14,12 @@ Expansion rejects locked/bypassed nodes, parameter references which would lose
 their meaning, blocked export appearance, and unsupported or excessive output.
 It validates a private document candidate before committing. Initial acceptance
 must cover appearance, source independence, point editing, Undo/Redo and reopen.
+
+## Creating a live Blend from selection
+
+`blend-selected` takes exactly two stable node IDs in selection order (A then B),
+validates their live Blend output, and adds one connected Blend in one History
+entry. The graph toolbar exposes this action for two selected nodes. Existing
+source nodes and Output wiring are preserved, just like ordinary Add node; the
+new Blend is selected for preview, and the user can connect it to Output. Invalid
+paint/topology or missing sources reject the entire command without a partial node.

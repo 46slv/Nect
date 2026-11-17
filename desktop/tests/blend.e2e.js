@@ -92,6 +92,25 @@ try {
   ]);
   await page.evaluate((value) => window.nect.load(value), serialize(doc));
   await ensureWorkspacePanel(page, 'inspector');
+  await page.locator(`.graph .node[data-id="${fa.id}"] .node-head strong`).click();
+  await page
+    .locator(`.graph .node[data-id="${fb.id}"] .node-head strong`)
+    .click({ modifiers: ['Shift'] });
+  const beforeSelectedBlend = await page.evaluate(() => JSON.stringify(window.nect.document));
+  if (!(await page.locator('[data-action="blend-selected"]').isVisible()))
+    await page.getByRole('button', { name: 'Toggle node graph controls', exact: true }).click();
+  await page.locator('[data-action="blend-selected"]').click();
+  const withSelectedBlend = await page.evaluate(() => window.nect.document);
+  assert.equal(withSelectedBlend.layers[0].nodes.filter((n) => n.type === 'Blend').length, 2);
+  assert.deepEqual(
+    withSelectedBlend.layers[0].nodes.find((n) => n.id === layer.output),
+    layer.nodes.find((n) => n.id === layer.output),
+  );
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(
+    await page.evaluate(() => JSON.stringify(window.nect.document)),
+    beforeSelectedBlend,
+  );
   await page.locator(`.graph .node[data-id="${blend.id}"] .node-head strong`).click();
   const result = () => page.evaluate((id) => window.nect.evaluate().run(id), blend.id);
   const before = await page.evaluate(() => JSON.stringify(window.nect.document));

@@ -7898,6 +7898,7 @@ export class CommandSession {
         'adopt-font',
         'rename',
         'create-node',
+        'blend-selected',
         'duplicate-nodes',
         'paste-nodes',
         'save-node-preset',
@@ -8048,6 +8049,25 @@ export class CommandSession {
       if (typeof payload.name !== 'string' || !payload.name.trim())
         throw Error('Name cannot be empty');
       item.name = payload.name.trim();
+    } else if (type === 'blend-selected') {
+      const ids = payload.nodeIds;
+      if (!Array.isArray(ids) || ids.length !== 2 || new Set(ids).size !== 2)
+        throw Error('Select exactly two painted shape nodes');
+      const sources = ids.map((id) => target.nodes.find((n) => n.id === id));
+      if (sources.some((n) => !n || n.type === 'Output'))
+        throw Error('Select two existing painted shape nodes, not Output');
+      const created = node('Blend', ...(payload.position ?? [40, 40]));
+      target.nodes.push(created);
+      connect(target, ids[0], created.id, 'a');
+      connect(target, ids[1], created.id, 'b');
+      const evaluated = evaluate(
+        { ...target, output: created.id },
+        resolveFonts(candidate, this.#fonts()),
+        candidate.imageAssets,
+        candidate,
+      );
+      if (evaluated.error) throw Error(evaluated.error);
+      result = { nodeId: created.id };
     } else if (type === 'create-node') {
       const created = node(payload.nodeType, ...(payload.position ?? [40, 40]));
       if (isImageDither(created.type))
