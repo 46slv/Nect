@@ -1,3 +1,4 @@
+import { subdividePathGeometry } from './subdivide-geometry.js';
 // Geometry-only interpolation for one pair of compatible closed contours.
 // Appearance and node integration are intentionally handled separately.
 const vector = (v) => Array.isArray(v) && v.length === 2 && v.every(Number.isFinite);
@@ -53,6 +54,19 @@ function align(a, b) {
   });
 }
 
+// Split each source edge exactly; unlike resampling, Bezier geometry is retained.
+export function blendPointCount(aCount, bCount) {
+  if (![aCount, bCount].every((n) => Number.isInteger(n) && n >= 2))
+    throw Error('Blend requires valid contour point counts');
+  let x = aCount,
+    y = bCount;
+  while (y) [x, y] = [y, x % y];
+  const count = (aCount / x) * bCount;
+  if (count > 512 || count / aCount > 32 || count / bCount > 32)
+    throw Error('Blend contour subdivision exceeds geometry budget');
+  return count;
+}
+
 export function prepareClosedContourBlend(a, b) {
   if (!validContour(a) || !validContour(b)) throw Error('Blend requires valid closed contours');
   for (const c of [a, b]) {
@@ -62,15 +76,34 @@ export function prepareClosedContourBlend(a, b) {
   }
   if (a.points.length > 512 || b.points.length > 512)
     throw Error('Blend contour exceeds 512 points');
-  if (a.points.length !== b.points.length) throw Error('Blend requires matching point counts');
-  const aligned = align(a.points, b.points);
+  const count = blendPointCount(a.points.length, b.points.length);
+  const split = (contour, side) =>
+    subdividePathGeometry(
+      { contours: [contour] },
+      { segments: count / contour.points.length, prefix: `blend:${side}` },
+    ).contours[0];
+  const first = a.points.length === count ? a : split(a, 'a');
+  const second = b.points.length === count ? b : split(b, 'b');
+  const aligned = align(first.points, second.points);
+  const copyEndpoint = (contour, id) => ({
+    id,
+    closed: true,
+    points: contour.points.map((p, i) => ({
+      id: `${id}:p${i}`,
+      position: [...p.position],
+      handleA: [...p.handleA],
+      handleB: [...p.handleB],
+    })),
+  });
   return (t, id = 'blend') => {
     if (!Number.isFinite(t) || t < 0 || t > 1)
       throw Error('Blend interpolation must be between 0 and 1');
+    if (t === 0) return copyEndpoint(a, id);
+    if (t === 1) return copyEndpoint(b, id);
     return {
       id,
       closed: true,
-      points: a.points.map((p, i) => ({
+      points: first.points.map((p, i) => ({
         id: `${id}:p${i}`,
         position: mix(p.position, aligned[i].position, t),
         handleA: mix(p.handleA, aligned[i].handleA, t),

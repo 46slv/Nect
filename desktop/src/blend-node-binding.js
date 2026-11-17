@@ -1,4 +1,4 @@
-import { prepareClosedContourBlend } from './blend-geometry.js';
+import { blendPointCount, prepareClosedContourBlend } from './blend-geometry.js';
 import { colorOperation, publicColor } from './color-operations.js';
 
 // First vertical: one solid-filled closed contour per source. Complex painted
@@ -56,7 +56,10 @@ export function evaluateBlend(_operation, read, context) {
     publicColor(colorOperation('mix', [strokeA, strokeB, 0]));
     strokeStyle = as;
   }
-  if ((steps + 2) * a.contours[0].points.length > 100000)
+  if (
+    (steps + 2) * blendPointCount(a.contours[0].points.length, b.contours[0].points.length) >
+    100000
+  )
     throw Error('Blend exceeds geometry budget');
   const blockers = [...new Set([...(a.exportBlockers || []), ...(b.exportBlockers || [])])];
   const interpolate = prepareClosedContourBlend(a.contours[0], b.contours[0]);

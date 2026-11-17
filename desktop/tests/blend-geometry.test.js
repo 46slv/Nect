@@ -40,18 +40,6 @@ test('aligns reversed winding and seam without mutating inputs', () => {
 });
 test('rejects invalid topology and interpolation', () => {
   assert.throws(() => interpolateClosedContours(a, { ...b, closed: false }, 0.5), /closed/);
-  assert.throws(
-    () =>
-      interpolateClosedContours(
-        a,
-        contour([
-          [0, 0],
-          [1, 0],
-        ]),
-        0.5,
-      ),
-    /point counts/,
-  );
   assert.throws(() => interpolateClosedContours(a, b, NaN), /between/);
 });
 test('rejects ambiguous repeated anchor positions', () => {
@@ -60,4 +48,37 @@ test('rejects ambiguous repeated anchor positions', () => {
     [0, 0],
   ]);
   assert.throws(() => interpolateClosedContours(ambiguous, ambiguous, 0.5), /repeated anchor/);
+});
+
+test('subdivides mismatched contours while keeping endpoints and sources exact', () => {
+  const triangle = contour([
+    [0, 0],
+    [4, 0],
+    [2, 4],
+  ]);
+  const before = JSON.stringify([triangle, a]);
+  const middle = interpolateClosedContours(triangle, a, 0.5);
+  assert.equal(middle.points.length, 12);
+  for (const [t, source] of [
+    [0, triangle],
+    [1, a],
+  ]) {
+    const result = interpolateClosedContours(triangle, a, t);
+    assert.deepEqual(
+      result.points.map(({ position, handleA, handleB }) => ({ position, handleA, handleB })),
+      source.points.map(({ position, handleA, handleB }) => ({ position, handleA, handleB })),
+    );
+  }
+  assert.equal(JSON.stringify([triangle, a]), before);
+});
+
+test('rejects subdivision beyond the bounded point budget', () => {
+  const many = (n) =>
+    contour(
+      Array.from({ length: n }, (_, i) => [
+        Math.cos((i * 2 * Math.PI) / n),
+        Math.sin((i * 2 * Math.PI) / n),
+      ]),
+    );
+  assert.throws(() => interpolateClosedContours(many(31), many(32), 0.5), /budget/);
 });
