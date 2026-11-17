@@ -23,3 +23,17 @@ entry. The graph toolbar exposes this action for two selected nodes. Existing
 source nodes and Output wiring are preserved, just like ordinary Add node; the
 new Blend is selected for preview, and the user can connect it to Output. Invalid
 paint/topology or missing sources reject the entire command without a partial node.
+
+## Bounded acceptance measurements
+
+On 2026-11-17, Node 24.14.1 on the development Windows machine, the bounded
+`node scripts/benchmark-blend.mjs` probe measured five calls after one warm-up:
+4-point input / 100 Steps: median 0.697 ms, max 1.273 ms; 128-point input /
+100 Steps (13,056 output points): median 10.829 ms, max 16.846 ms. This is the
+synthetic geometry/paint evaluator only, not Session, rendering, IPC, native GUI
+responsiveness or a universal timing guarantee. The benchmark is deliberately
+not a timing-sensitive CI assertion and does not run automatically.
+
+CommandSession regressions separately cover Steps 0/1/5/100, deterministic
+re-evaluation, source edits and reopen, plus source deletion diagnostic,
+Undo recovery and explicit disconnect/reconnect without stale geometry.

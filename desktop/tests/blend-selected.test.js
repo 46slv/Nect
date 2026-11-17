@@ -85,3 +85,42 @@ test('locked composition rejects selection authoring', () => {
   );
   assert.equal(serialize(s.snapshot()), before);
 });
+
+for (const steps of [0, 1, 5, 100])
+  test(`live Blend steps ${steps} recomputes and reopens without stale geometry`, () => {
+    const f = fixture(),
+      result = f.send('blend-selected', { nodeIds: [f.fa.id, f.fb.id] });
+    f.send('set-parameter', { nodeId: result.nodeId, key: 'steps', value: steps });
+    const doc = f.session.snapshot(),
+      layer = doc.layers[0];
+    const first = evaluate({ ...layer, output: result.nodeId }).path;
+    assert.equal(first.children.length, steps + 2);
+    assert.deepEqual(evaluate({ ...layer, output: result.nodeId }).path, first);
+    const reopened = deserialize(serialize(doc));
+    assert.deepEqual(evaluate({ ...reopened.layers[0], output: result.nodeId }).path, first);
+    f.send('set-parameter', { nodeId: f.b.id, key: 'center', value: [720, 150] });
+    const changed = f.session.snapshot(),
+      next = evaluate({ ...changed.layers[0], output: result.nodeId }).path;
+    assert.equal(next.children.length, steps + 2);
+    assert.notDeepEqual(next, first);
+  });
+test('deleting a Blend source reports missing input; undo and explicit reconnection recover', () => {
+  const f = fixture(),
+    result = f.send('blend-selected', { nodeIds: [f.fa.id, f.fb.id] });
+  const original = serialize(f.session.snapshot());
+  const read = () => evaluate({ ...f.session.snapshot().layers[0], output: result.nodeId });
+  const good = read().path;
+  f.send('delete-node', { nodeId: f.fb.id });
+  assert.match(read().error, /Connect both Blend inputs/);
+  assert.equal(
+    f.session.snapshot().layers[0].nodes.find((n) => n.id === result.nodeId).params.b.source,
+    undefined,
+  );
+  f.send('undo');
+  assert.equal(serialize(f.session.snapshot()), original);
+  assert.deepEqual(read().path, good);
+  f.send('disconnect', { nodeId: result.nodeId, key: 'b' });
+  assert.match(read().error, /Connect both Blend inputs/);
+  f.send('connect', { nodeId: result.nodeId, key: 'b', sourceId: f.fb.id });
+  assert.deepEqual(read().path, good);
+});
