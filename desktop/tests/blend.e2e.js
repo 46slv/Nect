@@ -106,6 +106,31 @@ try {
     withSelectedBlend.layers[0].nodes.find((n) => n.id === layer.output),
     layer.nodes.find((n) => n.id === layer.output),
   );
+  const createdBlend = withSelectedBlend.layers[0].nodes.find(
+    (n) => n.type === 'Blend' && n.id !== blend.id,
+  );
+  assert.equal(createdBlend.params.a.source, fa.id);
+  assert.equal(createdBlend.params.b.source, fb.id);
+  await page.locator('[data-action="graph-fit"]').click();
+  const from = page.locator(`.graph [data-source="${createdBlend.id}"]`).first();
+  const to = page.locator(`.graph [data-node="${layer.output}"][data-key="path"] .socket`).first();
+  await from.dragTo(to);
+  assert.equal(
+    await page.evaluate(
+      (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).params.path.source,
+      layer.output,
+    ),
+    createdBlend.id,
+  );
+  assert.equal(
+    await page.evaluate(() => window.nect.evaluate().path.children.length),
+    createdBlend.params.steps.value + 2,
+  );
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(
+    await page.evaluate(() => JSON.stringify(window.nect.document)),
+    JSON.stringify(withSelectedBlend),
+  );
   await page.locator('[data-action="undo"]').click();
   assert.equal(
     await page.evaluate(() => JSON.stringify(window.nect.document)),
