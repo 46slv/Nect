@@ -1,4 +1,4 @@
-import { interpolateClosedContours } from './blend-geometry.js';
+import { prepareClosedContourBlend } from './blend-geometry.js';
 import { colorOperation, publicColor } from './color-operations.js';
 
 // First vertical: one solid-filled closed contour per source. Complex painted
@@ -25,13 +25,12 @@ export function evaluateBlend(_operation, read, context) {
   if ((steps + 2) * a.contours[0].points.length > 100000)
     throw Error('Blend exceeds geometry budget');
   const blockers = [...new Set([...(a.exportBlockers || []), ...(b.exportBlockers || [])])];
+  const interpolate = prepareClosedContourBlend(a.contours[0], b.contours[0]);
   const values = [];
   for (let i = 0; i < steps + 2; i++) {
     const t = i / (steps + 1);
     values.push({
-      contours: [
-        interpolateClosedContours(a.contours[0], b.contours[0], t, `${context.nodeId}:blend:${i}`),
-      ],
+      contours: [interpolate(t, `${context.nodeId}:blend:${i}`)],
       fill: publicColor(colorOperation('mix', [a.fill, b.fill, t])),
       ...(blockers.length ? { exportBlockers: blockers } : {}),
     });
