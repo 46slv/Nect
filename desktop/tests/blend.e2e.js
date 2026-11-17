@@ -114,6 +114,24 @@ try {
   assert.deepEqual(await result(), changed);
   await page.evaluate((value) => window.nect.load(value), after);
   assert.deepEqual(await result(), changed);
+  await page.locator(`.graph .node[data-id="${blend.id}"] .node-head strong`).click();
+  const beforeExpand = await page.evaluate(() => JSON.stringify(window.nect.document));
+  await page.locator(`.inspector-body [data-expand-blend="${blend.id}"]`).click();
+  const expanded = await page.evaluate(() => JSON.stringify(window.nect.document));
+  assert.equal(
+    JSON.parse(expanded).layers[0].nodes.find((n) => n.id === blend.id).type,
+    'Join Geometry',
+  );
+  assert.equal(
+    JSON.parse(expanded).layers[0].nodes.filter((n) => n.type === 'Multi Path').length,
+    6,
+  );
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), beforeExpand);
+  await page.locator('[data-action="redo"]').click();
+  assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), expanded);
+  await page.evaluate((value) => window.nect.load(value), expanded);
+  assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), expanded);
   await mkdir('test-results', { recursive: true });
   await page.screenshot({
     path: `test-results/blend-${process.env.EVIDENCE_LABEL || 'current'}.png`,

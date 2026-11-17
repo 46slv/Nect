@@ -7207,6 +7207,138 @@ export class CommandSession {
         },
       };
     }
+    if (type === 'expand-blend') {
+      const layer = before.layers.find((l) => l.id === payload.layerId);
+      const source = layer?.nodes.find((n) => n.id === payload.nodeId);
+      if (source?.type !== 'Blend' || source.bypassed) throw Error('Select an active Blend');
+      if (layer.locked || source.locked || parameters(source).some(([, q]) => q.locked))
+        throw Error('Unlock Blend and its composition before expansion');
+      for (const otherLayer of before.layers)
+        for (const other of otherLayer.nodes) {
+          if (otherLayer.id === layer.id && other.id === source.id) continue;
+          if (
+            parameters(other).some(
+              ([, q]) =>
+                q.expression &&
+                artworkExpressionReferences(q.expression).some(
+                  (ref) => ref.layerId === layer.id && ref.nodeId === source.id,
+                ),
+            )
+          )
+            throw Error('Blend parameter references are in use');
+          if (otherLayer.id === layer.id) {
+            const connected = new Set();
+            if (
+              collectNodeDependencies(other, false, connected).some(
+                (dep) =>
+                  dep.source === source.id &&
+                  ((dep.parameterKey !== undefined && !connected.has(dep)) ||
+                    dep.sourcePort !== undefined ||
+                    other.type === 'Reference'),
+              )
+            )
+              throw Error('Blend parameter references are in use');
+          }
+        }
+      const evaluated = evaluate(
+        { ...layer, output: source.id },
+        resolveFonts(before, this.#fonts()),
+        before.imageAssets,
+        before,
+      );
+      if (evaluated.error) throw Error(evaluated.error);
+      const value = evaluated.path;
+      if (
+        !isPaintedGroup(value) ||
+        !value.children.length ||
+        value.children.length > 256 ||
+        (value.matrix && JSON.stringify(value.matrix) !== '[1,0,0,1,0,0]')
+      )
+        throw Error('Unsupported Blend appearance');
+      if (
+        value.children.some(
+          (child) =>
+            isPaintedGroup(child) ||
+            child.exportBlockers?.length ||
+            child.contours.length !== 1 ||
+            (!child.fill && !child.stroke),
+        )
+      )
+        throw Error('Blend appearance cannot be expanded');
+      if (
+        value.children.reduce(
+          (n, child) => n + child.contours.reduce((sum, c) => sum + c.points.length, 0),
+          0,
+        ) > 10000
+      )
+        throw Error('Blend expansion exceeds 10000 editable points');
+      const candidate = cloneDocument(before),
+        target = candidate.layers.find((l) => l.id === layer.id);
+      const join = {
+        ...node('Join Geometry', ...source.position),
+        id: source.id,
+        name: source.name,
+        width: source.width,
+        collapsed: source.collapsed,
+      };
+      target.nodes[target.nodes.findIndex((n) => n.id === source.id)] = join;
+      const editable = [];
+      for (const [index, child] of value.children.entries()) {
+        const path = node('Multi Path', source.position[0] - 600, source.position[1] + index * 240);
+        path.name = `Blend shape ${index + 1}`;
+        path.contours = [];
+        path.points = [];
+        for (const contour of child.contours) {
+          const ids = [];
+          for (const point of contour.points) {
+            const id = uid('point');
+            ids.push(id);
+            path.points.push({
+              id,
+              handleType: 'corner',
+              position: p('Vector2', clone(point.position)),
+              handleA: p('Vector2', clone(point.handleA)),
+              handleB: p('Vector2', clone(point.handleB)),
+            });
+          }
+          path.contours.push({ id: uid('contour'), closed: contour.closed, points: ids });
+        }
+        path.units = path.contours.map((contour) => ({ id: uid('unit'), contours: [contour.id] }));
+        target.nodes.push(path);
+        editable.push(path.id);
+        let painted = path;
+        if (child.fill) {
+          const fill = node('Fill', path.position[0] + 200, path.position[1]);
+          fill.params.color.value = clone(child.fill);
+          target.nodes.push(fill);
+          connect(target, painted.id, fill.id, 'path');
+          painted = fill;
+        }
+        if (child.stroke) {
+          const stroke = node('Stroke', path.position[0] + 400, path.position[1]);
+          const style = child.stroke;
+          stroke.params.color.value = { hex: style.hex, alpha: style.alpha };
+          stroke.params.width.value = style.width;
+          stroke.params.miterLimit.value = style.miterLimit ?? 4;
+          stroke.params.dashOffset.value = style.dashOffset ?? 0;
+          stroke.strokeCap = style.cap ?? 'butt';
+          stroke.strokeJoin = style.join ?? 'miter';
+          target.nodes.push(stroke);
+          connect(target, painted.id, stroke.id, 'path');
+          painted = stroke;
+        }
+        connect(
+          target,
+          painted.id,
+          join.id,
+          index === 0 ? 'a' : index === 1 ? 'b' : join.joinInputOrder.at(-1),
+        );
+      }
+      candidate.schemaVersion = Math.max(candidate.schemaVersion, 31);
+      validate(candidate);
+      serialize(candidate);
+      return { candidate, result: { nodeId: join.id, editableNodeIds: editable } };
+    }
     if (['bake-text-outline', 'bake-os-text-outline'].includes(type)) {
       const layer = before.layers.find((l) => l.id === payload.layerId);
       const source = layer?.nodes.find((n) => n.id === payload.nodeId);
