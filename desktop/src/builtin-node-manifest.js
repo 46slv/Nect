@@ -168,7 +168,12 @@ export const builtinManifest = Object.freeze([
   entry(vectorMathDeclaration, { evaluate: evaluateVectorMath }, 'Math', 'Vector'),
   entry(reversePathDeclaration, { evaluate: evaluateReversePath }, 'Auto Handles', 'Set Closure'),
   entry(joinGeometryDeclaration, { evaluate: evaluateJoinGeometry }, 'Boolean', 'Boolean'),
-  entry(blendNodeDeclaration, { evaluate: evaluateBlend }, 'Join Geometry', 'Join Geometry'),
+  entry(
+    blendNodeDeclaration,
+    { evaluate: evaluateBlend },
+    'Error Diffusion Dither Image',
+    'Join Geometry',
+  ),
   entry(
     combineVectorDeclaration,
     { evaluate: evaluateCombineVector },
