@@ -60,6 +60,8 @@ test('Shift artwork movement: shared axes, snap, modifiers, source coordinates, 
   globalThis.fetch = async () => ({
     ok: true,
     arrayBuffer: async () => {
+      if (process.env.NECT_TEST_DELAY_BUNDLED_FONT === '1')
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       const b = await fs.readFile(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url));
       return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
     },
@@ -72,8 +74,13 @@ test('Shift artwork movement: shared axes, snap, modifiers, source coordinates, 
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
   source += '\nwindow.canvasPreview = () => displayDocument();';
+  source += '\nwindow.axisTestFontReady = () => Boolean(bundledFont);';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
-  await new Promise((r) => setTimeout(r, 80));
+  // Text handles require the parsed bundled font, not an elapsed wall-clock delay.
+  const readyDeadline = Date.now() + 10000;
+  while (!win.axisTestFontReady() && Date.now() < readyDeadline)
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(win.axisTestFontReady(), true, 'bundled font parsed before pointer targets');
   flush();
 
   const saved = () => JSON.stringify(win.nect.document);
