@@ -109,3 +109,33 @@ test('stroke-only blending preserves absent fill and validates appearance compat
   assert.throws(() => run(1, first, { ...second, fill: b.fill }), /matching fill/);
   assert.throws(() => run(1, { ...first, stroke: null }, { ...second, stroke: null }), /paint/);
 });
+
+test('preserves transparent endpoint paint exactly without changing premultiplied intermediates', () => {
+  const first = {
+    ...a,
+    fill: { hex: '#ff0000', alpha: 0 },
+    stroke: { hex: '#00ff00', alpha: 0, width: 2 },
+  };
+  const second = {
+    ...b,
+    fill: { hex: '#0000ff', alpha: 1 },
+    stroke: { hex: '#ff00ff', alpha: 1, width: 6 },
+  };
+  for (const steps of [0, 1, 5]) {
+    const result = run(steps, first, second);
+    assert.deepEqual(result.children[0].fill, first.fill);
+    assert.deepEqual(result.children[0].stroke, first.stroke);
+    assert.deepEqual(result.children.at(-1).fill, second.fill);
+    assert.deepEqual(result.children.at(-1).stroke, second.stroke);
+    assert.notEqual(result.children[0].fill, first.fill);
+    assert.notEqual(result.children[0].stroke, first.stroke);
+    const reversed = run(steps, second, first);
+    assert.deepEqual(reversed.children.at(-1).fill, first.fill);
+    assert.deepEqual(reversed.children.at(-1).stroke, first.stroke);
+    if (steps === 1) {
+      assert.deepEqual(result.children[1].fill, { hex: '#0000ff', alpha: 0.5 });
+      assert.equal(result.children[1].stroke.hex, '#ff00ff');
+      assert.equal(result.children[1].stroke.alpha, 0.5);
+    }
+  }
+});

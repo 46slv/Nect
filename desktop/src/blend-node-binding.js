@@ -1,6 +1,10 @@
 import { blendPointCount, prepareClosedContourBlend } from './blend-geometry.js';
 import { colorOperation, publicColor } from './color-operations.js';
 
+// Mixing a fully transparent color erases its RGB. Endpoints retain authored paint.
+const blendColor = (a, b, t) =>
+  t === 0 ? { ...a } : t === 1 ? { ...b } : publicColor(colorOperation('mix', [a, b, t]));
+
 // First vertical: one closed contour with matching solid fill/stroke presence. Complex painted
 // groups and incompatible strokes must not silently lose their appearance.
 export function evaluateBlend(_operation, read, context) {
@@ -70,12 +74,17 @@ export function evaluateBlend(_operation, read, context) {
     const t = i / (steps + 1);
     values.push({
       contours: [interpolate(t, `${context.nodeId}:blend:${i}`)],
-      fill: a.fill == null ? null : publicColor(colorOperation('mix', [a.fill, b.fill, t])),
+      fill: a.fill == null ? null : blendColor(a.fill, b.fill, t),
       ...(a.stroke
         ? {
             stroke: {
-              ...publicColor(colorOperation('mix', [strokeA, strokeB, t])),
-              width: a.stroke.width + (b.stroke.width - a.stroke.width) * t,
+              ...blendColor(strokeA, strokeB, t),
+              width:
+                t === 0
+                  ? a.stroke.width
+                  : t === 1
+                    ? b.stroke.width
+                    : a.stroke.width + (b.stroke.width - a.stroke.width) * t,
               ...strokeStyle,
             },
           }
