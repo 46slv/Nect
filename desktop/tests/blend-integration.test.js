@@ -36,4 +36,9 @@ test('Blend is available through node graph, serializes and exports colored geom
   const svg = exportSVG(doc);
   assert.match(svg, /#bcbcbc/i);
   assert.equal(exportSVG(deserialize(serialize(doc))), svg);
+  fb.params.color.value = { hex: '#ff0000', alpha: 1 };
+  const next = evaluate(l, {}, doc.imageAssets, doc);
+  assert.equal(next.error, null);
+  assert.equal(next.path.children[1].fill.hex, '#bc0000');
+  assert.match(exportSVG(doc), /#bc0000/i);
 });
