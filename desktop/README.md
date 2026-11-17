@@ -88,6 +88,8 @@ For fixed Nect SVG → PNG batch export with installed Chrome and no editor UI, 
 
 ## Verification
 
+For intermittent file-level test failures, `npm run test:diagnostic` runs the same full test set serially with TAP output and uncaught/warning traces. Capture stdout, stderr, and the runner exit code; TAP retains child `exitCode`, `signal`, and failure details that the concise reporter can omit. This is still a full suite, not a lightweight probe. For a bounded check use `node --trace-uncaught --trace-warnings --test --test-concurrency=1 --test-reporter=tap tests/variable-font-document.test.js`. Do not replace a failing full-suite result with a passing focused retry or infer a root cause from missing diagnostics.
+
 `npm test` runs geometry, type/graph, persistence, safety and synthetic DOM integration tests. `npm run test:csp` builds the production bundle and checks startup in Chromium with the unchanged native Tauri CSP, including a control that confirms JavaScript evaluation remains blocked. `npm run test:e2e` runs that production CSP check followed by real Chromium flows against a running dev server; set `CHROMIUM_PATH` for your system executable. Synthetic DOM tests are not screenshot or real browser rendering proof.
 
 Geometry: [Paper.js PathItem](https://paperjs.org/reference/pathitem/). Text outlines: bundled DejaVu Sans, license in `public/fonts/`. Windows setup: [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/), [Windows installer](https://v2.tauri.app/distribute/windows-installer/).
