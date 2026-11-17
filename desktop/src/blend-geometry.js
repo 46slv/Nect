@@ -55,6 +55,11 @@ function align(a, b) {
 
 export function interpolateClosedContours(a, b, t, id = 'blend') {
   if (!validContour(a) || !validContour(b)) throw Error('Blend requires valid closed contours');
+  for (const c of [a, b]) {
+    const positions = c.points.map((p) => JSON.stringify(p.position));
+    if (new Set(positions).size !== positions.length)
+      throw Error('Blend cannot align repeated anchor positions');
+  }
   if (a.points.length > 512 || b.points.length > 512)
     throw Error('Blend contour exceeds 512 points');
   if (a.points.length !== b.points.length) throw Error('Blend requires matching point counts');

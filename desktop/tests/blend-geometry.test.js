@@ -54,3 +54,10 @@ test('rejects invalid topology and interpolation', () => {
   );
   assert.throws(() => interpolateClosedContours(a, b, NaN), /between/);
 });
+test('rejects ambiguous repeated anchor positions', () => {
+  const ambiguous = contour([
+    [0, 0],
+    [0, 0],
+  ]);
+  assert.throws(() => interpolateClosedContours(ambiguous, ambiguous, 0.5), /repeated anchor/);
+});

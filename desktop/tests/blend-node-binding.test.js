@@ -37,3 +37,21 @@ test('rejects unsupported paint and invalid steps', () => {
   assert.throws(() => run(255), /steps/);
   assert.throws(() => run(1, { ...a, stroke: { width: 2 } }), /without stroke/);
 });
+test('preserves export blockers and rejects per-copy paint or oversized result', () => {
+  assert.deepEqual(run(1, { ...a, exportBlockers: ['pending'] }).exportBlockers, ['pending']);
+  assert.throws(() => run(1, { ...a, repeaterOpacity: [0.2] }), /per-copy/);
+  const many = shape(0, '#000000');
+  many.contours[0].points = Array.from({ length: 512 }, (_, i) => ({
+    id: `p${i}`,
+    position: [i, 0],
+    handleA: [0, 0],
+    handleB: [0, 0],
+  }));
+  assert.throws(() => run(254, many, many), /geometry budget/);
+});
+test('refuses per-contour overrides and authored character metadata', () => {
+  const overridden = structuredClone(a);
+  overridden.contours[0].repeaterOpacity = 0;
+  assert.throws(() => run(1, overridden), /per-copy/);
+  assert.throws(() => run(1, { ...a, characterOccurrences: [{ suspended: true }] }), /per-copy/);
+});

@@ -13,8 +13,18 @@ export function evaluateBlend(_operation, read, context) {
   for (const value of [a, b]) {
     if (value.kind || value.mask || value.stroke || value.contours?.length !== 1 || !value.fill)
       throw Error('Blend currently supports single solid-filled contours without stroke or mask');
+    if (
+      [value, value.contours[0]].some((item) =>
+        Object.keys(item).some((key) => key.startsWith('repeater')),
+      ) ||
+      value.characterOccurrences?.length
+    )
+      throw Error('Blend does not support per-copy appearance');
     publicColor(colorOperation('mix', [value.fill, value.fill, 0]));
   }
+  if ((steps + 2) * a.contours[0].points.length > 100000)
+    throw Error('Blend exceeds geometry budget');
+  const blockers = [...new Set([...(a.exportBlockers || []), ...(b.exportBlockers || [])])];
   const values = [];
   for (let i = 0; i < steps + 2; i++) {
     const t = i / (steps + 1);
@@ -23,6 +33,7 @@ export function evaluateBlend(_operation, read, context) {
         interpolateClosedContours(a.contours[0], b.contours[0], t, `${context.nodeId}:blend:${i}`),
       ],
       fill: publicColor(colorOperation('mix', [a.fill, b.fill, t])),
+      ...(blockers.length ? { exportBlockers: blockers } : {}),
     });
   }
   return context.groupAppearance(values);
