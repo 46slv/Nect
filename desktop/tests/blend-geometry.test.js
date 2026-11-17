@@ -82,3 +82,20 @@ test('rejects subdivision beyond the bounded point budget', () => {
     );
   assert.throws(() => interpolateClosedContours(many(31), many(32), 0.5), /budget/);
 });
+
+test('rejects finite input coordinates whose alignment arithmetic overflows', () => {
+  const huge = contour([
+    [1e308, 0],
+    [-1e308, 0],
+    [0, 1e308],
+  ]);
+  assert.throws(() => interpolateClosedContours(huge, huge, 0.5), /finite/);
+});
+
+test('rejects overflowing handle interpolation without returning invalid geometry', () => {
+  const first = structuredClone(a),
+    second = structuredClone(a);
+  first.points[0].handleA = [1e308, 0];
+  second.points[0].handleA = [-1e308, 0];
+  assert.throws(() => interpolateClosedContours(first, second, 0.5), /finite/);
+});

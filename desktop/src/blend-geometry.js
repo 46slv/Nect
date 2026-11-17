@@ -2,7 +2,11 @@ import { subdividePathGeometry } from './subdivide-geometry.js';
 // Geometry-only interpolation for one pair of compatible closed contours.
 // Appearance and node integration are intentionally handled separately.
 const vector = (v) => Array.isArray(v) && v.length === 2 && v.every(Number.isFinite);
-const mix = (a, b, t) => a.map((x, i) => x + (b[i] - x) * t);
+const mix = (a, b, t) => {
+  const result = a.map((x, i) => x + (b[i] - x) * t);
+  if (!result.every(Number.isFinite)) throw Error('Blend exceeds finite coordinates');
+  return result;
+};
 
 function validContour(c) {
   return (
@@ -25,7 +29,11 @@ function normalized(points) {
     Math.sqrt(
       points.reduce((s, p) => s + (p.position[0] - cx) ** 2 + (p.position[1] - cy) ** 2, 0),
     ) || 1;
-  return points.map((p) => [(p.position[0] - cx) / size, (p.position[1] - cy) / size]);
+  if (![cx, cy, size].every(Number.isFinite))
+    throw Error('Blend alignment exceeds finite coordinates');
+  const result = points.map((p) => [(p.position[0] - cx) / size, (p.position[1] - cy) / size]);
+  if (!result.every(vector)) throw Error('Blend alignment exceeds finite coordinates');
+  return result;
 }
 
 function align(a, b) {
