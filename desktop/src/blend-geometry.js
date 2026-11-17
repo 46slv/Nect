@@ -75,6 +75,21 @@ export function blendPointCount(aCount, bCount) {
   return count;
 }
 
+export function copyClosedContourEndpoint(contour, id) {
+  if (!validContour(contour)) throw Error('Blend requires valid closed contours');
+  if (contour.points.length > 512) throw Error('Blend contour exceeds 512 points');
+  return {
+    id,
+    closed: true,
+    points: contour.points.map((p, i) => ({
+      id: `${id}:p${i}`,
+      position: [...p.position],
+      handleA: [...p.handleA],
+      handleB: [...p.handleB],
+    })),
+  };
+}
+
 export function prepareClosedContourBlend(a, b) {
   if (!validContour(a) || !validContour(b)) throw Error('Blend requires valid closed contours');
   for (const c of [a, b]) {
@@ -93,21 +108,12 @@ export function prepareClosedContourBlend(a, b) {
   const first = a.points.length === count ? a : split(a, 'a');
   const second = b.points.length === count ? b : split(b, 'b');
   const aligned = align(first.points, second.points);
-  const copyEndpoint = (contour, id) => ({
-    id,
-    closed: true,
-    points: contour.points.map((p, i) => ({
-      id: `${id}:p${i}`,
-      position: [...p.position],
-      handleA: [...p.handleA],
-      handleB: [...p.handleB],
-    })),
-  });
+
   return (t, id = 'blend') => {
     if (!Number.isFinite(t) || t < 0 || t > 1)
       throw Error('Blend interpolation must be between 0 and 1');
-    if (t === 0) return copyEndpoint(a, id);
-    if (t === 1) return copyEndpoint(b, id);
+    if (t === 0) return copyClosedContourEndpoint(a, id);
+    if (t === 1) return copyClosedContourEndpoint(b, id);
     return {
       id,
       closed: true,

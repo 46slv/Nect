@@ -1,4 +1,8 @@
-import { blendPointCount, prepareClosedContourBlend } from './blend-geometry.js';
+import {
+  blendPointCount,
+  prepareClosedContourBlend,
+  copyClosedContourEndpoint,
+} from './blend-geometry.js';
 import { colorOperation, publicColor } from './color-operations.js';
 
 // Mixing a fully transparent color erases its RGB. Endpoints retain authored paint.
@@ -63,12 +67,16 @@ export function evaluateBlend(_operation, read, context) {
     strokeStyle = as;
   }
   if (
-    (steps + 2) * blendPointCount(a.contours[0].points.length, b.contours[0].points.length) >
-    100000
+    steps > 0 &&
+    (steps + 2) * blendPointCount(a.contours[0].points.length, b.contours[0].points.length) > 100000
   )
     throw Error('Blend exceeds geometry budget');
   const blockers = [...new Set([...(a.exportBlockers || []), ...(b.exportBlockers || [])])];
-  const interpolate = prepareClosedContourBlend(a.contours[0], b.contours[0]);
+  // No intermediate objects means no correspondence or LCM subdivision is needed.
+  const interpolate =
+    steps === 0
+      ? (t, id) => copyClosedContourEndpoint((t === 0 ? a : b).contours[0], id)
+      : prepareClosedContourBlend(a.contours[0], b.contours[0]);
   const values = [];
   for (let i = 0; i < steps + 2; i++) {
     const t = i / (steps + 1);

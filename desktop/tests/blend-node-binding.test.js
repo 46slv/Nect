@@ -139,3 +139,34 @@ test('preserves transparent endpoint paint exactly without changing premultiplie
     }
   }
 });
+
+test('zero steps retains valid endpoints without unnecessary correspondence subdivision', () => {
+  const polygon = (count) => {
+    const value = shape(0, '#123456');
+    value.contours[0].points = Array.from({ length: count }, (_, i) => ({
+      id: `p${i}`,
+      position: [Math.cos((i * 2 * Math.PI) / count), Math.sin((i * 2 * Math.PI) / count)],
+      handleA: [0, 0],
+      handleB: [0, 0],
+    }));
+    return value;
+  };
+  const first = polygon(31),
+    second = polygon(32);
+  const result = run(0, first, second);
+  assert.deepEqual(
+    result.children.map((v) => v.contours[0].points.length),
+    [31, 32],
+  );
+  for (const [index, source] of [first, second].entries()) {
+    assert.deepEqual(
+      result.children[index].contours[0].points.map((p) => p.position),
+      source.contours[0].points.map((p) => p.position),
+    );
+  }
+  assert.throws(() => run(1, first, second), /budget/);
+  assert.throws(() => run(0, polygon(513), second), /512/);
+  const open = structuredClone(first);
+  open.contours[0].closed = false;
+  assert.throws(() => run(0, open, second), /closed/);
+});

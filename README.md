@@ -169,7 +169,9 @@ clips, Group opacity and CSS blend/isolation, so the reader must support those
 SVG/CSS features. `examples/colour-cut.nect` demonstrates the retained workflow.
 
 **Blend** creates live intermediate objects between two single closed contours.
-Steps controls the number between the unchanged endpoints. Solid fills and compatible
+Steps controls the number between the unchanged endpoints. At zero steps, only the
+validated endpoints are copied; no contour correspondence or subdivision is required.
+Solid fills and compatible
 solid stroke colors, opacity and widths interpolate; both sources may also be stroke-only,
 in which case the output keeps no fill. Fill/stroke presence must match on both inputs.
 Compound paths, open paths, gradients, dashed or incompatible strokes and masks remain
