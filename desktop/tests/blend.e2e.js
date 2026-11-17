@@ -119,9 +119,7 @@ try {
     path: `test-results/blend-${process.env.EVIDENCE_LABEL || 'current'}.png`,
   });
   assert.deepEqual(errors, []);
-  console.log(
-    'PASS Blend inspector/history/reload and real SVG-to-PNG pixels (headless Chrome)',
-  );
+  console.log('PASS Blend inspector/history/reload and real SVG-to-PNG pixels (headless Chrome)');
 } finally {
   await browser.close();
 }
