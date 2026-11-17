@@ -111,7 +111,7 @@ test('Blend step edits update output and survive undo and redo', async () => {
   assert.equal(count(), 5);
 });
 
-test('Blend of different point counts evaluates and survives SVG and project roundtrip', () => {
+test('Blend of different point counts evaluates and survives SVG and project roundtrip', async () => {
   const doc = document(),
     layer = doc.layers[0];
   const a = node('Curve'),
@@ -136,4 +136,26 @@ test('Blend of different point counts evaluates and survives SVG and project rou
   );
   const svg = exportSVG(doc);
   assert.equal(exportSVG(deserialize(serialize(doc))), svg);
+
+  // Editing the live mismatched-count graph must invalidate its geometry cache,
+  // while history restores the exact export rather than only the copy count.
+  const { CommandSession } = await import('../src/core.js');
+  const session = new CommandSession(doc);
+  const send = (type, payload = {}) =>
+    session.dispatch({ ...session.state, type, payload: { layerId: layer.id, ...payload } });
+  send('set-parameter', { nodeId: blend.id, key: 'steps', value: 3 });
+  const edited = session.snapshot();
+  const editedResult = evaluate(edited.layers[0], {}, edited.imageAssets, edited);
+  assert.equal(editedResult.error, null);
+  assert.deepEqual(
+    editedResult.path.children.map((child) => child.contours[0].points.length),
+    [3, 12, 12, 12, 4],
+  );
+  const editedSvg = exportSVG(edited);
+  assert.notEqual(editedSvg, svg);
+  assert.equal(exportSVG(deserialize(serialize(edited))), editedSvg);
+  send('undo');
+  assert.equal(exportSVG(session.snapshot()), svg);
+  send('redo');
+  assert.equal(exportSVG(session.snapshot()), editedSvg);
 });
