@@ -74,3 +74,39 @@ test('real Stroke nodes blend and export', () => {
   assert.equal(result.path.children[1].stroke.width, 4);
   assert.match(exportSVG(doc), /stroke-width="4"/);
 });
+
+test('Blend step edits update output and survive undo and redo', async () => {
+  const { CommandSession } = await import('../src/core.js');
+  const doc = document(),
+    l = doc.layers[0];
+  const a = node('Rectangle'),
+    b = node('Rectangle'),
+    fa = node('Fill'),
+    fb = node('Fill'),
+    blend = node('Blend'),
+    out = node('Output');
+  blend.params.steps.value = 1;
+  l.nodes = [a, b, fa, fb, blend, out];
+  l.output = out.id;
+  connect(l, a.id, fa.id, 'path');
+  connect(l, b.id, fb.id, 'path');
+  connect(l, fa.id, blend.id, 'a');
+  connect(l, fb.id, blend.id, 'b');
+  connect(l, blend.id, out.id, 'path');
+  const session = new CommandSession(doc);
+  const send = (type, payload = {}) =>
+    session.dispatch({ ...session.state, type, payload: { layerId: l.id, ...payload } });
+  const count = () => {
+    const current = session.snapshot();
+    const result = evaluate(current.layers[0], {}, current.imageAssets, current);
+    assert.equal(result.error, null);
+    return result.path.children.length;
+  };
+  assert.equal(count(), 3);
+  send('set-parameter', { nodeId: blend.id, key: 'steps', value: 3 });
+  assert.equal(count(), 5);
+  send('undo');
+  assert.equal(count(), 3);
+  send('redo');
+  assert.equal(count(), 5);
+});
