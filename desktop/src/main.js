@@ -54,6 +54,8 @@ import {
   planLayerFolderMove,
   planLayerFolderOrder,
   planLayerFolderRemoval,
+  descendantLayerIds,
+  isNestedFolder,
 } from './layer-folders.js';
 import { hasDotControls } from './dither-controls.js';
 import { repeaterControls } from './repeater.js';
@@ -1546,6 +1548,8 @@ let sourceEpoch = 0,
   sourceReturn = null;
 let viewerState = createViewerState();
 const collapsedLayerFolders = new Map();
+const selectedLayerFolders = new Set();
+let folderSelectionScope = null;
 let session = createCompositionSessionOwner(
   migrateLegacyDocumentToCompositionProject(blankDocument()),
   sessionOptions,
@@ -1932,6 +1936,7 @@ const canvasLayers = (doc = history.doc) =>
 const selectedNode = () =>
   artworkTarget ? undefined : current().nodes.find((n) => n.id === selected);
 function selectArtwork(layerId, { toggle = false, preserve = false } = {}) {
+  if (!toggle) selectedLayerFolders.clear();
   if (!artworkTarget) artworkSelection = new Set();
   if (toggle) {
     if (artworkSelection.has(layerId)) artworkSelection.delete(layerId);
@@ -6824,17 +6829,85 @@ function refreshNodeControlInspector(afterFocus = false) {
   workspacePanels.refresh();
 }
 
+function syncLayerFolderSelection() {
+  const scope = [session, session.activeCompositionId, session.projectRevision];
+  if (
+    !folderSelectionScope ||
+    scope.some((value, index) => value !== folderSelectionScope[index])
+  ) {
+    selectedLayerFolders.clear();
+    folderSelectionScope = scope;
+  }
+  const valid = new Set((history.doc.editor?.layerFolders || []).map((folder) => folder.id));
+  for (const id of selectedLayerFolders) if (!valid.has(id)) selectedLayerFolders.delete(id);
+}
+function selectLayerFolder(folderId, toggle = false) {
+  syncLayerFolderSelection();
+  if (!(history.doc.editor?.layerFolders || []).some((folder) => folder.id === folderId)) return;
+  if (!toggle) {
+    selectedLayerFolders.clear();
+    artworkSelection.clear();
+    artworkTarget = null;
+  }
+  if (toggle && selectedLayerFolders.has(folderId)) selectedLayerFolders.delete(folderId);
+  else selectedLayerFolders.add(folderId);
+}
 function layerFolderActionState(doc, folder, selectedIds) {
   const memberIds = new Set(folder.members.map((member) => member.layerId)),
-    indices = doc.layers.flatMap((layer, index) => (memberIds.has(layer.id) ? [index] : [])),
-    locked = indices.some((index) => doc.layers[index].locked),
-    busy = deletionBusy() || !!variableAction;
+    descendants = new Set(descendantLayerIds(doc, folder.id)),
+    indices = doc.layers.flatMap((layer, index) => (descendants.has(layer.id) ? [index] : [])),
+    locked = doc.layers.some((layer) => descendants.has(layer.id) && layer.locked),
+    busy = deletionBusy() || !!variableAction,
+    reasons = {};
+  const allowed = (key, planner, payload, eligible = true) => {
+    if (isNestedFolder(doc, folder.id)) {
+      reasons[key] = 'Nested Folder moves are not supported; Ungroup and regroup adjacent siblings';
+      return false;
+    }
+    if (!eligible) return false;
+    try {
+      planner(doc, payload);
+      return true;
+    } catch (error) {
+      reasons[key] = error.message;
+      return false;
+    }
+  };
+  if (locked) reasons.dissolve = 'Unlock descendant Layers before ungrouping';
   return {
     busy,
-    add: !!selectedIds.length && selectedIds.some((id) => !memberIds.has(id)),
-    out: !!selectedIds.length && selectedIds.every((id) => memberIds.has(id)),
-    forward: !!indices.length && !locked && indices.at(-1) < doc.layers.length - 1,
-    backward: !!indices.length && !locked && indices[0] > 0,
+    reasons,
+    dissolve: !locked,
+    add: allowed(
+      'add',
+      planLayerFolderMove,
+      { folderId: folder.id, layerIds: selectedIds },
+      !!selectedIds.length && selectedIds.some((id) => !memberIds.has(id)),
+    ),
+    out: allowed(
+      'out',
+      planLayerFolderRemoval,
+      { folderId: folder.id, layerIds: selectedIds },
+      !!selectedIds.length && selectedIds.every((id) => memberIds.has(id)),
+    ),
+    forward: allowed(
+      'forward',
+      planLayerFolderOrder,
+      {
+        folderId: folder.id,
+        direction: 'forward',
+      },
+      !!indices.length && !locked && indices.at(-1) < doc.layers.length - 1,
+    ),
+    backward: allowed(
+      'backward',
+      planLayerFolderOrder,
+      {
+        folderId: folder.id,
+        direction: 'backward',
+      },
+      !!indices.length && !locked && indices[0] > 0,
+    ),
   };
 }
 function refreshLayerFolderActions() {
@@ -6855,11 +6928,13 @@ function refreshLayerFolderActions() {
             : button.dataset.folderOrder !== undefined
               ? button.dataset.folderDirection
               : 'dissolve';
-      button.disabled = !state || state.busy || (action !== 'dissolve' && !state[action]);
+      button.disabled = !state || state.busy || !state[action];
+      if (state?.reasons[action]) button.title = state.reasons[action];
     }
   }
 }
 function layerPanelRows(doc) {
+  syncLayerFolderSelection();
   const folders = doc.editor?.layerFolders || [];
   const collapsed = collapsedLayerFolders.get(session.activeCompositionId) || new Set();
   const valid = new Set(folders.map((folder) => folder.id));
@@ -6867,31 +6942,43 @@ function layerPanelRows(doc) {
   collapsedLayerFolders.set(session.activeCompositionId, collapsed);
   const selectedIds = [...artworkSelection];
   const owner = new Map(
-    folders.flatMap((folder) => folder.members.map((member) => [member.layerId, folder])),
+    folders.flatMap((folder) => folder.members.map((member) => [member.layerId, folder.id])),
   );
-  const header = (folder) => {
+  const header = (folder, depth) => {
     const expanded = !collapsed.has(folder.id),
       state = layerFolderActionState(doc, folder, selectedIds);
     const orderButtons = ['forward', 'backward']
       .map((direction) => {
-        return `<button class="mini" data-folder-order="${esc(folder.id)}" data-folder-direction="${direction}" aria-label="Move Folder ${esc(folder.name)} ${direction}" title="Move Folder ${direction}" ${state.busy || !state[direction] ? 'disabled' : ''}>${direction === 'forward' ? '↑' : '↓'}</button>`;
+        return `<button class="mini" data-folder-order="${esc(folder.id)}" data-folder-direction="${direction}" aria-label="Move Folder ${esc(folder.name)} ${direction}" title="${esc(state.reasons[direction] || `Move Folder ${direction}`)}" ${state.busy || !state[direction] ? 'disabled' : ''}>${direction === 'forward' ? '↑' : '↓'}</button>`;
       })
       .join('');
-    return `<div class="layer-folder" data-layer-folder="${esc(folder.id)}"><button class="layer-folder-toggle" data-folder-toggle="${esc(folder.id)}" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} Folder: ${esc(folder.name)}">${expanded ? '▾' : '▸'}</button>${nameEdit?.folderId === folder.id ? nameInput('folder', folder.id) : `<button class="layer-folder-name" data-folder-name="${esc(folder.id)}" title="Double-click or F2 to rename">${esc(folder.name)}</button>`}${orderButtons}<button class="mini" data-folder-add="${esc(folder.id)}" aria-label="Move selected Layers to ${esc(folder.name)}" title="Move selected Layers here" ${state.busy || !state.add ? 'disabled' : ''}>Move here</button><button class="mini" data-folder-out="${esc(folder.id)}" aria-label="Move selected Layers out of ${esc(folder.name)}" title="Move selected Layers out" ${state.busy || !state.out ? 'disabled' : ''}>Move out</button><button class="mini" data-folder-dissolve="${esc(folder.id)}" aria-label="Ungroup ${esc(folder.name)}" title="Ungroup Folder" ${state.busy ? 'disabled' : ''}>Ungroup</button></div>`;
+    return `<div class="layer-folder ${selectedLayerFolders.has(folder.id) ? 'selected' : ''}" data-layer-folder="${esc(folder.id)}" data-folder-depth="${depth}" style="margin-left:${depth * 12}px"><button class="layer-folder-toggle" data-folder-toggle="${esc(folder.id)}" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} Folder: ${esc(folder.name)}">${expanded ? '▾' : '▸'}</button><button class="mini" data-folder-select="${esc(folder.id)}" aria-label="Select Folder: ${esc(folder.name)}" aria-pressed="${selectedLayerFolders.has(folder.id)}" title="Select Folder; Shift-click to add/remove">${selectedLayerFolders.has(folder.id) ? 'Selected' : 'Select'}</button>${nameEdit?.folderId === folder.id ? nameInput('folder', folder.id) : `<button class="layer-folder-name" data-folder-name="${esc(folder.id)}" title="Double-click or F2 to rename">${esc(folder.name)}</button>`}${orderButtons}<button class="mini" data-folder-add="${esc(folder.id)}" aria-label="Move selected Layers to ${esc(folder.name)}" title="${esc(state.reasons.add || 'Move selected Layers here')}" ${state.busy || !state.add ? 'disabled' : ''}>Move here</button><button class="mini" data-folder-out="${esc(folder.id)}" aria-label="Move selected Layers out of ${esc(folder.name)}" title="${esc(state.reasons.out || 'Move selected Layers out')}" ${state.busy || !state.out ? 'disabled' : ''}>Move out</button><button class="mini" data-folder-dissolve="${esc(folder.id)}" aria-label="Ungroup ${esc(folder.name)}" title="${esc(state.reasons.dissolve || 'Ungroup Folder')}" ${state.busy || !state.dissolve ? 'disabled' : ''}>Ungroup</button></div>`;
   };
-  const rows = folders
-    .filter((folder) => !folder.members.length)
-    .reverse()
-    .map(header);
-  const seen = new Set();
-  for (const layer of [...doc.layers].reverse()) {
-    const folder = owner.get(layer.id);
-    if (folder && !seen.has(folder.id)) {
-      rows.push(header(folder));
-      seen.add(folder.id);
+  const rows = [];
+  const append = (parentId, depth) => {
+    const children = folders.filter((folder) => folder.parentId === parentId);
+    const empty = children.filter((folder) => !descendantLayerIds(doc, folder.id).length);
+    for (const folder of [...empty].reverse()) {
+      rows.push(header(folder, depth));
+      if (!collapsed.has(folder.id)) append(folder.id, depth + 1);
     }
-    if (!folder || !collapsed.has(folder.id)) rows.push({ ...layer, folderMember: !!folder });
-  }
+    const branch = new Map(
+      children.flatMap((folder) => descendantLayerIds(doc, folder.id).map((id) => [id, folder])),
+    );
+    const seen = new Set();
+    for (const layer of [...doc.layers].reverse()) {
+      const folder = branch.get(layer.id);
+      if (folder) {
+        if (seen.has(folder.id)) continue;
+        seen.add(folder.id);
+        rows.push(header(folder, depth));
+        if (!collapsed.has(folder.id)) append(folder.id, depth + 1);
+      } else if (owner.get(layer.id) === parentId) {
+        rows.push({ ...layer, folderMember: parentId !== undefined, folderDepth: depth });
+      }
+    }
+  };
+  append(undefined, 0);
   return rows;
 }
 
@@ -7069,7 +7156,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     .map((x) =>
       typeof x === 'string'
         ? x
-        : `<div class="layer ${x.folderMember ? 'folder-member' : ''} ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${(artworkTarget ? artworkSelection.has(x.id) : x.id === l.id) ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${workspaceIcon(x.visible ? 'eye' : 'eye-off')}</button><button class="layer-solo" data-layer-solo="${x.id}" aria-label="Solo layer: ${esc(x.name)}" aria-pressed="${x.solo === true}" title="Solo in preview and SVG/PNG; multiple allowed; Hide remains in effect">S</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" aria-pressed="${artworkTarget ? artworkSelection.has(x.id) : false}" title="${esc(x.name)} · Click to select; Shift-click to add/remove. Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
+        : `<div class="layer ${x.folderMember ? 'folder-member' : ''} ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${(artworkTarget ? artworkSelection.has(x.id) : !selectedLayerFolders.size && x.id === l.id) ? 'selected' : ''}" data-layer="${x.id}" data-folder-depth="${x.folderDepth}" style="margin-left:${x.folderDepth * 12}px"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${workspaceIcon(x.visible ? 'eye' : 'eye-off')}</button><button class="layer-solo" data-layer-solo="${x.id}" aria-label="Solo layer: ${esc(x.name)}" aria-pressed="${x.solo === true}" title="Solo in preview and SVG/PNG; multiple allowed; Hide remains in effect">S</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" aria-pressed="${artworkTarget ? artworkSelection.has(x.id) : false}" title="${esc(x.name)} · Click to select; Shift-click to add/remove. Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
     )
     .join(
       '',
@@ -11475,6 +11562,7 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.action === 'add-layer-folder') {
+    syncLayerFolderSelection();
     if (deletionBusy() || variableAction) {
       notify('Finish the active edit before creating a Folder', true);
       return;
@@ -11484,12 +11572,21 @@ app.addEventListener('click', async (e) => {
       {
         name: 'Folder',
         layerIds: artworkTarget ? [...artworkSelection] : [],
+        folderIds: [...selectedLayerFolders],
       },
       'Folder created',
     );
     return;
   }
   if (d.folderName !== undefined) return;
+  if (d.folderSelect !== undefined) {
+    selectLayerFolder(d.folderSelect, e.shiftKey);
+    render();
+    [...app.querySelectorAll('[data-folder-select]')]
+      .find((item) => item.dataset.folderSelect === d.folderSelect)
+      ?.focus({ preventScroll: true });
+    return;
+  }
   if (d.folderToggle !== undefined) {
     const id = d.folderToggle;
     const collapsed = collapsedLayerFolders.get(session.activeCompositionId) || new Set();
