@@ -87,3 +87,9 @@ to Steps. The user can explicitly select Steps to continue morphing.
 Legacy generic Boolean operation tokens were ignored by Blend. Reading them
 normalizes to Steps and supplies the new distance default; this is semantic and
 rendering compatibility, not a promise of byte-identical reserialization.
+
+Composition projects can retain legacy operation tokens without passing through
+legacy-document migration. The typed registry therefore resolves the four old
+Boolean tokens as Steps aliases for interface/evaluation, without mutating those
+projects or exposing aliases in the inspector operation menu. Direct binding
+calls accept the same tokens. Unknown tokens remain errors.

@@ -176,3 +176,40 @@ test('curved translated contours accept reversed winding and shifted seam', asyn
   );
   assert.equal(JSON.stringify([a, b]), original);
 });
+
+test('legacy Boolean tokens evaluate directly and through typed interfaces without mutation', async () => {
+  const { operationOptions } = await import('../src/core.js');
+  const { evaluateBlend } = await import('../src/blend-node-binding.js');
+  const { paintedGroup } = await import('../src/composition-reference.js');
+  assert.deepEqual(operationOptions.Blend, ['steps', 'distance']);
+  const { doc, blend } = fixture();
+  blend.operation = 'steps';
+  const expected = exportSVG(doc);
+  for (const operation of operationOptions.Boolean) {
+    blend.operation = operation;
+    const before = JSON.stringify(doc);
+    assert.equal(result(doc).error, null);
+    assert.equal(exportSVG(doc), expected);
+    assert.equal(JSON.stringify(doc), before);
+    const a = {
+      fill: { hex: '#000000', alpha: 1 },
+      contours: [
+        {
+          closed: true,
+          points: [
+            [0, 0],
+            [10, 0],
+            [0, 10],
+          ].map((position) => ({ position, handleA: [0, 0], handleB: [0, 0] })),
+        },
+      ],
+    };
+    const b = structuredClone(a);
+    b.contours[0].points.forEach((p) => (p.position[0] += 20));
+    const output = evaluateBlend(operation, (key) => ({ a, b, steps: 1 })[key], {
+      nodeId: 'legacy',
+      groupAppearance: paintedGroup,
+    });
+    assert.equal(output.children.length, 3);
+  }
+});

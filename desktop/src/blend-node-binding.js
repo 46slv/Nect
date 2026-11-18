@@ -17,7 +17,7 @@ export function evaluateBlend(_operation, read, context) {
     b = read('b');
   let steps = read('steps');
   if (
-    !['', 'subtract', 'union', 'intersect', 'xor', 'steps', 'distance', undefined].includes(
+    !['', 'subtract', 'union', 'intersect', 'difference', 'steps', 'distance', undefined].includes(
       _operation,
     )
   )

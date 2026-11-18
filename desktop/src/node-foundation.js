@@ -144,6 +144,18 @@ export function createNodeRegistry(declarations, bindings, host) {
       (typeof declaration.preserveSupplementalInputs !== 'boolean' || !operationIds)
     )
       throw Error('Invalid supplemental input policy');
+    const operationAliases = new Map(Object.entries(declaration.operationAliases ?? {}));
+    if (
+      declaration.operationAliases !== undefined &&
+      (!declaration.operationAliases ||
+        typeof declaration.operationAliases !== 'object' ||
+        Array.isArray(declaration.operationAliases))
+    )
+      throw Error('Invalid operation aliases');
+    for (const [alias, target] of operationAliases)
+      if (!alias || !operationIds || operationIds.has(alias) || !operationIds.has(target))
+        throw Error('Invalid operation aliases');
+    const canonicalOperation = (operation) => operationAliases.get(operation) ?? operation;
     if (declaration.bypassInput !== undefined && !parameterIds.has(declaration.bypassInput))
       throw Error('Invalid bypass default');
     const dynamicResult = declaration.resultType === undefined;
@@ -221,7 +233,8 @@ export function createNodeRegistry(declarations, bindings, host) {
       throw Error('Invalid projection');
     const outputIds = new Set(declaration.outputs.map(({ id }) => id));
     const assertOperation = (operation) => {
-      if (operationIds && !operationIds.has(operation)) throw Error('Invalid operation');
+      if (operationIds && !operationIds.has(canonicalOperation(operation)))
+        throw Error('Invalid operation');
     };
     const resolved = Object.freeze({
       declaration,
@@ -240,11 +253,11 @@ export function createNodeRegistry(declarations, bindings, host) {
       outputsWithoutShape(operation) {
         assertOperation(operation);
         if (resolveShape && !staticOutputs) throw Error('Shape required for outputs');
-        return interfaces.get(operationIds ? operation : undefined).outputs;
+        return interfaces.get(operationIds ? canonicalOperation(operation) : undefined).outputs;
       },
       interface(operation, shape) {
         assertOperation(operation);
-        const base = interfaces.get(operationIds ? operation : undefined);
+        const base = interfaces.get(operationIds ? canonicalOperation(operation) : undefined);
         if (!resolveShape) {
           if (shape !== undefined) throw Error('Unsupported shape');
           return base;
@@ -286,7 +299,7 @@ export function createNodeRegistry(declarations, bindings, host) {
       },
       evaluate(operation, read, context) {
         assertOperation(operation);
-        return evaluate(operation, read, context);
+        return evaluate(canonicalOperation(operation), read, context);
       },
       project(output, value) {
         if (!outputIds.has(output)) throw Error('Invalid output');

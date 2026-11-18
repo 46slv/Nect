@@ -17,6 +17,7 @@ export const blendNodeDeclaration = {
     { id: 'distance', active: ['a', 'b', 'distance'] },
   ],
   defaultOperation: 'steps',
+  operationAliases: { union: 'steps', subtract: 'steps', intersect: 'steps', difference: 'steps' },
   catalog: {
     categoryId: 'combine',
     labelJa: 'ブレンド',

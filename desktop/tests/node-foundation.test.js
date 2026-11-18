@@ -194,3 +194,36 @@ test('Math Session operation, undo, redo and serialization keep authored format'
   assert.equal(evaluate(session.snapshot().layers[0]).run(math.id), 0);
   assert.doesNotMatch(changed, /implementationId|legacyDefault|capabilities/);
 });
+
+test('operation aliases resolve typed interfaces and evaluation without becoming menu choices', () => {
+  const declaration = copy();
+  const target = declaration.defaultOperation;
+  declaration.operationAliases = { legacy: target };
+  const registry = createNodeRegistry([declaration], bindings(), nectNodeHost);
+  const entry = registry.get('Math');
+  assert.deepEqual(entry.interface('legacy'), entry.interface(target));
+  assert.deepEqual(entry.outputsWithoutShape('legacy'), entry.outputsWithoutShape(target));
+  assert.equal(
+    entry.evaluate('legacy', (key) => ({ a: 3, b: 2 })[key], {}),
+    entry.evaluate(target, (key) => ({ a: 3, b: 2 })[key], {}),
+  );
+  assert.equal(
+    entry.declaration.operations.some((x) => x.id === 'legacy'),
+    false,
+  );
+  assert.throws(() => entry.interface('unknown'), /Invalid operation/);
+  for (const aliases of [
+    null,
+    [],
+    { legacy: 'missing' },
+    { [target]: target },
+    { a: 'b', b: 'a' },
+  ]) {
+    const bad = copy();
+    bad.operationAliases = aliases;
+    assert.throws(
+      () => createNodeRegistry([bad], bindings(), nectNodeHost),
+      /Invalid operation aliases/,
+    );
+  }
+});
