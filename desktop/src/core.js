@@ -4177,6 +4177,7 @@ export function validate(doc) {
       }
       // Legacy Blend used the generic Boolean operation field, ignored by its evaluator.
       if (n.type === 'Blend') {
+        if (!Object.hasOwn(n.params, 'spine')) n.params.spine = clone(definitions.Blend.spine);
         if (operationOptions.Boolean.includes(n.operation)) n.operation = 'steps';
         if (!Object.hasOwn(n.params, 'distance')) {
           if (n.operation === 'distance') throw Error('Blend Distance requires distance');

@@ -10,11 +10,13 @@ export const blendNodeDeclaration = {
     { id: 'b', type: 'PaintedPath', default: null },
     { id: 'steps', type: 'Scalar', default: 5 },
     { id: 'distance', type: 'Scalar', default: 20 },
+    { id: 'spine', type: 'Path', default: null },
   ],
   outputs: [{ id: 'default', label: '', type: 'PaintedPath', legacyDefault: true }],
   operations: [
     { id: 'steps', active: ['a', 'b', 'steps'] },
     { id: 'distance', active: ['a', 'b', 'distance'] },
+    { id: 'spine-steps', active: ['a', 'b', 'steps', 'spine'] },
   ],
   defaultOperation: 'steps',
   operationAliases: { union: 'steps', subtract: 'steps', intersect: 'steps', difference: 'steps' },
