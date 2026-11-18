@@ -10,6 +10,8 @@ Horizontal **Wrap width · auto height** composes Latin words and a bounded Japa
 
 ## Live color editing
 
+[共有色の値・参照を使い分ける作例と操作ガイド](examples/shared-color-reuse.md): two editable Composition examples, one with an independent literal and one sharing the original color reference.
+
 Color parameters update the wheel and artwork while typing or dragging, with one Undo per completed edit. Wheel swatches and saved-area badges stay visible while parameters scroll; Layers can collapse. [Interaction and verification boundaries](docs/live-color-panel.md).
 
 **Shared colors → Key color · Experimental** edits only an already-retained
