@@ -26,7 +26,7 @@ export function validateLayerFolders(
   for (const folder of folders) {
     if (!folder || typeof folder !== 'object' || Array.isArray(folder))
       throw Error('Invalid Folder');
-    if (Object.keys(folder).some((key) => !['id', 'name', 'members'].includes(key)))
+    if (Object.keys(folder).some((key) => !['id', 'name', 'members', 'parentId'].includes(key)))
       throw Error('Invalid Folder field');
     validateId(folder.id);
     if (folderIds.has(folder.id)) throw Error('Duplicate Folder ID');
@@ -35,7 +35,6 @@ export function validateLayerFolders(
       throw Error('Folder name must contain 1–100 characters');
     if (!Array.isArray(folder.members) || folder.members.length > doc.layers.length)
       throw Error('Invalid Folder members');
-    const indices = [];
     for (const member of folder.members) {
       if (
         !member ||
@@ -48,12 +47,82 @@ export function validateLayerFolders(
       )
         throw Error('Invalid Folder Layer membership');
       assigned.add(member.layerId);
-      indices.push(layerIndices.get(member.layerId));
     }
+  }
+  const byId = new Map(folders.map((folder) => [folder.id, folder]));
+  for (const folder of folders) {
+    const seen = new Set([folder.id]);
+    let current = folder;
+    while (Object.hasOwn(current, 'parentId')) {
+      // References must not be registered again by the caller's unique-ID validator.
+      if (typeof current.parentId !== 'string' || !current.parentId)
+        throw Error('Invalid Folder parent');
+      if (!byId.has(current.parentId) || seen.has(current.parentId))
+        throw Error('Invalid Folder parent or cycle');
+      seen.add(current.parentId);
+      if (seen.size > 100) throw Error('Maximum Folder depth 100');
+      current = byId.get(current.parentId);
+    }
+  }
+  for (const folder of folders) {
+    const indices = descendantLayerIds(doc, folder.id).map((id) => layerIndices.get(id));
     indices.sort((a, b) => a - b);
     if (indices.some((index, i) => i > 0 && index !== indices[i - 1] + 1))
       throw Error('Folder Layers must remain contiguous');
   }
+}
+
+export function descendantLayerIds(doc, folderId) {
+  const ids = [],
+    pending = [folderId],
+    seen = new Set();
+  while (pending.length) {
+    const id = pending.pop();
+    if (seen.has(id)) throw Error('Invalid Folder cycle');
+    seen.add(id);
+    const folder = findFolder(doc, id);
+    ids.push(...folder.members.map((member) => member.layerId));
+    pending.push(
+      ...layerFolders(doc)
+        .filter((item) => item.parentId === id)
+        .map((item) => item.id),
+    );
+  }
+  return ids;
+}
+export function isNestedFolder(doc, folderId) {
+  const folder = findFolder(doc, folderId);
+  return (
+    Object.hasOwn(folder, 'parentId') ||
+    layerFolders(doc).some((item) => item.parentId === folderId)
+  );
+}
+function rejectNestedMove(doc, layerIds = [], folderId) {
+  validateLayerFolders(doc);
+  const affected = new Set(layerIds);
+  if (folderId) {
+    if (isNestedFolder(doc, folderId))
+      throw Error('Nested Folder moves are not supported; use Group or Ungroup');
+    for (const id of descendantLayerIds(doc, folderId)) affected.add(id);
+  }
+  const indices = doc.layers.flatMap((layer, i) => (affected.has(layer.id) ? [i] : []));
+  const lo = Math.min(...indices),
+    hi = Math.max(...indices);
+  for (const folder of layerFolders(doc)) {
+    if (!isNestedFolder(doc, folder.id)) continue;
+    if (
+      descendantLayerIds(doc, folder.id).some((id) => {
+        const index = doc.layers.findIndex((layer) => layer.id === id);
+        return index >= lo && index <= hi;
+      })
+    )
+      throw Error('Cannot move across a nested Folder');
+  }
+}
+function commitFolders(doc, folders) {
+  validateLayerFolders({ ...doc, editor: { ...doc.editor, layerFolders: folders } });
+  doc.editor ||= guideDefaults();
+  doc.editor.layerFolders = folders;
 }
 
 function folderName(name) {
@@ -92,18 +161,37 @@ function findFolder(doc, folderId) {
   return folder;
 }
 
-export function createLayerFolder(doc, { folderId, name, layerIds = [] }) {
-  const selected = selectedRootLayers(doc, layerIds);
-  if (!contiguous(doc, selected)) throw Error('Select adjacent Layers to create a Folder');
-  if (layerFolders(doc).length >= 100) throw Error('Maximum 100 Folders');
-  const folder = {
+export function createLayerFolder(doc, { folderId, name, layerIds = [], folderIds = [] }) {
+  validateLayerFolders(doc);
+  const selected = selectedLayers(doc, layerIds);
+  if (!Array.isArray(folderIds) || new Set(folderIds).size !== folderIds.length)
+    throw Error('Select distinct Folders');
+  const chosen = folderIds.map((id) => findFolder(doc, id));
+  const parents = [
+    ...selected.map((layer) => folderForLayer(doc, layer.id)?.id),
+    ...chosen.map((folder) => folder.parentId),
+  ];
+  const parentId = parents[0];
+  if (parents.some((id) => id !== parentId))
+    throw Error('Select siblings with the same parent, not ancestors and descendants');
+  const all = selectedLayers(doc, [
+    ...layerIds,
+    ...chosen.flatMap((folder) => descendantLayerIds(doc, folder.id)),
+  ]);
+  if (!contiguous(doc, all)) throw Error('Select adjacent Layers and Folders');
+  const folders = structuredClone(layerFolders(doc));
+  for (const folder of folders) {
+    if (folder.id === parentId)
+      folder.members = folder.members.filter((member) => !layerIds.includes(member.layerId));
+    if (folderIds.includes(folder.id)) folder.parentId = folderId;
+  }
+  folders.push({
     id: folderId,
     name: folderName(name),
+    ...(parentId === undefined ? {} : { parentId }),
     members: selected.map(({ id }) => ({ layerId: id })),
-  };
-  doc.editor ||= guideDefaults();
-  doc.editor.layerFolders ||= [];
-  doc.editor.layerFolders.push(folder);
+  });
+  commitFolders(doc, folders);
   return { folderId };
 }
 
@@ -116,6 +204,7 @@ export function renameLayerFolder(doc, { folderId, name, expectedName }) {
 }
 
 export function addLayersToFolder(doc, { folderId, layerIds }) {
+  rejectNestedMove(doc, layerIds, folderId);
   const folder = findFolder(doc, folderId),
     selected = selectedRootLayers(doc, layerIds);
   if (!selected.length) throw Error('Select Layers to add');
@@ -130,6 +219,7 @@ export function addLayersToFolder(doc, { folderId, layerIds }) {
 // Plan without changing the document so the exact paint order can be shown and
 // approved before the Session applies an order-changing move.
 export function planLayerFolderMove(doc, { folderId, layerIds }) {
+  rejectNestedMove(doc, layerIds, folderId);
   const target = findFolder(doc, folderId),
     selected = selectedLayers(doc, layerIds);
   if (!selected.length) throw Error('Select Layers to move');
@@ -151,7 +241,11 @@ export function planLayerFolderMove(doc, { folderId, layerIds }) {
     return indexes.length < 2 || indexes.at(-1) - indexes[0] + 1 === indexes.length;
   };
   let layers = doc.layers;
-  if (folders.some((folder) => !isContiguous(layers, members.get(folder.id)))) {
+  if (
+    folders.some(
+      (folder) => !isNestedFolder(doc, folder.id) && !isContiguous(layers, members.get(folder.id)),
+    )
+  ) {
     const remaining = doc.layers.filter((layer) => !wanted.has(layer.id));
     const oldTarget = new Set(target.members.map((member) => member.layerId));
     const targetPositions = remaining.flatMap((layer, index) =>
@@ -167,8 +261,17 @@ export function planLayerFolderMove(doc, { folderId, layerIds }) {
     } else insertAt = remaining.length;
     layers = [...remaining.slice(0, insertAt), ...selected, ...remaining.slice(insertAt)];
   }
-  if (folders.some((folder) => !isContiguous(layers, members.get(folder.id))))
+  if (
+    folders.some(
+      (folder) => !isNestedFolder(doc, folder.id) && !isContiguous(layers, members.get(folder.id)),
+    )
+  )
     throw Error('Cannot keep Folder Layers together');
+  rejectNestedMove(
+    doc,
+    layers.filter((layer, i) => layer.id !== doc.layers[i].id).map(({ id }) => id),
+    folderId,
+  );
   const paintOrder = layers.map(({ id }) => id);
   return {
     paintOrder,
@@ -190,6 +293,12 @@ function applyLayerFolderPlan(doc, payload, plan) {
     throw Error('Confirm the changed Layer order before moving');
   if (!plan.orderChanged && plan.members.length === 0)
     return { folderId: payload.folderId, orderChanged: false };
+  const candidate = structuredClone(doc);
+  const candidateById = new Map(candidate.layers.map((layer) => [layer.id, layer]));
+  candidate.layers = plan.paintOrder.map((id) => candidateById.get(id));
+  for (const entry of plan.members)
+    findFolder(candidate, entry.folderId).members = entry.layerIds.map((layerId) => ({ layerId }));
+  validateLayerFolders(candidate);
   const byId = new Map(doc.layers.map((layer) => [layer.id, layer]));
   doc.layers = plan.paintOrder.map((id) => byId.get(id));
   for (const entry of plan.members) {
@@ -208,6 +317,7 @@ export function moveLayersToFolder(doc, payload) {
 // Move a populated Folder as one root-level block over the neighboring Layer or
 // populated Folder. The Layer array remains the sole source of paint order.
 export function planLayerFolderOrder(doc, { folderId, direction }) {
+  rejectNestedMove(doc, [], folderId);
   if (!['forward', 'backward'].includes(direction)) throw Error('Choose Forward or Backward');
   validateLayerFolders(doc);
   const folder = findFolder(doc, folderId),
@@ -245,6 +355,11 @@ export function planLayerFolderOrder(doc, { folderId, direction }) {
             ...neighborLayers,
             ...doc.layers.slice(end),
           ];
+  rejectNestedMove(
+    doc,
+    reordered.filter((layer, i) => layer.id !== doc.layers[i].id).map(({ id }) => id),
+    folderId,
+  );
   return {
     paintOrder: reordered.map((layer) => layer.id),
     orderChanged: true,
@@ -258,6 +373,7 @@ export function orderLayerFolder(doc, payload) {
 }
 
 export function planLayerFolderRemoval(doc, { folderId, layerIds }) {
+  rejectNestedMove(doc, layerIds, folderId);
   const folder = findFolder(doc, folderId),
     selected = selectedLayers(doc, layerIds);
   if (!selected.length) throw Error('Select Folder Layers to move out');
@@ -272,6 +388,11 @@ export function planLayerFolderRemoval(doc, { folderId, layerIds }) {
     const insertAt = remaining.findLastIndex((layer) => survivorIds.has(layer.id)) + 1;
     layers = [...remaining.slice(0, insertAt), ...selected, ...remaining.slice(insertAt)];
   }
+  rejectNestedMove(
+    doc,
+    layers.filter((layer, i) => layer.id !== doc.layers[i].id).map(({ id }) => id),
+    folderId,
+  );
   const paintOrder = layers.map(({ id }) => id);
   return {
     paintOrder,
@@ -285,8 +406,18 @@ export function removeLayersFromFolder(doc, payload) {
 }
 
 export function dissolveLayerFolder(doc, { folderId }) {
-  findFolder(doc, folderId);
-  doc.editor.layerFolders = doc.editor.layerFolders.filter((folder) => folder.id !== folderId);
+  validateLayerFolders(doc);
+  const target = findFolder(doc, folderId);
+  selectedLayers(doc, descendantLayerIds(doc, folderId));
+  const folders = structuredClone(layerFolders(doc).filter((folder) => folder.id !== folderId));
+  for (const folder of folders) {
+    if (folder.id === target.parentId) folder.members.push(...structuredClone(target.members));
+    if (folder.parentId === folderId) {
+      if (target.parentId === undefined) delete folder.parentId;
+      else folder.parentId = target.parentId;
+    }
+  }
+  commitFolders(doc, folders);
   return { folderId };
 }
 
@@ -308,6 +439,20 @@ export function canReorderLayerInFolders(doc, layerId, to) {
   const sourceFolder = folderForLayer(doc, layerId);
   const remaining = doc.layers.filter((layer) => layer.id !== layerId);
   if (!Number.isInteger(to) || to < 0 || to > remaining.length) return false;
+  const candidateLayers = [...remaining.slice(0, to), doc.layers[from], ...remaining.slice(to)];
+  try {
+    const moved = candidateLayers.filter((layer, i) => layer.id !== doc.layers[i].id);
+    // Reordering direct siblings is safe if every ancestor span stays valid.
+    // Crossing a nested boundary remains outside this stage.
+    if (new Set(moved.map((layer) => folderForLayer(doc, layer.id)?.id)).size > 1)
+      rejectNestedMove(
+        doc,
+        moved.map(({ id }) => id),
+      );
+    validateLayerFolders({ ...doc, layers: candidateLayers });
+  } catch {
+    return false;
+  }
   if (sourceFolder) {
     const siblings = remaining.flatMap((layer, index) =>
       folderForLayer(doc, layer.id)?.id === sourceFolder.id ? [index] : [],

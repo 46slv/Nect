@@ -21,6 +21,7 @@ const REF_KEYS = new Set([
   'output',
   'reference',
   'parent',
+  'parentId',
   'layerId',
   'targetId',
   'sourceId',
