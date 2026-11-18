@@ -94,7 +94,7 @@ Boolean tokens as Steps aliases for interface/evaluation, without mutating those
 projects or exposing aliases in the inspector operation menu. Direct binding
 calls accept the same tokens. Unknown tokens remain errors.
 
-## Spine Steps: bounded design (not implemented)
+## Spine Steps: bounded implementation contract
 
 REQ-138's Confirmed/Should acceptance explicitly includes a blend spine and allows
 stages. [Adobe's spine documentation](https://helpx.adobe.com/illustrator/desktop/manage-colors/apply-transparency-and-blending/modify-spine-of-blended-objects.html)
@@ -103,7 +103,7 @@ explains editing/replacing a path to control blend alignment and direction.
 distinguish page alignment from tangent alignment. These references do not define
 Nect's pivot, numeric sampling or compatibility contract below.
 
-### Proposed contract
+### Contract
 
 - Add an explicit `spine-steps` operation and a typed Path `spine` input. Existing
   Steps and Distance remain unchanged and do not implicitly enable a spine.
@@ -150,3 +150,9 @@ invalid closed/empty/zero-length/multiple contours, finite/budget limits, missin
 and deleted wire diagnostics, switching modes, old Steps/Distance/legacy aliases,
 Session Undo/Redo, codec/SVG and Expand appearance equivalence. Do not substitute
 headless success for native GUI acceptance; GUI remains on hold.
+
+The intermediate pivot is the virtual reference lerp(C_A,C_B), not generally the
+intermediate morphed shape's actual bounds center. Only endpoint bounds centers
+are guaranteed to coincide with spine endpoints. Inactive spine connections are
+retained on explicit Steps/Distance selection and are visibly labeled inactive;
+there is no automatic mode switch or connection removal.

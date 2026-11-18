@@ -1,3 +1,4 @@
+import { blendSpineOffsets, translateBlendContour } from './blend-spine.js';
 import {
   blendPointCount,
   translatedContourDistance,
@@ -17,9 +18,17 @@ export function evaluateBlend(_operation, read, context) {
     b = read('b');
   let steps = read('steps');
   if (
-    !['', 'subtract', 'union', 'intersect', 'difference', 'steps', 'distance', undefined].includes(
-      _operation,
-    )
+    ![
+      '',
+      'subtract',
+      'union',
+      'intersect',
+      'difference',
+      'steps',
+      'distance',
+      'spine-steps',
+      undefined,
+    ].includes(_operation)
   )
     throw Error('Unknown Blend spacing');
   if (!a || !b) throw Error('Connect both Blend inputs');
@@ -93,11 +102,19 @@ export function evaluateBlend(_operation, read, context) {
     steps === 0
       ? (t, id) => copyClosedContourEndpoint((t === 0 ? a : b).contours[0], id)
       : prepareClosedContourBlend(a.contours[0], b.contours[0]);
+  const spine = _operation === 'spine-steps' ? read('spine') : null;
+  const offsets =
+    _operation === 'spine-steps'
+      ? blendSpineOffsets(spine, a.contours[0], b.contours[0], steps + 2)
+      : null;
+  if (spine?.exportBlockers)
+    blockers.push(...spine.exportBlockers.filter((x) => !blockers.includes(x)));
   const values = [];
   for (let i = 0; i < steps + 2; i++) {
     const t = i / (steps + 1);
+    const contour = interpolate(t, `${context.nodeId}:blend:${i}`);
     values.push({
-      contours: [interpolate(t, `${context.nodeId}:blend:${i}`)],
+      contours: [offsets ? translateBlendContour(contour, offsets[i]) : contour],
       fill: a.fill == null ? null : blendColor(a.fill, b.fill, t),
       ...(a.stroke
         ? {
