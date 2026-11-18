@@ -151,3 +151,5 @@ on, only soloed visible layers appear in both preview and SVG/PNG export. Hide
 remains in effect, and clearing Solo restores the original visibility settings.
 The panel states when Solo affects export. Solo is saved and undoable (schema33),
 and only filters top-level Compositions; referenced source internals are unchanged.
+
+[Blendの距離・曲線作例](examples/blend-spacing.md): editable Distance and Spine Steps examples with initial SVGs.

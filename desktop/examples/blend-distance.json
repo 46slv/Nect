@@ -1,0 +1,209 @@
+{
+  "schemaVersion": 24,
+  "name": "Untitled composition",
+  "width": 960,
+  "height": 540,
+  "layers": [
+    {
+      "id": "layer-259003f8-850f-4362-9c67-620e166b1751",
+      "name": "Distance",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-d532c05f-5752-47d8-b9b5-46e27afdd1f9",
+          "type": "Circle",
+          "name": "A · Coral circle",
+          "position": [40, 60],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [180, 380],
+              "expression": "",
+              "locked": false
+            },
+            "radius": {
+              "type": "Scalar",
+              "value": 35,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-941e49e2-e58f-4df3-91f8-6de26391c20a",
+          "type": "Circle",
+          "name": "B · Indigo circle",
+          "position": [40, 310],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [780, 380],
+              "expression": "",
+              "locked": false
+            },
+            "radius": {
+              "type": "Scalar",
+              "value": 35,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-012fa497-7b2e-4418-aee3-c2a34c595b6e",
+          "type": "Fill",
+          "name": "A · Coral",
+          "position": [340, 60],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-d532c05f-5752-47d8-b9b5-46e27afdd1f9"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#ff684f",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-dc4af85d-665f-48f9-a657-bab9088f569e",
+          "type": "Fill",
+          "name": "B · Indigo",
+          "position": [340, 310],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-941e49e2-e58f-4df3-91f8-6de26391c20a"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#4939ba",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-cd687535-9130-4911-90b7-e8f558ad6abe",
+          "type": "Blend",
+          "name": "Blend · edit Distance",
+          "position": [660, 130],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "a": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-012fa497-7b2e-4418-aee3-c2a34c595b6e"
+            },
+            "b": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-dc4af85d-665f-48f9-a657-bab9088f569e"
+            },
+            "steps": {
+              "type": "Scalar",
+              "value": 7,
+              "expression": "",
+              "locked": false
+            },
+            "distance": {
+              "type": "Scalar",
+              "value": 40,
+              "expression": "",
+              "locked": false
+            },
+            "spine": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "distance",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-78ce46bf-e691-457c-86dd-8847450eb71f",
+          "type": "Output",
+          "name": "Output",
+          "position": [980, 130],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-cd687535-9130-4911-90b7-e8f558ad6abe"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-78ce46bf-e691-457c-86dd-8847450eb71f"
+    }
+  ]
+}

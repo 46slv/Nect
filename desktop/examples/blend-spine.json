@@ -1,0 +1,225 @@
+{
+  "schemaVersion": 24,
+  "name": "Untitled composition",
+  "width": 960,
+  "height": 540,
+  "layers": [
+    {
+      "id": "layer-d88f7c2e-5406-4458-b016-3994f40213ca",
+      "name": "Spine",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-a58da30f-31bc-456b-854f-b064dbc61d5f",
+          "type": "Circle",
+          "name": "A · Coral circle",
+          "position": [40, 60],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [180, 380],
+              "expression": "",
+              "locked": false
+            },
+            "radius": {
+              "type": "Scalar",
+              "value": 35,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-4a3e0888-04c7-4a1c-af38-9520194fd6aa",
+          "type": "Circle",
+          "name": "B · Indigo circle",
+          "position": [40, 310],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [780, 380],
+              "expression": "",
+              "locked": false
+            },
+            "radius": {
+              "type": "Scalar",
+              "value": 35,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-266a4fb6-e7b7-4b54-bfd2-5fb7bc8b14f5",
+          "type": "Fill",
+          "name": "A · Coral",
+          "position": [340, 60],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-a58da30f-31bc-456b-854f-b064dbc61d5f"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#ff684f",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-167adecc-2c2a-46bd-ae26-598e343abd9b",
+          "type": "Fill",
+          "name": "B · Indigo",
+          "position": [340, 310],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-4a3e0888-04c7-4a1c-af38-9520194fd6aa"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#4939ba",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-57f23a35-90a8-4226-b9cb-eaca098fc0ff",
+          "type": "Blend",
+          "name": "Blend · edit Steps",
+          "position": [660, 130],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "a": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-266a4fb6-e7b7-4b54-bfd2-5fb7bc8b14f5"
+            },
+            "b": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-167adecc-2c2a-46bd-ae26-598e343abd9b"
+            },
+            "steps": {
+              "type": "Scalar",
+              "value": 7,
+              "expression": "",
+              "locked": false
+            },
+            "distance": {
+              "type": "Scalar",
+              "value": 40,
+              "expression": "",
+              "locked": false
+            },
+            "spine": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-0390886f-1ed6-4126-b4bd-cae299bf104d"
+            }
+          },
+          "points": [],
+          "operation": "spine-steps",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-3af91b8b-bb40-4cf4-8fb5-6a4a60054a76",
+          "type": "Output",
+          "name": "Output",
+          "position": [980, 130],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-57f23a35-90a8-4226-b9cb-eaca098fc0ff"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-0390886f-1ed6-4126-b4bd-cae299bf104d",
+          "type": "Imported Path",
+          "name": "Spine · cubic arch",
+          "position": [340, 560],
+          "width": 264,
+          "collapsed": false,
+          "params": {},
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "M180 380 C180 100 780 100 780 380"
+        }
+      ],
+      "output": "node-3af91b8b-bb40-4cf4-8fb5-6a4a60054a76"
+    }
+  ]
+}
