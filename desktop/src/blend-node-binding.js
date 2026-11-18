@@ -1,5 +1,6 @@
 import {
   blendPointCount,
+  translatedContourDistance,
   prepareClosedContourBlend,
   copyClosedContourEndpoint,
 } from './blend-geometry.js';
@@ -13,9 +14,24 @@ const blendColor = (a, b, t) =>
 // groups and incompatible strokes must not silently lose their appearance.
 export function evaluateBlend(_operation, read, context) {
   const a = read('a'),
-    b = read('b'),
-    steps = read('steps');
+    b = read('b');
+  let steps = read('steps');
+  if (
+    !['', 'subtract', 'union', 'intersect', 'difference', 'steps', 'distance', undefined].includes(
+      _operation,
+    )
+  )
+    throw Error('Unknown Blend spacing');
   if (!a || !b) throw Error('Connect both Blend inputs');
+  if (_operation === 'distance') {
+    const distance = read('distance');
+    if (!Number.isFinite(distance) || distance <= 0)
+      throw Error('Blend Distance must be positive and finite');
+    const length = translatedContourDistance(a.contours?.[0], b.contours?.[0]);
+    const intervals = Math.max(1, Math.ceil(length / distance));
+    if (intervals > 255) throw Error('Blend Distance exceeds 255 intervals');
+    steps = intervals - 1;
+  }
   if (!Number.isInteger(steps) || steps < 0 || steps > 254)
     throw Error('Blend steps must be an integer from 0 to 254');
   for (const value of [a, b]) {

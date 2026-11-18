@@ -44,3 +44,52 @@ Open [live-blend.json](../examples/live-blend.json) through Project → Open JSO
 The [short guide](../examples/live-blend.md) explains editing the connected sources and Steps;
 [live-blend.svg](../examples/live-blend.svg) is its initial vector appearance.
 This reusable example does not replace pending native-window acceptance.
+
+## Specified Distance: bounded follow-on design
+
+REQ-138 (Confirmed, Should) and issue #302 permit staged spacing support.
+[Adobe's definition](https://helpx.adobe.com/illustrator/desktop/manage-colors/apply-transparency-and-blending/blend-options-overview.html)
+measures corresponding edges, not the empty gap between shapes. Its public page
+does not specify rounding, numeric limits or a general deformation metric.
+
+This Nect stage supports two identical closed contours related by translation,
+after the existing seam/winding correspondence. Relative Bezier handles must
+match; scaling and morphing remain available in Steps, not Distance. Colors may
+still interpolate. Distance uses evaluated document coordinates (document px),
+not screen pixels or stroke bounds. It is a **maximum interval**: for translation
+length L and positive finite d, use max(1, ceil(L/d)) equal intervals, retaining
+both endpoints. At most 255 intervals and the existing 100000-point budget are
+allowed; overflow diagnoses rather than truncates. Coincident inputs retain the
+two endpoints. These rounding and scope choices are Nect's, not claimed Adobe
+numeric parity. Spine, Smooth, rotation and multiple sources are not this stage.
+
+The typed Blend declaration adds distance and Steps/Distance operations. Legacy
+generic Boolean operations migrate to Steps; Steps values and old documents retain their meaning.
+Distance does not overwrite Steps. Author edits use existing CommandSession
+parameter/operation commands and History; computed copy count is never authored.
+Codec roundtrip, Undo/Redo, source edits, SVG and explicit expansion must preserve
+this distinction. The inspector must state the translation-only limitation.
+Invalid or unsupported inputs produce diagnostics, not stale output or partial
+commands. Native GUI acceptance remains separate from headless regression.
+
+The evaluated coordinate space is the common Composition/document space, before
+viewport zoom. For n intervals the actual spacing is L/n and there are n-1
+intermediate shapes. This is not a stroke-outline gap. All anchors and relative
+Bezier handles must match after seam/winding alignment; closed status and segment
+count must match. Every corresponding control therefore undergoes the same
+translation. Comparison uses an absolute 1e-9 document-unit tolerance, not a
+coordinate-magnitude-relative tolerance that could hide a large deformation at
+large coordinates. Differences lost to floating representation cannot be recovered;
+representable large/small cases are tested, and uncertain mismatches diagnose.
+Source edits that violate this condition produce an error, never a silent switch
+to Steps. The user can explicitly select Steps to continue morphing.
+
+Legacy generic Boolean operation tokens were ignored by Blend. Reading them
+normalizes to Steps and supplies the new distance default; this is semantic and
+rendering compatibility, not a promise of byte-identical reserialization.
+
+Composition projects can retain legacy operation tokens without passing through
+legacy-document migration. The typed registry therefore resolves the four old
+Boolean tokens as Steps aliases for interface/evaluation, without mutating those
+projects or exposing aliases in the inspector operation menu. Direct binding
+calls accept the same tokens. Unknown tokens remain errors.
