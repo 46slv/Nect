@@ -81,6 +81,7 @@ test('distance edits use existing History and expansion', () => {
   const before = exportSVG(session.snapshot());
   send('expand-blend', { nodeId: blend.id });
   assert.equal(result(session.snapshot()).error, null);
+  assert.equal(exportSVG(session.snapshot()), before);
   send('undo');
   assert.equal(exportSVG(session.snapshot()), before);
 });
@@ -125,4 +126,53 @@ test('same anchors with different Bezier handles are not translation-equivalent'
   b.points[0].handleB = [0, 0];
   b.closed = false;
   assert.throws(() => translatedContourDistance(c, b), /identical translated/);
+});
+
+test('curved translated contours accept reversed winding and shifted seam', async () => {
+  const { translatedContourDistance } = await import('../src/blend-geometry.js');
+  const { evaluateBlend } = await import('../src/blend-node-binding.js');
+  const { paintedGroup } = await import('../src/composition-reference.js');
+  const contour = {
+    closed: true,
+    points: [
+      [0, 0],
+      [12, 0],
+      [8, 9],
+      [0, 5],
+    ].map((position, i) => ({
+      id: `p${i}`,
+      position,
+      handleA: [-1, i / 4],
+      handleB: [2, i === 0 ? 0 : -i / 4],
+    })),
+  };
+  const translated = structuredClone(contour);
+  translated.points = translated.points
+    .map((p) => ({
+      ...p,
+      position: [p.position[0] + 30, p.position[1] + 40],
+      handleA: p.handleB,
+      handleB: p.handleA,
+    }))
+    .reverse();
+  translated.points.push(translated.points.shift());
+  assert.equal(translatedContourDistance(contour, translated), 50);
+  const a = { contours: [contour], fill: { hex: '#000000', alpha: 1 } };
+  const b = { contours: [translated], fill: { hex: '#ffffff', alpha: 1 } };
+  const original = JSON.stringify([a, b]);
+  const output = evaluateBlend('distance', (key) => ({ a, b, distance: 25 })[key], {
+    nodeId: 'curved',
+    groupAppearance: paintedGroup,
+  });
+  assert.equal(output.children.length, 3);
+  const middle = output.children[1].contours[0];
+  assert.deepEqual(
+    middle.points.map((p) => p.position),
+    contour.points.map((p) => [p.position[0] + 15, p.position[1] + 20]),
+  );
+  assert.deepEqual(
+    middle.points.map((p) => [p.handleA, p.handleB]),
+    contour.points.map((p) => [p.handleA, p.handleB]),
+  );
+  assert.equal(JSON.stringify([a, b]), original);
 });
