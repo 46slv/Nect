@@ -31,10 +31,11 @@ or out of the Folder explicitly. Duplicate stays in its source Folder; deleting
 its last member keeps the empty Folder. SVG replacement replaces the active
 Composition and its Folder organization in the same Undo step.
 
-Folders currently have one level. Nested Folders, positioning an empty Folder at
-an arbitrary boundary, and choosing another insertion point remain unfinished.
+The original flat-Folder operations are extended by the bounded neutral hierarchy
+below. Positioning an empty Folder at an arbitrary boundary and general reparenting
+remain unfinished.
 
-## Neutral nested Folders: bounded design (not implemented)
+## Neutral nested Folders: bounded implementation
 
 REQ-52's Confirmed/Must requirement is preservation when organizing adjacent
 siblings into a neutral Group. This stage adds hierarchical organization, not
