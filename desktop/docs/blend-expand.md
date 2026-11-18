@@ -156,3 +156,51 @@ intermediate morphed shape's actual bounds center. Only endpoint bounds centers
 are guaranteed to coincide with spine endpoints. Inactive spine connections are
 retained on explicit Steps/Distance selection and are visibly labeled inactive;
 there is no automatic mode switch or connection removal.
+
+## Spine tangent orientation: bounded contract
+
+REQ-138 explicitly adopts Orientation and staged implementation. This stage adds
+an explicit `spine-tangent-steps` operation beside the existing fixed Spine Steps.
+Ordinary Steps, Distance, old aliases and fixed Spine Steps retain their meaning.
+It is not a native-window acceptance or a claim of exact Illustrator parity.
+
+[Adobe's orientation definition](https://helpx.adobe.com/illustrator/desktop/manage-colors/apply-transparency-and-blending/blend-options-overview.html)
+distinguishes page and path alignment. Nect fixes the following rotation reference:
+page +X maps to the directed spine tangent, so page +Y maps to its perpendicular.
+In document coordinates Y increases downwards; positive rotation is clockwise.
+A horizontal +X spine is the identity; an upward spine rotates by -pi/2.
+
+For each existing arc-length sample t, retain the virtual pivot
+C(t)=(1-t)C_A+t*C_B and rotate the interpolated contour by
+p'=P(t)+R(theta(t))*(p-C(t)), with theta=atan2(tangent.y,tangent.x).
+Rotate both relative Bezier handles by R without translation. This includes both
+endpoints: their geometric shape and paint are retained, but their output position
+and orientation change. Authored sources and their coordinates are never mutated.
+The virtual intermediate pivot is not generally the morphed contour's bounds center.
+Solid paint/stroke widths, generated IDs, export blockers and count budgets retain
+the existing Blend contracts. A rotation does not introduce scaling.
+
+Use the same Paper path, length and `getLocationAt` as the existing spine sampler.
+Read the directed tangent at that curve location. Zero, missing or non-finite
+sample tangents diagnose; never guess an angle or silently use the fixed mode.
+Paper's endpoint limiting tangent handles an ordinary straight segment whose
+Bezier handles are zero. Interior stationary points without a tangent reject.
+For a location at curve time 0 or 1 at an interior join, compare the two adjacent
+curves' directed endpoint tangents. Reject zero/missing/non-finite tangents and
+joins whose normalized vector components differ by more than 1e-10. This is a
+named numerical direction tolerance, not an offset into the path. No epsilon
+position probes or smoothing through corners are performed. Curve locations and
+endpoint classification inherit Paper's numerical conventions. A corner not
+sampled by the selected Steps count is not itself a rejected contour.
+
+The first/last positions still use exact authored spine endpoint anchors. At
+those ends only the one available directed tangent is required. Closed, multiple,
+zero-length or unsupported spines remain rejected. UI names the new tangent mode
+and explains its open-spine/sample-corner limitation. Changing to fixed Spine Steps
+is an explicit recovery choice and preserves the spine connection.
+
+Acceptance covers horizontal/upward/reversed and curved spines, rotated anchors
+and both handles, endpoint/virtual pivots, sampled corners and stationary points,
+unchanged sources/paint/blockers, edit diagnostics and mode recovery, Session
+Undo/Redo, codec roundtrip and expanded SVG equivalence. Native interaction stays
+unverified while the GUI hold remains active.
