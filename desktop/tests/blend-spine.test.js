@@ -208,3 +208,45 @@ test('spine helper rejects nonfinite controls and bounded input overflow', async
       /open finite path/,
     );
 });
+
+test('spine export blockers propagate to every generated child', async () => {
+  const { evaluateBlend } = await import('../src/blend-node-binding.js');
+  const { paintedGroup } = await import('../src/composition-reference.js');
+  const point = (position) => ({ position, handleA: [0, 0], handleB: [0, 0] });
+  const a = {
+    fill: { hex: '#000000', alpha: 1 },
+    contours: [
+      {
+        closed: true,
+        points: [
+          [0, 0],
+          [10, 0],
+          [0, 10],
+        ].map(point),
+      },
+    ],
+    exportBlockers: ['source-blocker'],
+  };
+  const b = structuredClone(a);
+  const spine = {
+    contours: [
+      {
+        closed: false,
+        points: [
+          [0, 0],
+          [100, 100],
+        ].map(point),
+      },
+    ],
+    exportBlockers: ['spine-blocker', 'source-blocker'],
+  };
+  const before = JSON.stringify([a, b, spine]);
+  const output = evaluateBlend('spine-steps', (key) => ({ a, b, spine, steps: 3 })[key], {
+    nodeId: 'blocked-spine',
+    groupAppearance: paintedGroup,
+  });
+  assert.equal(output.children.length, 5);
+  for (const child of output.children)
+    assert.deepEqual(child.exportBlockers, ['source-blocker', 'spine-blocker']);
+  assert.equal(JSON.stringify([a, b, spine]), before);
+});
