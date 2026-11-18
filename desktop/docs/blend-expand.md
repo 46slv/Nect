@@ -93,3 +93,60 @@ legacy-document migration. The typed registry therefore resolves the four old
 Boolean tokens as Steps aliases for interface/evaluation, without mutating those
 projects or exposing aliases in the inspector operation menu. Direct binding
 calls accept the same tokens. Unknown tokens remain errors.
+
+## Spine Steps: bounded design (not implemented)
+
+REQ-138's Confirmed/Should acceptance explicitly includes a blend spine and allows
+stages. [Adobe's spine documentation](https://helpx.adobe.com/illustrator/desktop/manage-colors/apply-transparency-and-blending/modify-spine-of-blended-objects.html)
+explains editing/replacing a path to control blend alignment and direction.
+[Its orientation options](https://helpx.adobe.com/illustrator/desktop/manage-colors/apply-transparency-and-blending/blend-options-overview.html)
+distinguish page alignment from tangent alignment. These references do not define
+Nect's pivot, numeric sampling or compatibility contract below.
+
+### Proposed contract
+
+- Add an explicit `spine-steps` operation and a typed Path `spine` input. Existing
+  Steps and Distance remain unchanged and do not implicitly enable a spine.
+  Spine Steps requires the input; disconnect/deletion diagnoses rather than
+  silently reverting to the straight blend. Switching explicitly to ordinary
+  Steps or Distance restores those operations, with the dormant spine wire kept.
+- Keep the current two supported painted closed source contours, Steps 0..254,
+  geometry/paint interpolation and output budget. The spine is exactly one open
+  contour, 2..512 finite anchors with finite relative Bezier handles, positive
+  finite length. Reject closed, multi-contour, degenerate and unsupported grouped
+  paths. Straight segments and cubic curves are supported; the spine is not drawn.
+- All three evaluated inputs share Composition/document coordinates, before zoom.
+  Let C_A and C_B be the centers of the source contours' geometric curve bounds
+  (not stroke bounds, screen bounds or mean of authored vertices). At t=i/(steps+1),
+  interpolate geometry/solid paint as now, then translate each generated contour
+  by P(t)-((1-t)C_A+t\*C_B). P(t) is the spine's point at fraction t of its arc length.
+  The first and last source pivots therefore land on the spine's exact start/end;
+  authored source nodes remain unchanged. Their original positions are not kept
+  in the generated output. Unequal shapes still morph; no rotation, scaling or
+  tangent alignment is applied by this placement stage.
+- Reuse the established Paper adapter (`toPaper`, curve `bounds`, `length`,
+  `getPointAt`) already used by Resample Path; create no new sampling subsystem.
+  Use exact authored start/end positions for endpoint samples. Interior arc-length
+  locations inherit Paper's numeric approximation, not an exact analytic-length
+  promise. Reject non-finite/missing samples. Remove temporary Paper items in
+  finally blocks. A bound of 512 spine anchors times at most 256 samples keeps
+  sampling work below Resample's existing 2000000-work ceiling.
+- Orientation is fixed: preserve page-space source orientation and relative
+  handles; tangent-following, Distance along a spine, Smooth and multi-source
+  blends are later stages, not inferred from this implementation. UI must name
+  Spine Steps and state the open-path/fixed-orientation limit.
+- Stable generated identities follow the existing Blend copy order. Expansion
+  uses the final translated evaluation, preserving appearance. Session connect,
+  parameter/operation edits, Undo/Redo and project readback use existing commands.
+  Add the new input's default only on applicable legacy validation; preserve old
+  Composition projects and Boolean aliases without requiring fixture rewrites.
+
+### Focused acceptance before integration
+
+Straight spine with matching endpoints must agree with ordinary Steps; a cubic
+spine must place intermediate pivots at the reused sampler's locations. Cover
+asymmetric source pivots, Steps 0, source/spine edits, fixed orientation/handles,
+invalid closed/empty/zero-length/multiple contours, finite/budget limits, missing
+and deleted wire diagnostics, switching modes, old Steps/Distance/legacy aliases,
+Session Undo/Redo, codec/SVG and Expand appearance equivalence. Do not substitute
+headless success for native GUI acceptance; GUI remains on hold.
