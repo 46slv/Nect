@@ -76,6 +76,7 @@ const supported = [
   'Polar Transform',
   'Set Closure',
   'Boolean',
+  'Blend',
   'Join Geometry',
   'Math',
   'Vector Math',
@@ -102,6 +103,7 @@ for (const type of supported)
     const f = fixture(
       type,
       [
+        'Blend',
         'Fill',
         'Linear Gradient Fill',
         'Radial Gradient Fill',

@@ -85,6 +85,10 @@ test('category picker scopes candidates only; keyboard, cancellation, stale elem
   assert.equal($('.picker-option'), null);
   assert.equal($('.picker-status').textContent, '', 'collapsed groups are not an empty search');
   assert.equal($('.picker-apply').disabled, true);
+  search('Blend');
+  assert.equal(picker.activeId, 'Blend');
+  assert.ok($('.picker-option[data-id="Blend"]'));
+  assert.equal(commits, 0);
   search('transform');
   assert.equal($('.picker-list').getAttribute('role'), 'listbox');
   assert.equal($('.picker-category'), null);
@@ -273,6 +277,24 @@ test('real Add uses captured Session target, one history entry and leaves graph 
   assert.equal(win.nect.document.layers[0].nodes.length, 5, 'editing works after Mask');
   $('[data-action="undo"]').click();
   assert.equal(JSON.stringify(win.nect.document), withMask);
+  $('[data-action="undo"]').click();
+  assert.equal(JSON.stringify(win.nect.document), before);
+  // Blend uses the same visible Add flow and remains undoable.
+  win.pickerTest.open();
+  await new Promise(queueMicrotask);
+  const blendSearch = $('.search-panel input');
+  blendSearch.value = 'Blend';
+  blendSearch.dispatchEvent(new win.Event('input'));
+  blendSearch.dispatchEvent(
+    new win.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter' }),
+  );
+  assert.equal(win.nect.document.layers[0].nodes.filter((n) => n.type === 'Blend').length, 1);
+  assert.equal(win.pickerTest.state().past, JSON.parse(state).past + 1);
+  const withBlend = JSON.stringify(win.nect.document);
+  $('[data-action="undo"]').click();
+  assert.equal(JSON.stringify(win.nect.document), before);
+  $('[data-action="redo"]').click();
+  assert.equal(JSON.stringify(win.nect.document), withBlend);
   $('[data-action="undo"]').click();
   assert.equal(JSON.stringify(win.nect.document), before);
   // Switching the active composition without changing the document must not

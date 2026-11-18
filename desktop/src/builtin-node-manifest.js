@@ -9,6 +9,8 @@ import { reversePathDeclaration } from './reverse-path-declaration.js';
 import { evaluateReversePath } from './reverse-path-binding.js';
 import { joinGeometryDeclaration } from './join-geometry-declaration.js';
 import { evaluateJoinGeometry } from './join-geometry-binding.js';
+import { blendNodeDeclaration } from './blend-node-declaration.js';
+import { evaluateBlend } from './blend-node-binding.js';
 import { combineVectorDeclaration } from './combine-vector-declaration.js';
 import { evaluateCombineVector } from './combine-vector-binding.js';
 import {
@@ -166,6 +168,12 @@ export const builtinManifest = Object.freeze([
   entry(vectorMathDeclaration, { evaluate: evaluateVectorMath }, 'Math', 'Vector'),
   entry(reversePathDeclaration, { evaluate: evaluateReversePath }, 'Auto Handles', 'Set Closure'),
   entry(joinGeometryDeclaration, { evaluate: evaluateJoinGeometry }, 'Boolean', 'Boolean'),
+  entry(
+    blendNodeDeclaration,
+    { evaluate: evaluateBlend },
+    'Error Diffusion Dither Image',
+    'Join Geometry',
+  ),
   entry(
     combineVectorDeclaration,
     { evaluate: evaluateCombineVector },
