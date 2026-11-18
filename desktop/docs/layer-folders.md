@@ -48,7 +48,10 @@ as direct `{layerId}` entries, never duplicate descendant membership in ancestor
 A Layer belongs to at most one direct Folder. Each Folder has at most one parent,
 which must exist in the same Composition and differ from itself. Reject cycles,
 unknown parents, duplicate IDs/members, and foreign Layer references atomically.
-The existing 100-Folder limit bounds traversal depth and work.
+The existing limit remains 100 Folders per Composition; maximum hierarchy depth
+is explicitly 100 (root Folder depth 1). Cycle detection and the count limit
+bound traversal; do not recurse through unvalidated references. General drag
+reparenting and arbitrary cross-level moves are outside this stage.
 
 The recursively collected descendant Layers of every populated Folder must form
 one contiguous interval in the unchanged Layer array. Direct members need not be
