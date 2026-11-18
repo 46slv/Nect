@@ -37,3 +37,10 @@ not a timing-sensitive CI assertion and does not run automatically.
 CommandSession regressions separately cover Steps 0/1/5/100, deterministic
 re-evaluation, source edits and reopen, plus source deletion diagnostic,
 Undo recovery and explicit disconnect/reconnect without stale geometry.
+
+## Editable example
+
+Open [live-blend.json](../examples/live-blend.json) through Project → Open JSON.
+The [short guide](../examples/live-blend.md) explains editing the connected sources and Steps;
+[live-blend.svg](../examples/live-blend.svg) is its initial vector appearance.
+This reusable example does not replace pending native-window acceptance.
