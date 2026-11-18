@@ -204,3 +204,11 @@ and both handles, endpoint/virtual pivots, sampled corners and stationary points
 unchanged sources/paint/blockers, edit diagnostics and mode recovery, Session
 Undo/Redo, codec roundtrip and expanded SVG equivalence. Native interaction stays
 unverified while the GUI hold remains active.
+
+As with fixed Spine Steps, an arc-length fraction means Paper's computed length
+and location, not an analytic arc-length solution. In particular, a symmetric
+cusp is not guaranteed to be sampled at its mathematical midpoint. The tangent
+checks apply to the actual returned curve location; they are not a whole-spine
+proof that no cusp exists between samples. Explicit mode edits may retain a
+diagnostic graph, as existing Blend modes do; expansion refuses invalid output
+atomically, and Undo or an explicit fixed-mode change restores a valid result.

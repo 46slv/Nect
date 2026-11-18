@@ -1,4 +1,9 @@
-import { blendSpineOffsets, translateBlendContour } from './blend-spine.js';
+import {
+  blendSpineOffsets,
+  translateBlendContour,
+  blendSpineOrientations,
+  orientBlendContour,
+} from './blend-spine.js';
 import {
   blendPointCount,
   translatedContourDistance,
@@ -27,6 +32,7 @@ export function evaluateBlend(_operation, read, context) {
       'steps',
       'distance',
       'spine-steps',
+      'spine-tangent-steps',
       undefined,
     ].includes(_operation)
   )
@@ -102,7 +108,11 @@ export function evaluateBlend(_operation, read, context) {
     steps === 0
       ? (t, id) => copyClosedContourEndpoint((t === 0 ? a : b).contours[0], id)
       : prepareClosedContourBlend(a.contours[0], b.contours[0]);
-  const spine = _operation === 'spine-steps' ? read('spine') : null;
+  const tangentMode = _operation === 'spine-tangent-steps';
+  const spine = _operation === 'spine-steps' || tangentMode ? read('spine') : null;
+  const orientations = tangentMode
+    ? blendSpineOrientations(spine, a.contours[0], b.contours[0], steps + 2)
+    : null;
   const offsets =
     _operation === 'spine-steps'
       ? blendSpineOffsets(spine, a.contours[0], b.contours[0], steps + 2)
@@ -114,7 +124,13 @@ export function evaluateBlend(_operation, read, context) {
     const t = i / (steps + 1);
     const contour = interpolate(t, `${context.nodeId}:blend:${i}`);
     values.push({
-      contours: [offsets ? translateBlendContour(contour, offsets[i]) : contour],
+      contours: [
+        orientations
+          ? orientBlendContour(contour, orientations[i])
+          : offsets
+            ? translateBlendContour(contour, offsets[i])
+            : contour,
+      ],
       fill: a.fill == null ? null : blendColor(a.fill, b.fill, t),
       ...(a.stroke
         ? {

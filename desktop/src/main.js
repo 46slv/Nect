@@ -6453,7 +6453,7 @@ function simplifyControls(n) {
 }
 function blendExpansionControls(n) {
   return n.type === 'Blend'
-    ? `<p class="font-note">Distance: maximum spacing in document px. Identical translated contours only; use Steps for scaling or morphing. Spine Steps: one open path, fixed orientation. Spine is inactive in Steps and Distance.</p><button class="mini" data-expand-blend="${n.id}" ${current().locked || n.locked || n.bypassed ? 'disabled' : ''}>Expand to editable paths</button>`
+    ? `<p class="font-note">Distance: maximum spacing in document px. Identical translated contours only; use Steps for scaling or morphing. Spine Steps: one open path, fixed orientation. Spine tangent Steps: rotate page +X to the directed tangent (including endpoints); sampled corners diagnose. Spine is inactive in Steps and Distance.</p><button class="mini" data-expand-blend="${n.id}" ${current().locked || n.locked || n.bypassed ? 'disabled' : ''}>Expand to editable paths</button>`
     : '';
 }
 function expandStrokeControls(n) {

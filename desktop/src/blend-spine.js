@@ -2,7 +2,7 @@ import { toPaper } from './paper-runtime.js';
 
 const vector = (value) =>
   Array.isArray(value) && value.length === 2 && value.every(Number.isFinite);
-export function blendSpineOffsets(spine, a, b, count) {
+function sampleSpine(spine, a, b, count, orient) {
   const contour = spine?.contours?.[0];
   if (
     !spine ||
@@ -45,7 +45,14 @@ export function blendSpineOffsets(spine, a, b, count) {
       if (!vector(sample)) throw Error('Spine Steps cannot sample a finite position');
       const offset = sample.map((value, j) => value - ((1 - t) * ca[j] + t * cb[j]));
       if (!vector(offset)) throw Error('Spine Steps exceeds finite coordinates');
-      return offset;
+      if (!orient) return offset;
+      const location = path.getLocationAt(length * t);
+      const tangent = sampleTangent(path, location);
+      return {
+        position: sample,
+        pivot: ca.map((value, j) => (1 - t) * value + t * cb[j]),
+        tangent,
+      };
     });
   } finally {
     for (const item of items) item.remove();
@@ -57,6 +64,60 @@ export function translateBlendContour(contour, offset) {
     const position = point.position.map((value, j) => value + offset[j]);
     if (!vector(position)) throw Error('Spine Steps exceeds finite coordinates');
     return { ...point, position };
+  });
+  return { ...contour, points };
+}
+
+export function blendSpineOffsets(spine, a, b, count) {
+  return sampleSpine(spine, a, b, count, false);
+}
+export function blendSpineOrientations(spine, a, b, count) {
+  return sampleSpine(spine, a, b, count, true);
+}
+
+function unitTangent(value) {
+  const tangent = value && [value.x, value.y];
+  const length = tangent && Math.hypot(...tangent);
+  if (!vector(tangent) || !Number.isFinite(length) || length === 0)
+    throw Error('Spine tangent Steps requires a finite nonzero tangent at every sample');
+  return tangent.map((value) => value / length);
+}
+function sampleTangent(path, location) {
+  if (!location || !Number.isFinite(location.time))
+    throw Error('Spine tangent Steps cannot locate a tangent sample');
+  const curves = path.curves,
+    index = location.curve.index,
+    time = location.time;
+  const tangent = unitTangent(location.curve.getTangentAtTime(time));
+  // At an exact Paper curve boundary both one-sided directions must agree.
+  // Never probe offset +/- epsilon: that can silently smooth a real corner.
+  const neighbor =
+    time === 0 && index > 0
+      ? curves[index - 1].getTangentAtTime(1)
+      : time === 1 && index < curves.length - 1
+        ? curves[index + 1].getTangentAtTime(0)
+        : null;
+  if (neighbor) {
+    const other = unitTangent(neighbor);
+    if (tangent.some((value, j) => Math.abs(value - other[j]) > 1e-10))
+      throw Error('Spine tangent Steps cannot orient a sample at a discontinuous join');
+  } else if ((time === 0 && index > 0) || (time === 1 && index < curves.length - 1)) {
+    throw Error('Spine tangent Steps requires a tangent on both sides of a sampled join');
+  }
+  return tangent;
+}
+
+export function orientBlendContour(contour, placement) {
+  const [c, s] = placement.tangent;
+  const rotate = ([x, y]) => [c * x - s * y, s * x + c * y];
+  const points = contour.points.map((point) => {
+    const relative = point.position.map((value, j) => value - placement.pivot[j]);
+    const position = rotate(relative).map((value, j) => value + placement.position[j]);
+    const handleA = rotate(point.handleA),
+      handleB = rotate(point.handleB);
+    if (![position, handleA, handleB].every(vector))
+      throw Error('Spine tangent Steps exceeds finite coordinates');
+    return { ...point, position, handleA, handleB };
   });
   return { ...contour, points };
 }
