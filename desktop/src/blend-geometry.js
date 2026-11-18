@@ -130,3 +130,25 @@ export function prepareClosedContourBlend(a, b) {
 export function interpolateClosedContours(a, b, t, id = 'blend') {
   return prepareClosedContourBlend(a, b)(t, id);
 }
+
+// Corresponding edges of translated identical contours move by this same vector.
+export function translatedContourDistance(a, b) {
+  if (!validContour(a) || !validContour(b) || a.points.length !== b.points.length)
+    throw Error('Blend Distance requires identical translated contours; use Steps for morphing');
+  if (a.points.length > 512) throw Error('Blend contour exceeds 512 points');
+  const aligned = align(a.points, b.points);
+  const delta = a.points[0].position.map((v, j) => aligned[0].position[j] - v);
+  const close = (x, y) => Math.abs(x - y) <= 1e-9;
+  if (
+    !delta.every(Number.isFinite) ||
+    a.points.some(
+      (p, i) =>
+        p.position.some((v, j) => !close(aligned[i].position[j] - v, delta[j])) ||
+        ['handleA', 'handleB'].some((key) => p[key].some((v, j) => !close(v, aligned[i][key][j]))),
+    )
+  )
+    throw Error('Blend Distance requires identical translated contours; use Steps for morphing');
+  const length = Math.hypot(...delta);
+  if (!Number.isFinite(length)) throw Error('Blend Distance exceeds finite coordinates');
+  return length;
+}

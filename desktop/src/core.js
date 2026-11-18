@@ -4175,6 +4175,14 @@ export function validate(doc) {
         if (!Object.hasOwn(n.params, 'alignTangent'))
           n.params.alignTangent = clone(definitions['Instance on Points'].alignTangent);
       }
+      // Legacy Blend used the generic Boolean operation field, ignored by its evaluator.
+      if (n.type === 'Blend') {
+        if (operationOptions.Boolean.includes(n.operation)) n.operation = 'steps';
+        if (!Object.hasOwn(n.params, 'distance')) {
+          if (n.operation === 'distance') throw Error('Blend Distance requires distance');
+          n.params.distance = clone(definitions.Blend.distance);
+        }
+      }
       migrateDither(n, sourceSchemaVersion);
       if (!(operationOptions[n.type] || operationOptions.Boolean).includes(n.operation))
         throw Error('Invalid operation');

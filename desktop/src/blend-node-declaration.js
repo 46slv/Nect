@@ -9,8 +9,14 @@ export const blendNodeDeclaration = {
     { id: 'a', type: 'PaintedPath', default: null },
     { id: 'b', type: 'PaintedPath', default: null },
     { id: 'steps', type: 'Scalar', default: 5 },
+    { id: 'distance', type: 'Scalar', default: 20 },
   ],
   outputs: [{ id: 'default', label: '', type: 'PaintedPath', legacyDefault: true }],
+  operations: [
+    { id: 'steps', active: ['a', 'b', 'steps'] },
+    { id: 'distance', active: ['a', 'b', 'distance'] },
+  ],
+  defaultOperation: 'steps',
   catalog: {
     categoryId: 'combine',
     labelJa: 'ブレンド',
