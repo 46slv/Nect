@@ -18,6 +18,7 @@ separate `-browser-` name to avoid upload collisions; retain the original path
 allowlist in each lane, so the union preserves all prior evidence. Missing files
 are still ignored; upload errors still fail the corresponding lane.
 
+There are two heavy Windows lanes plus a short Windows aggregate runner.
 This trades additional runner setup and Actions total minutes for lower elapsed
 time. It does not reduce work or promise a speedup when runners queue. No merge
 until exact candidate CI, protection/check-name behavior and usage budget have
