@@ -6,6 +6,7 @@ const workflow = await readFile(
   new URL('../../.github/workflows/verify-windows.yml', import.meta.url),
   'utf8',
 );
+const { scripts } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 const lane = (name) => {
   const match = workflow.match(
     new RegExp(`^  ${name}:\\r?\\n([\\s\\S]*?)(?=^  [a-z][a-z-]*:|$(?![\\s\\S]))`, 'm'),
@@ -17,18 +18,31 @@ const native = lane('native-frontend');
 const browser = lane('browser');
 const gate = lane('windows');
 
-test('Windows keeps native/frontend serial and all Chrome work in an independent lane', () => {
+test('Windows keeps native/frontend steps ordered and all Chrome work in an independent lane', () => {
   assert.ok(
     native.indexOf('Build Windows app without packaging') < native.indexOf('Run native Rust tests'),
   );
   assert.ok(
     native.indexOf('Run native Rust tests') < native.indexOf('Run frontend unit and DOM tests'),
   );
-  assert.match(native, /run: npm test/);
+  assert.match(native, /^        run: npm run test:ci:windows\r?$/m);
   assert.doesNotMatch(native, /Run actual Chrome interaction tests/);
   assert.match(browser, /npm run test:e2e/);
   assert.doesNotMatch(browser, /needs:|cargo test|run: npm test/);
   assert.doesNotMatch(native, /needs:/);
+});
+
+test('Windows frontend bounds concurrency without changing the full test selection', () => {
+  assert.equal(scripts.test, 'node --test --test-concurrency=1 tests/*.test.js');
+  assert.equal(scripts['test:ci:windows'], 'node --test --test-concurrency=2 tests/*.test.js');
+  assert.equal(
+    scripts['test:ci:windows'],
+    scripts.test.replace('--test-concurrency=1', '--test-concurrency=2'),
+  );
+  for (const hook of ['pretest', 'posttest', 'pretest:ci:windows', 'posttest:ci:windows']) {
+    assert.equal(scripts[hook], undefined, `Unexpected test lifecycle hook: ${hook}`);
+  }
+  assert.doesNotMatch(browser, /test:ci:windows/);
 });
 
 test('both lanes provision dependencies and fonts without new permissions or actions', () => {

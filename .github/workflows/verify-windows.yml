@@ -105,7 +105,7 @@ jobs:
         run: node tests/native-font-smoke.js
       - name: Run frontend unit and DOM tests
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
-        run: node --test --test-concurrency=2 tests/*.test.js
+        run: npm run test:ci:windows
       - name: Preserve bounded development evidence
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
