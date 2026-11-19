@@ -358,3 +358,57 @@ test('Spine Distance edit Undo/Redo and Expand preserve expected geometry and SV
   send('undo');
   assert.equal(exportSVG(session.snapshot()), edited);
 });
+
+test('Smooth Color Session edits, both codecs and Expand preserve authored intent and output', async () => {
+  const { doc, l, blend } = fixture('M0 0L100 10');
+  const { Fill: fills } = Object.groupBy(l.nodes, (entry) => entry.type);
+  fills[0].params.color.value = { hex: '#000000', alpha: 1 };
+  fills[1].params.color.value = { hex: '#ffffff', alpha: 1 };
+  const session = new CommandSession(doc);
+  const send = (type, payload = {}) =>
+    session.dispatch({ ...session.state, type, payload: { layerId: l.id, ...payload } });
+  const legacy = session.snapshot();
+  const legacySaved = serialize(legacy);
+  assert.deepEqual(deserialize(legacySaved), legacy);
+  assert.equal(serialize(deserialize(legacySaved)), legacySaved);
+  const oldProject = migrateLegacyDocumentToCompositionProject(legacy);
+  const oldProjectSaved = serializeCompositionProject(oldProject);
+  assert.deepEqual(deserializeCompositionProject(oldProjectSaved), oldProject);
+  assert.equal(
+    serializeCompositionProject(deserializeCompositionProject(oldProjectSaved)),
+    oldProjectSaved,
+  );
+  send('set-operation', { nodeId: blend.id, operation: 'smooth-color' });
+  const smooth = session.snapshot();
+  const current = smooth.layers[0].nodes.find((entry) => entry.id === blend.id);
+  const svg = exportSVG(smooth);
+  assert.deepEqual(
+    activeParameters(current).map(([key]) => key),
+    ['a', 'b'],
+  );
+  assert.deepEqual(
+    current.params,
+    legacy.layers[0].nodes.find((entry) => entry.id === blend.id).params,
+  );
+  assert.equal(result(smooth).path.children.length, 33);
+  const saved = serialize(smooth);
+  assert.deepEqual(deserialize(saved), smooth);
+  assert.equal(serialize(deserialize(saved)), saved);
+  const project = migrateLegacyDocumentToCompositionProject(smooth);
+  const projectSaved = serializeCompositionProject(project);
+  assert.deepEqual(deserializeCompositionProject(projectSaved), project);
+  assert.equal(
+    serializeCompositionProject(deserializeCompositionProject(projectSaved)),
+    projectSaved,
+  );
+  assert.equal(exportSVG(deserialize(serialize(smooth))), svg);
+  send('set-parameter', { nodeId: fills[1].id, key: 'color', value: { hex: '#000000', alpha: 1 } });
+  assert.equal(result(session.snapshot()).path.children.length, 2);
+  send('undo');
+  assert.equal(exportSVG(session.snapshot()), svg);
+  send('redo');
+  assert.equal(result(session.snapshot()).path.children.length, 2);
+  send('undo');
+  send('expand-blend', { nodeId: blend.id });
+  assert.equal(exportSVG(session.snapshot()), svg);
+});

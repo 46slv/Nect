@@ -15,6 +15,7 @@ export const blendNodeDeclaration = {
   outputs: [{ id: 'default', label: '', type: 'PaintedPath', legacyDefault: true }],
   operations: [
     { id: 'steps', active: ['a', 'b', 'steps'] },
+    { id: 'smooth-color', active: ['a', 'b'] },
     { id: 'distance', active: ['a', 'b', 'distance'] },
     { id: 'spine-distance', active: ['a', 'b', 'distance', 'spine'] },
     { id: 'spine-steps', active: ['a', 'b', 'steps', 'spine'] },

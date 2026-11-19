@@ -170,3 +170,74 @@ test('zero steps retains valid endpoints without unnecessary correspondence subd
   open.contours[0].closed = false;
   assert.throws(() => run(0, open, second), /closed/);
 });
+
+test('Smooth Color samples premultiplied contrast without changing the existing mixer', () => {
+  const smooth = (first, second) =>
+    evaluateBlend(
+      'smooth-color',
+      (id) => {
+        assert.ok(id === 'a' || id === 'b', id);
+        return id === 'a' ? first : second;
+      },
+      {
+        nodeId: 'blend1',
+        groupAppearance: paintedGroup,
+      },
+    );
+  const full = smooth(a, b);
+  assert.equal(full.children.length, 33);
+  assert.deepEqual(full, run(31));
+  assert.equal(smooth(a, shape(1e6, '#101010')).children.length, 2);
+  assert.equal(smooth(a, shape(8, '#808080')).children.length, 8);
+
+  const translucent = { ...b, fill: { ...b.fill, alpha: 0.5 }, exportBlockers: ['pending'] };
+  const zero = { ...a, fill: { ...a.fill, alpha: 0 } };
+  const whiteZero = { ...b, fill: { ...b.fill, alpha: 0 } };
+  const before = structuredClone([zero, translucent, whiteZero]);
+  const half = smooth(zero, translucent);
+  assert.equal(half.children.length, 17);
+  assert.deepEqual(half.children[0].fill, zero.fill);
+  assert.deepEqual(half.children.at(-1).fill, translucent.fill);
+  assert.ok(half.children.every((value) => value.exportBlockers.includes('pending')));
+  assert.equal(smooth(zero, whiteZero).children.length, 2);
+  const black = (alpha) => ({ ...a, fill: { ...a.fill, alpha } });
+  assert.equal(smooth(zero, black(1 / 32)).children.length, 2);
+  assert.equal(smooth(zero, black(1 / 32 + Number.EPSILON)).children.length, 3);
+  assert.deepEqual([zero, translucent, whiteZero], before);
+  assert.equal(smooth(zero, b).children.length, 33);
+
+  const darkStroke = { ...a.fill, width: 2 };
+  const lightStroke = { ...b.fill, width: 6 };
+  assert.equal(
+    smooth({ ...a, fill: null, stroke: darkStroke }, { ...b, fill: null, stroke: lightStroke })
+      .children.length,
+    33,
+  );
+  assert.equal(
+    smooth({ ...a, stroke: darkStroke }, { ...b, fill: a.fill, stroke: lightStroke }).children
+      .length,
+    33,
+  );
+  assert.equal(
+    smooth({ ...a, stroke: darkStroke }, { ...b, stroke: lightStroke }).children.length,
+    33,
+  );
+  assert.equal(
+    smooth({ ...a, stroke: darkStroke }, { ...a, stroke: { ...darkStroke, width: 8 } }).children
+      .length,
+    2,
+  );
+  const asymmetric = structuredClone(a);
+  asymmetric.contours[0].points.pop();
+  assert.equal(smooth(a, asymmetric).children.length, 2);
+  const large = (source, n) => {
+    const value = structuredClone(source);
+    value.contours[0].points = Array.from({ length: n }, (_, i) => ({
+      position: [i, i % 2],
+      handleA: [0, 0],
+      handleB: [0, 0],
+    }));
+    return value;
+  };
+  assert.throws(() => smooth(large(a, 49), large(b, 53)), /budget/);
+});

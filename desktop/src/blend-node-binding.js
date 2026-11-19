@@ -11,7 +11,7 @@ import {
   prepareClosedContourBlend,
   copyClosedContourEndpoint,
 } from './blend-geometry.js';
-import { colorOperation, publicColor } from './color-operations.js';
+import { colorOperation, premultipliedColorDifference, publicColor } from './color-operations.js';
 
 // Mixing a fully transparent color erases its RGB. Endpoints retain authored paint.
 const blendColor = (a, b, t) =>
@@ -23,7 +23,8 @@ export function evaluateBlend(_operation, read, context) {
   const a = read('a'),
     b = read('b');
   const spineDistanceMode = _operation === 'spine-distance';
-  let steps = spineDistanceMode ? null : read('steps');
+  const smoothColorMode = _operation === 'smooth-color';
+  let steps = spineDistanceMode || smoothColorMode ? null : read('steps');
   if (
     ![
       '',
@@ -32,6 +33,7 @@ export function evaluateBlend(_operation, read, context) {
       'intersect',
       'difference',
       'steps',
+      'smooth-color',
       'distance',
       'spine-steps',
       'spine-distance',
@@ -50,7 +52,11 @@ export function evaluateBlend(_operation, read, context) {
     if (intervals > 255) throw Error('Blend Distance exceeds 255 intervals');
     steps = intervals - 1;
   }
-  if (!spineDistanceMode && (!Number.isInteger(steps) || steps < 0 || steps > 254))
+  if (
+    !spineDistanceMode &&
+    !smoothColorMode &&
+    (!Number.isInteger(steps) || steps < 0 || steps > 254)
+  )
     throw Error('Blend steps must be an integer from 0 to 254');
   for (const value of [a, b]) {
     if (value.kind || value.mask || value.contours?.length !== 1)
@@ -99,6 +105,13 @@ export function evaluateBlend(_operation, read, context) {
     strokeB = { hex: bh, alpha: ba };
     publicColor(colorOperation('mix', [strokeA, strokeB, 0]));
     strokeStyle = as;
+  }
+  if (smoothColorMode) {
+    const difference = Math.max(
+      a.fill == null ? 0 : premultipliedColorDifference(a.fill, b.fill),
+      a.stroke ? premultipliedColorDifference(strokeA, strokeB) : 0,
+    );
+    steps = Math.max(1, Math.ceil(32 * difference)) - 1;
   }
   const checkBudget = (intermediates) => {
     if (

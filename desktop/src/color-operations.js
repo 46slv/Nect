@@ -24,6 +24,15 @@ function linearColor(value) {
     alpha: value.alpha,
   };
 }
+export function premultipliedColorDifference(first, second) {
+  const a = linearColor(first);
+  const b = linearColor(second);
+  return Math.max(
+    Math.abs(a.alpha - b.alpha),
+    ...a.rgb.map((channel, i) => Math.abs(channel * a.alpha - b.rgb[i] * b.alpha)),
+  );
+}
+
 function unitScalar(value, name) {
   if (!Number.isFinite(value) || value < 0 || value > 1)
     throw Error(`${name} requires a finite Scalar from 0 to 1`);
