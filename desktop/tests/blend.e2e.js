@@ -159,7 +159,15 @@ try {
   await page.evaluate((value) => window.nect.load(value), after);
   assert.deepEqual(await result(), changed);
   await page.locator(`.graph .node[data-id="${blend.id}"] .node-head strong`).click();
+  // Exercise measured card placement at non-unit zoom, not document-only layout.
+  await page.locator('[data-action="graph-reset"]').click();
+  await page.locator('[data-action="graph-zoom-out"]').click();
+  const graphScale = await page
+    .locator('.graph')
+    .evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).a);
+  assert.ok(graphScale > 0 && graphScale < 1);
   const beforeExpand = await page.evaluate(() => JSON.stringify(window.nect.document));
+  const beforeExpandSVG = await page.evaluate(() => window.nect.export());
   await page.locator(`.inspector-body [data-expand-blend="${blend.id}"]`).click();
   const expanded = await page.evaluate(() => JSON.stringify(window.nect.document));
   assert.equal(
@@ -169,6 +177,38 @@ try {
   assert.equal(
     JSON.parse(expanded).layers[0].nodes.filter((n) => n.type === 'Multi Path').length,
     6,
+  );
+  assert.equal(await page.evaluate(() => window.nect.export()), beforeExpandSVG);
+  const oldIds = new Set(JSON.parse(beforeExpand).layers[0].nodes.map((n) => n.id));
+  const added = JSON.parse(expanded).layers[0].nodes.filter((n) => !oldIds.has(n.id));
+  const boxes = await page.locator('.graph .node').evaluateAll((nodes) =>
+    nodes.map((el) => {
+      const { x, y, width, height } = el.getBoundingClientRect();
+      return { id: el.dataset.id, x, y, width, height };
+    }),
+  );
+  for (const n of added) {
+    const box = boxes.find((b) => b.id === n.id);
+    assert.ok(box && box.width > 0 && box.height > 0);
+    for (const other of boxes)
+      if (other.id !== n.id)
+        assert.equal(
+          box.x < other.x + other.width &&
+            box.x + box.width > other.x &&
+            box.y < other.y + other.height &&
+            box.y + box.height > other.y,
+          false,
+          `Expanded card ${n.type} overlaps ${other.id} at zoom ${graphScale}`,
+        );
+  }
+  // Real pointer hit-testing: no force click or engine selection shortcut.
+  for (const id of [b.id, added.find((n) => n.type === 'Multi Path').id]) {
+    await page.locator(`.graph .node[data-id="${id}"] .node-head strong`).click();
+    assert.equal(await page.locator(`.graph .node.selected[data-id="${id}"]`).count(), 1);
+  }
+  assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), expanded);
+  console.log(
+    `PASS zoomed Expand: ${added.length} cards, scale ${graphScale}, no overlaps; original/new ordinary selection`,
   );
   await page.locator('[data-action="undo"]').click();
   assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), beforeExpand);
