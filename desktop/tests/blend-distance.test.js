@@ -183,6 +183,7 @@ test('legacy Boolean tokens evaluate directly and through typed interfaces witho
   const { paintedGroup } = await import('../src/composition-reference.js');
   assert.deepEqual(operationOptions.Blend, [
     'steps',
+    'smooth-color',
     'distance',
     'spine-distance',
     'spine-steps',

@@ -232,3 +232,27 @@ sampling and budget failures diagnose without fallback or mutating inputs.
 Existing operations, Steps values and dormant wires are preserved. Verify
 interval counts, exact endpoint placement, mode/parameter edits and Undo,
 reopen, SVG and expansion equivalence headlessly; native GUI stays unverified.
+
+## Smooth Color: bounded contrast-based spacing
+
+The explicit `smooth-color` operation activates A and B only. Determine sample
+count after the same solid paint compatibility checks as Steps. For each
+matching fill or stroke color, use its premultiplied linear-light sRGB channels
+and alpha. D is the largest absolute component difference across matching
+paint slots (0 to 1). Use n = max(1, ceil(32D)) equal parameter intervals,
+including both endpoints (2 to 33 shapes). The existing 100000-point geometry
+budget still diagnoses rather than truncates. Geometry, paint interpolation,
+authored endpoint colors and export blockers follow the existing Steps rules.
+
+This spacing responds to paint color and opacity only, not shape, width or
+distance. Equal premultiplied colors (including differing hidden RGB at zero
+alpha) generate just the endpoints. Use Steps or Distance for geometric
+spacing. This is not a perceptual guarantee after hex quantization or
+Illustrator numerical parity. Other Blend modes retain their authored values.
+Spine is inactive in this mode. Native-window acceptance is separate.
+
+[Adobe's description](https://helpx.adobe.com/illustrator/desktop/manage-colors/apply-transparency-and-blending/blend-options-overview.html)
+describes automatic spacing based on color transitions or distance depending on
+the source paint, not a numeric algorithm. The fixed 1/32 resolution (up to
+32 intervals) is specific to Nect. Equal-color sources do not fall back to
+distance in this stage.
