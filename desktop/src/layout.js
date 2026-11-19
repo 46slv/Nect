@@ -6,14 +6,19 @@ export function intersects(a, b, gap = 24) {
     a.y + a.height + gap > b.y
   );
 }
-export function findFreeNodePosition(nodes, measurements = {}, size = { width: 264, height: 420 }) {
+export function findFreeNodePosition(
+  nodes,
+  measurements = {},
+  size = { width: 264, height: 420 },
+  rowLimit = 200,
+) {
   const boxes = nodes.map((n) => ({
     x: n.position[0],
     y: n.position[1],
     width: measurements[n.id]?.width || n.width || 264,
     height: measurements[n.id]?.height || 260,
   }));
-  for (let row = 0; row < 200; row++)
+  for (let row = 0; row < rowLimit; row++)
     for (let column = 0; column < 8; column++) {
       const candidate = { x: 40 + column * 312, y: 40 + row * 312, ...size };
       if (boxes.every((box) => !intersects(candidate, box))) return [candidate.x, candidate.y];
@@ -129,4 +134,53 @@ export function snapGraphNodes(moving, targets, delta, zoom, bypass = false, thr
       };
     }),
   };
+}
+
+// Initial Expand cards only. Reuse the existing bounded first-fit grid rather
+// than placing cards over sources or making an unbounded horizontal strip.
+// These conservative initial heights cover the standard 264px-wide card UI;
+// later point-panel expansion is not a persistent auto-layout operation.
+export function expandedNodePositions(existing, added, measurements = {}) {
+  const sizes = {};
+  const hints = Object.create(null);
+  // Optional UI hints, never document authority: only existing target IDs and
+  // positive bounded CSS dimensions. Ignore null, hidden, foreign or bad hints.
+  for (const node of existing) {
+    const hint =
+      measurements && Object.hasOwn(measurements, node.id) ? measurements[node.id] : null;
+    if (!hint || typeof hint !== 'object' || Array.isArray(hint)) continue;
+    hints[node.id] = {};
+    for (const [key, limit] of [
+      ['width', 550],
+      ['height', 65536],
+    ])
+      if (Number.isFinite(hint[key]) && hint[key] > 0 && hint[key] <= limit)
+        hints[node.id][key] = hint[key];
+  }
+  const size = (node) => {
+    const measured = hints[node.id] || {};
+    const initialHeight = node.collapsed
+      ? 44
+      : node.type === 'Multi Path'
+        ? 768
+        : node.type === 'Fill'
+          ? 320
+          : node.type === 'Stroke'
+            ? 1024
+            : node.type === 'Join Geometry'
+              ? 256 + 64 * node.joinInputOrder.length
+              : 520;
+    return {
+      width: Math.max(264, node.width || 264, measured.width || 0),
+      height: Math.max(initialHeight, measured.height || 0),
+    };
+  };
+  const occupied = [...existing];
+  for (const node of existing) sizes[node.id] = size(node);
+  return added.map((node) => {
+    sizes[node.id] = size(node);
+    const position = findFreeNodePosition(occupied, sizes, sizes[node.id], 1024);
+    occupied.push({ ...node, position });
+    return position;
+  });
 }

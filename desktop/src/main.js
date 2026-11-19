@@ -12726,9 +12726,23 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.expandBlend) {
+    const graphMeasurements = {};
+    const targetIds = new Set(current().nodes.map((node) => node.id));
+    for (const el of document.querySelectorAll('.graph .node')) {
+      const width = el.offsetWidth,
+        height = el.offsetHeight;
+      if (
+        targetIds.has(el.dataset.id) &&
+        width > 0 &&
+        width <= 550 &&
+        height > 0 &&
+        height <= 65536
+      )
+        graphMeasurements[el.dataset.id] = { width, height };
+    }
     const result = commandChange(
       'expand-blend',
-      { nodeId: d.expandBlend },
+      { nodeId: d.expandBlend, graphMeasurements },
       'Blend expanded to editable paths',
     );
     if (result) {
