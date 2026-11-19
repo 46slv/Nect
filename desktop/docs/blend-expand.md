@@ -274,3 +274,23 @@ a three-source document without C is rejected. Existing source IDs and A/B order
 are not rewritten. No Spine, Distance or Smooth combination, four-plus sources,
 or native GUI acceptance is included. Output uses independent span ID namespaces.
 This is an isolated prototype, not released or integrated.
+
+## Expand card placement
+
+Explicit Expand places only its new cards with the existing bounded eight-column
+first-fit grid and 24px gap. The UI supplies unscaled measured existing card
+bounds; stored widths and conservative initial heights remain lower bounds.
+The replacement Join reserves space for its new input rows. Headless commands
+use the same placement with conservative bounds. Existing cards and positions,
+IDs, wiring and artwork coordinates are unchanged. Placement belongs to the
+same atomic Expand command and Undo entry. This is initial placement, not general
+auto-layout: later point-panel expansion or manual resizing can require moving
+cards. Large expansions extend vertically; unrelated far-right cards do not
+force all new cards beyond their right edge.
+
+Measurements are optional hints for existing nodes in the target layer only.
+Null, hidden/nonpositive, nonfinite, foreign-ID and out-of-range dimensions are
+ignored, using the conservative fallback instead of rejecting Expand. Accepted
+unscaled dimensions are at most 550px wide (the stored card width limit) and
+65536px high (a defensive hint bound, not a document coordinate limit). Hints do
+not supply positions or measurements for newly generated cards.

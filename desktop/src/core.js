@@ -1,3 +1,4 @@
+import { expandedNodePositions } from './layout.js';
 import { expression, qualifiedReferencesForCodec } from './expression-parser.js';
 import {
   validateCompositionProject,
@@ -7347,6 +7348,16 @@ export class CommandSession {
           index === 0 ? 'a' : index === 1 ? 'b' : join.joinInputOrder.at(-1),
         );
       }
+      const priorIds = new Set(layer.nodes.map((n) => n.id));
+      const added = target.nodes.filter((n) => !priorIds.has(n.id));
+      const positions = expandedNodePositions(
+        target.nodes.filter((n) => priorIds.has(n.id)),
+        added,
+        payload.graphMeasurements,
+      );
+      added.forEach((n, i) => {
+        n.position = positions[i];
+      });
       candidate.schemaVersion = Math.max(candidate.schemaVersion, 31);
       validate(candidate);
       serialize(candidate);
