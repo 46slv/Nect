@@ -181,7 +181,12 @@ test('legacy Boolean tokens evaluate directly and through typed interfaces witho
   const { operationOptions } = await import('../src/core.js');
   const { evaluateBlend } = await import('../src/blend-node-binding.js');
   const { paintedGroup } = await import('../src/composition-reference.js');
-  assert.deepEqual(operationOptions.Blend, ['steps', 'distance', 'spine-steps']);
+  assert.deepEqual(operationOptions.Blend, [
+    'steps',
+    'distance',
+    'spine-steps',
+    'spine-tangent-steps',
+  ]);
   const { doc, blend } = fixture();
   blend.operation = 'steps';
   const expected = exportSVG(doc);
