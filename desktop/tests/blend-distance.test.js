@@ -184,6 +184,7 @@ test('legacy Boolean tokens evaluate directly and through typed interfaces witho
   assert.deepEqual(operationOptions.Blend, [
     'steps',
     'distance',
+    'spine-distance',
     'spine-steps',
     'spine-tangent-steps',
   ]);

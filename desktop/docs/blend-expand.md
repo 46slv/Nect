@@ -132,9 +132,9 @@ Nect's pivot, numeric sampling or compatibility contract below.
   finally blocks. A bound of 512 spine anchors times at most 256 samples keeps
   sampling work below Resample's existing 2000000-work ceiling.
 - Orientation is fixed: preserve page-space source orientation and relative
-  handles; tangent-following, Distance along a spine, Smooth and multi-source
-  blends are later stages, not inferred from this implementation. UI must name
-  Spine Steps and state the open-path/fixed-orientation limit.
+  handles. Tangent-following and Distance along a spine are separate explicit
+  operations (see below). Smooth and multi-source blends remain out of scope.
+  UI must name Spine Steps and state the open-path/fixed-orientation limit.
 - Stable generated identities follow the existing Blend copy order. Expansion
   uses the final translated evaluation, preserving appearance. Session connect,
   parameter/operation edits, Undo/Redo and project readback use existing commands.
@@ -212,3 +212,23 @@ checks apply to the actual returned curve location; they are not a whole-spine
 proof that no cusp exists between samples. Explicit mode edits may retain a
 diagnostic graph, as existing Blend modes do; expansion refuses invalid output
 atomically, and Undo or an explicit fixed-mode change restores a valid result.
+
+## Spine Distance: bounded fixed-orientation contract
+
+REQ-138 / #302 extends the existing open-spine mode with an explicit
+`spine-distance` operation. Its active inputs are A/B, Distance and Spine.
+In computed Paper arc length L > 0 and finite positive maximum interval d
+(document px), use n = max(1, ceil(L/d)) intervals, n+1 samples including
+the exact authored spine ends, and n-1 intermediate shapes. Equal interval
+length L/n is measured along the spine, not as a chord. At most 255 intervals
+and the existing 100000-point geometry budget apply. Floating evaluation uses
+Paper's numerical length; no tolerance-based rounding or analytic guarantee.
+
+Spine Distance uses the same virtual pivot, fixed page-space orientation,
+interpolation, source validation, endpoint paint and blocker propagation as
+Spine Steps. Unlike straight Distance, it accepts unequal morphable sources
+because interval count depends only on spine length. Open-path, finite bounds,
+sampling and budget failures diagnose without fallback or mutating inputs.
+Existing operations, Steps values and dormant wires are preserved. Verify
+interval counts, exact endpoint placement, mode/parameter edits and Undo,
+reopen, SVG and expansion equivalence headlessly; native GUI stays unverified.

@@ -16,6 +16,7 @@ export const blendNodeDeclaration = {
   operations: [
     { id: 'steps', active: ['a', 'b', 'steps'] },
     { id: 'distance', active: ['a', 'b', 'distance'] },
+    { id: 'spine-distance', active: ['a', 'b', 'distance', 'spine'] },
     { id: 'spine-steps', active: ['a', 'b', 'steps', 'spine'] },
     { id: 'spine-tangent-steps', active: ['a', 'b', 'steps', 'spine'] },
   ],
