@@ -1,5 +1,6 @@
 import {
   blendSpineOffsets,
+  blendSpineDistanceOffsets,
   translateBlendContour,
   blendSpineOrientations,
   orientBlendContour,
@@ -21,7 +22,8 @@ const blendColor = (a, b, t) =>
 export function evaluateBlend(_operation, read, context) {
   const a = read('a'),
     b = read('b');
-  let steps = read('steps');
+  const spineDistanceMode = _operation === 'spine-distance';
+  let steps = spineDistanceMode ? null : read('steps');
   if (
     ![
       '',
@@ -32,6 +34,7 @@ export function evaluateBlend(_operation, read, context) {
       'steps',
       'distance',
       'spine-steps',
+      'spine-distance',
       'spine-tangent-steps',
       undefined,
     ].includes(_operation)
@@ -47,7 +50,7 @@ export function evaluateBlend(_operation, read, context) {
     if (intervals > 255) throw Error('Blend Distance exceeds 255 intervals');
     steps = intervals - 1;
   }
-  if (!Number.isInteger(steps) || steps < 0 || steps > 254)
+  if (!spineDistanceMode && (!Number.isInteger(steps) || steps < 0 || steps > 254))
     throw Error('Blend steps must be an integer from 0 to 254');
   for (const value of [a, b]) {
     if (value.kind || value.mask || value.contours?.length !== 1)
@@ -97,26 +100,37 @@ export function evaluateBlend(_operation, read, context) {
     publicColor(colorOperation('mix', [strokeA, strokeB, 0]));
     strokeStyle = as;
   }
-  if (
-    steps > 0 &&
-    (steps + 2) * blendPointCount(a.contours[0].points.length, b.contours[0].points.length) > 100000
-  )
-    throw Error('Blend exceeds geometry budget');
+  const checkBudget = (intermediates) => {
+    if (
+      intermediates > 0 &&
+      (intermediates + 2) *
+        blendPointCount(a.contours[0].points.length, b.contours[0].points.length) >
+        100000
+    )
+      throw Error('Blend exceeds geometry budget');
+  };
+  const tangentMode = _operation === 'spine-tangent-steps';
+  const spine =
+    _operation === 'spine-steps' || tangentMode || spineDistanceMode ? read('spine') : null;
+  const distanceOffsets = spineDistanceMode
+    ? blendSpineDistanceOffsets(spine, a.contours[0], b.contours[0], read('distance'), checkBudget)
+    : null;
+  if (distanceOffsets) steps = distanceOffsets.length - 2;
+  else checkBudget(steps);
   const blockers = [...new Set([...(a.exportBlockers || []), ...(b.exportBlockers || [])])];
   // No intermediate objects means no correspondence or LCM subdivision is needed.
   const interpolate =
     steps === 0
       ? (t, id) => copyClosedContourEndpoint((t === 0 ? a : b).contours[0], id)
       : prepareClosedContourBlend(a.contours[0], b.contours[0]);
-  const tangentMode = _operation === 'spine-tangent-steps';
-  const spine = _operation === 'spine-steps' || tangentMode ? read('spine') : null;
   const orientations = tangentMode
     ? blendSpineOrientations(spine, a.contours[0], b.contours[0], steps + 2)
     : null;
   const offsets =
-    _operation === 'spine-steps'
+    distanceOffsets ??
+    (_operation === 'spine-steps'
       ? blendSpineOffsets(spine, a.contours[0], b.contours[0], steps + 2)
-      : null;
+      : null);
   if (spine?.exportBlockers)
     blockers.push(...spine.exportBlockers.filter((x) => !blockers.includes(x)));
   const values = [];
@@ -128,7 +142,11 @@ export function evaluateBlend(_operation, read, context) {
         orientations
           ? orientBlendContour(contour, orientations[i])
           : offsets
-            ? translateBlendContour(contour, offsets[i])
+            ? translateBlendContour(
+                contour,
+                offsets[i],
+                spineDistanceMode ? 'Spine Distance' : undefined,
+              )
             : contour,
       ],
       fill: a.fill == null ? null : blendColor(a.fill, b.fill, t),

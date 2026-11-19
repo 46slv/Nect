@@ -12,6 +12,11 @@ import {
   activeParameters,
 } from '../src/core.js';
 import { toPaper } from '../src/paper-runtime.js';
+import {
+  deserializeCompositionProject,
+  migrateLegacyDocumentToCompositionProject,
+  serializeCompositionProject,
+} from '../src/composition-project-model.js';
 const near = (a, b) => a.forEach((x, i) => assert.ok(Math.abs(x - b[i]) < 1e-6, `${a} != ${b}`));
 function fixture(raw = 'M10 10L110 10') {
   const doc = document(),
@@ -241,12 +246,115 @@ test('spine export blockers propagate to every generated child', async () => {
     exportBlockers: ['spine-blocker', 'source-blocker'],
   };
   const before = JSON.stringify([a, b, spine]);
-  const output = evaluateBlend('spine-steps', (key) => ({ a, b, spine, steps: 3 })[key], {
-    nodeId: 'blocked-spine',
-    groupAppearance: paintedGroup,
-  });
-  assert.equal(output.children.length, 5);
-  for (const child of output.children)
-    assert.deepEqual(child.exportBlockers, ['source-blocker', 'spine-blocker']);
+  for (const operation of ['spine-steps', 'spine-distance']) {
+    const output = evaluateBlend(
+      operation,
+      (key) => ({ a, b, spine, steps: 3, distance: 40 })[key],
+      {
+        nodeId: 'blocked-spine',
+        groupAppearance: paintedGroup,
+      },
+    );
+    assert.equal(output.children.length, 5);
+    for (const child of output.children)
+      assert.deepEqual(child.exportBlockers, ['source-blocker', 'spine-blocker']);
+  }
+  const many = structuredClone(a);
+  many.contours[0].points = Array.from({ length: 512 }, (_, i) => point([i, 0]));
+  assert.throws(
+    () =>
+      evaluateBlend('spine-distance', (key) => ({ a: many, b: many, spine, distance: 0.56 })[key], {
+        nodeId: 'spine-budget',
+        groupAppearance: paintedGroup,
+      }),
+    /geometry budget/,
+  );
   assert.equal(JSON.stringify([a, b, spine]), before);
+});
+
+test('Spine Distance samples equal arc intervals including endpoints and preserves morphing', () => {
+  const { doc, a, b, blend } = fixture('M0 0C0 100 100 100 100 0');
+  a.params.size.value = [20, 40];
+  b.params.size.value = [80, 10];
+  blend.operation = 'spine-distance';
+  blend.params.distance.value = 80;
+  blend.params.steps.value = -1; // Dormant Steps has no effect.
+  assert.deepEqual(
+    activeParameters(blend).map(([key]) => key),
+    ['a', 'b', 'distance', 'spine'],
+  );
+  const before = serialize(doc);
+  const output = result(doc);
+  assert.equal(output.error, null);
+  assert.equal(output.path.children.length, 4); // L=200, ceil(200/80)=3, not chord length.
+  near(center(output.path.children[0].contours[0]), [0, 0]);
+  near(center(output.path.children.at(-1).contours[0]), [100, 0]);
+  assert.equal(serialize(doc), before);
+  const spined = exportSVG(doc);
+  assert.equal(exportSVG(deserialize(before)), spined);
+  const project = migrateLegacyDocumentToCompositionProject(doc);
+  assert.deepEqual(deserializeCompositionProject(serializeCompositionProject(project)), project);
+
+  blend.operation = 'spine-steps';
+  blend.params.steps.value = 2;
+  assert.equal(exportSVG(doc), spined); // Same arc samples, fixed orientation and paint.
+  blend.operation = 'distance';
+  assert.ok(result(doc).error); // Unequal shapes are only accepted along the spine.
+});
+
+test('Spine Distance bounds interval count, diagnoses bad input and permits fixed corner samples', () => {
+  const { doc, spine, blend } = fixture('M0 0L255 0');
+  blend.operation = 'spine-distance';
+  blend.params.distance.value = 1;
+  assert.equal(result(doc).path.children.length, 256);
+  for (const [distance, regex] of [
+    [0, /Spine Distance must be positive and finite/],
+    [-1, /Spine Distance must be positive and finite/],
+    [Number.MIN_VALUE, /Spine Distance exceeds 255 intervals/],
+  ]) {
+    blend.params.distance.value = distance;
+    assert.match(result(doc).error, regex);
+  }
+  blend.params.distance.value = 100;
+  spine.rawPath = 'M0 0L10 0L10 10';
+  assert.equal(result(doc).path.children.length, 2);
+  blend.params.distance.value = 11;
+  const corner = result(doc);
+  assert.equal(corner.error, null);
+  assert.equal(corner.path.children.length, 3);
+  near(center(corner.path.children[1].contours[0]), [10, 0]);
+  for (const invalid of ['M0 0L1 1Z', 'M0 0L0 0', 'M0 0L10 0M20 0L30 0']) {
+    spine.rawPath = invalid;
+    assert.ok(result(doc).error, invalid);
+  }
+  blend.params.spine.source = null;
+  assert.match(result(doc).error, /Spine Distance requires one open finite path/);
+});
+
+test('Spine Distance edit Undo/Redo and Expand preserve expected geometry and SVG', () => {
+  const { doc, l, blend } = fixture('M0 0C0 100 100 100 100 0');
+  blend.operation = 'spine-distance';
+  blend.params.distance.value = 80;
+  const session = new CommandSession(doc);
+  const send = (type, payload = {}) =>
+    session.dispatch({ ...session.state, type, payload: { layerId: l.id, ...payload } });
+  const original = exportSVG(session.snapshot());
+  send('set-parameter', { nodeId: blend.id, key: 'distance', value: 0 });
+  assert.match(result(session.snapshot()).error, /Spine Distance must be positive and finite/);
+  const invalid = session.snapshot();
+  assert.throws(() => send('expand-blend', { nodeId: blend.id }), /Spine Distance/);
+  assert.deepEqual(session.snapshot(), invalid);
+  send('undo');
+  assert.equal(exportSVG(session.snapshot()), original);
+  send('set-parameter', { nodeId: blend.id, key: 'distance', value: 45 });
+  assert.equal(result(session.snapshot()).path.children.length, 6);
+  send('undo');
+  assert.equal(exportSVG(session.snapshot()), original);
+  send('redo');
+  const edited = exportSVG(session.snapshot());
+  assert.notEqual(edited, original);
+  send('expand-blend', { nodeId: blend.id });
+  assert.equal(exportSVG(session.snapshot()), edited);
+  send('undo');
+  assert.equal(exportSVG(session.snapshot()), edited);
 });

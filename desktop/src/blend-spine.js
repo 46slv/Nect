@@ -2,7 +2,7 @@ import { toPaper } from './paper-runtime.js';
 
 const vector = (value) =>
   Array.isArray(value) && value.length === 2 && value.every(Number.isFinite);
-function sampleSpine(spine, a, b, count, orient) {
+function sampleSpine(spine, a, b, sampleCount, orient, label = 'Spine Steps') {
   const contour = spine?.contours?.[0];
   if (
     !spine ||
@@ -16,7 +16,7 @@ function sampleSpine(spine, a, b, count, orient) {
     contour.points.length > 512 ||
     contour.points.some((p) => !['position', 'handleA', 'handleB'].every((key) => vector(p[key])))
   )
-    throw Error('Spine Steps requires one open finite path with 2 to 512 anchors');
+    throw Error(`${label} requires one open finite path with 2 to 512 anchors`);
   const items = [];
   try {
     const item = toPaper(spine);
@@ -30,7 +30,8 @@ function sampleSpine(spine, a, b, count, orient) {
     const ca = [pa.bounds.center.x, pa.bounds.center.y],
       cb = [pb.bounds.center.x, pb.bounds.center.y];
     if (!Number.isFinite(length) || length <= 0 || !vector(ca) || !vector(cb))
-      throw Error('Spine Steps requires positive finite length and source bounds');
+      throw Error(`${label} requires positive finite length and source bounds`);
+    const count = sampleCount(length);
     return Array.from({ length: count }, (_, i) => {
       const t = i / (count - 1),
         sample =
@@ -42,9 +43,9 @@ function sampleSpine(spine, a, b, count, orient) {
                   const p = path.getPointAt(length * t);
                   return p ? [p.x, p.y] : null;
                 })();
-      if (!vector(sample)) throw Error('Spine Steps cannot sample a finite position');
+      if (!vector(sample)) throw Error(`${label} cannot sample a finite position`);
       const offset = sample.map((value, j) => value - ((1 - t) * ca[j] + t * cb[j]));
-      if (!vector(offset)) throw Error('Spine Steps exceeds finite coordinates');
+      if (!vector(offset)) throw Error(`${label} exceeds finite coordinates`);
       if (!orient) return offset;
       const location = path.getLocationAt(length * t);
       const tangent = sampleTangent(path, location);
@@ -59,20 +60,38 @@ function sampleSpine(spine, a, b, count, orient) {
   }
 }
 
-export function translateBlendContour(contour, offset) {
+export function translateBlendContour(contour, offset, label = 'Spine Steps') {
   const points = contour.points.map((point) => {
     const position = point.position.map((value, j) => value + offset[j]);
-    if (!vector(position)) throw Error('Spine Steps exceeds finite coordinates');
+    if (!vector(position)) throw Error(`${label} exceeds finite coordinates`);
     return { ...point, position };
   });
   return { ...contour, points };
 }
 
 export function blendSpineOffsets(spine, a, b, count) {
-  return sampleSpine(spine, a, b, count, false);
+  return sampleSpine(spine, a, b, () => count, false);
 }
 export function blendSpineOrientations(spine, a, b, count) {
-  return sampleSpine(spine, a, b, count, true);
+  return sampleSpine(spine, a, b, () => count, true);
+}
+
+export function blendSpineDistanceOffsets(spine, a, b, distance, checkBudget) {
+  if (!Number.isFinite(distance) || distance <= 0)
+    throw Error('Spine Distance must be positive and finite');
+  return sampleSpine(
+    spine,
+    a,
+    b,
+    (length) => {
+      const intervals = Math.max(1, Math.ceil(length / distance));
+      if (intervals > 255) throw Error('Spine Distance exceeds 255 intervals');
+      checkBudget(intervals - 1);
+      return intervals + 1;
+    },
+    false,
+    'Spine Distance',
+  );
 }
 
 function unitTangent(value) {
