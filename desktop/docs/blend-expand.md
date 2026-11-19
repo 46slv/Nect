@@ -256,3 +256,21 @@ describes automatic spacing based on color transitions or distance depending on
 the source paint, not a numeric algorithm. The fixed 1/32 resolution (up to
 32 intervals) is specific to Nect. Equal-color sources do not fall back to
 distance in this stage.
+
+## Three-source Steps: isolated first slice
+
+REQ-138's saved “三つのsourceでのSteps” section authorizes an explicit
+`three-source-steps` operation with A → B → C. Steps s is the intermediate count
+per adjacent span. Reuse the existing pair interpolation; output B once, hence
+2s+3 shapes. The existing maximum of 256 output shapes permits integer s=0..126
+(255 shapes at 126); 127 is rejected, never clamped. The combined output obeys
+the existing 100000-point budget, not a separate budget per span. All three
+sources must have compatible existing single-contour solid appearance. Failure
+of either span rejects the entire evaluation, without mutation or partial output.
+
+C is active only in this mode; prior operations and the two-selection shortcut
+retain their semantics. Legacy documents missing C gain a null inactive default;
+a three-source document without C is rejected. Existing source IDs and A/B order
+are not rewritten. No Spine, Distance or Smooth combination, four-plus sources,
+or native GUI acceptance is included. Output uses independent span ID namespaces.
+This is an isolated prototype, not released or integrated.

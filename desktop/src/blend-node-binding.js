@@ -19,7 +19,37 @@ const blendColor = (a, b, t) =>
 
 // First vertical: one closed contour with matching solid fill/stroke presence. Complex painted
 // groups and incompatible strokes must not silently lose their appearance.
+function evaluateThreeSourceSteps(read, context) {
+  const steps = read('steps');
+  if (!Number.isInteger(steps) || steps < 0 || steps > 126)
+    throw Error('Three-source Steps requires an integer from 0 to 126 (256-shape limit)');
+  const inputs = ['a', 'b', 'c'].map((key) => read(key));
+  if (inputs.some((value) => !value)) throw Error('Connect all three Blend inputs A, B and C');
+  const counts = inputs.map((value) => value.contours?.[0]?.points?.length);
+  if (counts.some((count) => !Number.isInteger(count) || count < 2 || count > 512))
+    throw Error('Three-source Steps requires bounded contour point counts');
+  const total =
+    counts.reduce((sum, count) => sum + count, 0) +
+    (steps
+      ? steps * (blendPointCount(counts[0], counts[1]) + blendPointCount(counts[1], counts[2]))
+      : 0);
+  if (total > 100000) throw Error('Blend exceeds combined geometry budget');
+  // Evaluate both spans privately. The shared B endpoint is retained from A/B once.
+  const spans = [0, 1].map((i) =>
+    evaluateBlend('steps', (key) => ({ a: inputs[i], b: inputs[i + 1], steps })[key], {
+      ...context,
+      nodeId: `${context.nodeId}:span:${i}`,
+      groupAppearance: (values) => values,
+    }),
+  );
+  const values = [...spans[0], ...spans[1].slice(1)];
+  const blockers = [...new Set(inputs.flatMap((value) => value.exportBlockers || []))];
+  if (blockers.length) for (const value of values) value.exportBlockers = [...blockers];
+  return context.groupAppearance(values);
+}
+
 export function evaluateBlend(_operation, read, context) {
+  if (_operation === 'three-source-steps') return evaluateThreeSourceSteps(read, context);
   const a = read('a'),
     b = read('b');
   const spineDistanceMode = _operation === 'spine-distance';

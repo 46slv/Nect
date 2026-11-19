@@ -8,6 +8,7 @@ export const blendNodeDeclaration = {
   parameters: [
     { id: 'a', type: 'PaintedPath', default: null },
     { id: 'b', type: 'PaintedPath', default: null },
+    { id: 'c', type: 'PaintedPath', default: null },
     { id: 'steps', type: 'Scalar', default: 5 },
     { id: 'distance', type: 'Scalar', default: 20 },
     { id: 'spine', type: 'Path', default: null },
@@ -15,6 +16,7 @@ export const blendNodeDeclaration = {
   outputs: [{ id: 'default', label: '', type: 'PaintedPath', legacyDefault: true }],
   operations: [
     { id: 'steps', active: ['a', 'b', 'steps'] },
+    { id: 'three-source-steps', active: ['a', 'b', 'c', 'steps'] },
     { id: 'smooth-color', active: ['a', 'b'] },
     { id: 'distance', active: ['a', 'b', 'distance'] },
     { id: 'spine-distance', active: ['a', 'b', 'distance', 'spine'] },
