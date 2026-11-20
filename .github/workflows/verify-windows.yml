@@ -213,7 +213,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     runs-on: windows-2022
     timeout-minutes: 60
     defaults:
@@ -259,7 +259,7 @@ jobs:
               npm run build
             }
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            node scripts/browser-suite-runner.mjs --shard "$env:BROWSER_SHARD/2"
+            node scripts/browser-suite-runner.mjs --shard "$env:BROWSER_SHARD/3"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } finally { Stop-Process -Id $server.Id -ErrorAction SilentlyContinue }
       - name: Preserve bounded development evidence
