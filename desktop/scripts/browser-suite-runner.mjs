@@ -158,13 +158,19 @@ const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
 // each shard; the default invocation still runs the entire list serially.
 export function selectBrowserShard(args, files = browserTestFiles) {
   if (args.length === 0) return files;
-  const match = args.length === 2 && args[0] === '--shard'
-    ? /^([1-9][0-9]*)\/([1-9][0-9]*)$/.exec(args[1])
-    : null;
+  const match =
+    args.length === 2 && args[0] === '--shard'
+      ? /^([1-9][0-9]*)\/([1-9][0-9]*)$/.exec(args[1])
+      : null;
   if (!match) throw new Error('Usage: browser-suite-runner.mjs [--shard INDEX/TOTAL]');
   const index = Number(match[1]);
   const total = Number(match[2]);
-  if (!Number.isSafeInteger(index) || !Number.isSafeInteger(total) || index > total || total > files.length) {
+  if (
+    !Number.isSafeInteger(index) ||
+    !Number.isSafeInteger(total) ||
+    index > total ||
+    total > files.length
+  ) {
     throw new Error('Require 1 <= INDEX <= TOTAL <= browser test count');
   }
   return files.filter((_, offset) => offset % total === index - 1);

@@ -248,8 +248,10 @@ jobs:
             if (-not $ready) { throw 'Editor server did not start' }
             if ($env:BROWSER_SHARD -eq '1') {
               npm run test:csp
-              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            } else {
+              npm run build
             }
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             node scripts/browser-suite-runner.mjs --shard "$env:BROWSER_SHARD/2"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } finally { Stop-Process -Id $server.Id -ErrorAction SilentlyContinue }

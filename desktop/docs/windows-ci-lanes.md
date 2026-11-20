@@ -39,3 +39,11 @@ introduce. Report this limitation instead of attributing queue variance to code.
 Accept only with Chrome suite unchanged (147 files), full frontend/Rust/native
 checks retained, useful wall reduction, acceptable total runner minutes and
 fail-closed aggregate behavior. Native UI acceptance remains separate.
+
+## Follow-up trial (2026-11-20)
+
+The first follow-up run split frontend work from native work and used two
+Chrome shards. It revealed that the catalog test serves the production bundle
+itself. Each Chrome shard now builds its own bundle. Shard 1 retains the
+production CSP test; shard 2 runs the build without duplicating that test.
+The aggregate requires native, frontend, and both Chrome shards to succeed.
