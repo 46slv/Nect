@@ -12,6 +12,7 @@ import {
   deserialize,
   CommandSession,
   createVariableDocumentPreparer,
+  createVariablePreparationController,
 } from '../src/core.js';
 import { makeVariableFontAsset, makeFontAsset, resolveFonts } from '../src/fonts.js';
 const fixture = fs.readFileSync(
@@ -153,7 +154,7 @@ test('candidate failure/cancel/full cache replacement leaves active export exact
     });
     assert.throws(() => session.commitPrepared(token), /STALE_REVISION/);
     assert.match(svg(session, bridge), /<path/);
-    const controller = new AbortController();
+    const controller = createVariablePreparationController();
     controller.abort();
     await assert.rejects(bridge.prepareDocument(replacement, { signal: controller.signal }), {
       code: 'CANCELLED',
@@ -344,7 +345,7 @@ test('candidate abort releases only its bank; superseding failed preparation inv
   const { bridge, session } = await open(doc);
   try {
     const before = svg(session, bridge);
-    const controller = new AbortController();
+    const controller = createVariablePreparationController();
     const token = await session.prepareCommand(
       {
         ...session.state,

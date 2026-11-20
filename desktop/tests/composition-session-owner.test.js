@@ -362,6 +362,10 @@ test('prepared edits enter project History and variable-aware Undo restores the 
       },
       preparedFonts: () => ({}),
       activate() {},
+      stageActivation() {},
+      assertFreshForPublication() {},
+      publishActivation() {},
+      discardActivation() {},
       cancel() {},
     };
 

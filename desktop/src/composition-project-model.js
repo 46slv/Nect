@@ -1,10 +1,19 @@
 import { validateColorSlots, validateColorSlotBinding } from './color-slots.js';
 import { validateLayerFolders } from './layer-folders.js';
 import {
+  assertMacroCandidateEnvelope,
+  assertMacroDocumentEnvelope,
+  assertMacroDocumentReferences,
+  assertMacroProjectDefinitionTransition,
+  assertMacroProjectReferences,
+  assertNoMacroCandidateJsonCallbacks,
+} from './macro-project.js';
+import {
   ARTWORK_REFERENCE_SCHEMA_VERSION,
   COMPOSITION_PROPERTY_REFERENCE_SCHEMA_VERSION,
   QUALIFIED_COLOR_REFERENCE_SCHEMA_VERSION,
   COMPONENT_COMPOSITION_REFERENCE_SCHEMA_VERSION,
+  MACRO_SCHEMA_VERSION,
   hasComponentCompositionReferenceSyntax,
   nodesHaveComponentCompositionReferenceSyntax,
   hasQualifiedColorReferenceSyntax,
@@ -551,8 +560,57 @@ function assertLayerReferenceScope(project) {
 
 export function validateCompositionProject(project) {
   assertJsonTree(project);
+  if (project?.schemaVersion >= MACRO_SCHEMA_VERSION) {
+    assertMacroCandidateEnvelope(project);
+    assertNoMacroCandidateJsonCallbacks(project);
+  }
   assertCompositionProjectFields(project);
+  if (project.schemaVersion >= MACRO_SCHEMA_VERSION) assertMacroProjectReferences(project);
   return project;
+}
+
+export function validateMacroDocumentCandidate(document) {
+  assertMacroDocumentEnvelope(document);
+  assertJsonTree(document);
+  assertNoMacroCandidateJsonCallbacks(document);
+  assertMacroDocumentReferences(document);
+  return document;
+}
+
+// Prototype admission for a prospective Macro-enabled Project. The existing
+// codec deliberately does not infer this contract from an unknown root field.
+export function validateMacroProjectCandidate(project) {
+  assertMacroCandidateEnvelope(project);
+  assertJsonTree(project);
+  assertNoMacroCandidateJsonCallbacks(project);
+  assertCompositionProjectFields(project);
+  assertMacroProjectReferences(project);
+  return project;
+}
+
+function retainedMacroDefinitions(options) {
+  const retained =
+    options && typeof options === 'object'
+      ? Object.getOwnPropertyDescriptor(options, 'retainedDefinitionSets')
+      : null;
+  if (!retained || !Object.hasOwn(retained, 'value'))
+    throw Error('Retained Macro definition sets must be supplied');
+  return retained.value;
+}
+
+export function validateMacroProjectAdmission(candidate, options) {
+  const retained = retainedMacroDefinitions(options);
+  validateMacroProjectCandidate(candidate);
+  assertMacroProjectDefinitionTransition({}, candidate, retained);
+  return candidate;
+}
+
+export function validateMacroProjectTransition(before, candidate, options) {
+  const retained = retainedMacroDefinitions(options);
+  validateMacroProjectCandidate(before);
+  validateMacroProjectCandidate(candidate);
+  assertMacroProjectDefinitionTransition(before, candidate, retained);
+  return candidate;
 }
 
 export function serializeCompositionProject(project) {

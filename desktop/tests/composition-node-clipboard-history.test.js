@@ -146,6 +146,10 @@ test('prepared project Undo/Redo and cancellation retain the same Copy snapshot'
       },
       preparedFonts: () => ({}),
       activate() {},
+      stageActivation() {},
+      assertFreshForPublication() {},
+      publishActivation() {},
+      discardActivation() {},
       cancel() {},
     };
   f.edit(7);

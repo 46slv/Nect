@@ -3,6 +3,88 @@ import { canonicalAxes, LIMITS, freeze, requireThat as check } from './contract.
 import { hasCharacterAdjustments } from '../character-identity.js';
 
 export const VARIABLE_KIND = 'variable-glyf-v1';
+// Public signals identify only controllers created here. The Worker and final
+// commit use a separate private signal and flag that callers cannot replace.
+const preparationSignals = new WeakMap();
+const NativeAbortController = AbortController,
+  nativeAddListener = EventTarget.prototype.addEventListener,
+  nativeRemoveListener = EventTarget.prototype.removeEventListener,
+  nativeAbortController = NativeAbortController.prototype.abort;
+
+function preparationAborted(state) {
+  for (let current = state; current; current = current.parent) if (current.aborted) return true;
+  return false;
+}
+
+function makeVariablePreparationController(parent = null) {
+  const visible = new NativeAbortController(),
+    internal = new NativeAbortController(),
+    state = { aborted: false, internal, parent };
+  const privateSignal = internal.signal;
+  Object.defineProperties(privateSignal, {
+    aborted: { get: () => preparationAborted(state) },
+    addEventListener: {
+      value: (...args) => nativeAddListener.call(privateSignal, ...args),
+    },
+    removeEventListener: {
+      value: (...args) => nativeRemoveListener.call(privateSignal, ...args),
+    },
+  });
+  preparationSignals.set(visible.signal, state);
+  return Object.freeze({
+    signal: visible.signal,
+    abort(reason) {
+      if (state.aborted) return;
+      state.aborted = true;
+      try {
+        nativeAbortController.call(internal, reason);
+      } finally {
+        nativeAbortController.call(visible, reason);
+      }
+    },
+  });
+}
+
+export function createVariablePreparationController() {
+  return makeVariablePreparationController();
+}
+
+function preparationState(signal) {
+  if (signal == null) return null;
+  const state = preparationSignals.get(signal);
+  check(state, 'INVALID_ABORT_SIGNAL');
+  return state;
+}
+
+export function captureVariablePreparationOptions(options = {}) {
+  check(options && typeof options === 'object' && !Array.isArray(options), 'INVALID_ABORT_SIGNAL');
+  const descriptor = Object.getOwnPropertyDescriptor(options, 'signal');
+  check(descriptor || !('signal' in options), 'INVALID_ABORT_SIGNAL');
+  check(
+    !descriptor || (descriptor.enumerable && Object.hasOwn(descriptor, 'value')),
+    'INVALID_ABORT_SIGNAL',
+  );
+  const signal = descriptor?.value,
+    state = preparationState(signal);
+  check(!preparationAborted(state), 'CANCELLED');
+  return Object.freeze({ signal });
+}
+
+// A tab request owns its child; canceling it must not abort the caller or a
+// separate request that happens to share the caller's parent signal.
+export function createVariablePreparationChild(parentSignal) {
+  const parent = preparationState(parentSignal),
+    controller = makeVariablePreparationController(parent),
+    relay = () => controller.abort();
+  if (preparationAborted(parent)) controller.abort();
+  else parent?.internal.signal.addEventListener('abort', relay, { once: true });
+  return Object.freeze({
+    controller,
+    unlink() {
+      parent?.internal.signal.removeEventListener('abort', relay);
+    },
+  });
+}
 export const VARIABLE_DOCUMENT_LIMITS = Object.freeze({
   runs: 8,
   commands: 100000,
@@ -62,23 +144,57 @@ export function createVariableDocumentPreparer({
 } = {}) {
   const preparer = createVariablePreparer(options);
   const registered = new Map();
+  const preparationChecks = new WeakMap();
   let generation = 0,
     currentFonts = {},
     disposed = false,
     activeUsage = { runs: 0, commands: 0, serializedBytes: 0 };
   let pendingTicket = null;
+  const detachTicket = (pending) => {
+    if (!pending || pending.detachAttempted) return;
+    // Never retry an externally supplied teardown after a throw or reentry.
+    pending.detachAttempted = true;
+    pending.signal?.removeEventListener('abort', pending.abort);
+    pending.detached = true;
+  };
   const clearTicket = () => {
-    pendingTicket?.signal?.removeEventListener('abort', pendingTicket.abort);
-    pendingTicket = null;
+    const pending = pendingTicket;
+    try {
+      detachTicket(pending);
+    } finally {
+      // A callback may have installed a newer ticket while detaching the old one.
+      if (pendingTicket === pending) pendingTicket = null;
+    }
   };
   return {
-    async prepareDocument(input, { signal } = {}) {
+    preparationEpoch() {
+      const token = Object.freeze({});
+      preparationChecks.set(token, { generation, pending: pendingTicket });
+      return token;
+    },
+    assertPreparationEpoch(epoch) {
+      const captured = preparationChecks.get(epoch);
+      check(
+        !disposed &&
+          captured &&
+          generation === captured.generation &&
+          pendingTicket === captured.pending,
+        'STALE_RESULT',
+      );
+    },
+    async prepareDocument(input, options = {}) {
+      const beforeGeneration = generation,
+        beforePending = pendingTicket,
+        { signal } = captureVariablePreparationOptions(options),
+        signalState = preparationState(signal),
+        workerSignal = signalState?.internal.signal;
+      check(generation === beforeGeneration && pendingTicket === beforePending, 'STALE_RESULT');
       check(typeof resolveFonts === 'function', 'VARIABLE_RESOLVER_REQUIRED');
       check(!disposed, 'DISPOSED');
       const revision = ++generation;
       clearTicket();
       preparer.setRevision(revision);
-      check(!signal?.aborted, 'CANCELLED');
+      check(!preparationAborted(signalState), 'CANCELLED');
       const doc = cloneDocument(input);
       validate(doc);
       const fonts = resolveFonts(doc);
@@ -92,8 +208,8 @@ export function createVariableDocumentPreparer({
           const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
           const assetId = await preparer.register(bytes);
           check(
-            generation === revision && !signal?.aborted,
-            signal?.aborted ? 'CANCELLED' : 'STALE_RESULT',
+            generation === revision && !preparationAborted(signalState),
+            preparationAborted(signalState) ? 'CANCELLED' : 'STALE_RESULT',
           );
           record = { assetId, metadata: fonts[id].nectVariable };
           registered.set(asset.data, record);
@@ -125,7 +241,7 @@ export function createVariableDocumentPreparer({
         serializedBytes = 0;
       try {
         for (const { assetId, request, ids } of requests.values()) {
-          const run = await preparer.prepare(assetId, request, { signal });
+          const run = await preparer.prepare(assetId, request, { signal: workerSignal });
           check(generation === revision, 'STALE_RESULT');
           commands += run.commands.length;
           serializedBytes += new TextEncoder().encode(JSON.stringify(run)).byteLength;
@@ -137,13 +253,14 @@ export function createVariableDocumentPreparer({
           for (const id of ids)
             banks.get(id).set(JSON.stringify([request.text, request.axes]), run);
         }
-        check(!signal?.aborted, 'CANCELLED');
+        check(!preparationAborted(signalState), 'CANCELLED');
         assertVariableDocumentReady(doc, fonts);
         const ticket = Object.freeze({});
         pendingTicket = {
           ticket,
           revision,
-          signal,
+          signal: workerSignal,
+          signalState,
           usage: { runs: requests.size, commands, serializedBytes },
           document: freeze(doc),
           fonts: Object.freeze(fonts),
@@ -154,7 +271,7 @@ export function createVariableDocumentPreparer({
             preparer.setRevision(++generation);
           }
         };
-        signal?.addEventListener('abort', pendingTicket.abort, { once: true });
+        workerSignal?.addEventListener('abort', pendingTicket.abort, { once: true });
         return ticket;
       } finally {
         if (!preparer.stats().pending) preparer.releaseWorker();
@@ -162,11 +279,35 @@ export function createVariableDocumentPreparer({
     },
     fonts: () => ({ ...currentFonts }),
     assertFresh(ticket) {
+      const pending = pendingTicket;
+      check(
+        !disposed && pending?.ticket === ticket && pending.revision === generation,
+        'STALE_RESULT',
+      );
+      check(
+        !preparationAborted(pending.signalState) &&
+          !disposed &&
+          pendingTicket === pending &&
+          pending.revision === generation,
+        'STALE_RESULT',
+      );
+    },
+    assertFreshForPublication(ticket) {
+      // This and publishActivation form the trusted, callback-free bridge
+      // boundary. Only the module-private cancellation flag is read here.
+      const pending = pendingTicket;
       check(
         !disposed &&
-          pendingTicket?.ticket === ticket &&
-          pendingTicket.revision === generation &&
-          !pendingTicket.signal?.aborted,
+          pending?.ticket === ticket &&
+          pending.revision === generation &&
+          pending.detached,
+        'STALE_RESULT',
+      );
+      check(
+        !preparationAborted(pending.signalState) &&
+          !disposed &&
+          pendingTicket === pending &&
+          pending.revision === generation,
         'STALE_RESULT',
       );
     },
@@ -178,11 +319,46 @@ export function createVariableDocumentPreparer({
       this.assertFresh(ticket);
       return pendingTicket.fonts;
     },
-    activate(ticket) {
+    stageActivation(ticket) {
       this.assertFresh(ticket);
-      currentFonts = pendingTicket.fonts;
-      activeUsage = pendingTicket.usage;
-      clearTicket();
+      detachTicket(pendingTicket);
+      this.assertFresh(ticket);
+    },
+    publishActivation(ticket) {
+      const pending = pendingTicket;
+      check(
+        !disposed &&
+          pending?.ticket === ticket &&
+          pending.revision === generation &&
+          pending.detached,
+        'STALE_RESULT',
+      );
+      // This publication has no caller-provided callback or AbortSignal access.
+      currentFonts = pending.fonts;
+      activeUsage = pending.usage;
+      pendingTicket = null;
+    },
+    discardActivation(ticket) {
+      const pending = pendingTicket;
+      if (!pending || pending.ticket !== ticket) return false;
+      try {
+        detachTicket(pending);
+      } catch {
+        // The listener is now inert once its candidate is discarded. Do not
+        // retry a teardown callback which has already thrown.
+      }
+      if (pendingTicket === pending) pendingTicket = null;
+      return true;
+    },
+    activate(ticket) {
+      try {
+        this.stageActivation(ticket);
+        this.assertFreshForPublication(ticket);
+        this.publishActivation(ticket);
+      } catch (error) {
+        this.discardActivation(ticket);
+        throw error;
+      }
     },
     cancel() {
       clearTicket();

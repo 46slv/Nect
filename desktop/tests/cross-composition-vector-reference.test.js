@@ -748,13 +748,13 @@ test('standalone Apply and isolated preview preflight every earlier project synt
   }
 });
 
-test('wrapper accepts schema 64 and 65 and rejects future schema 66', () => {
+test('wrapper accepts schema 64–66 and rejects future schema 67', () => {
   const project = fixture();
   project.compositionSchemaVersion = 2;
-  for (const schemaVersion of [64, 65])
+  for (const schemaVersion of [64, 65, 66])
     assert.doesNotThrow(() => validateCompositionProject({ ...project, schemaVersion }));
   assert.throws(
-    () => validateCompositionProject({ ...project, schemaVersion: 66 }),
+    () => validateCompositionProject({ ...project, schemaVersion: 67 }),
     /unsupported/i,
   );
 });

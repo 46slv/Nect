@@ -654,10 +654,43 @@ try {
     (id) => window.nect.document.layers[0].nodes.find((entry) => entry.id === id)?.text === 'AWZ',
     text.id,
   );
+
+  // The shared Font picker owns its own cancellation controller. Replacing a
+  // variable font with the embedded default must still be one reversible edit.
+  await page.locator(`.node[data-id="${text.id}"] .node-head strong`).click();
+  await ensureWorkspacePanel(page, 'inspector');
+  const beforeFontChange = await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot()));
+  await page.locator('.inspector-body [data-change-font]').click();
+  const picker = page.getByRole('dialog', { name: 'Font', exact: true });
+  await picker.waitFor();
+  await picker.locator('input[type="search"]').fill('DejaVu');
+  await picker
+    .getByRole('treeitem', { name: /DejaVu Sans/ })
+    .and(picker.locator('.picker-option[aria-disabled="false"]'))
+    .first()
+    .click();
+  await picker.locator('.picker-apply').click();
+  await picker.waitFor({ state: 'hidden' });
+  await page.waitForFunction((id) => {
+    const target = window.nect.document.layers[0].nodes.find((entry) => entry.id === id);
+    return target?.font === 'default' && target.variation === undefined;
+  }, text.id);
+  const afterFontChange = await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot()));
+  assert.notEqual(afterFontChange, beforeFontChange);
+  await page.locator('[data-action="undo"]').click();
+  await page.waitForFunction(
+    (expected) => JSON.stringify(window.nect.projectSnapshot()) === expected,
+    beforeFontChange,
+  );
+  await page.locator('[data-action="redo"]').click();
+  await page.waitForFunction(
+    (expected) => JSON.stringify(window.nect.projectSnapshot()) === expected,
+    afterFontChange,
+  );
   assert.deepEqual(errors, []);
   assert.equal(mainNavigations, 1, 'Vite must not reload the active test page');
   console.log(
-    'PASS: sandboxed Chrome variable Composition view state, keyboard, History/Redo, Color uses, inline name race, pending preview reload and Layer Delete guards, and SVG',
+    'PASS: sandboxed Chrome variable Composition view state, keyboard, History/Redo, Color uses, inline name race, pending preview reload, Layer Delete guards, Font picker and SVG',
   );
 } finally {
   await browser.close();
