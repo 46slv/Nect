@@ -15,21 +15,23 @@ const lane = (name) => {
   return match[1];
 };
 const native = lane('native-frontend');
+const frontend = lane('frontend');
 const browser = lane('browser');
 const gate = lane('windows');
 
-test('Windows keeps native/frontend steps ordered and all Chrome work in an independent lane', () => {
+test('Windows keeps native, frontend and Chrome lanes independent', () => {
   assert.ok(
     native.indexOf('Build Windows app without packaging') < native.indexOf('Run native Rust tests'),
   );
-  assert.ok(
-    native.indexOf('Run native Rust tests') < native.indexOf('Run frontend unit and DOM tests'),
+  assert.doesNotMatch(
+    native,
+    /Run frontend unit and DOM tests|Run actual Chrome interaction tests/,
   );
-  assert.match(native, /^        run: npm run test:ci:windows\r?$/m);
-  assert.doesNotMatch(native, /Run actual Chrome interaction tests/);
-  assert.match(browser, /npm run test:e2e/);
-  assert.doesNotMatch(browser, /needs:|cargo test|run: npm test/);
-  assert.doesNotMatch(native, /needs:/);
+  assert.match(frontend, /^        run: npm run test:ci:windows\r?$/m);
+  assert.doesNotMatch(frontend, /cargo test|Run actual Chrome interaction tests/);
+  assert.match(browser, /matrix:\s+shard: \[1, 2\]/);
+  assert.match(browser, /node scripts\/browser-suite-runner.mjs --shard/);
+  for (const body of [native, frontend, browser]) assert.doesNotMatch(body, /needs:/);
 });
 
 test('Windows frontend bounds concurrency without changing the full test selection', () => {
@@ -45,8 +47,8 @@ test('Windows frontend bounds concurrency without changing the full test selecti
   assert.doesNotMatch(browser, /test:ci:windows/);
 });
 
-test('both lanes provision dependencies and fonts without new permissions or actions', () => {
-  for (const body of [native, browser]) {
+test('all lanes provision dependencies and fonts without new permissions or actions', () => {
+  for (const body of [native, frontend, browser]) {
     assert.match(body, /runs-on: windows-2022/);
     assert.match(body, /node-version: 24/);
     assert.match(body, /run: npm ci/);
@@ -59,12 +61,13 @@ test('both lanes provision dependencies and fonts without new permissions or act
 
 test('required windows aggregate rejects every non-success lane result', () => {
   assert.match(gate, /if: \$\{\{ always\(\) \}\}/);
-  assert.match(gate, /needs: \[native-frontend, browser\]/);
+  assert.match(gate, /needs: \[native-frontend, frontend, browser\]/);
   assert.match(gate, /NATIVE_FRONTEND_RESULT: \$\{\{ needs.native-frontend.result \}\}/);
+  assert.match(gate, /FRONTEND_RESULT: \$\{\{ needs.frontend.result \}\}/);
   assert.match(gate, /BROWSER_RESULT: \$\{\{ needs.browser.result \}\}/);
   assert.match(
     gate,
-    /if \(\$env:NATIVE_FRONTEND_RESULT -cne 'success' -or \$env:BROWSER_RESULT -cne 'success'\) \{/,
+    /if \(\$env:NATIVE_FRONTEND_RESULT -cne 'success' -or \$env:FRONTEND_RESULT -cne 'success' -or \$env:BROWSER_RESULT -cne 'success'\) \{/,
   );
   assert.match(gate, /throw "Windows verification incomplete:/);
 });
@@ -75,7 +78,9 @@ test('lane artifact names are distinct and preserve the same evidence allowlist'
   const paths = (body) =>
     body.match(/          path: \|\r?\n([\s\S]*?)          if-no-files-found: ignore/)[1];
   assert.equal(paths(native), paths(browser));
-  for (const body of [native, browser]) assert.match(body, /if: always\(\)/);
+  assert.match(frontend, /name: nect-desktop-windows-frontend-/);
+  assert.match(browser, /-shard-\$\{\{ matrix.shard \}\}/);
+  for (const body of [native, frontend, browser]) assert.match(body, /if: always\(\)/);
 });
 
 test('Chrome preserves failure continuation, production CSP entry and owned server cleanup', () => {
@@ -84,5 +89,6 @@ test('Chrome preserves failure continuation, production CSP entry and owned serv
     /if: \$\{\{ !cancelled\(\) && steps.dependencies.outcome == 'success' \}\}/,
   );
   assert.match(browser, /finally \{ Stop-Process -Id \$server.Id -ErrorAction SilentlyContinue \}/);
+  assert.match(browser, /npm run test:csp[\s\S]*?else \{\s+npm run build/);
   assert.match(browser, /if \(\$LASTEXITCODE -ne 0\) \{ exit \$LASTEXITCODE \}/);
 });
