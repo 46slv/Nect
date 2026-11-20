@@ -154,6 +154,22 @@ export const browserTestFiles = Object.freeze([
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
 
+// Each test file belongs to one shard. The original order remains inside
+// each shard; the default invocation still runs the entire list serially.
+export function selectBrowserShard(args, files = browserTestFiles) {
+  if (args.length === 0) return files;
+  const match = args.length === 2 && args[0] === '--shard'
+    ? /^([1-9][0-9]*)\/([1-9][0-9]*)$/.exec(args[1])
+    : null;
+  if (!match) throw new Error('Usage: browser-suite-runner.mjs [--shard INDEX/TOTAL]');
+  const index = Number(match[1]);
+  const total = Number(match[2]);
+  if (!Number.isSafeInteger(index) || !Number.isSafeInteger(total) || index > total || total > files.length) {
+    throw new Error('Require 1 <= INDEX <= TOTAL <= browser test count');
+  }
+  return files.filter((_, offset) => offset % total === index - 1);
+}
+
 export async function runBrowserSuite({
   files = browserTestFiles,
   spawnChild = spawn,
@@ -264,6 +280,15 @@ export async function runBrowserSuite({
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const result = await runBrowserSuite();
-  process.exitCode = result.exitCode;
+  let files;
+  try {
+    files = selectBrowserShard(process.argv.slice(2));
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 2;
+  }
+  if (files) {
+    const result = await runBrowserSuite({ files });
+    process.exitCode = result.exitCode;
+  }
 }
