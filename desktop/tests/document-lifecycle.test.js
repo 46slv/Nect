@@ -1,5 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { deserialize, evaluate, exportSVG } from '../src/core.js';
+import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
+import {
+  deserializeCompositionProject,
+  serializeCompositionProject,
+} from '../src/composition-project-model.js';
 import { DocumentLifecycle } from '../src/document-lifecycle.js';
 
 function fixture({ release = async () => {} } = {}) {
@@ -215,4 +222,87 @@ test('cleanup failure preserves accepted state and retries; concurrent retiremen
   assert.deepEqual(released, ['old', 'first', 'second']);
   assert.equal(d.pendingReleases.size, 0);
   assert.equal(d.cleanupError, null);
+});
+
+test('a bound Blend edit survives Close and Save As cancellation, then saves to a new project', async () => {
+  const original = readFileSync(
+    new URL('../examples/blend-distance.json', import.meta.url),
+    'utf8',
+  );
+  const originalBinding = { token: 'original', path: 'blend-distance.json' },
+    newBinding = { token: 'copy', path: 'blend-distance-edited.json' },
+    files = new Map([[originalBinding.path, original]]),
+    writes = [],
+    released = [];
+  const load = (text) =>
+    createCompositionSessionOwner(deserializeCompositionProject(text, deserialize));
+  const session = load(original);
+  const shapeCount = (document) => {
+    const result = evaluate(document.layers[0], {}, document.imageAssets, document);
+    assert.equal(result.error, null);
+    return result.path.children.length;
+  };
+  const read = () => serializeCompositionProject(session.projectSnapshot());
+  let allowSaveAs = false;
+  const lifecycle = new DocumentLifecycle({
+    read,
+    choose: async (action) => {
+      assert.equal(action, 'closing Nect');
+      return 'cancel';
+    },
+    write: async (request) => {
+      writes.push(request);
+      const target = request.binding ?? (allowSaveAs ? newBinding : null);
+      if (!target) return null;
+      files.set(target.path, request.contents);
+      return target;
+    },
+    release: async ({ token }) => released.push(token),
+  });
+  await lifecycle.replace({ binding: originalBinding, saved: true });
+  const before = session.snapshot(),
+    layer = before.layers[0],
+    blend = layer.nodes.find((node) => node.type === 'Blend');
+  assert.equal(shapeCount(before), 16);
+  session.dispatch({
+    ...session.state,
+    type: 'set-parameter',
+    payload: { layerId: layer.id, nodeId: blend.id, key: 'distance', value: 60 },
+  });
+  const edited = read(),
+    editedSVG = exportSVG(session.snapshot());
+  assert.equal(shapeCount(session.snapshot()), 11);
+  assert.equal(lifecycle.dirty, true);
+
+  assert.equal(
+    await lifecycle.guard('closing Nect', {
+      onApproved: () => assert.fail('a canceled Close must not be approved'),
+    }),
+    false,
+  );
+  assert.equal(writes.length, 0);
+  assert.equal(await lifecycle.save(true), false);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].binding, null);
+  assert.equal(read(), edited);
+  assert.equal(lifecycle.dirty, true);
+  assert.deepEqual(lifecycle.binding, originalBinding);
+  assert.deepEqual(released, []);
+  assert.deepEqual([...files], [[originalBinding.path, original]]);
+
+  allowSaveAs = true;
+  assert.equal(await lifecycle.save(true), true);
+  assert.equal(writes.length, 2);
+  assert.equal(writes[1].binding, null);
+  assert.deepEqual(lifecycle.binding, newBinding);
+  assert.equal(lifecycle.dirty, false);
+  assert.deepEqual(released, ['original']);
+  assert.equal(files.get(originalBinding.path), original);
+  const reopened = load(files.get(newBinding.path)).snapshot();
+  assert.equal(
+    reopened.layers[0].nodes.find((node) => node.id === blend.id).params.distance.value,
+    60,
+  );
+  assert.equal(shapeCount(reopened), 11);
+  assert.equal(exportSVG(reopened), editedSVG);
 });
