@@ -16,7 +16,9 @@ root = exe.parent
 assert result_file.parent == root
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
-replacement = "\u63db\u30fbA1\uff0812\uff09"
+mixed_text_probe = os.environ.get("NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE") == "1"
+assert not mixed_text_probe or text_edit
+replacement = "\u63db\u30fbA1\uff0812\uff09" if mixed_text_probe else "Nect A1 (12)"
 before_dirs=set(root.glob("nect-svg-acceptance-*"))
 fixture = json.loads((base.parent / "examples/blend-distance.json").read_text(encoding="utf-8"))
 layer = fixture["layers"][0]
@@ -127,10 +129,13 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         reopened=invoke("inspect",{},"ok")["target"]
         assert reopened["documentGeneration"]>current["documentGeneration"] and reopened["sessionId"]!=current["sessionId"]
         invoke("reopen_copy",{"target":current},"stale-target",True)
-        invoke("export_svg",{"target":reopened},"accepted-by-writer")
-        invoke("export_svg",{"target":reopened},"outcome-unknown",True)
-        invoke("export_png",{"target":reopened},"accepted-by-writer")
-        invoke("export_png",{"target":reopened},"outcome-unknown",True)
+        if mixed_text_probe:
+            invoke("export_svg",{"target":reopened},"outcome-unknown",True)
+        else:
+            invoke("export_svg",{"target":reopened},"accepted-by-writer")
+            invoke("export_svg",{"target":reopened},"outcome-unknown",True)
+            invoke("export_png",{"target":reopened},"accepted-by-writer")
+            invoke("export_png",{"target":reopened},"outcome-unknown",True)
         assert invoke("inspect",{},"ok")["target"] == reopened
         bridge.stdin.close()
         assert bridge.wait(timeout=10) == 0
@@ -140,8 +145,14 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             "svgSHA256": "2fc89ac6200e9ad681cc8ec7fec3ba382d6937d4943fab4386261782034f1095",
             "pngSHA256": "c58c92625c8400699021ccfbce42be1d43c24b84cbdef603921dca2b4162c84d",
         }
+        outputs = run/"documents"
+        if mixed_text_probe:
+            assert not (outputs/"live-api-export.svg").exists()
+            assert not (outputs/"live-api-export.png").exists()
         digests={}
         for role,filename in (("copy","live-api-project.json"),("svg","live-api-export.svg"),("png","live-api-export.png")):
+            if mixed_text_probe and role != "copy":
+                continue
             digests[role]=hashlib.sha256((run/"documents"/filename).read_bytes()).hexdigest()
             if artwork:
                 assert digests[role]!=expected[role+"SHA256"].lower(), role
@@ -161,12 +172,13 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                     assert shape["params"]["position"]["value"]==point, shape["params"]["position"]
                     if text_edit:
                         assert shape["text"]==replacement and shape["font"]=="default"
-            svg=(artifacts/"live-api-export.svg").read_bytes()
-            png=(artifacts/"live-api-export.png").read_bytes()
-            from xml.etree import ElementTree
-            assert ElementTree.fromstring(svg).tag.endswith("}svg")
-            assert png[:8]==b"\x89PNG\r\n\x1a\n" and png[12:16]==b"IHDR"
-            assert (int.from_bytes(png[16:20],"big"),int.from_bytes(png[20:24],"big"))==(960,540)
+            if not mixed_text_probe:
+                svg=(artifacts/"live-api-export.svg").read_bytes()
+                png=(artifacts/"live-api-export.png").read_bytes()
+                from xml.etree import ElementTree
+                assert ElementTree.fromstring(svg).tag.endswith("}svg")
+                assert png[:8]==b"\x89PNG\r\n\x1a\n" and png[12:16]==b"IHDR"
+                assert (int.from_bytes(png[16:20],"big"),int.from_bytes(png[20:24],"big"))==(960,540)
         bound=run/"documents/live-api-save-as.json"
         assert hashlib.sha256(bound.read_bytes()).hexdigest()==digests["copy"]
         assert len(list((run/"documents").glob("live-api-save-as*")))==1
@@ -174,8 +186,9 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "scope":"independent MCP stdio client, isolated hidden Windows Nect; not Hermes or normal product",
                   "protocol":hello["protocolVersion"],"tools":len(listed["tools"]),"run":run.name,
                   "edit":"changed","history":"undo/redo verified","saveCopy":"accepted-by-writer","reopen":"reopened",
-                  "exportSvg":"accepted-by-writer","exportPng":"accepted-by-writer","caseGuards":"pass",
-                  "artwork":[x[0] for x in made], "japaneseText":text_edit, "digest":digests}
+                  "exportSvg":"outcome-unknown (default font glyph rejection)" if mixed_text_probe else "accepted-by-writer",
+                  "exportPng":"not attempted" if mixed_text_probe else "accepted-by-writer","caseGuards":"pass",
+                  "artwork":[x[0] for x in made], "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))
