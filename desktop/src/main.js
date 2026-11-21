@@ -47,6 +47,7 @@ import {
 } from './artboard-units.js';
 import { SVG_EXPORT_PRECISIONS } from './svg-number-format.js';
 import { formatParameterResult } from './parameter-result-format.js';
+import { createArtworkExporter } from './artwork-export.js';
 import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
 import { initialLayerId } from './initial-layer.js';
@@ -6581,6 +6582,8 @@ function updateArtboardUnitDisplay() {
     )} ${artboardUnit}`;
   }
 }
+const exportArtwork = createArtworkExporter({ exportSVG, pngDimensions, rasterizeSVG });
+
 function pngExportSettings() {
   return pngExportMode === 'ppi'
     ? { mode: 'ppi', ppi: pngPpi }
@@ -11931,23 +11934,29 @@ app.addEventListener('click', async (e) => {
           if (exportInFlight) break;
           exportInFlight = true;
           try {
-            if (d.action === 'export') {
-              const svg = exportSVG(history.doc, fonts, {
-                unit: svgExportUnit,
-                responsive: svgExportSizing === 'responsive',
-                ...(svgExportPrecision === 'default'
-                  ? {}
-                  : { precision: Number(svgExportPrecision) }),
-              });
-              if (await saveFile(svg, 'nect-artwork.svg', 'svg'))
-                notify('SVG exported · transparent artboard; guides excluded');
-            } else {
-              const size = pngDimensions(history.doc, pngExportSettings());
-              const svg = exportSVG(history.doc, fonts);
-              const ppi = pngExportMode === 'ppi' ? pngPpi : null,
-                blob = await rasterizeSVG(svg, size, ppi);
-              if (await saveFile(blob, 'nect-artwork.png', 'png'))
-                notify(`PNG exported · ${size.width} × ${size.height} · transparent background`);
+            const format = d.action === 'export' ? 'svg' : 'png';
+            const result = await exportArtwork(
+              {
+                document: history.doc,
+                fonts,
+                format,
+                svgOptions: {
+                  unit: svgExportUnit,
+                  responsive: svgExportSizing === 'responsive',
+                  ...(svgExportPrecision === 'default'
+                    ? {}
+                    : { precision: Number(svgExportPrecision) }),
+                },
+                pngOptions: format === 'png' ? pngExportSettings() : undefined,
+              },
+              saveFile,
+            );
+            if (result.written) {
+              if (format === 'svg') notify('SVG exported · transparent artboard; guides excluded');
+              else
+                notify(
+                  `PNG exported · ${result.size.width} × ${result.size.height} · transparent background`,
+                );
             }
           } finally {
             exportInFlight = false;
