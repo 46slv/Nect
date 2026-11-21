@@ -25,7 +25,7 @@ pub(crate) enum InspectReply {
 }
 
 impl InspectReply {
-    fn parse(bytes: &[u8]) -> Result<Self, Admission> {
+    pub(crate) fn parse(bytes: &[u8]) -> Result<Self, Admission> {
         if bytes.len() > MAX_INSPECT_BYTES {
             return Err(Admission::InvalidRendererReply);
         }

@@ -34,6 +34,8 @@ pub(crate) fn run(state: &LiveAcceptance) -> Result<(), String> {
             let stdin = std::io::stdin();
             let stdout = std::io::stdout();
             if let Err(error) = serve(BufReader::new(stdin.lock()), stdout.lock(), |packet| {
+                #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
+                let inspect = is_inspect_packet(&packet);
                 let Some(id) = mailbox.enqueue(packet) else {
                     return r#"{"status":"busy"}"#.into();
                 };
@@ -45,7 +47,13 @@ pub(crate) fn run(state: &LiveAcceptance) -> Result<(), String> {
                         Poll::OutcomeUnknown | Poll::Missing => {
                             return r#"{"status":"outcome-unknown"}"#.into()
                         }
-                        Poll::Complete(receipt) => return receipt,
+                        Poll::Complete(receipt) => {
+                            #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
+                            if inspect {
+                                return validated_inspect_receipt(&receipt);
+                            }
+                            return receipt;
+                        }
                     }
                 }
             }) {
@@ -54,6 +62,22 @@ pub(crate) fn run(state: &LiveAcceptance) -> Result<(), String> {
         })
         .map(|_| ())
         .map_err(|error| error.to_string())
+}
+
+#[cfg(all(windows, feature = "live-editor-acceptance-test"))]
+fn is_inspect_packet(packet: &str) -> bool {
+    use serde_json::json;
+    serde_json::from_str::<serde_json::Value>(packet).ok()
+        == Some(json!({"version":1, "operation":"editor.inspect", "arguments":{}}))
+}
+
+#[cfg(all(windows, feature = "live-editor-acceptance-test"))]
+fn validated_inspect_receipt(receipt: &str) -> String {
+    use crate::live_api_read_admission::InspectReply;
+    InspectReply::parse(receipt.as_bytes())
+        .ok()
+        .and_then(|reply| serde_json::to_string(&reply).ok())
+        .unwrap_or_else(|| r#"{"status":"unavailable"}"#.into())
 }
 
 fn admitted<'a>(

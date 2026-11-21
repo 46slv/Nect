@@ -13,7 +13,7 @@ mod build_identity_config;
 mod build_identity_sources;
 mod desktop_font_layout;
 mod document_storage;
-#[cfg(test)]
+#[cfg(any(test, all(windows, feature = "live-editor-acceptance-test")))]
 mod live_api_read_admission;
 mod live_editor_acceptance;
 mod live_editor_frames;
