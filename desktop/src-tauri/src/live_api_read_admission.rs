@@ -2,6 +2,54 @@
 //! Does not authenticate processes or own a listener. The native transport
 //! must authorize the client before calling issue, and own expiry/cleanup.
 
+use serde::{Deserialize, Serialize};
+
+const MAX_INSPECT_BYTES: usize = 4096;
+const MAX_JS_REVISION: u64 = 9_007_199_254_740_991;
+
+#[derive(Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct InspectTarget {
+    document_generation: u64,
+    composition_id: String,
+    session_id: String,
+    session_revision: u64,
+    project_revision: u64,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(tag = "status", rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) enum InspectReply {
+    Ok { target: InspectTarget },
+    Unavailable {},
+}
+
+impl InspectReply {
+    fn parse(bytes: &[u8]) -> Result<Self, Admission> {
+        if bytes.len() > MAX_INSPECT_BYTES {
+            return Err(Admission::InvalidRendererReply);
+        }
+        let reply: Self =
+            serde_json::from_slice(bytes).map_err(|_| Admission::InvalidRendererReply)?;
+        if let Self::Ok { target } = &reply {
+            if [
+                target.document_generation,
+                target.session_revision,
+                target.project_revision,
+            ]
+            .iter()
+            .any(|&n| n > MAX_JS_REVISION)
+                || [&target.composition_id, &target.session_id]
+                    .iter()
+                    .any(|id| id.is_empty() || id.encode_utf16().count() > 256)
+            {
+                return Err(Admission::InvalidRendererReply);
+            }
+        }
+        Ok(reply)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Admission {
     Disabled,
@@ -10,6 +58,7 @@ pub(crate) enum Admission {
     Expired,
     Exhausted,
     UnsupportedOperation,
+    InvalidRendererReply,
 }
 
 #[derive(Debug)]
@@ -125,6 +174,19 @@ impl ReadAdmission {
         Ok(result)
     }
 
+    pub(crate) fn finish_inspect(
+        &self,
+        pending: PendingRead<'_>,
+        now: u64,
+        bytes: &[u8],
+    ) -> Result<InspectReply, Admission> {
+        self.admit(Some(pending.grant), now)?;
+        if pending.operation != ReadOperation::Inspect {
+            return Err(Admission::UnsupportedOperation);
+        }
+        InspectReply::parse(bytes)
+    }
+
     fn check_ready(&self) -> Result<(), Admission> {
         if !self.enabled {
             return Err(Admission::Disabled);
@@ -234,6 +296,51 @@ mod tests {
         let pending = state.begin(Some(&new), 9, "editor.inspect").unwrap();
         assert_eq!(
             state.finish(pending, 10, "must not return"),
+            Err(Admission::Expired)
+        );
+    }
+
+    #[test]
+    fn inspect_reply_requires_the_closed_bounded_target_and_a_current_grant() {
+        let mut state = ready(1);
+        let grant = state.issue(1, 20).unwrap();
+        let finish = |bytes: &[u8]| {
+            state.finish_inspect(
+                state.begin(Some(&grant), 3, "editor.inspect").unwrap(),
+                4,
+                bytes,
+            )
+        };
+        let valid = br#"{"status":"ok","target":{"documentGeneration":2,"compositionId":"c","sessionId":"s","sessionRevision":4,"projectRevision":5}}"#;
+        assert_eq!(
+            serde_json::to_value(finish(valid).unwrap()).unwrap(),
+            serde_json::from_slice::<serde_json::Value>(valid).unwrap()
+        );
+        assert_eq!(
+            finish(br#"{"status":"unavailable"}"#),
+            Ok(InspectReply::Unavailable {})
+        );
+        for invalid in [
+            br#"{"status":"unavailable","path":"private"}"#.as_slice(),
+            br#"{"status":"ok","target":{"documentGeneration":2,"compositionId":"c","sessionId":"s","sessionRevision":4,"projectRevision":5,"path":"private"}}"#,
+            br#"{"status":"ok","target":{"documentGeneration":2,"compositionId":"c","sessionId":"s","sessionRevision":4,"projectRevision":9007199254740992}}"#,
+            br#"{"status":"ok","target":{"documentGeneration":2,"compositionId":"","sessionId":"s","sessionRevision":4,"projectRevision":5}}"#,
+            br#"{"status":"ok","target":null}"#,
+        ] {
+            assert_eq!(finish(invalid), Err(Admission::InvalidRendererReply));
+        }
+        assert_eq!(
+            finish(&[b' '; MAX_INSPECT_BYTES + 1]),
+            Err(Admission::InvalidRendererReply)
+        );
+        let wrong_verb = state.begin(Some(&grant), 3, "artwork.list").unwrap();
+        assert_eq!(
+            state.finish_inspect(wrong_verb, 4, valid),
+            Err(Admission::UnsupportedOperation)
+        );
+        let expired = state.begin(Some(&grant), 3, "editor.inspect").unwrap();
+        assert_eq!(
+            state.finish_inspect(expired, 20, valid),
             Err(Admission::Expired)
         );
     }
