@@ -19372,9 +19372,16 @@ if (
 ) {
   void (async () => {
     const { invoke } = await import('@tauri-apps/api/core');
+    const acceptanceArtwork = createLiveArtworkOutput({
+      readTarget: readLiveEditorTarget,
+      readSnapshot: () => ({ document: history.doc, fonts }),
+      exportArtwork,
+      write: (contents) => invoke('live_acceptance_write_svg', { contents }),
+    });
     const handle = createLiveEditorProtocol({
       readTarget: readLiveEditorTarget,
       setBlendDistance: liveBlendDistance,
+      writeSvg: (target) => acceptanceArtwork.run({ target, format: 'svg' }),
     });
     const wait = () => new Promise((resolve) => setTimeout(resolve, 50));
     const deadline = Date.now() + 120_000;
@@ -19390,7 +19397,7 @@ if (
       const [id, packet] = request;
       let reply;
       try {
-        reply = handle(JSON.parse(packet));
+        reply = await handle(JSON.parse(packet));
       } catch {
         reply = { status: 'outcome-unknown' };
       }

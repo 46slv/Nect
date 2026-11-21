@@ -305,6 +305,20 @@ impl RunStorage {
         Ok(())
     }
 
+    // The native acceptance adapter owns this destination. It is not a
+    // filename received from an automation client and cannot overwrite a file.
+    pub(crate) fn write_acceptance_svg(&self, contents: &[u8]) -> Result<(), String> {
+        let paths = self.0.as_ref().ok_or("Isolated acceptance storage required")?;
+        let path = self.document_path(&paths.documents.join("live-api-export.svg"), false)?;
+        let parent = path.parent().ok_or("Invalid destination")?;
+        let mut staged = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+        staged.write_all(contents).map_err(|e| e.to_string())?;
+        staged.as_file().sync_all().map_err(|e| e.to_string())?;
+        self.document_path(&path, false)?;
+        staged.persist_noclobber(&path).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     pub fn write_bytes(&self, path: &Path, contents: &[u8]) -> Result<(), String> {
         let path = self.document_path(path, false)?;
         let parent = path.parent().ok_or("Invalid destination")?;

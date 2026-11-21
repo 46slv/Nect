@@ -28,7 +28,7 @@ function validTarget(target) {
   );
 }
 
-export function createLiveEditorProtocol({ readTarget, setBlendDistance }) {
+export function createLiveEditorProtocol({ readTarget, setBlendDistance, writeSvg }) {
   return function handle(request) {
     if (!closed(request, ['version', 'operation', 'arguments']))
       return { status: 'invalid-request' };
@@ -38,6 +38,14 @@ export function createLiveEditorProtocol({ readTarget, setBlendDistance }) {
     if (request.operation === 'editor.inspect') {
       if (!closed(args, [])) return { status: 'invalid-arguments' };
       return { status: 'ok', target: captureEditorTarget(readTarget()) };
+    }
+    if (request.operation === 'artwork.exportSvg' && writeSvg) {
+      if (!closed(args, ['target']) || !validTarget(args.target))
+        return { status: 'invalid-arguments' };
+      return Promise.resolve()
+        .then(() => writeSvg(args.target))
+        .then(({ status }) => ({ status }))
+        .catch(() => ({ status: 'outcome-unknown' }));
     }
     if (request.operation !== 'blend.setDistance') return { status: 'unsupported-operation' };
     if (

@@ -95,3 +95,18 @@ pub(crate) fn live_acceptance_fixture(
     #[cfg(not(all(windows, feature = "live-editor-acceptance-test")))]
     Err("Live editor test disabled")
 }
+
+#[tauri::command]
+pub(crate) fn live_acceptance_write_svg(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, LiveAcceptance>,
+    storage: tauri::State<'_, crate::acceptance_storage::RunStorage>,
+    contents: String,
+) -> Result<bool, String> {
+    admitted(&state, window.label())?;
+    if contents.len() > 4_000_000 || !contents.starts_with("<svg") {
+        return Err("Invalid acceptance SVG".into());
+    }
+    storage.write_acceptance_svg(contents.as_bytes())?;
+    Ok(true)
+}
