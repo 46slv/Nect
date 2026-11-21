@@ -1,0 +1,59 @@
+# G19: Normal desktop API and MCP, first transport slice
+
+Status: design candidate. No listener, profile change, or release in this checkpoint.
+The [1.0 scope and G19 requirement](https://app.notion.com/p/3e3fd279a6f381b4ba9dd2d1bf066e0f)
+remain the product source. The long-term goal is the same authoring operations
+from GUI and non-GUI clients, not remote mouse control.
+
+## What the proof does and does not establish
+
+The Windows acceptance instance proves document identity, authored object
+discovery, Blend and Text edits, history, save receipts and export on a
+single isolated editor. It does not prove a production connection, native
+chooser behavior, installed fonts, or an active Hermes Desktop session.
+Keep its fixed paths, fixture injection and test commands out of normal builds.
+The legacy Qt IPC and stdio MCP adapter are precedent, not the Tauri backend.
+
+## First product route
+
+- Keep one editor-owned Session and run the typed handlers on its owning
+  renderer. GUI and external operations use the same command/history layer.
+  No direct renderer eval, blind active-tab edit, or second project copy.
+- Windows candidate: a native local named pipe, created only after explicit
+  enablement, with an ACL limited to the owner and remote clients rejected.
+  Scope authorization to the selected editor instance and client grant. Being
+  on localhost or under the same account is not a substitute for the grant.
+  Disable and app exit revoke the session grant and close the owned endpoint.
+  A contained first implementation should exercise mocked native ownership and
+  revocation before enabling a connection to a normal UI.
+- A stdio MCP client adapter translates a small stable tool catalog to that
+  native endpoint. It does not silently spawn a document or monitor a network
+  port. Endpoint or grant material does not belong in prompts, process command
+  lines, logs, or project files. Keep access unavailable until the native
+  connection and renderer are both ready.
+- Start with editor inspection and bounded authored-object listing. They return
+  a captured target and necessary metadata only. Confirm target generation,
+  composition and revisions again on the edit path. Return a named reason for
+  a stale target or disabled connection. A read does not touch selection,
+  undo or authored data. Layer positions are cursors within one revision,
+  never object IDs.
+- Add one edit with the existing shared command, then typed persistence
+  operations. Distinguish not dispatched from unknown completion; reconcile
+  a write receipt before replay. Preserve GUI destination authority and avoid
+  accepting arbitrary output paths in this first slice.
+
+## Acceptance before broader exposure
+
+1. A connection with no grant, a disabled connection, another instance, and a
+   revoked/expired grant all fail closed. Reconnect does not restore authority.
+2. A real normal Windows instance, with a synthetic open document, accepts
+   inspect and list only through an authorized client. Compare identity
+   and state with GUI; switch tabs and confirm earlier targets are rejected.
+3. Pass an authorized edit through the same command as GUI. Verify exactly
+   one history step, Undo/Redo, and no change after stale failure. Test safe
+   disconnect before dispatch, during dispatch, and after receipt.
+4. Add the approved Desktop MCP registration using a dedicated test profile,
+   not a live profile reload or an invisible fallback session. Match GUI
+   conversation and target instance. Do not infer this result from stdio tests.
+5. Saved/reopened editable state, user-selected installed fonts, actual Windows
+   chooser, and SVG/PNG are distinct later gates, not this design's results.
