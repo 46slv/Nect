@@ -19211,6 +19211,7 @@ const testLiveEditorProtocol =
   typeof import.meta.env !== 'undefined' && import.meta.env.DEV
     ? createLiveEditorProtocol({
         readTarget: readLiveEditorTarget,
+        canInspect: () => !documents.transitioning,
         setBlendDistance: liveBlendDistance,
         stepHistory: stepAcceptanceHistory,
         createArtwork: liveArtworkCreation,
@@ -19490,6 +19491,7 @@ if (
     });
     const handle = createLiveEditorProtocol({
       readTarget: readLiveEditorTarget,
+      canInspect: () => !documents.transitioning,
       listArtwork: (args) =>
         readLiveEditorObjects(
           {

@@ -30,6 +30,7 @@ function validTarget(target) {
 
 export function createLiveEditorProtocol({
   readTarget,
+  canInspect = () => true,
   listArtwork,
   setBlendDistance,
   stepHistory,
@@ -49,7 +50,13 @@ export function createLiveEditorProtocol({
     const args = request.arguments;
     if (request.operation === 'editor.inspect') {
       if (!closed(args, [])) return { status: 'invalid-arguments' };
-      return { status: 'ok', target: captureEditorTarget(readTarget()) };
+      try {
+        if (!canInspect()) return { status: 'unavailable' };
+        const target = captureEditorTarget(readTarget());
+        return validTarget(target) ? { status: 'ok', target } : { status: 'unavailable' };
+      } catch {
+        return { status: 'unavailable' };
+      }
     }
     if (listArtwork && request.operation === 'artwork.list') {
       if (

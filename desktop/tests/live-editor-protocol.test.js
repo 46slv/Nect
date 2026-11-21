@@ -77,6 +77,37 @@ test('inspect and successful edits return only the allowlisted editor target', (
   });
 });
 
+test('inspect reads once when ready and fails closed through a document transition', () => {
+  let ready = false;
+  let reads = 0;
+  let current = target;
+  const handle = createLiveEditorProtocol({
+    canInspect: () => ready,
+    readTarget: () => {
+      reads++;
+      if (current === null) throw Error('private host details');
+      return current;
+    },
+  });
+  const inspect = request('editor.inspect', {});
+  assert.deepEqual(handle(inspect), { status: 'unavailable' });
+  assert.equal(reads, 0);
+  ready = true;
+  const old = handle(inspect).target;
+  ready = false;
+  current = { ...target, documentGeneration: 3 };
+  assert.deepEqual(handle(inspect), { status: 'unavailable' });
+  assert.equal(reads, 1);
+  ready = true;
+  assert.deepEqual(handle(inspect), { status: 'ok', target: current });
+  assert.equal(old.documentGeneration, 1);
+  current = { ...target, projectRevision: 'unknown' };
+  assert.deepEqual(handle(inspect), { status: 'unavailable' });
+  current = null;
+  assert.deepEqual(handle(inspect), { status: 'unavailable' });
+  assert.equal(reads, 4);
+});
+
 test('does not represent a stale edit or an ambiguous host failure as success', () => {
   let attempts = 0;
   const handle = createLiveEditorProtocol({
