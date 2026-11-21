@@ -10,6 +10,15 @@ import {
 } from './character-identity.js';
 import { characterTransform, transformCharacterPoint } from './character-geometry.js';
 
+export class MissingGlyphError extends Error {
+  constructor(char) {
+    const code = char.codePointAt(0).toString(16).toUpperCase();
+    super('Missing glyphs in selected font: ' + char + ' (U+' + code +
+      '). Load a font containing this character.');
+    this.name = 'MissingGlyphError';
+  }
+}
+
 const rotatePunctuation = new Set([
   ...'ーｰ―—‐‑–−〜～…‥「」『』（）〔〕［］｛｝〈〉《》【】〖〗〘〙〚〛＝',
 ]);
@@ -285,9 +294,7 @@ export function layoutText(
     const activeFont = style.font ? (style.font === fontId ? font : fonts[style.font]) : font;
     if (!activeFont) throw Error(`Character font ${style.font} is unavailable`);
     if (char !== '\n' && !activeFont.charToGlyphIndex(char))
-      throw Error(
-        `Missing glyphs in selected font: ${char} (U+${char.codePointAt(0).toString(16).toUpperCase()}). Load a font containing this character.`,
-      );
+      throw new MissingGlyphError(char);
     return {
       font: activeFont,
       fontId: style.font || fontId,

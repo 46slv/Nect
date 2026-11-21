@@ -1,4 +1,5 @@
 import { captureEditorTarget, editorTargetMatches } from './live-editor-target.js';
+import { MissingGlyphError } from './text-layout.js';
 
 // In-process, application-owned operation. A caller supplies intent and the
 // target version, never the document or a replacement destination writer.
@@ -20,6 +21,9 @@ export function createLiveArtworkOutput({ readTarget, readSnapshot, exportArtwor
       const snapshot = readSnapshot();
       const result = await exportArtwork({ ...snapshot, format, svgOptions, pngOptions }, write);
       return { ...result, status: result.written ? 'accepted-by-writer' : 'canceled' };
+    } catch (error) {
+      if (error instanceof MissingGlyphError) return { status: 'unsupported-glyph' };
+      throw error;
     } finally {
       pending = false;
     }

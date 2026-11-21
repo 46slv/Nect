@@ -142,7 +142,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         assert reopened["documentGeneration"]>current["documentGeneration"] and reopened["sessionId"]!=current["sessionId"]
         invoke("reopen_copy",{"target":current},"stale-target",True)
         if mixed_text_probe:
-            invoke("export_svg",{"target":reopened},"outcome-unknown",True)
+            for kind in ("svg", "png"):
+                invoke("export_"+kind,{"target":reopened},"unsupported-glyph",True)
         else:
             invoke("export_svg",{"target":reopened},"accepted-by-writer")
             invoke("export_svg",{"target":reopened},"outcome-unknown",True)
@@ -201,8 +202,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "scope":"independent MCP stdio client, isolated hidden Windows Nect; not Hermes or normal product",
                   "protocol":hello["protocolVersion"],"tools":len(listed["tools"]),"run":run.name,
                   "edit":"changed","history":"undo/redo verified","saveCopy":"accepted-by-writer","reopen":"reopened",
-                  "exportSvg":"outcome-unknown (default font glyph rejection)" if mixed_text_probe else "accepted-by-writer",
-                  "exportPng":"not attempted" if mixed_text_probe else "accepted-by-writer","caseGuards":"pass",
+                  "exportSvg":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer",
+                  "exportPng":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer","caseGuards":"pass",
                   "artwork":created, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)

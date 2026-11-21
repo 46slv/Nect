@@ -10,6 +10,7 @@ import {
 import { deserialize, exportSVG } from '../src/core.js';
 import { DocumentLifecycle } from '../src/document-lifecycle.js';
 import { createLiveArtworkOutput } from '../src/live-artwork-output.js';
+import { MissingGlyphError } from '../src/text-layout.js';
 
 function fixture() {
   const target = {
@@ -148,4 +149,17 @@ test('the live Composition owner rejects stale output without changing authored 
   );
   assert.deepEqual(snapshot().slice(0, 3), before);
   assert.deepEqual(outputs, [exportSVG(owner.snapshot(), {})]);
+});
+
+test('missing glyph is a confirmed rejection, other writer failures remain unknown', async () => {
+  const { operation, target, setExport, calls } = fixture();
+  setExport(async () => { throw new MissingGlyphError('\u63db'); });
+  for (const format of ['svg', 'png']) {
+    assert.deepEqual(await operation.run({ target, format }), { status: 'unsupported-glyph' });
+  }
+  setExport(async () => { throw Error('write has ambiguous outcome'); });
+  await assert.rejects(operation.run({ target, format: 'svg' }), /ambiguous outcome/);
+  setExport(async () => ({ written: true }));
+  assert.equal((await operation.run({ target, format: 'svg' })).status, 'accepted-by-writer');
+  assert.equal(calls.length, 4);
 });

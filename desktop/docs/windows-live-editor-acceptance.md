@@ -49,14 +49,14 @@ Hermes Desktop, or the native save picker.
 
 ### Text editing scenarios
 
-With an artwork-compatible test executable built at 5085ce1 or newer, enable
+With an artwork-compatible test executable matching this revision, enable
 both NECT_ACCEPTANCE_ARTWORK and NECT_ACCEPTANCE_TEXT. This discovers 13 tools
 and exercises targeted ASCII text editing through reopening and SVG/PNG output.
 For a separate negative case set NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE=1 with a
 fresh receipt. Mixed Unicode text must round-trip intact as editable Text, but
-DejaVu Sans has no U+63DB, so SVG must not be written and PNG is not attempted.
-The adapter currently returns the generic outcome-unknown status; the shared
-exporter independently diagnoses the missing glyph from the saved composition.
+DejaVu Sans has no U+63DB. Both SVG and PNG must return unsupported-glyph,
+with no output file. Unknown transport or writer errors remain a separate
+outcome-unknown status; an unknown result must be checked before retry.
 For the Japanese positive run with a test build at 4b0b093 or newer, also set
 NECT_SVG_ACCEPTANCE_JP_FIXTURE=1, leave the negative flag off, and use a fresh
 receipt. The native fixture attaches one existing redistributable font and
