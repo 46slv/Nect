@@ -14,6 +14,7 @@ assert not result_file.exists()
 exe = Path(os.environ["NECT_ACCEPTANCE_EXE"]).resolve(strict=True)
 root = exe.parent
 assert result_file.parent == root
+list_objects = os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1"
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
 mixed_text_probe = os.environ.get("NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE") == "1"
@@ -53,16 +54,41 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         extra = ["nect_test_create_artwork"] if artwork else []
         if text_edit:
             extra.append("nect_test_set_text_content")
+        if list_objects:
+            extra.append("nect_test_list_artwork")
         assert [t["name"] for t in listed["tools"]] == ["nect_test_inspect", "nect_test_set_blend_distance", "nect_test_export_svg", "nect_test_export_png", "nect_test_save_copy", "nect_test_reopen_copy", "nect_test_undo", "nect_test_redo","nect_test_save_state","nect_test_save_receipt","nect_test_save_as"] + extra
-        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * len(extra)
+        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects)) + [True] * int(list_objects)
         start = call(3, "tools/call", name="nect_test_inspect", arguments={})
         assert not start["isError"], start
         target = start["structuredContent"]["target"]
-        intent = dict(target=target, layerId=layer["id"], nodeId=node["id"], value=60)
+        source_layer, source_node = layer["id"], node["id"]
+        if list_objects:
+            def list_page(id_, layer_index, revision):
+                return call(id_, "tools/call", name="nect_test_list_artwork",
+                            arguments=dict(target=revision, layerIndex=layer_index, offset=0))
+            layers = list_page(1001, None, target)
+            assert not layers["isError"], layers
+            layer_page = layers["structuredContent"]
+            assert set(layer_page) == {"status","target","layerId","items","nextOffset"}
+            assert layer_page["target"] == target and layer_page["layerId"] is None
+            assert all(set(item) == {"layerId","layerIndex","locked"} for item in layer_page["items"])
+            [address] = [item for item in layer_page["items"] if item["layerId"] == layer["id"]]
+            nodes = list_page(1002, address["layerIndex"], target)
+            assert not nodes["isError"], nodes
+            page = nodes["structuredContent"]
+            assert page["target"] == target and page["layerId"] == address["layerId"]
+            assert all(set(item) == {"nodeId","type"} for item in page["items"])
+            [blend] = [item for item in page["items"] if item["type"] == "Blend"]
+            assert blend["nodeId"] == node["id"]
+            source_layer, source_node = page["layerId"], blend["nodeId"]
+        intent = dict(target=target, layerId=source_layer, nodeId=source_node, value=60)
         edited = call(4, "tools/call", name="nect_test_set_blend_distance", arguments=intent)
         assert not edited["isError"] and edited["structuredContent"]["status"] == "changed", edited
         current = edited["structuredContent"]["target"]
         assert current["projectRevision"] == target["projectRevision"] + 1
+        if list_objects:
+            rejected = list_page(1003, 0, target)
+            assert rejected["isError"] and rejected["structuredContent"] == {"status":"stale-target"}, rejected
         stale = call(5, "tools/call", name="nect_test_set_blend_distance", arguments={**intent, "value":70})
         assert stale["isError"] and stale["structuredContent"]["status"] == "stale-target", stale
         after = call(6, "tools/call", name="nect_test_inspect", arguments={})
@@ -204,7 +230,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "edit":"changed","history":"undo/redo verified","saveCopy":"accepted-by-writer","reopen":"reopened",
                   "exportSvg":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer",
                   "exportPng":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer","caseGuards":"pass",
-                  "artwork":created, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
+                  "artwork":created, "authoredObjectDiscovery":list_objects, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))

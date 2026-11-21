@@ -51,6 +51,29 @@ test('object pages only expose addresses, type and locked state, with stable pag
   assert.deepEqual(get(1, 0), { status: 'unsupported-target' });
 });
 
+test('wide Unicode and escaped addresses paginate within the native byte frame', () => {
+  const nodes = Array.from({ length: 10 }, (_, index) => ({
+    id: '\u63db'.repeat(248) + '\n' + index,
+    type: 'Text',
+  }));
+  const host = { readTarget: () => target, readDocument: () => ({ layers: [{ id: 'l', nodes }] }) };
+  const found = [];
+  let offset = 0;
+  do {
+    const page = readLiveEditorObjects(host, { target, layerIndex: 0, offset });
+    assert.equal(page.status, 'ok');
+    assert.ok(Buffer.byteLength(JSON.stringify(page)) <= 3500);
+    assert.ok(page.items.length < nodes.length);
+    found.push(...page.items.map((item) => item.nodeId));
+    if (page.nextOffset !== null) assert.ok(page.nextOffset > offset);
+    offset = page.nextOffset;
+  } while (offset !== null);
+  assert.deepEqual(
+    found,
+    nodes.map((node) => node.id),
+  );
+});
+
 test('stale target never reads a newer document or returns a stale page', () => {
   const args = { target, layerIndex: null, offset: 0 };
   assert.deepEqual(

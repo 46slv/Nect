@@ -36,6 +36,11 @@ For a normal renderer build, explicitly unset the acceptance flag or set it to
 
 ### Choose one scenario per run
 
+Optionally set `NECT_ACCEPTANCE_OBJECTS=1` to discover one additional
+read-only tool. This checks that the same target can list layers, discover
+the Blend node address, and use that address for the edit. Old list requests
+are rejected after the edit. Keep the flag off with older executables.
+
 Use a fresh receipt for each scenario. Clear inherited flags that are off in
 the table before starting the verifier, including when switching back to the
 baseline. All four variables are optional; on means exactly `1`.

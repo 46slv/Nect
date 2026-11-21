@@ -79,6 +79,15 @@ if os.environ.get("NECT_ACCEPTANCE_ARTWORK") == os.environ.get("NECT_ACCEPTANCE_
         "annotations":{"readOnlyHint":False,"destructiveHint":False,"openWorldHint":False},
     })
     OPERATIONS[name] = "text.setContent"
+if os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1":
+    name = "nect_test_list_artwork"
+    TOOLS.append({
+        "name": name, "description": "List addresses and types of authored objects in the isolated fixture",
+        "inputSchema": schema(dict(target=target, offset=revision,
+                                   layerIndex={"anyOf":[revision,{"type":"null"}]})),
+        "annotations":{"readOnlyHint":True,"openWorldHint":False},
+    })
+    OPERATIONS[name] = "artwork.list"
 SUCCEEDED = {"ok", "changed", "unchanged", "accepted-by-writer", "reopened"}
 
 def make_child():
