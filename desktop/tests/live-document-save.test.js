@@ -105,17 +105,24 @@ it('readback distinguishes a completed Save As from an uncommitted retry without
   h.change({ document: 'edited' });
   const api = createLiveSaveAsBoundary(h);
   assert.deepEqual(api.inspect(), { saveEpoch: 0, dirty: true, pending: false });
-  const request = { target: h.readTarget(), saveEpoch: api.inspect().saveEpoch };
+  const request = { target: h.readTarget(), saveEpoch: api.inspect().saveEpoch, requestId: 'a' };
   const pending = api.run(request);
   assert.deepEqual(api.inspect(), { saveEpoch: 0, dirty: true, pending: true });
-  assert.deepEqual(await api.run(request), { status: 'busy' });
+  assert.deepEqual(api.getReceipt('a'), { status: 'pending' });
+  assert.deepEqual(await api.run(request), { status: 'pending' });
+  assert.deepEqual(await api.run({ ...request, requestId: 'b' }), { status: 'busy' });
+  assert.deepEqual(api.getReceipt('b'), { status: 'unknown-request' });
   release(destination);
   // Simulate a caller that never receives the first returned envelope.
   await pending;
   assert.deepEqual(h.readTarget(), request.target);
   assert.deepEqual(api.inspect(), { saveEpoch: 1, dirty: false, pending: false });
   assert.equal(h.documents.binding, destination);
-  assert.deepEqual(await api.run(request), { status: 'stale-save-state' });
+  const committed = { status: 'accepted-by-writer', saveEpoch: 1 };
+  assert.deepEqual(api.getReceipt('a'), committed);
+  assert.deepEqual(await api.run(request), committed);
+  assert.deepEqual(await api.run({ ...request, saveEpoch: 1 }), { status: 'request-conflict' });
+  assert.deepEqual(await api.run({ ...request, requestId: 'b' }), { status: 'stale-save-state' });
   assert.equal(writes, 1);
 });
 
@@ -125,11 +132,16 @@ it('save epoch does not advance for cancellation or an unconfirmed writer', asyn
     if (++writes === 1) return null;
     throw Error('private-path');
   });
-  const api = createLiveSaveAsBoundary(h);
-  const request = { target: h.readTarget(), saveEpoch: 0 };
+  const api = createLiveSaveAsBoundary({ ...h, receiptLimit: 2 });
+  const request = { target: h.readTarget(), saveEpoch: 0, requestId: 'a' };
   assert.deepEqual(await api.run({ ...request, saveEpoch: -1 }), { status: 'invalid-arguments' });
   assert.deepEqual(await api.run(request), { status: 'not-confirmed' });
-  assert.deepEqual(await api.run(request), { status: 'outcome-unknown' });
+  const next = { ...request, requestId: 'b' };
+  assert.deepEqual(await api.run(next), { status: 'outcome-unknown' });
+  assert.deepEqual(api.getReceipt('b'), { status: 'outcome-unknown' });
+  assert.deepEqual(await api.run(next), { status: 'outcome-unknown' });
+  assert.deepEqual(await api.run({ ...request, requestId: 'c' }), { status: 'receipt-capacity' });
+  assert.deepEqual(api.getReceipt('a'), { status: 'not-confirmed' });
   assert.deepEqual(api.inspect(), { saveEpoch: 0, dirty: true, pending: false });
   assert.equal(writes, 2);
 });
