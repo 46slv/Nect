@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 import subprocess
+from queue import Empty, Queue
+from threading import Thread
 import sys
 import uuid
 
@@ -90,7 +92,14 @@ def make_child():
                                 "TEMP": str(EXE.parent), "TMP": str(EXE.parent), "TMPDIR": str(EXE.parent),
                             }, creationflags=subprocess.CREATE_NO_WINDOW)
 
-def app_call(child, name, args):
+def abandon_native(child):
+    if child.poll() is None:
+        child.terminate()
+        child.wait(timeout=2)
+    return {"status": "outcome-unknown"}
+
+
+def app_call(child, native_replies, name, args):
     try:
         if child.poll() is not None:
             return {"status": "app-unavailable"}
@@ -100,17 +109,34 @@ def app_call(child, name, args):
             return {"status": "invalid-arguments"}
         child.stdin.write(packet + b"\n")
         child.stdin.flush()
-        line = child.stdout.readline(4098)
+        try:
+            line = native_replies.get(timeout=9)
+        except Empty:
+            # No correlation is possible after this deadline. Never admit another
+            # request on this stream; its next line may be the old reply.
+            return abandon_native(child)
+        if line is None:
+            return abandon_native(child)
         if not line.endswith(b"\n") or len(line) > 4097:
-            return {"status": "outcome-unknown"}
+            return abandon_native(child)
         result = json.loads(line)
         if not isinstance(result, dict) or not isinstance(result.get("status"), str):
-            return {"status": "outcome-unknown"}
+            return abandon_native(child)
         return result
     except (OSError, ValueError):
-        return {"status": "outcome-unknown"}
+        return abandon_native(child)
 
 def serve(child):
+    native_replies = Queue()
+    def read_native():
+        try:
+            while line := child.stdout.readline(4098):
+                native_replies.put(line)
+                if len(line) > 4097 or not line.endswith(b"\n"):
+                    return
+        finally:
+            native_replies.put(None)
+    Thread(target=read_native, daemon=True).start()
     handshake = "start"
     def response(id_, **payload):
         sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": id_, **payload}) + "\n")
@@ -156,7 +182,7 @@ def serve(child):
             if not isinstance(name, str) or name not in OPERATIONS or not isinstance(args, dict):
                 error(id_, -32602, "Unknown tool or invalid arguments")
                 continue
-            result = app_call(child, name, args)
+            result = app_call(child, native_replies, name, args)
             response(id_, result={"content": [{"type": "text", "text": json.dumps(result)}],
                                   "structuredContent": result,
                                   "isError": result["status"] not in SUCCEEDED})
