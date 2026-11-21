@@ -42,6 +42,12 @@ The legacy Qt IPC and stdio MCP adapter are precedent, not the Tauri backend.
   a write receipt before replay. Preserve GUI destination authority and avoid
   accepting arbitrary output paths in this first slice.
 
+The read-admission prototype checks an owner-issued grant both before
+dispatch and when accepting a result for publication. The production
+transport must serialize that final check with its connection writer and
+purge unpublished results on revocation; returned test data is not proof of
+socket or OS authorization.
+
 ## Acceptance before broader exposure
 
 1. A connection with no grant, a disabled connection, another instance, and a

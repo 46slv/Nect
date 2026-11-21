@@ -13,6 +13,8 @@ mod build_identity_config;
 mod build_identity_sources;
 mod desktop_font_layout;
 mod document_storage;
+#[cfg(test)]
+mod live_api_read_admission;
 mod live_editor_acceptance;
 mod live_editor_frames;
 mod live_editor_mailbox;

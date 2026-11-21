@@ -9,6 +9,7 @@ pub(crate) enum Admission {
     NotGranted,
     Expired,
     Exhausted,
+    UnsupportedOperation,
 }
 
 #[derive(Debug)]
@@ -16,6 +17,18 @@ pub(crate) struct ReadGrant {
     instance: u128,
     generation: u64,
     deadline: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReadOperation {
+    Inspect,
+    ListArtwork,
+}
+
+#[derive(Debug)]
+pub(crate) struct PendingRead<'a> {
+    grant: &'a ReadGrant,
+    pub(crate) operation: ReadOperation,
 }
 
 pub(crate) struct ReadAdmission {
@@ -82,6 +95,34 @@ impl ReadAdmission {
             return Err(Admission::Expired);
         }
         Ok(())
+    }
+
+    pub(crate) fn begin<'a>(
+        &self,
+        grant: Option<&'a ReadGrant>,
+        now: u64,
+        operation: &str,
+    ) -> Result<PendingRead<'a>, Admission> {
+        self.admit(grant, now)?;
+        let grant = grant.ok_or(Admission::NotGranted)?;
+        let operation = match operation {
+            "editor.inspect" => ReadOperation::Inspect,
+            "artwork.list" => ReadOperation::ListArtwork,
+            _ => return Err(Admission::UnsupportedOperation),
+        };
+        Ok(PendingRead { grant, operation })
+    }
+
+    // Call immediately before the host publishes a read result. The real host
+    // must serialize this check with the handoff to its connection writer.
+    pub(crate) fn finish<T>(
+        &self,
+        pending: PendingRead<'_>,
+        now: u64,
+        result: T,
+    ) -> Result<T, Admission> {
+        self.admit(Some(pending.grant), now)?;
+        Ok(result)
     }
 
     fn check_ready(&self) -> Result<(), Admission> {
@@ -154,6 +195,47 @@ mod tests {
         assert_eq!(state.admit(Some(&old), 2), Err(Admission::NotGranted));
         let new = state.issue(2, 20).unwrap();
         assert_eq!(state.admit(Some(&new), 2), Ok(()));
+    }
+
+    #[test]
+    fn only_the_two_read_verbs_are_dispatched_and_never_without_a_grant() {
+        let mut state = ready(1);
+        let grant = state.issue(1, 20).unwrap();
+        assert_eq!(
+            state.begin(None, 3, "editor.inspect").unwrap_err(),
+            Admission::NotGranted
+        );
+        for denied in ["document.saveAs", "blend.setDistance", "command.dispatch"] {
+            assert_eq!(
+                state.begin(Some(&grant), 3, denied).unwrap_err(),
+                Admission::UnsupportedOperation
+            );
+        }
+        let read = state.begin(Some(&grant), 3, "artwork.list").unwrap();
+        assert_eq!(read.operation, ReadOperation::ListArtwork);
+        assert_eq!(
+            state.finish(read, 4, "fake address list"),
+            Ok("fake address list")
+        );
+    }
+
+    #[test]
+    fn queued_results_do_not_survive_connection_loss_or_grant_expiry() {
+        let mut state = ready(1);
+        let old = state.issue(1, 20).unwrap();
+        let from_old = state.begin(Some(&old), 2, "editor.inspect").unwrap();
+        state.set_ready(false);
+        state.set_ready(true);
+        let new = state.issue(3, 10).unwrap();
+        assert_eq!(
+            state.finish(from_old, 4, "must not return"),
+            Err(Admission::NotGranted)
+        );
+        let pending = state.begin(Some(&new), 9, "editor.inspect").unwrap();
+        assert_eq!(
+            state.finish(pending, 10, "must not return"),
+            Err(Admission::Expired)
+        );
     }
 
     #[test]
