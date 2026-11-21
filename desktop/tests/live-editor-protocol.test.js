@@ -76,8 +76,9 @@ test('document copy is opt-in and accepts only the exact target', async () => {
     return { status: 'accepted-by-writer', internal: 'never forwarded' };
   };
   const handle = createLiveEditorProtocol({ ...config, saveCopy });
-  assert.deepEqual(handle(request('document.saveCopy', { target, path: 'another.json' })),
-    { status: 'invalid-arguments' });
+  assert.deepEqual(handle(request('document.saveCopy', { target, path: 'another.json' })), {
+    status: 'invalid-arguments',
+  });
   assert.deepEqual(await handle(packet), { status: 'accepted-by-writer' });
   assert.equal(writes, 1);
 });
@@ -98,4 +99,34 @@ test('PNG routing does not accept caller-supplied paths or raster options', asyn
   assert.deepEqual(exportPng({ target, path: 'arbitrary.png' }), { status: 'invalid-arguments' });
   assert.deepEqual(await exportPng({ target }), { status: 'accepted-by-writer' });
   assert.equal(writes, 1);
+});
+
+test('Undo and Redo are optional fixed verbs, return a fresh target, and never reveal host data', () => {
+  let revision = target.sessionRevision;
+  const readTarget = () => ({ ...target, sessionRevision: revision });
+  const seen = [];
+  const handle = createLiveEditorProtocol({
+    readTarget,
+    stepHistory: (expected, redo) => {
+      if (expected.sessionRevision !== revision) return { status: 'stale-target' };
+      seen.push(redo);
+      revision++;
+      return { status: 'changed', internal: 'private' };
+    },
+  });
+  const undo = request('history.undo', { target });
+  assert.deepEqual(createLiveEditorProtocol({ readTarget })(undo), {
+    status: 'unsupported-operation',
+  });
+  assert.deepEqual(handle(request('history.undo', { target, count: 2 })), {
+    status: 'invalid-arguments',
+  });
+  const t1 = { ...target, sessionRevision: revision + 1 };
+  assert.deepEqual(handle(undo), { status: 'changed', target: t1 });
+  assert.deepEqual(handle(undo), { status: 'stale-target' });
+  assert.deepEqual(handle(request('history.redo', { target: t1 })), {
+    status: 'changed',
+    target: readTarget(),
+  });
+  assert.deepEqual(seen, [false, true]);
 });

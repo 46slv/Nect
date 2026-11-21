@@ -28,7 +28,15 @@ function validTarget(target) {
   );
 }
 
-export function createLiveEditorProtocol({ readTarget, setBlendDistance, writeSvg, writePng, saveCopy, reopenCopy }) {
+export function createLiveEditorProtocol({
+  readTarget,
+  setBlendDistance,
+  stepHistory,
+  writeSvg,
+  writePng,
+  saveCopy,
+  reopenCopy,
+}) {
   return function handle(request) {
     if (!closed(request, ['version', 'operation', 'arguments']))
       return { status: 'invalid-request' };
@@ -38,6 +46,21 @@ export function createLiveEditorProtocol({ readTarget, setBlendDistance, writeSv
     if (request.operation === 'editor.inspect') {
       if (!closed(args, [])) return { status: 'invalid-arguments' };
       return { status: 'ok', target: captureEditorTarget(readTarget()) };
+    }
+    if (
+      (request.operation === 'history.undo' || request.operation === 'history.redo') &&
+      stepHistory
+    ) {
+      if (!closed(args, ['target']) || !validTarget(args.target))
+        return { status: 'invalid-arguments' };
+      try {
+        const { status } = stepHistory(args.target, request.operation === 'history.redo');
+        if (status === 'changed' || status === 'unchanged')
+          return { status, target: captureEditorTarget(readTarget()) };
+        return { status };
+      } catch {
+        return { status: 'outcome-unknown' };
+      }
     }
     let output;
     switch (request.operation) {

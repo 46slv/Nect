@@ -54,6 +54,7 @@ import { createLiveBlendDistanceOperation } from './live-blend-distance.js';
 import { createLiveDocumentCopy } from './live-document-copy.js';
 import { createLiveDocumentReopen } from './live-document-reopen.js';
 import { createLiveEditorProtocol } from './live-editor-protocol.js';
+import { editorTargetMatches } from './live-editor-target.js';
 import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
 import { initialLayerId } from './initial-layer.js';
@@ -6608,6 +6609,20 @@ const liveBlendDistance = createLiveBlendDistanceOperation({
       ? commandChange(type, payload, undefined, true, { sessionId, expectedRevision })
       : null,
 });
+// The acceptance adapter calls the same history and view restoration as the
+// menu and keyboard. Do not launch asynchronous font preparation from it.
+function stepAcceptanceHistory(target, redo) {
+  if (!editorTargetMatches(readLiveEditorTarget(), target)) return { status: 'stale-target' };
+  if (closeInputBlocked() || documents.transitioning || documents.hasPendingEdits() || nameEdit)
+    return { status: 'edit-in-progress' };
+  const entry = (redo ? history.future : history.past).at(-1);
+  if (!entry) return { status: 'unchanged' };
+  if (hasVariableFonts(history.doc) || hasVariableFonts(entry))
+    return { status: 'unsupported-target' };
+  const graphScroll = stepHistory(redo);
+  render(false, null, graphScroll);
+  return { status: editorTargetMatches(readLiveEditorTarget(), target) ? 'unchanged' : 'changed' };
+}
 const liveArtworkOutput = createLiveArtworkOutput({
   readTarget: readLiveEditorTarget,
   readSnapshot: () => ({ document: history.doc, fonts }),
@@ -19133,6 +19148,7 @@ const testLiveEditorProtocol = import.meta.env.DEV
   ? createLiveEditorProtocol({
       readTarget: readLiveEditorTarget,
       setBlendDistance: liveBlendDistance,
+      stepHistory: stepAcceptanceHistory,
     })
   : null;
 // Explicit test/debug API; same model and mutations as the UI.
@@ -19408,6 +19424,7 @@ if (
     const handle = createLiveEditorProtocol({
       readTarget: readLiveEditorTarget,
       setBlendDistance: liveBlendDistance,
+      stepHistory: stepAcceptanceHistory,
       saveCopy,
       reopenCopy,
       writeSvg: (target) => acceptanceArtwork.run({ target, format: 'svg' }),
