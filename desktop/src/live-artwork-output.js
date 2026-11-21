@@ -1,10 +1,4 @@
-const targetKeys = [
-  'documentGeneration',
-  'compositionId',
-  'sessionId',
-  'sessionRevision',
-  'projectRevision',
-];
+import { captureEditorTarget, editorTargetMatches } from './live-editor-target.js';
 
 // In-process, application-owned operation. A caller supplies intent and the
 // target version, never the document or a replacement destination writer.
@@ -13,13 +7,12 @@ export function createLiveArtworkOutput({ readTarget, readSnapshot, exportArtwor
 
   function currentTarget() {
     const values = readTarget();
-    return Object.freeze(Object.fromEntries(targetKeys.map((key) => [key, values[key]])));
+    return captureEditorTarget(values);
   }
 
   async function run({ target, format, svgOptions, pngOptions }) {
     const current = currentTarget();
-    if (!target || targetKeys.some((key) => current[key] !== target[key]))
-      return { status: 'stale-target' };
+    if (!editorTargetMatches(current, target)) return { status: 'stale-target' };
     if (pending) return { status: 'busy' };
 
     pending = true;
