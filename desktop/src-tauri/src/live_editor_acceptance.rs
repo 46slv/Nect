@@ -174,3 +174,31 @@ pub(crate) fn live_acceptance_save_as(
         Err("Live editor test disabled".into())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normal_build_never_creates_or_admits_a_stdio_mailbox() {
+        if cfg!(all(windows, feature = "live-editor-acceptance-test")) {
+            return;
+        }
+        for (isolated, explicit) in [(false, false), (true, false), (false, true), (true, true)] {
+            let state = enabled(isolated, explicit).unwrap();
+            assert!(state.0.is_none());
+            assert!(admitted(&state, "main").is_err());
+        }
+    }
+
+    #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
+    #[test]
+    fn acceptance_build_requires_both_opt_ins_and_the_main_window() {
+        for (isolated, explicit) in [(false, false), (true, false), (false, true)] {
+            assert!(enabled(isolated, explicit).is_err());
+        }
+        let state = enabled(true, true).unwrap();
+        assert!(admitted(&state, "main").is_ok());
+        assert!(admitted(&state, "other-window").is_err());
+    }
+}
