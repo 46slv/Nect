@@ -32,3 +32,17 @@ For a normal renderer build, explicitly unset the acceptance flag or set it to
 `0`. The generated JavaScript must contain none of
 `__NECT_LIVE_EDITOR_TEST_INSTANCE__`, `testLiveEditorProtocol`,
 `live_acceptance_claim`, or `live_acceptance_save_as`.
+
+### Artwork creation scenario
+
+Keep the baseline run with no artwork flag; it still checks the same 11 tools and
+expected artifact digests. For a separate run, set `NECT_ACCEPTANCE_ARTWORK=1`
+and a fresh `NECT_ACCEPTANCE_RECEIPT`, then run the same verifier with a
+hash-pinned test build that implements `artwork.create`. It discovers 12 tools
+and checks target-bound Rectangle and default Text creation, invalid coordinates,
+stale requests, Undo/Redo, Save As reconciliation, and reopening the saved
+composition. It checks the returned layer/node IDs and coordinates in the saved
+JSON, then verifies valid SVG and 960×540 PNG outputs distinct from the baseline.
+
+This exercises neither arbitrary text input nor a normal-product MCP connection,
+Hermes Desktop, or the native save picker.

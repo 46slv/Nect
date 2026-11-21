@@ -14,6 +14,7 @@ assert not result_file.exists()
 exe = Path(os.environ["NECT_ACCEPTANCE_EXE"]).resolve(strict=True)
 root = exe.parent
 assert result_file.parent == root
+artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 before_dirs=set(root.glob("nect-svg-acceptance-*"))
 fixture = json.loads((base.parent / "examples/blend-distance.json").read_text(encoding="utf-8"))
 layer = fixture["layers"][0]
@@ -43,8 +44,9 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         assert hello["protocolVersion"] == "2025-06-18"
         send(dict(method="notifications/initialized"))
         listed = call(2, "tools/list")
-        assert [t["name"] for t in listed["tools"]] == ["nect_test_inspect", "nect_test_set_blend_distance", "nect_test_export_svg", "nect_test_export_png", "nect_test_save_copy", "nect_test_reopen_copy", "nect_test_undo", "nect_test_redo","nect_test_save_state","nect_test_save_receipt","nect_test_save_as"]
-        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False]
+        extra = ["nect_test_create_artwork"] if artwork else []
+        assert [t["name"] for t in listed["tools"]] == ["nect_test_inspect", "nect_test_set_blend_distance", "nect_test_export_svg", "nect_test_export_png", "nect_test_save_copy", "nect_test_reopen_copy", "nect_test_undo", "nect_test_redo","nect_test_save_state","nect_test_save_receipt","nect_test_save_as"] + extra
+        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + ([False] if artwork else [])
         start = call(3, "tools/call", name="nect_test_inspect", arguments={})
         assert not start["isError"], start
         target = start["structuredContent"]["target"]
@@ -72,6 +74,21 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         assert invoke("undo",{"target":undone},"unchanged")["target"]==undone
         current=invoke("redo",{"target":undone},"changed")["target"]
         assert current["projectRevision"]==undone["projectRevision"]+1
+        made = []
+        if artwork:
+            for kind, point in (("Rectangle",[430,180]), ("Text",[610,230])):
+                create_args = dict(target=current, artworkType=kind, at=point)
+                invoke("create_artwork",{**create_args,"at":[0]},"invalid-arguments",True)
+                obj=invoke("create_artwork",create_args,"changed")
+                assert obj["target"]["projectRevision"]==current["projectRevision"]+1
+                invoke("create_artwork",create_args,"stale-target",True)
+                made.append((kind,point,obj["layerId"],obj["nodeId"]))
+                current=obj["target"]
+            before_undo=current
+            current=invoke("undo",{"target":current},"changed")["target"]
+            invoke("redo",{"target":before_undo},"stale-target",True)
+            current=invoke("redo",{"target":current},"changed")["target"]
+            assert current["projectRevision"]==before_undo["projectRevision"]+2
         state=invoke("save_state",{},"ok")
         assert state==dict(status="ok",saveEpoch=0,dirty=True,pending=False)
         k="save_as_fault_01"
@@ -112,7 +129,28 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         digests={}
         for role,filename in (("copy","live-api-project.json"),("svg","live-api-export.svg"),("png","live-api-export.png")):
             digests[role]=hashlib.sha256((run/"documents"/filename).read_bytes()).hexdigest()
-            assert digests[role]==expected[role+"SHA256"].lower()
+            if artwork:
+                assert digests[role]!=expected[role+"SHA256"].lower(), role
+            else:
+                assert digests[role]==expected[role+"SHA256"].lower()
+        if artwork:
+            artifacts=run/"documents"
+            snapshot=json.loads((artifacts/"live-api-project.json").read_bytes())
+            [composition]=[x for x in snapshot["compositions"] if x["id"]==reopened["compositionId"]]
+            for kind,point,layer_id,node_id in made:
+                [shape_layer]=[x for x in composition["layers"] if x["id"]==layer_id]
+                [shape]=[n for n in shape_layer["nodes"] if n["id"]==node_id]
+                assert shape["type"]==kind, shape["type"]
+                if kind=="Rectangle":
+                    assert shape["params"]["center"]["value"]==point, shape["params"]["center"]
+                else:
+                    assert shape["params"]["position"]["value"]==point, shape["params"]["position"]
+            svg=(artifacts/"live-api-export.svg").read_bytes()
+            png=(artifacts/"live-api-export.png").read_bytes()
+            from xml.etree import ElementTree
+            assert ElementTree.fromstring(svg).tag.endswith("}svg")
+            assert png[:8]==b"\x89PNG\r\n\x1a\n" and png[12:16]==b"IHDR"
+            assert (int.from_bytes(png[16:20],"big"),int.from_bytes(png[20:24],"big"))==(960,540)
         bound=run/"documents/live-api-save-as.json"
         assert hashlib.sha256(bound.read_bytes()).hexdigest()==digests["copy"]
         assert len(list((run/"documents").glob("live-api-save-as*")))==1
@@ -121,7 +159,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "protocol":hello["protocolVersion"],"tools":len(listed["tools"]),"run":run.name,
                   "edit":"changed","history":"undo/redo verified","saveCopy":"accepted-by-writer","reopen":"reopened",
                   "exportSvg":"accepted-by-writer","exportPng":"accepted-by-writer","caseGuards":"pass",
-                  "digest":digests}
+                  "artwork":[x[0] for x in made], "digest":digests}
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))

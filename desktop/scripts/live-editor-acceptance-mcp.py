@@ -56,6 +56,18 @@ for suffix, operation, description, props, readonly in (
                   "annotations":{"readOnlyHint":readonly,"destructiveHint":not readonly,
                                  "idempotentHint":not readonly,"openWorldHint":False}})
     OPERATIONS[name]=operation
+if os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1":
+    name = "nect_test_create_artwork"
+    coord = {"type":"number", "minimum":-1000000, "maximum":1000000}
+    TOOLS.append({
+        "name":name, "description":"Create one shape or default text object in the isolated fixture",
+        "inputSchema":schema(dict(target=target,
+            artworkType={"enum":["Circle","Ellipse","Rectangle","Polygon","Star","Text"]},
+            at={"type":"array","items":coord,"minItems":2,"maxItems":2})),
+        "annotations":{"readOnlyHint":False,"destructiveHint":False,"idempotentHint":False,
+                       "openWorldHint":False},
+    })
+    OPERATIONS[name] = "artwork.create"
 SUCCEEDED = {"ok", "changed", "unchanged", "accepted-by-writer", "reopened"}
 
 def make_child():
