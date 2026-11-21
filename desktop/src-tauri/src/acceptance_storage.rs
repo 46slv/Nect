@@ -308,23 +308,35 @@ impl RunStorage {
     // The native acceptance adapter owns this destination. It is not a
     // filename received from an automation client and cannot overwrite a file.
     pub(crate) fn write_acceptance_svg(&self, contents: &[u8]) -> Result<(), String> {
-        let paths = self.0.as_ref().ok_or("Isolated acceptance storage required")?;
+        let paths = self
+            .0
+            .as_ref()
+            .ok_or("Isolated acceptance storage required")?;
         self.write_acceptance_output(&paths.documents.join("live-api-export.svg"), contents)
     }
 
     pub(crate) fn write_acceptance_project_copy(&self, contents: &[u8]) -> Result<(), String> {
-        let paths = self.0.as_ref().ok_or("Isolated acceptance storage required")?;
+        let paths = self
+            .0
+            .as_ref()
+            .ok_or("Isolated acceptance storage required")?;
         self.write_acceptance_output(&paths.documents.join("live-api-project.json"), contents)
     }
 
     #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
     pub(crate) fn acceptance_bound_project_path(&self) -> Result<PathBuf, String> {
-        let paths = self.0.as_ref().ok_or("Isolated acceptance storage required")?;
+        let paths = self
+            .0
+            .as_ref()
+            .ok_or("Isolated acceptance storage required")?;
         Ok(paths.documents.join("live-api-save-as.json"))
     }
 
     pub(crate) fn read_acceptance_project_copy(&self) -> Result<Option<String>, String> {
-        let paths = self.0.as_ref().ok_or("Isolated acceptance storage required")?;
+        let paths = self
+            .0
+            .as_ref()
+            .ok_or("Isolated acceptance storage required")?;
         let path = self.document_path(&paths.documents.join("live-api-project.json"), false)?;
         let file = match fs::File::open(&path) {
             Ok(file) => file,
@@ -340,11 +352,16 @@ impl RunStorage {
         if bytes.len() > 4_000_000 {
             return Err("Invalid acceptance project".into());
         }
-        String::from_utf8(bytes).map(Some).map_err(|e| e.to_string())
+        String::from_utf8(bytes)
+            .map(Some)
+            .map_err(|e| e.to_string())
     }
 
     pub(crate) fn write_acceptance_png(&self, contents: &[u8]) -> Result<(), String> {
-        let paths = self.0.as_ref().ok_or("Isolated acceptance storage required")?;
+        let paths = self
+            .0
+            .as_ref()
+            .ok_or("Isolated acceptance storage required")?;
         self.write_acceptance_output(&paths.documents.join("live-api-export.png"), contents)
     }
 

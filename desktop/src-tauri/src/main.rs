@@ -159,7 +159,8 @@ fn run() -> Result<(), String> {
     }
     let live_acceptance = live_editor_acceptance::enabled(
         storage.0.is_some(),
-        std::env::var_os("NECT_LIVE_EDITOR_ACCEPTANCE_STDIO").as_deref() == Some(std::ffi::OsStr::new("1")),
+        std::env::var_os("NECT_LIVE_EDITOR_ACCEPTANCE_STDIO").as_deref()
+            == Some(std::ffi::OsStr::new("1")),
     )?;
     let live_test_enabled = live_acceptance.0.is_some();
     let window_storage = storage.clone();
