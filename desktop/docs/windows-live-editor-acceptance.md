@@ -57,4 +57,10 @@ fresh receipt. Mixed Unicode text must round-trip intact as editable Text, but
 DejaVu Sans has no U+63DB, so SVG must not be written and PNG is not attempted.
 The adapter currently returns the generic outcome-unknown status; the shared
 exporter independently diagnoses the missing glyph from the saved composition.
-A non-default Japanese face, GUI parity and normal-product MCP are separate.
+For the Japanese positive run with a test build at 4b0b093 or newer, also set
+NECT_SVG_ACCEPTANCE_JP_FIXTURE=1, leave the negative flag off, and use a fresh
+receipt. The native fixture attaches one existing redistributable font and
+one pre-authored text layer to the Blend fixture. The run edits that Text
+node, verifies its exact Unicode and font asset after reopening, and checks
+SVG and PNG output. No OS font installation or lookup occurs. Same-build GUI
+and native installed-face parity and normal-product MCP remain separate.
