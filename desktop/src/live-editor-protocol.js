@@ -30,6 +30,7 @@ function validTarget(target) {
 
 export function createLiveEditorProtocol({
   readTarget,
+  listArtwork,
   setBlendDistance,
   stepHistory,
   createArtwork,
@@ -49,6 +50,20 @@ export function createLiveEditorProtocol({
     if (request.operation === 'editor.inspect') {
       if (!closed(args, [])) return { status: 'invalid-arguments' };
       return { status: 'ok', target: captureEditorTarget(readTarget()) };
+    }
+    if (listArtwork && request.operation === 'artwork.list') {
+      if (
+        !closed(args, ['target', 'layerIndex', 'offset']) ||
+        !validTarget(args.target) ||
+        (args.layerIndex !== null && !version(args.layerIndex)) ||
+        !version(args.offset)
+      )
+        return { status: 'invalid-arguments' };
+      try {
+        return listArtwork(args);
+      } catch {
+        return { status: 'unavailable' };
+      }
     }
     if (
       (request.operation === 'history.undo' || request.operation === 'history.redo') &&

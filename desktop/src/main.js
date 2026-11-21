@@ -54,6 +54,7 @@ import { createLiveBlendDistanceOperation } from './live-blend-distance.js';
 import { createLiveDocumentCopy } from './live-document-copy.js';
 import { createLiveDocumentReopen } from './live-document-reopen.js';
 import { createLiveEditorProtocol } from './live-editor-protocol.js';
+import { readLiveEditorObjects } from './live-editor-objects.js';
 import { createLiveArtworkCreation } from './live-artwork-creation.js';
 import { createLiveTextContent } from './live-text-content.js';
 import { editorTargetMatches } from './live-editor-target.js';
@@ -19489,6 +19490,14 @@ if (
     });
     const handle = createLiveEditorProtocol({
       readTarget: readLiveEditorTarget,
+      listArtwork: (args) =>
+        readLiveEditorObjects(
+          {
+            readTarget: readLiveEditorTarget,
+            readDocument: () => (documents.transitioning ? null : history.doc),
+          },
+          args,
+        ),
       setBlendDistance: liveBlendDistance,
       stepHistory: stepAcceptanceHistory,
       createArtwork: liveArtworkCreation,

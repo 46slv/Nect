@@ -34,6 +34,32 @@ test('closed contract rejects malformed requests and unsupported commands withou
     assert.deepEqual(handle(request('blend.setDistance', args)), { status: 'invalid-arguments' });
 });
 
+test('authored object listing is opt-in, target-bound and takes no file arguments', () => {
+  const args = { target, layerIndex: null, offset: 0 };
+  const packet = request('artwork.list', args);
+  const host = { readTarget: () => target };
+  assert.deepEqual(createLiveEditorProtocol(host)(packet), { status: 'unsupported-operation' });
+  let reads = 0;
+  const handle = createLiveEditorProtocol({
+    ...host,
+    listArtwork: (input) => {
+      assert.deepEqual(input, args);
+      if (++reads === 2) throw Error('private host exception');
+      return { status: 'ok', target, layerId: null, items: [], nextOffset: null };
+    },
+  });
+  for (const input of [
+    { ...args, path: 'private' },
+    { ...args, offset: -1 },
+    { ...args, layerIndex: '0' },
+    { ...args, target: {} },
+  ])
+    assert.deepEqual(handle(request('artwork.list', input)), { status: 'invalid-arguments' });
+  assert.equal(reads, 0);
+  assert.equal(handle(packet).status, 'ok');
+  assert.deepEqual(handle(packet), { status: 'unavailable' });
+});
+
 test('inspect and successful edits return only the allowlisted editor target', () => {
   let revision = 2;
   const handle = createLiveEditorProtocol({
