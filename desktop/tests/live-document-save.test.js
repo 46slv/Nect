@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { DocumentLifecycle } from '../src/document-lifecycle.js';
-import { createLiveDocumentSave } from '../src/live-document-save.js';
+import { createLiveDocumentSave, createLiveSaveAsBoundary } from '../src/live-document-save.js';
 
 function harness(write) {
   let current = { document: 'first' };
@@ -88,4 +88,48 @@ describe('live document save', () => {
     assert.deepEqual(await h.save(intent), { status: 'accepted-by-writer' });
     assert.equal(h.documents.dirty, false);
   });
+});
+
+it('readback distinguishes a completed Save As from an uncommitted retry without exposing a path', async () => {
+  let release;
+  let writes = 0;
+  const h = harness(() => {
+    ++writes;
+    return new Promise((resolve) => {
+      release = resolve;
+    });
+  });
+  const previous = { token: 'previous' };
+  const destination = { token: 'private-token', path: 'private-path.json' };
+  await h.documents.replace({ binding: previous, saved: true });
+  h.change({ document: 'edited' });
+  const api = createLiveSaveAsBoundary(h);
+  assert.deepEqual(api.inspect(), { saveEpoch: 0, dirty: true, pending: false });
+  const request = { target: h.readTarget(), saveEpoch: api.inspect().saveEpoch };
+  const pending = api.run(request);
+  assert.deepEqual(api.inspect(), { saveEpoch: 0, dirty: true, pending: true });
+  assert.deepEqual(await api.run(request), { status: 'busy' });
+  release(destination);
+  // Simulate a caller that never receives the first returned envelope.
+  await pending;
+  assert.deepEqual(h.readTarget(), request.target);
+  assert.deepEqual(api.inspect(), { saveEpoch: 1, dirty: false, pending: false });
+  assert.equal(h.documents.binding, destination);
+  assert.deepEqual(await api.run(request), { status: 'stale-save-state' });
+  assert.equal(writes, 1);
+});
+
+it('save epoch does not advance for cancellation or an unconfirmed writer', async () => {
+  let writes = 0;
+  const h = harness(() => {
+    if (++writes === 1) return null;
+    throw Error('private-path');
+  });
+  const api = createLiveSaveAsBoundary(h);
+  const request = { target: h.readTarget(), saveEpoch: 0 };
+  assert.deepEqual(await api.run({ ...request, saveEpoch: -1 }), { status: 'invalid-arguments' });
+  assert.deepEqual(await api.run(request), { status: 'not-confirmed' });
+  assert.deepEqual(await api.run(request), { status: 'outcome-unknown' });
+  assert.deepEqual(api.inspect(), { saveEpoch: 0, dirty: true, pending: false });
+  assert.equal(writes, 2);
 });

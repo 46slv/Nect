@@ -17,6 +17,7 @@ export class DocumentLifecycle {
     this.operation = 0;
     this.revision = 0;
     this.savedRevision = null;
+    this.saveEpoch = 0;
     this.binding = null;
     this.saved = null;
     this.observed = read();
@@ -101,6 +102,7 @@ export class DocumentLifecycle {
       this.binding = result;
       this.saved = contents;
       this.savedRevision = revision;
+      this.saveEpoch++;
       await this.releaseUnused(previous);
       return true;
     } finally {
