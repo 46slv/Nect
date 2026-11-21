@@ -15,4 +15,5 @@ tempfile = "3"
 [features]
 custom-protocol = ["tauri/custom-protocol"]
 recovery-acceptance-test = []
+live-editor-acceptance-test = []
 

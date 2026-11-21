@@ -19363,5 +19363,41 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
+// Compiled out unless the frontend is explicitly built for the matching
+// native acceptance executable. No release build starts a request pump.
+if (
+  import.meta.env.VITE_NECT_LIVE_EDITOR_ACCEPTANCE === '1' &&
+  desktop &&
+  window.__NECT_LIVE_EDITOR_TEST_INSTANCE__ === true
+) {
+  void (async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const handle = createLiveEditorProtocol({
+      readTarget: readLiveEditorTarget,
+      setBlendDistance: liveBlendDistance,
+    });
+    const wait = () => new Promise((resolve) => setTimeout(resolve, 50));
+    const deadline = Date.now() + 120_000;
+    while (closeInputBlocked() && Date.now() < deadline) await wait();
+    if (closeInputBlocked()) return;
+    await window.nect.load(await invoke('live_acceptance_fixture'));
+    while (Date.now() < deadline) {
+      const request = await invoke('live_acceptance_claim');
+      if (!request) {
+        await wait();
+        continue;
+      }
+      const [id, packet] = request;
+      let reply;
+      try {
+        reply = handle(JSON.parse(packet));
+      } catch {
+        reply = { status: 'outcome-unknown' };
+      }
+      await invoke('live_acceptance_finish', { id, receipt: JSON.stringify(reply) });
+    }
+  })().catch((error) => console.error('Isolated live-editor acceptance stopped', error));
+}
+
 // Compile-time only. Vite removes this branch and module from ordinary builds.
 startRecoveryAcceptanceWhenReady();

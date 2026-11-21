@@ -13,6 +13,9 @@ mod build_identity_config;
 mod build_identity_sources;
 mod desktop_font_layout;
 mod document_storage;
+mod live_editor_acceptance;
+mod live_editor_frames;
+mod live_editor_mailbox;
 mod os_font_outlines;
 mod private_fonts;
 #[cfg(feature = "recovery-acceptance-test")]
@@ -154,6 +157,11 @@ fn run() -> Result<(), String> {
         // prevents Tauri itself from creating its ordinary profile first.
         std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", &paths.webview);
     }
+    let live_acceptance = live_editor_acceptance::enabled(
+        storage.0.is_some(),
+        std::env::var_os("NECT_LIVE_EDITOR_ACCEPTANCE_STDIO").as_deref() == Some(std::ffi::OsStr::new("1")),
+    )?;
+    let live_test_enabled = live_acceptance.0.is_some();
     let window_storage = storage.clone();
     let identity = build_identity::BuildIdentity::compiled(
         &context.config().identifier,
@@ -161,6 +169,7 @@ fn run() -> Result<(), String> {
         storage.0.is_some(),
     );
     tauri::Builder::default()
+        .manage(live_acceptance)
         .manage(identity)
         .manage(storage)
         .manage(asset_library::AssetLibrary::default())
@@ -170,6 +179,9 @@ fn run() -> Result<(), String> {
         .manage(private_fonts::PrivateFonts::default())
         .manage(Recovery::default())
         .invoke_handler(tauri::generate_handler![
+            live_editor_acceptance::live_acceptance_claim,
+            live_editor_acceptance::live_acceptance_finish,
+            live_editor_acceptance::live_acceptance_fixture,
             build_identity::query_build_identity,
             open_document,
             open_svg_source,
@@ -233,7 +245,13 @@ fn run() -> Result<(), String> {
                     .data_directory(paths.webview.clone());
                 #[cfg(feature = "recovery-acceptance-test")]
                 let builder = builder.initialization_script("Object.defineProperty(window, '__NECT_RECOVERY_TEST_INSTANCE__', { value: true });");
+                let builder = if live_test_enabled {
+                    builder.visible(false).initialization_script("Object.defineProperty(window, '__NECT_LIVE_EDITOR_TEST_INSTANCE__', { value: true });")
+                } else {
+                    builder
+                };
                 builder.build()?;
+                live_editor_acceptance::run(&app.state::<live_editor_acceptance::LiveAcceptance>())?;
             }
             Ok(())
         })
