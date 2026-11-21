@@ -1,7 +1,8 @@
 # Windows live-editor acceptance (development only)
 
-This test runs the actual Windows editor in a fresh, hidden instance using only
-the bundled Blend Distance example. It does not connect to an already running
+This test runs the actual Windows editor in a fresh, hidden instance using the
+bundled Blend Distance example and, for the positive Japanese scenario, a bundled
+font fixture. It does not connect to an already running
 Nect, launch Hermes, or install a service. The parent process owns the standard
 streams; there is no listener. Normal Nect does not enable this mode.
 
@@ -32,6 +33,20 @@ For a normal renderer build, explicitly unset the acceptance flag or set it to
 `0`. The generated JavaScript must contain none of
 `__NECT_LIVE_EDITOR_TEST_INSTANCE__`, `testLiveEditorProtocol`,
 `live_acceptance_claim`, or `live_acceptance_save_as`.
+
+### Choose one scenario per run
+
+Use a fresh receipt for each scenario. Clear inherited flags that are off in
+the table before starting the verifier, including when switching back to the
+baseline. All four variables are optional; on means exactly `1`.
+
+| Scenario | `NECT_ACCEPTANCE_ARTWORK` | `NECT_ACCEPTANCE_TEXT` | `NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE` | `NECT_SVG_ACCEPTANCE_JP_FIXTURE` | Tool count |
+| --- | --- | --- | --- | --- | --- |
+| Baseline | off | off | off | off | 11 |
+| Artwork | on | off | off | off | 12 |
+| ASCII text | on | on | off | off | 13 |
+| Japanese text, missing glyph | on | on | on | off | 13 |
+| Japanese text, embedded font | on | on | off | on | 13 |
 
 ### Artwork creation scenario
 
