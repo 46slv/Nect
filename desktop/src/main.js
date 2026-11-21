@@ -49,7 +49,7 @@ import { SVG_EXPORT_PRECISIONS } from './svg-number-format.js';
 import { formatParameterResult } from './parameter-result-format.js';
 import { createArtworkExporter } from './artwork-export.js';
 import { createLiveArtworkOutput } from './live-artwork-output.js';
-import { createLiveDocumentSave } from './live-document-save.js';
+import { createLiveDocumentSave, createLiveSaveAsBoundary } from './live-document-save.js';
 import { createLiveBlendDistanceOperation } from './live-blend-distance.js';
 import { createLiveDocumentCopy } from './live-document-copy.js';
 import { createLiveDocumentReopen } from './live-document-reopen.js';
@@ -1616,7 +1616,26 @@ function readDocument() {
 }
 const documents = new DocumentLifecycle({
   read: readDocument,
-  write: writeProject,
+  write: async (packet) => {
+    if (
+      import.meta.env.VITE_NECT_LIVE_EDITOR_ACCEPTANCE === '1' &&
+      desktop &&
+      window.__NECT_LIVE_EDITOR_TEST_INSTANCE__ === true &&
+      !packet.binding
+    ) {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const [token, path, operation] = await invoke('live_acceptance_save_as', {
+        contents: packet.contents,
+        operation: packet.operation,
+      });
+      if (operation !== packet.operation) {
+        await releaseProject({ token });
+        throw Error('Unmatched acceptance save response');
+      }
+      return { token, path };
+    }
+    return writeProject(packet);
+  },
   release: releaseProject,
   choose: chooseUnsaved,
   hasLifecycleDraft: () => !!variableAction,
@@ -19427,6 +19446,7 @@ if (
       stepHistory: stepAcceptanceHistory,
       saveCopy,
       reopenCopy,
+      saveAsBoundary: createLiveSaveAsBoundary({ readTarget: readLiveEditorTarget, documents }),
       writeSvg: (target) => acceptanceArtwork.run({ target, format: 'svg' }),
       writePng: (target) =>
         acceptanceArtwork.run({ target, format: 'png', pngOptions: { mode: 'scale', scale: 1 } }),

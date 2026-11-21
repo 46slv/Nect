@@ -150,3 +150,27 @@ pub(crate) fn live_acceptance_read_copy(
     admitted(&state, window.label())?;
     storage.read_acceptance_project_copy()
 }
+
+#[tauri::command]
+pub(crate) fn live_acceptance_save_as(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, LiveAcceptance>,
+    storage: tauri::State<'_, crate::acceptance_storage::RunStorage>,
+    docs: tauri::State<'_, crate::document_storage::Documents>,
+    contents: String,
+    operation: u32,
+) -> Result<(String, String, u32), String> {
+    admitted(&state, window.label())?;
+    if contents.len() > 4_000_000 || !contents.trim_start().starts_with('{') {
+        return Err("Invalid acceptance project".into());
+    }
+    #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
+    return crate::document_storage::save_acceptance_bound_project(
+        &storage, &docs, contents, operation,
+    );
+    #[cfg(not(all(windows, feature = "live-editor-acceptance-test")))]
+    {
+        let _ = (storage, docs, operation);
+        Err("Live editor test disabled".into())
+    }
+}

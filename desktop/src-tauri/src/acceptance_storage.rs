@@ -317,6 +317,12 @@ impl RunStorage {
         self.write_acceptance_output(&paths.documents.join("live-api-project.json"), contents)
     }
 
+    #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
+    pub(crate) fn acceptance_bound_project_path(&self) -> Result<PathBuf, String> {
+        let paths = self.0.as_ref().ok_or("Isolated acceptance storage required")?;
+        Ok(paths.documents.join("live-api-save-as.json"))
+    }
+
     pub(crate) fn read_acceptance_project_copy(&self) -> Result<Option<String>, String> {
         let paths = self.0.as_ref().ok_or("Isolated acceptance storage required")?;
         let path = self.document_path(&paths.documents.join("live-api-project.json"), false)?;
