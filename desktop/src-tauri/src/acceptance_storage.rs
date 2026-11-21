@@ -317,6 +317,11 @@ impl RunStorage {
         self.write_acceptance_output(&paths.documents.join("live-api-project.json"), contents)
     }
 
+    pub(crate) fn write_acceptance_png(&self, contents: &[u8]) -> Result<(), String> {
+        let paths = self.0.as_ref().ok_or("Isolated acceptance storage required")?;
+        self.write_acceptance_output(&paths.documents.join("live-api-export.png"), contents)
+    }
+
     fn write_acceptance_output(&self, path: &Path, contents: &[u8]) -> Result<(), String> {
         let path = self.document_path(path, false)?;
         let parent = path.parent().ok_or("Invalid destination")?;

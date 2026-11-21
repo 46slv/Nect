@@ -125,3 +125,18 @@ pub(crate) fn live_acceptance_save_copy(
     storage.write_acceptance_project_copy(contents.as_bytes())?;
     Ok(true)
 }
+
+#[tauri::command]
+pub(crate) fn live_acceptance_write_png(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, LiveAcceptance>,
+    storage: tauri::State<'_, crate::acceptance_storage::RunStorage>,
+    bytes: Vec<u8>,
+) -> Result<bool, String> {
+    admitted(&state, window.label())?;
+    if bytes.len() > 4_000_000 || !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err("Invalid acceptance PNG".into());
+    }
+    storage.write_acceptance_png(&bytes)?;
+    Ok(true)
+}

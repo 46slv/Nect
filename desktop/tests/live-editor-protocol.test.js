@@ -81,3 +81,21 @@ test('document copy is opt-in and accepts only the exact target', async () => {
   assert.deepEqual(await handle(packet), { status: 'accepted-by-writer' });
   assert.equal(writes, 1);
 });
+
+test('PNG routing does not accept caller-supplied paths or raster options', async () => {
+  let writes = 0;
+  const handle = createLiveEditorProtocol({
+    readTarget: () => target,
+    writeSvg: () => assert.fail('wrong format'),
+    writePng: (selected) => {
+      assert.deepEqual(selected, target);
+      writes++;
+      return { status: 'accepted-by-writer' };
+    },
+  });
+  const exportPng = (args) => handle(request('artwork.exportPng', args));
+  assert.deepEqual(exportPng({ target, scale: 99 }), { status: 'invalid-arguments' });
+  assert.deepEqual(exportPng({ target, path: 'arbitrary.png' }), { status: 'invalid-arguments' });
+  assert.deepEqual(await exportPng({ target }), { status: 'accepted-by-writer' });
+  assert.equal(writes, 1);
+});

@@ -183,6 +183,7 @@ fn run() -> Result<(), String> {
             live_editor_acceptance::live_acceptance_finish,
             live_editor_acceptance::live_acceptance_fixture,
             live_editor_acceptance::live_acceptance_write_svg,
+            live_editor_acceptance::live_acceptance_write_png,
             live_editor_acceptance::live_acceptance_save_copy,
             build_identity::query_build_identity,
             open_document,

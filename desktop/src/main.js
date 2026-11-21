@@ -19377,7 +19377,12 @@ if (
       readTarget: readLiveEditorTarget,
       readSnapshot: () => ({ document: history.doc, fonts }),
       exportArtwork,
-      write: (contents) => invoke('live_acceptance_write_svg', { contents }),
+      write: async (contents, _name, kind) => {
+        if (kind === 'svg') return invoke('live_acceptance_write_svg', { contents });
+        if (kind !== 'png' || contents.size > 4_000_000) throw Error('Invalid acceptance PNG');
+        const bytes = Array.from(new Uint8Array(await contents.arrayBuffer()));
+        return invoke('live_acceptance_write_png', { bytes });
+      },
     });
     const saveCopy = createLiveDocumentCopy({
       readTarget: readLiveEditorTarget,
@@ -19390,6 +19395,8 @@ if (
       setBlendDistance: liveBlendDistance,
       saveCopy,
       writeSvg: (target) => acceptanceArtwork.run({ target, format: 'svg' }),
+      writePng: (target) =>
+        acceptanceArtwork.run({ target, format: 'png', pngOptions: { mode: 'scale', scale: 1 } }),
     });
     const wait = () => new Promise((resolve) => setTimeout(resolve, 50));
     const deadline = Date.now() + 120_000;
