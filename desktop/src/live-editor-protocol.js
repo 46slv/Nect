@@ -33,6 +33,7 @@ export function createLiveEditorProtocol({
   setBlendDistance,
   stepHistory,
   createArtwork,
+  setTextContent,
   writeSvg,
   writePng,
   saveCopy,
@@ -74,6 +75,25 @@ export function createLiveEditorProtocol({
       } catch {
         return { status: 'outcome-unknown' };
       }
+    }
+    if (setTextContent && request.operation === 'text.setContent') {
+      if (
+        !closed(args, ['target', 'layerId', 'nodeId', 'text']) ||
+        !validTarget(args.target) ||
+        !id(args.layerId) ||
+        !id(args.nodeId) ||
+        typeof args.text !== 'string' ||
+        args.text.length > 1024
+      )
+        return { status: 'invalid-arguments' };
+      return Promise.resolve()
+        .then(() => setTextContent(args))
+        .then(({ status }) =>
+          status === 'changed' || status === 'unchanged'
+            ? { status, target: captureEditorTarget(readTarget()) }
+            : { status },
+        )
+        .catch(() => ({ status: 'outcome-unknown' }));
     }
     if (saveAsBoundary && request.operation === 'document.saveState') {
       if (!closed(args, [])) return { status: 'invalid-arguments' };

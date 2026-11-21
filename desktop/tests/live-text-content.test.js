@@ -8,6 +8,7 @@ import {
   serializeCompositionProject,
 } from '../src/composition-project-model.js';
 import { createLiveTextContent } from '../src/live-text-content.js';
+import { createLiveEditorProtocol } from '../src/live-editor-protocol.js';
 
 test('live text writes the exact addressed node and shares the existing undo history', async () => {
   const raw = readFileSync(new URL('../examples/blend-distance.json', import.meta.url), 'utf8');
@@ -46,7 +47,12 @@ test('live text writes the exact addressed node and shares the existing undo his
   assert.equal((await setText(edit)).status, 'edit-in-progress');
   assert.equal(snapshot(), initial);
   changeWhilePreparing = blocked = false;
-  assert.equal((await setText(edit)).status, 'changed');
+  const packet = {version: 1, operation: 'text.setContent', arguments: edit};
+  const handle = createLiveEditorProtocol({readTarget: target, setTextContent: setText});
+  assert.equal(createLiveEditorProtocol({readTarget: target})(packet).status, 'unsupported-operation');
+  assert.equal(handle({...packet, arguments: {...edit, path: 'not allowed'}}).status, 'invalid-arguments');
+  assert.equal(handle({...packet, arguments: {...edit, text: 'x'.repeat(1025)}}).status, 'invalid-arguments');
+  assert.deepEqual(await handle(packet), {status: 'changed', target: target()});
   assert.equal(readText(layerId, nodeId), edit.text);
   assert.equal((await setText(edit)).status, 'stale-target');
   const changed = snapshot();
