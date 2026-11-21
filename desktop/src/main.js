@@ -49,6 +49,8 @@ import { SVG_EXPORT_PRECISIONS } from './svg-number-format.js';
 import { formatParameterResult } from './parameter-result-format.js';
 import { createArtworkExporter } from './artwork-export.js';
 import { createLiveArtworkOutput } from './live-artwork-output.js';
+import { createLiveDocumentSave } from './live-document-save.js';
+import { createLiveBlendDistanceOperation } from './live-blend-distance.js';
 import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
 import { initialLayerId } from './initial-layer.js';
@@ -6583,17 +6585,28 @@ function updateArtboardUnitDisplay() {
   }
 }
 const exportArtwork = createArtworkExporter({ exportSVG, pngDimensions, rasterizeSVG });
+function readLiveEditorTarget() {
+  const { sessionId, expectedRevision } = session.state;
+  return {
+    documentGeneration: documents.generation,
+    compositionId: session.activeCompositionId,
+    sessionId,
+    sessionRevision: expectedRevision,
+    projectRevision: session.projectRevision,
+  };
+}
+const liveDocumentSave = createLiveDocumentSave({ readTarget: readLiveEditorTarget, documents });
+const liveBlendDistance = createLiveBlendDistanceOperation({
+  readTarget: readLiveEditorTarget,
+  getOwner: () => session,
+  isEditBlocked: () => documents.transitioning || documents.hasPendingEdits(),
+  commit: (owner, { type, payload, sessionId, expectedRevision }) =>
+    owner === session
+      ? commandChange(type, payload, undefined, true, { sessionId, expectedRevision })
+      : null,
+});
 const liveArtworkOutput = createLiveArtworkOutput({
-  readTarget: () => {
-    const { sessionId, expectedRevision } = session.state;
-    return {
-      documentGeneration: documents.generation,
-      compositionId: session.activeCompositionId,
-      sessionId,
-      sessionRevision: expectedRevision,
-      projectRevision: session.projectRevision,
-    };
-  },
+  readTarget: readLiveEditorTarget,
   readSnapshot: () => ({ document: history.doc, fonts }),
   exportArtwork,
   write: saveFile,
@@ -11926,9 +11939,16 @@ app.addEventListener('click', async (e) => {
         case 'save':
         case 'save-as': {
           try {
-            const pending = documents.save(d.action === 'save-as');
+            const pending = liveDocumentSave({
+              target: liveArtworkOutput.inspect(),
+              saveAs: d.action === 'save-as',
+            });
             updateDocumentStatus();
-            if (await pending) notify(desktop ? 'Project saved' : 'Project download started');
+            const result = await pending;
+            if (result.status === 'edit-in-progress')
+              throw Error('Finish or cancel the active edit before saving.');
+            if (result.status === 'accepted-by-writer')
+              notify(desktop ? 'Project saved' : 'Project download started');
           } finally {
             updateDocumentStatus();
           }
@@ -14572,6 +14592,26 @@ app.addEventListener('change', async (e) => {
           await commitOsText(n.id, n.text, {
             [field.dataset.key === 'letterSpacing' ? 'tracking' : field.dataset.key]: value,
           });
+          return;
+        }
+        if (
+          n.type === 'Blend' &&
+          payload.key === 'distance' &&
+          q.type === 'Scalar' &&
+          d.base === undefined &&
+          d.colorBase === undefined &&
+          d.color === undefined &&
+          Number.isFinite(value) &&
+          !documents.transitioning &&
+          !documents.hasPendingEdits()
+        ) {
+          const { receipt } = liveBlendDistance({
+            target: readLiveEditorTarget(),
+            layerId: current().id,
+            nodeId: n.id,
+            value,
+          });
+          settleNumericControl(el, receipt ?? null);
           return;
         }
         const result = commandChange(
