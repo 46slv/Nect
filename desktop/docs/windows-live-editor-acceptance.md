@@ -45,13 +45,13 @@ Use a fresh receipt for each scenario. Clear inherited flags that are off in
 the table before starting the verifier, including when switching back to the
 baseline. All four variables are optional; on means exactly `1`.
 
-| Scenario | `NECT_ACCEPTANCE_ARTWORK` | `NECT_ACCEPTANCE_TEXT` | `NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE` | `NECT_SVG_ACCEPTANCE_JP_FIXTURE` | Tool count |
-| --- | --- | --- | --- | --- | --- |
-| Baseline | off | off | off | off | 11 |
-| Artwork | on | off | off | off | 12 |
-| ASCII text | on | on | off | off | 13 |
-| Japanese text, missing glyph | on | on | on | off | 13 |
-| Japanese text, embedded font | on | on | off | on | 13 |
+| Scenario                     | `NECT_ACCEPTANCE_ARTWORK` | `NECT_ACCEPTANCE_TEXT` | `NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE` | `NECT_SVG_ACCEPTANCE_JP_FIXTURE` | Tool count |
+| ---------------------------- | ------------------------- | ---------------------- | --------------------------------------- | -------------------------------- | ---------- |
+| Baseline                     | off                       | off                    | off                                     | off                              | 11         |
+| Artwork                      | on                        | off                    | off                                     | off                              | 12         |
+| ASCII text                   | on                        | on                     | off                                     | off                              | 13         |
+| Japanese text, missing glyph | on                        | on                     | on                                      | off                              | 13         |
+| Japanese text, embedded font | on                        | on                     | off                                     | on                               | 13         |
 
 ### Artwork creation scenario
 
