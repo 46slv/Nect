@@ -9,7 +9,7 @@ export function createArtworkExporter({ exportSVG, pngDimensions, rasterizeSVG }
     if (format === 'png') {
       const size = pngDimensions(document, pngOptions);
       const svg = exportSVG(document, fonts);
-      const ppi = pngOptions.mode === 'ppi' ? pngOptions.ppi : null;
+      const ppi = pngOptions?.mode === 'ppi' ? pngOptions.ppi : null;
       const contents = await rasterizeSVG(svg, size, ppi);
       return { written: Boolean(await write(contents, 'nect-artwork.png', 'png')), size };
     }

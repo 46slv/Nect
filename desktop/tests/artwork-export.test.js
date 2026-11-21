@@ -60,3 +60,40 @@ test('unsupported formats and render errors never start a write', async () => {
   });
   await assert.rejects(fail({ document, fonts, format: 'svg' }, write), /render failed/);
 });
+
+test('omitted PNG sizing uses renderer defaults, no PPI, and preserves cancel', async () => {
+  const { document, fonts, size, calls, blob, run } = fixture();
+  const result = await run(
+    { document, fonts, format: 'png' },
+    async (...args) => (calls.push(['write', ...args]), false),
+  );
+  assert.deepEqual(result, { written: false, size });
+  assert.deepEqual(calls, [
+    ['dimensions', document, undefined],
+    ['svg', document, fonts],
+    ['raster', '<svg/>', size, null],
+    ['write', blob, 'nect-artwork.png', 'png'],
+  ]);
+});
+
+test('PNG raster or destination failure rejects without a success result', async () => {
+  const { document, fonts, pngOptions, run } = fixture();
+  const request = { document, fonts, format: 'png', pngOptions };
+  await assert.rejects(
+    run(request, async () => {
+      throw Error('destination failed');
+    }),
+    /destination failed/,
+  );
+  const fail = createArtworkExporter({
+    pngDimensions: () => ({ width: 1, height: 1 }),
+    exportSVG: () => '<svg/>',
+    rasterizeSVG: async () => {
+      throw Error('raster failed');
+    },
+  });
+  await assert.rejects(
+    fail(request, () => assert.fail('must not write')),
+    /raster failed/,
+  );
+});
