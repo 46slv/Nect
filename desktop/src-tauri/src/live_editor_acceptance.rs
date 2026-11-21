@@ -140,3 +140,13 @@ pub(crate) fn live_acceptance_write_png(
     storage.write_acceptance_png(&bytes)?;
     Ok(true)
 }
+
+#[tauri::command]
+pub(crate) fn live_acceptance_read_copy(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, LiveAcceptance>,
+    storage: tauri::State<'_, crate::acceptance_storage::RunStorage>,
+) -> Result<Option<String>, String> {
+    admitted(&state, window.label())?;
+    storage.read_acceptance_project_copy()
+}

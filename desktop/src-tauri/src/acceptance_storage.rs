@@ -317,6 +317,26 @@ impl RunStorage {
         self.write_acceptance_output(&paths.documents.join("live-api-project.json"), contents)
     }
 
+    pub(crate) fn read_acceptance_project_copy(&self) -> Result<Option<String>, String> {
+        let paths = self.0.as_ref().ok_or("Isolated acceptance storage required")?;
+        let path = self.document_path(&paths.documents.join("live-api-project.json"), false)?;
+        let file = match fs::File::open(&path) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.to_string()),
+        };
+        self.verify_private_font_handle(&file, &path)
+            .map_err(|_| "Cannot verify acceptance project storage boundary")?;
+        let mut bytes = Vec::new();
+        file.take(4_000_001)
+            .read_to_end(&mut bytes)
+            .map_err(|e| e.to_string())?;
+        if bytes.len() > 4_000_000 {
+            return Err("Invalid acceptance project".into());
+        }
+        String::from_utf8(bytes).map(Some).map_err(|e| e.to_string())
+    }
+
     pub(crate) fn write_acceptance_png(&self, contents: &[u8]) -> Result<(), String> {
         let paths = self.0.as_ref().ok_or("Isolated acceptance storage required")?;
         self.write_acceptance_output(&paths.documents.join("live-api-export.png"), contents)

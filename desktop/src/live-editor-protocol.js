@@ -28,7 +28,7 @@ function validTarget(target) {
   );
 }
 
-export function createLiveEditorProtocol({ readTarget, setBlendDistance, writeSvg, writePng, saveCopy }) {
+export function createLiveEditorProtocol({ readTarget, setBlendDistance, writeSvg, writePng, saveCopy, reopenCopy }) {
   return function handle(request) {
     if (!closed(request, ['version', 'operation', 'arguments']))
       return { status: 'invalid-request' };
@@ -39,14 +39,21 @@ export function createLiveEditorProtocol({ readTarget, setBlendDistance, writeSv
       if (!closed(args, [])) return { status: 'invalid-arguments' };
       return { status: 'ok', target: captureEditorTarget(readTarget()) };
     }
-    const output =
-      request.operation === 'artwork.exportSvg'
-        ? writeSvg
-        : request.operation === 'artwork.exportPng'
-          ? writePng
-          : request.operation === 'document.saveCopy'
-            ? saveCopy
-            : undefined;
+    let output;
+    switch (request.operation) {
+      case 'artwork.exportSvg':
+        output = writeSvg;
+        break;
+      case 'artwork.exportPng':
+        output = writePng;
+        break;
+      case 'document.saveCopy':
+        output = saveCopy;
+        break;
+      case 'document.reopenCopy':
+        output = reopenCopy;
+        break;
+    }
     if (output) {
       if (!closed(args, ['target']) || !validTarget(args.target))
         return { status: 'invalid-arguments' };

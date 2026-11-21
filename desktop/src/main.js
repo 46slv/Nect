@@ -52,6 +52,7 @@ import { createLiveArtworkOutput } from './live-artwork-output.js';
 import { createLiveDocumentSave } from './live-document-save.js';
 import { createLiveBlendDistanceOperation } from './live-blend-distance.js';
 import { createLiveDocumentCopy } from './live-document-copy.js';
+import { createLiveDocumentReopen } from './live-document-reopen.js';
 import { createLiveEditorProtocol } from './live-editor-protocol.js';
 import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
@@ -19390,10 +19391,25 @@ if (
       isBlocked: () => documents.transitioning || documents.hasPendingEdits(),
       writeCopy: (contents) => invoke('live_acceptance_save_copy', { contents }),
     });
+    const reopenCopy = createLiveDocumentReopen({
+      readTarget: readLiveEditorTarget,
+      readDocument,
+      isBlocked: () => documents.transitioning || documents.hasPendingEdits(),
+      readCopy: () => invoke('live_acceptance_read_copy'),
+      loadCopy: (contents) => {
+        const project = deserializeProject(contents);
+        const activeCompositionId = session.activeCompositionId;
+        if (hasVariableFonts(activeCompositionDocument(project, activeCompositionId)))
+          throw Error('Variable-font document is outside this acceptance scope');
+        replaceDocument(project, { activeCompositionId });
+        render(true);
+      },
+    });
     const handle = createLiveEditorProtocol({
       readTarget: readLiveEditorTarget,
       setBlendDistance: liveBlendDistance,
       saveCopy,
+      reopenCopy,
       writeSvg: (target) => acceptanceArtwork.run({ target, format: 'svg' }),
       writePng: (target) =>
         acceptanceArtwork.run({ target, format: 'png', pngOptions: { mode: 'scale', scale: 1 } }),
