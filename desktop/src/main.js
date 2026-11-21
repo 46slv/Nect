@@ -48,6 +48,7 @@ import {
 import { SVG_EXPORT_PRECISIONS } from './svg-number-format.js';
 import { formatParameterResult } from './parameter-result-format.js';
 import { createArtworkExporter } from './artwork-export.js';
+import { createLiveArtworkOutput } from './live-artwork-output.js';
 import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
 import { initialLayerId } from './initial-layer.js';
@@ -1658,8 +1659,7 @@ let openRequest = 0,
   selectedSvgExportPreset = null,
   svgExportPresetName = '',
   selectedPngExportPreset = null,
-  pngExportPresetName = '',
-  exportInFlight = false;
+  pngExportPresetName = '';
 let exportPresetStorage = null,
   exportPresets = [],
   exportPresetLoadError = '';
@@ -6583,6 +6583,21 @@ function updateArtboardUnitDisplay() {
   }
 }
 const exportArtwork = createArtworkExporter({ exportSVG, pngDimensions, rasterizeSVG });
+const liveArtworkOutput = createLiveArtworkOutput({
+  readTarget: () => {
+    const { sessionId, expectedRevision } = session.state;
+    return {
+      documentGeneration: documents.generation,
+      compositionId: session.activeCompositionId,
+      sessionId,
+      sessionRevision: expectedRevision,
+      projectRevision: session.projectRevision,
+    };
+  },
+  readSnapshot: () => ({ document: history.doc, fonts }),
+  exportArtwork,
+  write: saveFile,
+});
 
 function pngExportSettings() {
   return pngExportMode === 'ppi'
@@ -11931,35 +11946,25 @@ app.addEventListener('click', async (e) => {
         }
         case 'export':
         case 'export-png': {
-          if (exportInFlight) break;
-          exportInFlight = true;
-          try {
-            const format = d.action === 'export' ? 'svg' : 'png';
-            const result = await exportArtwork(
-              {
-                document: history.doc,
-                fonts,
-                format,
-                svgOptions: {
-                  unit: svgExportUnit,
-                  responsive: svgExportSizing === 'responsive',
-                  ...(svgExportPrecision === 'default'
-                    ? {}
-                    : { precision: Number(svgExportPrecision) }),
-                },
-                pngOptions: format === 'png' ? pngExportSettings() : undefined,
-              },
-              saveFile,
-            );
-            if (result.written) {
-              if (format === 'svg') notify('SVG exported · transparent artboard; guides excluded');
-              else
-                notify(
-                  `PNG exported · ${result.size.width} × ${result.size.height} · transparent background`,
-                );
-            }
-          } finally {
-            exportInFlight = false;
+          const format = d.action === 'export' ? 'svg' : 'png';
+          const result = await liveArtworkOutput.run({
+            target: liveArtworkOutput.inspect(),
+            format,
+            svgOptions: {
+              unit: svgExportUnit,
+              responsive: svgExportSizing === 'responsive',
+              ...(svgExportPrecision === 'default'
+                ? {}
+                : { precision: Number(svgExportPrecision) }),
+            },
+            pngOptions: format === 'png' ? pngExportSettings() : undefined,
+          });
+          if (result.status === 'accepted-by-writer') {
+            if (format === 'svg') notify('SVG exported · transparent artboard; guides excluded');
+            else
+              notify(
+                `PNG exported · ${result.size.width} × ${result.size.height} · transparent background`,
+              );
           }
           break;
         }
