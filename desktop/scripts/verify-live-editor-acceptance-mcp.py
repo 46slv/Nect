@@ -15,6 +15,8 @@ exe = Path(os.environ["NECT_ACCEPTANCE_EXE"]).resolve(strict=True)
 root = exe.parent
 assert result_file.parent == root
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
+text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
+replacement = "\u63db\u30fbA1\uff0812\uff09"
 before_dirs=set(root.glob("nect-svg-acceptance-*"))
 fixture = json.loads((base.parent / "examples/blend-distance.json").read_text(encoding="utf-8"))
 layer = fixture["layers"][0]
@@ -45,8 +47,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         send(dict(method="notifications/initialized"))
         listed = call(2, "tools/list")
         extra = ["nect_test_create_artwork"] if artwork else []
+        if text_edit:
+            extra.append("nect_test_set_text_content")
         assert [t["name"] for t in listed["tools"]] == ["nect_test_inspect", "nect_test_set_blend_distance", "nect_test_export_svg", "nect_test_export_png", "nect_test_save_copy", "nect_test_reopen_copy", "nect_test_undo", "nect_test_redo","nect_test_save_state","nect_test_save_receipt","nect_test_save_as"] + extra
-        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + ([False] if artwork else [])
+        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * len(extra)
         start = call(3, "tools/call", name="nect_test_inspect", arguments={})
         assert not start["isError"], start
         target = start["structuredContent"]["target"]
@@ -84,6 +88,16 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 invoke("create_artwork",create_args,"stale-target",True)
                 made.append((kind,point,obj["layerId"],obj["nodeId"]))
                 current=obj["target"]
+            if text_edit:
+                _,_,target_layer,target_node=made[-1]
+                request=dict(target=current,layerId=target_layer,nodeId=target_node,text=replacement)
+                invoke("set_text_content",{**request,"nodeId":"missing"},"unsupported-target",True)
+                updated=invoke("set_text_content",request,"changed")["target"]
+                assert updated["projectRevision"]==current["projectRevision"]+1
+                invoke("set_text_content",request,"stale-target",True)
+                unchanged=invoke("set_text_content",{**request,"target":updated},"unchanged")["target"]
+                assert unchanged==updated
+                current=updated
             before_undo=current
             current=invoke("undo",{"target":current},"changed")["target"]
             invoke("redo",{"target":before_undo},"stale-target",True)
@@ -145,6 +159,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                     assert shape["params"]["center"]["value"]==point, shape["params"]["center"]
                 else:
                     assert shape["params"]["position"]["value"]==point, shape["params"]["position"]
+                    if text_edit:
+                        assert shape["text"]==replacement and shape["font"]=="default"
             svg=(artifacts/"live-api-export.svg").read_bytes()
             png=(artifacts/"live-api-export.png").read_bytes()
             from xml.etree import ElementTree
@@ -159,7 +175,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "protocol":hello["protocolVersion"],"tools":len(listed["tools"]),"run":run.name,
                   "edit":"changed","history":"undo/redo verified","saveCopy":"accepted-by-writer","reopen":"reopened",
                   "exportSvg":"accepted-by-writer","exportPng":"accepted-by-writer","caseGuards":"pass",
-                  "artwork":[x[0] for x in made], "digest":digests}
+                  "artwork":[x[0] for x in made], "japaneseText":text_edit, "digest":digests}
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))

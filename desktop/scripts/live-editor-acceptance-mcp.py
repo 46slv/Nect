@@ -68,6 +68,15 @@ if os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1":
                        "openWorldHint":False},
     })
     OPERATIONS[name] = "artwork.create"
+if os.environ.get("NECT_ACCEPTANCE_ARTWORK") == os.environ.get("NECT_ACCEPTANCE_TEXT") == "1":
+    name = "nect_test_set_text_content"
+    TOOLS.append({
+        "name": name, "description": "Set the text of the addressed default-font object in the isolated fixture",
+        "inputSchema": schema(dict(target=target, layerId=ident, nodeId=ident,
+                                   text={"type":"string","maxLength":1024})),
+        "annotations":{"readOnlyHint":False,"destructiveHint":False,"openWorldHint":False},
+    })
+    OPERATIONS[name] = "text.setContent"
 SUCCEEDED = {"ok", "changed", "unchanged", "accepted-by-writer", "reopened"}
 
 def make_child():

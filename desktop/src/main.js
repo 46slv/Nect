@@ -55,6 +55,7 @@ import { createLiveDocumentCopy } from './live-document-copy.js';
 import { createLiveDocumentReopen } from './live-document-reopen.js';
 import { createLiveEditorProtocol } from './live-editor-protocol.js';
 import { createLiveArtworkCreation } from './live-artwork-creation.js';
+import { createLiveTextContent } from './live-text-content.js';
 import { editorTargetMatches } from './live-editor-target.js';
 import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
@@ -6653,6 +6654,27 @@ const liveArtworkCreation = createLiveArtworkCreation({
     selectionHistory.set(history.doc, selectionSnapshot());
     render();
     return receipt;
+  },
+});
+function acceptanceTextNode(layerId, nodeId) {
+  return history.doc.layers
+    .find((layer) => layer.id === layerId && !layer.locked)
+    ?.nodes.find((node) => node.id === nodeId && node.type === 'Text' && node.font === 'default');
+}
+const liveTextContent = createLiveTextContent({
+  readTarget: readLiveEditorTarget,
+  isEditBlocked: () => documents.transitioning || documents.saving || documents.hasPendingEdits(),
+  readText: (layerId, nodeId) => acceptanceTextNode(layerId, nodeId)?.text,
+  commit: (command, isCurrent) => {
+    if (!isCurrent()) return { status: 'edit-in-progress' };
+    const prior = selectionSnapshot();
+    const oldDocument = history.doc;
+    session.dispatch(command);
+    if (history.doc === oldDocument) return { status: 'unchanged' };
+    selectionHistory.set(history.past.at(-1), prior);
+    selectionHistory.set(history.doc, selectionSnapshot());
+    render();
+    return { status: 'changed' };
   },
 });
 const liveArtworkOutput = createLiveArtworkOutput({
@@ -19182,6 +19204,7 @@ const testLiveEditorProtocol = import.meta.env.DEV
       setBlendDistance: liveBlendDistance,
       stepHistory: stepAcceptanceHistory,
       createArtwork: liveArtworkCreation,
+      setTextContent: liveTextContent,
     })
   : null;
 // Explicit test/debug API; same model and mutations as the UI.
@@ -19459,6 +19482,7 @@ if (
       setBlendDistance: liveBlendDistance,
       stepHistory: stepAcceptanceHistory,
       createArtwork: liveArtworkCreation,
+      setTextContent: liveTextContent,
       saveCopy,
       reopenCopy,
       saveAsBoundary: createLiveSaveAsBoundary({ readTarget: readLiveEditorTarget, documents }),
