@@ -110,3 +110,18 @@ pub(crate) fn live_acceptance_write_svg(
     storage.write_acceptance_svg(contents.as_bytes())?;
     Ok(true)
 }
+
+#[tauri::command]
+pub(crate) fn live_acceptance_save_copy(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, LiveAcceptance>,
+    storage: tauri::State<'_, crate::acceptance_storage::RunStorage>,
+    contents: String,
+) -> Result<bool, String> {
+    admitted(&state, window.label())?;
+    if contents.len() > 4_000_000 || !contents.trim_start().starts_with('{') {
+        return Err("Invalid acceptance project".into());
+    }
+    storage.write_acceptance_project_copy(contents.as_bytes())?;
+    Ok(true)
+}

@@ -51,6 +51,7 @@ import { createArtworkExporter } from './artwork-export.js';
 import { createLiveArtworkOutput } from './live-artwork-output.js';
 import { createLiveDocumentSave } from './live-document-save.js';
 import { createLiveBlendDistanceOperation } from './live-blend-distance.js';
+import { createLiveDocumentCopy } from './live-document-copy.js';
 import { createLiveEditorProtocol } from './live-editor-protocol.js';
 import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
@@ -19378,9 +19379,16 @@ if (
       exportArtwork,
       write: (contents) => invoke('live_acceptance_write_svg', { contents }),
     });
+    const saveCopy = createLiveDocumentCopy({
+      readTarget: readLiveEditorTarget,
+      readDocument,
+      isBlocked: () => documents.transitioning || documents.hasPendingEdits(),
+      writeCopy: (contents) => invoke('live_acceptance_save_copy', { contents }),
+    });
     const handle = createLiveEditorProtocol({
       readTarget: readLiveEditorTarget,
       setBlendDistance: liveBlendDistance,
+      saveCopy,
       writeSvg: (target) => acceptanceArtwork.run({ target, format: 'svg' }),
     });
     const wait = () => new Promise((resolve) => setTimeout(resolve, 50));

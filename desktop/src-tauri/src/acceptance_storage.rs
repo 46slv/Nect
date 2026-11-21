@@ -309,7 +309,16 @@ impl RunStorage {
     // filename received from an automation client and cannot overwrite a file.
     pub(crate) fn write_acceptance_svg(&self, contents: &[u8]) -> Result<(), String> {
         let paths = self.0.as_ref().ok_or("Isolated acceptance storage required")?;
-        let path = self.document_path(&paths.documents.join("live-api-export.svg"), false)?;
+        self.write_acceptance_output(&paths.documents.join("live-api-export.svg"), contents)
+    }
+
+    pub(crate) fn write_acceptance_project_copy(&self, contents: &[u8]) -> Result<(), String> {
+        let paths = self.0.as_ref().ok_or("Isolated acceptance storage required")?;
+        self.write_acceptance_output(&paths.documents.join("live-api-project.json"), contents)
+    }
+
+    fn write_acceptance_output(&self, path: &Path, contents: &[u8]) -> Result<(), String> {
+        let path = self.document_path(path, false)?;
         let parent = path.parent().ok_or("Invalid destination")?;
         let mut staged = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
         staged.write_all(contents).map_err(|e| e.to_string())?;

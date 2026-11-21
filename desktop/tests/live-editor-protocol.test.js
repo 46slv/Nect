@@ -64,3 +64,20 @@ test('does not represent a stale edit or an ambiguous host failure as success', 
   assert.deepEqual(handle(request('blend.setDistance', edit)), { status: 'outcome-unknown' });
   assert.equal(attempts, 2);
 });
+
+test('document copy is opt-in and accepts only the exact target', async () => {
+  const config = { readTarget: () => target };
+  const packet = request('document.saveCopy', { target });
+  assert.deepEqual(createLiveEditorProtocol(config)(packet), { status: 'unsupported-operation' });
+  let writes = 0;
+  const saveCopy = (selected) => {
+    assert.deepEqual(selected, target);
+    writes++;
+    return { status: 'accepted-by-writer', internal: 'never forwarded' };
+  };
+  const handle = createLiveEditorProtocol({ ...config, saveCopy });
+  assert.deepEqual(handle(request('document.saveCopy', { target, path: 'another.json' })),
+    { status: 'invalid-arguments' });
+  assert.deepEqual(await handle(packet), { status: 'accepted-by-writer' });
+  assert.equal(writes, 1);
+});
