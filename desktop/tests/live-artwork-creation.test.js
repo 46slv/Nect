@@ -8,6 +8,7 @@ import {
   serializeCompositionProject,
 } from '../src/composition-project-model.js';
 import { createLiveArtworkCreation } from '../src/live-artwork-creation.js';
+import { createLiveEditorProtocol } from '../src/live-editor-protocol.js';
 
 test('target-bound shape and text creation go through the existing editor command and history', () => {
   const raw = readFileSync(new URL('../examples/blend-distance.json', import.meta.url), 'utf8');
@@ -43,7 +44,17 @@ test('target-bound shape and text creation go through the existing editor comman
   assert.equal(shape.type, 'Rectangle');
   assert.deepEqual(shape.params.center.value, [250, 300]);
   const partial = snapshot();
-  const second = create({ target: target(), artworkType: 'Text', at: [200, 210] });
+  const handle = createLiveEditorProtocol({ readTarget: target, createArtwork: create });
+  const intent = { target: target(), artworkType: 'Text', at: [200, 210] };
+  const request = { version: 1, operation: 'artwork.create', arguments: intent };
+  assert.deepEqual(createLiveEditorProtocol({ readTarget: target })(request), {
+    status: 'unsupported-operation',
+  });
+  assert.deepEqual(handle({ ...request, arguments: { ...intent, path: 'unknown' } }), {
+    status: 'invalid-arguments',
+  });
+  const second = handle(request);
+  assert.deepEqual(second.target, target());
   assert.equal(second.status, 'changed');
   const textLayer = owner.snapshot().layers.find((layer) => layer.id === second.layerId);
   const text = textLayer.nodes.find((node) => node.id === second.nodeId);

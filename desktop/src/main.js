@@ -54,6 +54,7 @@ import { createLiveBlendDistanceOperation } from './live-blend-distance.js';
 import { createLiveDocumentCopy } from './live-document-copy.js';
 import { createLiveDocumentReopen } from './live-document-reopen.js';
 import { createLiveEditorProtocol } from './live-editor-protocol.js';
+import { createLiveArtworkCreation } from './live-artwork-creation.js';
 import { editorTargetMatches } from './live-editor-target.js';
 import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
@@ -6642,6 +6643,18 @@ function stepAcceptanceHistory(target, redo) {
   render(false, null, graphScroll);
   return { status: editorTargetMatches(readLiveEditorTarget(), target) ? 'unchanged' : 'changed' };
 }
+const liveArtworkCreation = createLiveArtworkCreation({
+  readTarget: readLiveEditorTarget,
+  isEditBlocked: () => documents.transitioning || documents.hasPendingEdits() || !!nameEdit,
+  commit: (command) => {
+    const prior = selectionSnapshot();
+    const receipt = session.dispatch(command);
+    selectionHistory.set(history.past.at(-1), prior);
+    selectionHistory.set(history.doc, selectionSnapshot());
+    render();
+    return receipt;
+  },
+});
 const liveArtworkOutput = createLiveArtworkOutput({
   readTarget: readLiveEditorTarget,
   readSnapshot: () => ({ document: history.doc, fonts }),
@@ -19168,6 +19181,7 @@ const testLiveEditorProtocol = import.meta.env.DEV
       readTarget: readLiveEditorTarget,
       setBlendDistance: liveBlendDistance,
       stepHistory: stepAcceptanceHistory,
+      createArtwork: liveArtworkCreation,
     })
   : null;
 // Explicit test/debug API; same model and mutations as the UI.
@@ -19444,6 +19458,7 @@ if (
       readTarget: readLiveEditorTarget,
       setBlendDistance: liveBlendDistance,
       stepHistory: stepAcceptanceHistory,
+      createArtwork: liveArtworkCreation,
       saveCopy,
       reopenCopy,
       saveAsBoundary: createLiveSaveAsBoundary({ readTarget: readLiveEditorTarget, documents }),

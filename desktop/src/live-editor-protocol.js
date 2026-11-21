@@ -32,6 +32,7 @@ export function createLiveEditorProtocol({
   readTarget,
   setBlendDistance,
   stepHistory,
+  createArtwork,
   writeSvg,
   writePng,
   saveCopy,
@@ -59,6 +60,17 @@ export function createLiveEditorProtocol({
         if (status === 'changed' || status === 'unchanged')
           return { status, target: captureEditorTarget(readTarget()) };
         return { status };
+      } catch {
+        return { status: 'outcome-unknown' };
+      }
+    }
+    if (createArtwork && request.operation === 'artwork.create') {
+      if (!closed(args, ['target', 'artworkType', 'at']) || !validTarget(args.target))
+        return { status: 'invalid-arguments' };
+      try {
+        const { status, layerId, nodeId } = createArtwork(args);
+        if (status !== 'changed') return { status };
+        return { status, layerId, nodeId, target: captureEditorTarget(readTarget()) };
       } catch {
         return { status: 'outcome-unknown' };
       }
