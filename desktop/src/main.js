@@ -50,6 +50,7 @@ import { formatParameterResult } from './parameter-result-format.js';
 import { createArtworkExporter } from './artwork-export.js';
 import { createLiveArtworkOutput } from './live-artwork-output.js';
 import { createLiveDocumentSave } from './live-document-save.js';
+import { createLiveBlendDistanceOperation } from './live-blend-distance.js';
 import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
 import { initialLayerId } from './initial-layer.js';
@@ -6595,6 +6596,15 @@ function readLiveEditorTarget() {
   };
 }
 const liveDocumentSave = createLiveDocumentSave({ readTarget: readLiveEditorTarget, documents });
+const liveBlendDistance = createLiveBlendDistanceOperation({
+  readTarget: readLiveEditorTarget,
+  getOwner: () => session,
+  isEditBlocked: () => documents.transitioning || documents.hasPendingEdits(),
+  commit: (owner, { type, payload, sessionId, expectedRevision }) =>
+    owner === session
+      ? commandChange(type, payload, undefined, true, { sessionId, expectedRevision })
+      : null,
+});
 const liveArtworkOutput = createLiveArtworkOutput({
   readTarget: readLiveEditorTarget,
   readSnapshot: () => ({ document: history.doc, fonts }),
@@ -14582,6 +14592,26 @@ app.addEventListener('change', async (e) => {
           await commitOsText(n.id, n.text, {
             [field.dataset.key === 'letterSpacing' ? 'tracking' : field.dataset.key]: value,
           });
+          return;
+        }
+        if (
+          n.type === 'Blend' &&
+          payload.key === 'distance' &&
+          q.type === 'Scalar' &&
+          d.base === undefined &&
+          d.colorBase === undefined &&
+          d.color === undefined &&
+          Number.isFinite(value) &&
+          !documents.transitioning &&
+          !documents.hasPendingEdits()
+        ) {
+          const { receipt } = liveBlendDistance({
+            target: readLiveEditorTarget(),
+            layerId: current().id,
+            nodeId: n.id,
+            value,
+          });
+          settleNumericControl(el, receipt ?? null);
           return;
         }
         const result = commandChange(

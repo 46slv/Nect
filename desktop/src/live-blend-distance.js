@@ -19,6 +19,7 @@ export function createLiveBlendDistanceOperation({ readTarget, getOwner, isEditB
       type: 'set-parameter',
       payload: { layerId, nodeId, key: 'distance', value },
     });
+    if (!receipt) return { status: 'rejected' };
     return { status: receipt.changed ? 'changed' : 'unchanged', receipt };
   };
 }
