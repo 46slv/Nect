@@ -1620,6 +1620,7 @@ const documents = new DocumentLifecycle({
   read: readDocument,
   write: async (packet) => {
     if (
+      typeof import.meta.env !== 'undefined' &&
       import.meta.env.VITE_NECT_LIVE_EDITOR_ACCEPTANCE === '1' &&
       desktop &&
       window.__NECT_LIVE_EDITOR_TEST_INSTANCE__ === true &&
@@ -19205,15 +19206,16 @@ app.addEventListener('compositionend', updateLayerDeletionControls);
 document.addEventListener('pointerup', updateLayerDeletionControls);
 document.addEventListener('pointercancel', updateLayerDeletionControls);
 // Development contract probe only. Production builds must not expose it.
-const testLiveEditorProtocol = import.meta.env.DEV
-  ? createLiveEditorProtocol({
-      readTarget: readLiveEditorTarget,
-      setBlendDistance: liveBlendDistance,
-      stepHistory: stepAcceptanceHistory,
-      createArtwork: liveArtworkCreation,
-      setTextContent: liveTextContent,
-    })
-  : null;
+const testLiveEditorProtocol =
+  typeof import.meta.env !== 'undefined' && import.meta.env.DEV
+    ? createLiveEditorProtocol({
+        readTarget: readLiveEditorTarget,
+        setBlendDistance: liveBlendDistance,
+        stepHistory: stepAcceptanceHistory,
+        createArtwork: liveArtworkCreation,
+        setTextContent: liveTextContent,
+      })
+    : null;
 // Explicit test/debug API; same model and mutations as the UI.
 window.nect = {
   ...(testLiveEditorProtocol ? { testLiveEditorProtocol } : {}),
@@ -19447,6 +19449,7 @@ document.addEventListener('keydown', (event) => {
 // Compiled out unless the frontend is explicitly built for the matching
 // native acceptance executable. No release build starts a request pump.
 if (
+  typeof import.meta.env !== 'undefined' &&
   import.meta.env.VITE_NECT_LIVE_EDITOR_ACCEPTANCE === '1' &&
   desktop &&
   window.__NECT_LIVE_EDITOR_TEST_INSTANCE__ === true
