@@ -17,6 +17,15 @@ const targetKeys = [
   'sessionRevision',
   'projectRevision',
 ];
+export function isEditorInspectRequest(request) {
+  return (
+    closed(request, ['version', 'operation', 'arguments']) &&
+    request.version === 1 &&
+    request.operation === 'editor.inspect' &&
+    closed(request.arguments, [])
+  );
+}
+
 function validTarget(target) {
   return (
     closed(target, targetKeys) &&

@@ -53,7 +53,7 @@ import { createLiveDocumentSave, createLiveSaveAsBoundary } from './live-documen
 import { createLiveBlendDistanceOperation } from './live-blend-distance.js';
 import { createLiveDocumentCopy } from './live-document-copy.js';
 import { createLiveDocumentReopen } from './live-document-reopen.js';
-import { createLiveEditorProtocol } from './live-editor-protocol.js';
+import { createLiveEditorProtocol, isEditorInspectRequest } from './live-editor-protocol.js';
 import { readLiveEditorObjects } from './live-editor-objects.js';
 import { createLiveArtworkCreation } from './live-artwork-creation.js';
 import { createLiveTextContent } from './live-text-content.js';
@@ -19511,6 +19511,13 @@ if (
       writePng: (target) =>
         acceptanceArtwork.run({ target, format: 'png', pngOptions: { mode: 'scale', scale: 1 } }),
     });
+    const { createLiveInspectPublication } = await import('./live-inspect-publication.js');
+    const publication = createLiveInspectPublication({
+      readTarget: readLiveEditorTarget,
+      canInspect: () => !documents.transitioning,
+    });
+    const readOwner = Object.freeze({});
+    publication.bind(readOwner);
     const wait = () => new Promise((resolve) => setTimeout(resolve, 50));
     const deadline = Date.now() + 120_000;
     while (closeInputBlocked() && Date.now() < deadline) await wait();
@@ -19525,7 +19532,13 @@ if (
       const [id, packet] = request;
       let reply;
       try {
-        reply = await handle(JSON.parse(packet));
+        const input = JSON.parse(packet);
+        if (isEditorInspectRequest(input)) {
+          const ticket = publication.prepare(readOwner);
+          reply = (ticket && publication.take(readOwner, ticket)) || { status: 'unavailable' };
+        } else {
+          reply = await handle(input);
+        }
       } catch {
         reply = { status: 'outcome-unknown' };
       }
