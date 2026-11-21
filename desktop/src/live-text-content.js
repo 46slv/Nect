@@ -7,15 +7,17 @@ export function createLiveTextContent({ readTarget, isEditBlocked, readText, com
     if (!editorTargetMatches(readTarget(), target)) return { status: 'stale-target' };
     if (isEditBlocked()) return { status: 'edit-in-progress' };
     if (
-      ![layerId, nodeId].every((id) => typeof id === 'string' && id.length > 0 && id.length <= 256) ||
-      typeof text !== 'string' || text.length > 1024
+      ![layerId, nodeId].every(
+        (id) => typeof id === 'string' && id.length > 0 && id.length <= 256,
+      ) ||
+      typeof text !== 'string' ||
+      text.length > 1024
     )
       return { status: 'invalid-arguments' };
     const previous = readText(layerId, nodeId);
     if (typeof previous !== 'string') return { status: 'unsupported-target' };
     if (previous === text) return { status: 'unchanged' };
-    const isCurrent = () =>
-      editorTargetMatches(readTarget(), target) && !isEditBlocked();
+    const isCurrent = () => editorTargetMatches(readTarget(), target) && !isEditBlocked();
     return commit(
       {
         sessionId: target.sessionId,

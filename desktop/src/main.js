@@ -6659,11 +6659,13 @@ const liveArtworkCreation = createLiveArtworkCreation({
 function acceptanceTextNode(layerId, nodeId) {
   return history.doc.layers
     .find((layer) => layer.id === layerId && !layer.locked)
-    ?.nodes.find((node) =>
-      node.id === nodeId && node.type === 'Text' &&
-      (node.font === 'default' ||
-        (node.font === 'font-integrity-fixture' &&
-          history.doc.fontAssets?.[node.font]?.fileName === 'NectJPFixture-Regular.otf')),
+    ?.nodes.find(
+      (node) =>
+        node.id === nodeId &&
+        node.type === 'Text' &&
+        (node.font === 'default' ||
+          (node.font === 'font-integrity-fixture' &&
+            history.doc.fontAssets?.[node.font]?.fileName === 'NectJPFixture-Regular.otf')),
     );
 }
 const liveTextContent = createLiveTextContent({

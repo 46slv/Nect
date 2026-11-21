@@ -153,11 +153,15 @@ test('the live Composition owner rejects stale output without changing authored 
 
 test('missing glyph is a confirmed rejection, other writer failures remain unknown', async () => {
   const { operation, target, setExport, calls } = fixture();
-  setExport(async () => { throw new MissingGlyphError('\u63db'); });
+  setExport(async () => {
+    throw new MissingGlyphError('\u63db');
+  });
   for (const format of ['svg', 'png']) {
     assert.deepEqual(await operation.run({ target, format }), { status: 'unsupported-glyph' });
   }
-  setExport(async () => { throw Error('write has ambiguous outcome'); });
+  setExport(async () => {
+    throw Error('write has ambiguous outcome');
+  });
   await assert.rejects(operation.run({ target, format: 'svg' }), /ambiguous outcome/);
   setExport(async () => ({ written: true }));
   assert.equal((await operation.run({ target, format: 'svg' })).status, 'accepted-by-writer');
