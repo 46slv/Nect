@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { DocumentLifecycle } from '../src/document-lifecycle.js';
 import { createLiveInspectPublication } from '../src/live-inspect-publication.js';
 
 const first = Object.freeze({
@@ -65,4 +66,48 @@ test('a tab transition, return to the tab, and revision changes all invalidate a
   const fresh = gate.prepare(owner);
   assert.deepEqual(gate.take(owner, fresh), { status: 'ok', target });
   assert.equal(first.sessionRevision, 2);
+});
+
+test('uses the real document lifecycle without editing content or opening the writer', async () => {
+  let text = 'first document with unsaved edits';
+  let decision;
+  const documents = new DocumentLifecycle({
+    read: () => text,
+    write: () => assert.fail('Inspect must not write a document'),
+    choose: () => new Promise((resolve) => (decision = resolve)),
+  });
+  const owner = {};
+  const readTarget = () => ({ ...first, documentGeneration: documents.generation });
+  const gate = createLiveInspectPublication({
+    readTarget,
+    canInspect: () => !documents.transitioning,
+  });
+  gate.bind(owner);
+
+  const beforeTransition = gate.prepare(owner);
+  assert.ok(beforeTransition);
+  const transition = documents.guard('open');
+  assert.equal(documents.transitioning, true);
+  assert.equal(gate.take(owner, beforeTransition), null);
+  assert.equal(gate.prepare(owner), null);
+  decision('cancel');
+  assert.equal(await transition, false);
+  assert.equal(text, 'first document with unsaved edits');
+
+  const beforeReplacement = gate.prepare(owner);
+  text = 'different saved document';
+  await documents.replace({ saved: true });
+  assert.equal(gate.take(owner, beforeReplacement), null);
+  const beforeRead = {
+    text,
+    revision: documents.revision,
+    saved: documents.saved,
+    epoch: documents.saveEpoch,
+  };
+  const current = gate.prepare(owner);
+  assert.deepEqual(gate.take(owner, current), { status: 'ok', target: readTarget() });
+  assert.deepEqual(
+    { text, revision: documents.revision, saved: documents.saved, epoch: documents.saveEpoch },
+    beforeRead,
+  );
 });
