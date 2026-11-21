@@ -17,8 +17,10 @@ assert result_file.parent == root
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
 mixed_text_probe = os.environ.get("NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE") == "1"
-assert not mixed_text_probe or text_edit
-replacement = "\u63db\u30fbA1\uff0812\uff09" if mixed_text_probe else "Nect A1 (12)"
+embedded_jp = os.environ.get("NECT_SVG_ACCEPTANCE_JP_FIXTURE") == "1"
+assert not (embedded_jp and mixed_text_probe)
+assert not (embedded_jp or mixed_text_probe) or text_edit
+replacement = "\u63db\u30fbA1\uff0812\uff09" if mixed_text_probe else ("\u65e5\u672c\u8a9e A1\uff0812\uff09" if embedded_jp else "Nect A1 (12)")
 before_dirs=set(root.glob("nect-svg-acceptance-*"))
 fixture = json.loads((base.parent / "examples/blend-distance.json").read_text(encoding="utf-8"))
 layer = fixture["layers"][0]
@@ -81,8 +83,12 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         current=invoke("redo",{"target":undone},"changed")["target"]
         assert current["projectRevision"]==undone["projectRevision"]+1
         made = []
+        created = []
         if artwork:
-            for kind, point in (("Rectangle",[430,180]), ("Text",[610,230])):
+            create_cases = [("Rectangle",[430,180])]
+            if not embedded_jp:
+                create_cases.append(("Text",[610,230]))
+            for kind, point in create_cases:
                 create_args = dict(target=current, artworkType=kind, at=point)
                 invoke("create_artwork",{**create_args,"at":[0]},"invalid-arguments",True)
                 obj=invoke("create_artwork",create_args,"changed")
@@ -90,6 +96,12 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 invoke("create_artwork",create_args,"stale-target",True)
                 made.append((kind,point,obj["layerId"],obj["nodeId"]))
                 current=obj["target"]
+            created = [x[0] for x in made]
+            if embedded_jp:
+                assets=json.loads((base.parent/"tests/fixtures/project-integrity-native.json").read_bytes())
+                [t_layer]=[l for l in assets["compositions"][0]["layers"] if l["id"]=="integrity-text-layer"]
+                [t_node]=[n for n in t_layer["nodes"] if n["id"]=="integrity-text"]
+                made.append(("Text",t_node["params"]["position"]["value"],t_layer["id"],t_node["id"]))
             if text_edit:
                 _,_,target_layer,target_node=made[-1]
                 request=dict(target=current,layerId=target_layer,nodeId=target_node,text=replacement)
@@ -171,7 +183,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 else:
                     assert shape["params"]["position"]["value"]==point, shape["params"]["position"]
                     if text_edit:
-                        assert shape["text"]==replacement and shape["font"]=="default"
+                        expected_id="font-integrity-fixture" if embedded_jp else "default"
+                        assert shape["text"]==replacement and shape["font"]==expected_id
+                        if embedded_jp:
+                            assert snapshot["fontAssets"][expected_id]==assets["fontAssets"][expected_id]
             if not mixed_text_probe:
                 svg=(artifacts/"live-api-export.svg").read_bytes()
                 png=(artifacts/"live-api-export.png").read_bytes()
@@ -188,7 +203,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "edit":"changed","history":"undo/redo verified","saveCopy":"accepted-by-writer","reopen":"reopened",
                   "exportSvg":"outcome-unknown (default font glyph rejection)" if mixed_text_probe else "accepted-by-writer",
                   "exportPng":"not attempted" if mixed_text_probe else "accepted-by-writer","caseGuards":"pass",
-                  "artwork":[x[0] for x in made], "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
+                  "artwork":created, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))

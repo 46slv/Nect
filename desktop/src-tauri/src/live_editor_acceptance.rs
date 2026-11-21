@@ -88,10 +88,42 @@ pub(crate) fn live_acceptance_finish(
 pub(crate) fn live_acceptance_fixture(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, LiveAcceptance>,
-) -> Result<&'static str, &'static str> {
+) -> Result<String, &'static str> {
     admitted(&state, window.label())?;
     #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
-    return Ok(include_str!("../../examples/blend-distance.json"));
+    {
+        let blend = include_str!("../../examples/blend-distance.json");
+        if std::env::var("NECT_SVG_ACCEPTANCE_JP_FIXTURE").as_deref() != Ok("1") {
+            return Ok(blend.into());
+        }
+        let mut combined: serde_json::Value =
+            serde_json::from_str(blend).map_err(|_| "Invalid embedded Blend fixture")?;
+        let source: serde_json::Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/project-integrity-native.json"
+        ))
+        .map_err(|_| "Invalid embedded font fixture")?;
+        let font = source["fontAssets"]["font-integrity-fixture"]
+            .as_object()
+            .ok_or("Missing embedded test font")?;
+        let layer = source["compositions"][0]["layers"]
+            .as_array()
+            .and_then(|layers| layers.iter().find(|l| l["id"] == "integrity-text-layer"))
+            .ok_or("Missing embedded text layer")?;
+        let project = combined.as_object_mut().ok_or("Invalid test project")?;
+        if project.contains_key("fontAssets") {
+            return Err("Unexpected fonts in Blend fixture");
+        }
+        project.insert(
+            "fontAssets".into(),
+            serde_json::json!({"font-integrity-fixture":font}),
+        );
+        project
+            .get_mut("layers")
+            .and_then(serde_json::Value::as_array_mut)
+            .ok_or("Missing embedded Blend layers")?
+            .push(layer.clone());
+        return serde_json::to_string(&combined).map_err(|_| "Invalid combined test fixture");
+    }
     #[cfg(not(all(windows, feature = "live-editor-acceptance-test")))]
     Err("Live editor test disabled")
 }
