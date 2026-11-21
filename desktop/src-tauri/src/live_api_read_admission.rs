@@ -59,6 +59,8 @@ pub(crate) enum Admission {
     Exhausted,
     UnsupportedOperation,
     InvalidRendererReply,
+    Busy,
+    StaleRequest,
 }
 
 #[derive(Debug)]
@@ -208,6 +210,96 @@ impl ReadAdmission {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum InspectPhase {
+    Prepare,
+    Publish,
+    Discard,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InspectFrame {
+    pub(crate) request_id: u64,
+    pub(crate) phase: InspectPhase,
+}
+
+/// A single request slot owned by the native side. The future Tauri handler
+/// serializes this state with the channel writer and invalidates it on
+/// WebView reload or channel teardown. This type never registers IPC itself.
+#[derive(Default)]
+pub(crate) struct InspectSlot {
+    next: u64,
+    pending: Option<(u64, u128, u64, bool)>,
+}
+
+impl InspectSlot {
+    pub(crate) fn prepare(
+        &mut self,
+        admission: &ReadAdmission,
+        grant: &ReadGrant,
+        now: u64,
+    ) -> Result<InspectFrame, Admission> {
+        admission.admit(Some(grant), now)?;
+        if self.pending.is_some() {
+            return Err(Admission::Busy);
+        }
+        self.next = self
+            .next
+            .checked_add(1)
+            .filter(|n| *n <= MAX_JS_REVISION)
+            .ok_or(Admission::Exhausted)?;
+        self.pending = Some((self.next, grant.instance, grant.generation, false));
+        Ok(InspectFrame {
+            request_id: self.next,
+            phase: InspectPhase::Prepare,
+        })
+    }
+
+    pub(crate) fn publish(
+        &mut self,
+        admission: &ReadAdmission,
+        grant: &ReadGrant,
+        now: u64,
+        request_id: u64,
+    ) -> Result<InspectFrame, Admission> {
+        admission.admit(Some(grant), now)?;
+        if self.pending != Some((request_id, grant.instance, grant.generation, false)) {
+            return Err(Admission::StaleRequest);
+        }
+        self.pending = Some((request_id, grant.instance, grant.generation, true));
+        Ok(InspectFrame {
+            request_id,
+            phase: InspectPhase::Publish,
+        })
+    }
+
+    pub(crate) fn discard(&mut self) -> Option<InspectFrame> {
+        let (request_id, _, _, _) = self.pending.take()?;
+        Some(InspectFrame {
+            request_id,
+            phase: InspectPhase::Discard,
+        })
+    }
+
+    pub(crate) fn receive(
+        &mut self,
+        admission: &ReadAdmission,
+        grant: &ReadGrant,
+        now: u64,
+        request_id: u64,
+        payload: &[u8],
+    ) -> Result<InspectReply, Admission> {
+        let read = admission.begin(Some(grant), now, "editor.inspect")?;
+        if self.pending != Some((request_id, grant.instance, grant.generation, true)) {
+            return Err(Admission::StaleRequest);
+        }
+        self.pending = None;
+        admission.finish_inspect(read, now, payload)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,6 +434,57 @@ mod tests {
         assert_eq!(
             state.finish_inspect(expired, 20, valid),
             Err(Admission::Expired)
+        );
+    }
+
+    #[test]
+    fn inspection_slot_rejects_old_completions_and_only_publishes_once() {
+        let mut admission = ready(7);
+        let old = admission.issue(1, 20).unwrap();
+        let mut slot = InspectSlot::default();
+        let a = slot.prepare(&admission, &old, 2).unwrap();
+        assert_eq!(
+            serde_json::to_value(a).unwrap(),
+            serde_json::json!({"requestId":1,"phase":"prepare"})
+        );
+        assert_eq!(slot.prepare(&admission, &old, 2), Err(Admission::Busy));
+        let body = br#"{"status":"unavailable"}"#;
+        assert_eq!(
+            slot.receive(&admission, &old, 3, a.request_id, body),
+            Err(Admission::StaleRequest)
+        );
+        assert_eq!(
+            slot.publish(&admission, &old, 3, a.request_id)
+                .unwrap()
+                .phase,
+            InspectPhase::Publish
+        );
+        assert_eq!(slot.discard().unwrap().phase, InspectPhase::Discard);
+        admission.set_ready(false);
+        admission.set_ready(true);
+        let grant = admission.issue(4, 20).unwrap();
+        let b = slot.prepare(&admission, &grant, 4).unwrap();
+        assert_ne!(a.request_id, b.request_id);
+        assert_eq!(
+            slot.publish(&admission, &old, 4, b.request_id),
+            Err(Admission::NotGranted)
+        );
+        assert_eq!(
+            slot.publish(&admission, &grant, 4, a.request_id),
+            Err(Admission::StaleRequest)
+        );
+        slot.publish(&admission, &grant, 4, b.request_id).unwrap();
+        assert_eq!(
+            slot.receive(&admission, &grant, 5, a.request_id, body),
+            Err(Admission::StaleRequest)
+        );
+        assert_eq!(
+            slot.receive(&admission, &grant, 5, b.request_id, body),
+            Ok(InspectReply::Unavailable {})
+        );
+        assert_eq!(
+            slot.receive(&admission, &grant, 5, b.request_id, body),
+            Err(Admission::StaleRequest)
         );
     }
 

@@ -23,10 +23,6 @@ export function createLiveInspectChannel({ readTarget, canInspect }) {
           if (pending || requestId <= sequence) return;
           sequence = requestId;
           const ticket = lane.prepare(owner);
-          if (!ticket) {
-            respond(requestId, unavailable);
-            return;
-          }
           pending = { requestId, ticket };
           return;
         }
@@ -40,7 +36,7 @@ export function createLiveInspectChannel({ readTarget, canInspect }) {
         if (phase !== 'publish') return;
         const { ticket } = pending;
         pending = null;
-        respond(requestId, lane.take(owner, ticket) ?? unavailable);
+        respond(requestId, (ticket && lane.take(owner, ticket)) || unavailable);
       };
       detach = () => {
         active = false;

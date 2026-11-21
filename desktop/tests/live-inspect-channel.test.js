@@ -51,3 +51,15 @@ test('one attached channel processes only a current inspector and drops a detach
   assert.equal(replies.length, 3);
   closeNext();
 });
+
+test('unavailable is emitted in publish phase only when the editor is not ready', () => {
+  const channel = {};
+  const replies = [];
+  const route = createLiveInspectChannel({ readTarget: () => initial, canInspect: () => false });
+  const close = route.attach(channel, (...args) => replies.push(args));
+  channel.onmessage({ phase: 'prepare', requestId: 1 });
+  assert.deepEqual(replies, []);
+  channel.onmessage({ phase: 'publish', requestId: 1 });
+  assert.deepEqual(replies, [[1, { status: 'unavailable' }]]);
+  close();
+});
