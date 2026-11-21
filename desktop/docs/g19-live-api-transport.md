@@ -48,6 +48,24 @@ transport must serialize that final check with its connection writer and
 purge unpublished results on revocation; returned test data is not proof of
 socket or OS authorization.
 
+## Normal renderer handshake (first candidate)
+
+Use a scoped Tauri channel owned by the main editor WebView. Register only
+while an explicitly enabled read session exists; an external WebView or a
+global event cannot publish a reply. The Rust session owns one in-flight
+inspection ID. The renderer captures the existing editor target, then
+consumes that capture once only if document generation and revisions still
+match. WebView replacement or closing the read session invalidates that ID.
+Rust validates the reply shape and the current grant again before delivery.
+
+The isolated Windows acceptance build currently exercises the renderer's
+capture and the Rust reply shape. It does not wire the normal channel,
+exercise interactive tab changes during publication, or prove client grants
+on this path. Keep the first normal-channel verification in-process with a
+synthetic document: denied when disabled; accepted when enabled; stale on
+switch, reload, or revocation; exact unchanged document and history. An
+external transport or Hermes registration is a separate change.
+
 ## Acceptance before broader exposure
 
 1. A connection with no grant, a disabled connection, another instance, and a
