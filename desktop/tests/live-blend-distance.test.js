@@ -9,6 +9,7 @@ import {
 } from '../src/composition-project-model.js';
 import { createLiveBlendDistanceOperation } from '../src/live-blend-distance.js';
 import { captureEditorTarget } from '../src/live-editor-target.js';
+import { createLiveEditorProtocol } from '../src/live-editor-protocol.js';
 
 test('typed Blend distance preserves scope, history and the live owner', () => {
   const raw = readFileSync(new URL('../examples/blend-distance.json', import.meta.url), 'utf8');
@@ -45,6 +46,16 @@ test('typed Blend distance preserves scope, history and the live owner', () => {
   assert.equal(count(), 16);
   assert.equal(set(request).status, 'changed');
   assert.equal(count(), 11);
+  const handle = createLiveEditorProtocol({ readTarget: target, setBlendDistance: set });
+  const roundTrip = (operation, args) =>
+    handle(JSON.parse(JSON.stringify({ version: 1, operation, arguments: args })));
+  const current = roundTrip('editor.inspect', {});
+  assert.deepEqual(current, { status: 'ok', target: target() });
+  assert.deepEqual(roundTrip('blend.setDistance', request), { status: 'stale-target' });
+  assert.deepEqual(roundTrip('blend.setDistance', { ...request, target: current.target }), {
+    status: 'unchanged',
+    target: target(),
+  });
   const committed = serializeCompositionProject(owner.projectSnapshot());
   assert.equal(set({ ...request, value: 70 }).status, 'stale-target');
   assert.equal(serializeCompositionProject(owner.projectSnapshot()), committed);
