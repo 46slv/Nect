@@ -130,3 +130,45 @@ test('Undo and Redo are optional fixed verbs, return a fresh target, and never r
   });
   assert.deepEqual(seen, [false, true]);
 });
+
+test('Save As routes are opt-in and project receipt state without native binding secrets', async () => {
+  const intent = { target, saveEpoch: 0, requestId: 'request_a' };
+  const config = { readTarget: () => target };
+  assert.deepEqual(createLiveEditorProtocol(config)(request('document.saveAs', intent)), {
+    status: 'unsupported-operation',
+  });
+  const handle = createLiveEditorProtocol({
+    ...config,
+    saveAsBoundary: {
+      inspect: () => ({ saveEpoch: 1, dirty: false, pending: false, path: 'private' }),
+      getReceipt: (key) => {
+        assert.equal(key, intent.requestId);
+        return { status: 'accepted-by-writer', saveEpoch: 1, token: 'private' };
+      },
+      run: (args) => {
+        assert.deepEqual(args, intent);
+        return { status: 'accepted-by-writer', saveEpoch: 1, path: 'private' };
+      },
+    },
+  });
+  assert.deepEqual(handle(request('document.saveAs', { ...intent, path: 'no' })), {
+    status: 'invalid-arguments',
+  });
+  assert.deepEqual(handle(request('document.saveReceipt', { requestId: '', token: 'no' })), {
+    status: 'invalid-arguments',
+  });
+  assert.deepEqual(await handle(request('document.saveAs', intent)), {
+    status: 'accepted-by-writer',
+    saveEpoch: 1,
+  });
+  assert.deepEqual(handle(request('document.saveReceipt', { requestId: intent.requestId })), {
+    status: 'accepted-by-writer',
+    saveEpoch: 1,
+  });
+  assert.deepEqual(handle(request('document.saveState', {})), {
+    status: 'ok',
+    saveEpoch: 1,
+    dirty: false,
+    pending: false,
+  });
+});

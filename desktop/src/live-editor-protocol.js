@@ -36,6 +36,7 @@ export function createLiveEditorProtocol({
   writePng,
   saveCopy,
   reopenCopy,
+  saveAsBoundary,
 }) {
   return function handle(request) {
     if (!closed(request, ['version', 'operation', 'arguments']))
@@ -61,6 +62,35 @@ export function createLiveEditorProtocol({
       } catch {
         return { status: 'outcome-unknown' };
       }
+    }
+    if (saveAsBoundary && request.operation === 'document.saveState') {
+      if (!closed(args, [])) return { status: 'invalid-arguments' };
+      const state = saveAsBoundary.inspect();
+      return {
+        status: 'ok',
+        saveEpoch: state.saveEpoch,
+        dirty: state.dirty,
+        pending: state.pending,
+      };
+    }
+    if (saveAsBoundary && request.operation === 'document.saveReceipt') {
+      if (!closed(args, ['requestId']) || !id(args.requestId))
+        return { status: 'invalid-arguments' };
+      const { status, saveEpoch } = saveAsBoundary.getReceipt(args.requestId);
+      return version(saveEpoch) ? { status, saveEpoch } : { status };
+    }
+    if (saveAsBoundary && request.operation === 'document.saveAs') {
+      if (
+        !closed(args, ['target', 'saveEpoch', 'requestId']) ||
+        !validTarget(args.target) ||
+        !version(args.saveEpoch) ||
+        !id(args.requestId)
+      )
+        return { status: 'invalid-arguments' };
+      return Promise.resolve()
+        .then(() => saveAsBoundary.run(args))
+        .then(({ status, saveEpoch }) => (version(saveEpoch) ? { status, saveEpoch } : { status }))
+        .catch(() => ({ status: 'outcome-unknown' }));
     }
     let output;
     switch (request.operation) {
