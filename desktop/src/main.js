@@ -51,6 +51,7 @@ import { createArtworkExporter } from './artwork-export.js';
 import { createLiveArtworkOutput } from './live-artwork-output.js';
 import { createLiveDocumentSave } from './live-document-save.js';
 import { createLiveBlendDistanceOperation } from './live-blend-distance.js';
+import { createLiveEditorProtocol } from './live-editor-protocol.js';
 import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
 import { initialLayerId } from './initial-layer.js';
@@ -19125,8 +19126,16 @@ app.addEventListener('pointerdown', updateLayerDeletionControls);
 app.addEventListener('compositionend', updateLayerDeletionControls);
 document.addEventListener('pointerup', updateLayerDeletionControls);
 document.addEventListener('pointercancel', updateLayerDeletionControls);
+// Development contract probe only. Production builds must not expose it.
+const testLiveEditorProtocol = import.meta.env.DEV
+  ? createLiveEditorProtocol({
+      readTarget: readLiveEditorTarget,
+      setBlendDistance: liveBlendDistance,
+    })
+  : null;
 // Explicit test/debug API; same model and mutations as the UI.
 window.nect = {
+  ...(testLiveEditorProtocol ? { testLiveEditorProtocol } : {}),
   get recoveryState() {
     return recovery && { ...recovery.state, failedDocuments: recovery.failedDocuments };
   },
