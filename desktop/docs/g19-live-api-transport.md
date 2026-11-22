@@ -194,6 +194,17 @@ kernel-reported process, live handle, and trusted installed package or
 signed release identity. A basename, writable hash-pin fixture, same
 logon, or token by itself is not sufficient for the ordinary route.
 
+The opt-in nect-mcp-local executable currently starts only the
+[MCP stdio protocol](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports).
+It advertises one no-argument Inspect tool and returns pairing-required;
+it does not create an offer, start an endpoint, launch an editor, or read
+files or document data. The ordinary editor remains the default build and
+does not package this candidate. The local development executable is
+unsigned, so do not accept it as release identity. An installed pairing
+pilot needs an approved trust source, e.g. a verified
+[Windows PE signature](https://learn.microsoft.com/en-us/windows/win32/seccrypto/example-c-program--verifying-the-signature-of-a-pe-file)
+plus an expected publisher and role, before any document traffic.
+
 First acceptance is Inspect once: a standard MCP client can initialize
 without sharing any document; a specific native consent in the already-open
 editor is needed before one exact synthetic-document identity can be read.

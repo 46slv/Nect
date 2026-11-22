@@ -27,7 +27,7 @@ pub(crate) fn serve_one<R: BufRead, W: Write>(
     Ok(())
 }
 
-fn read_frame(requests: &mut impl BufRead) -> io::Result<Option<String>> {
+pub(crate) fn read_frame(requests: &mut impl BufRead) -> io::Result<Option<String>> {
     let mut frame = Vec::with_capacity(LIMIT);
     loop {
         let bytes = requests.fill_buf()?;
