@@ -79,6 +79,13 @@ order. The standard PNG header and canvas size checks still run. The tool
 is visible only when opted into this acceptance adapter, not in read-only
 preview or the ordinary app.
 
+For a separate duplicate run, set `NECT_ACCEPTANCE_LAYER_DUPLICATE=1` and
+`NECT_ACCEPTANCE_OBJECTS=1`. Use a fresh receipt and leave other edit
+scenarios off. The client discards the first duplicate reply, discovers one
+new layer by ID, rejects exact replay against the old target, and verifies
+Undo/Redo and save/reopen. It verifies independent node IDs and both layers
+in the SVG. It does not retry against a new revision automatically.
+
 For a separate layer-lock run with a fresh receipt, set both
 `NECT_ACCEPTANCE_OBJECTS=1` and `NECT_ACCEPTANCE_LAYER_LOCK=1`. The test sets
 one stored lock flag, confirms layer discovery reports that change, rejects

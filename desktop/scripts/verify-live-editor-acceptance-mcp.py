@@ -21,6 +21,7 @@ layer_visibility = os.environ.get("NECT_ACCEPTANCE_LAYER_VISIBILITY") == "1"
 layer_lock = os.environ.get("NECT_ACCEPTANCE_LAYER_LOCK") == "1"
 layer_rename = os.environ.get("NECT_ACCEPTANCE_LAYER_RENAME") == "1"
 layer_reorder = os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1"
+layer_duplicate = os.environ.get("NECT_ACCEPTANCE_LAYER_DUPLICATE") == "1"
 renamed_roundtrip = os.environ.get("NECT_ACCEPTANCE_RENAMED_ROUNDTRIP") == "1"
 locked_roundtrip = os.environ.get("NECT_ACCEPTANCE_LOCKED_ROUNDTRIP") == "1"
 hidden_roundtrip = os.environ.get("NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP") == "1"
@@ -29,6 +30,10 @@ text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
 mixed_text_probe = os.environ.get("NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE") == "1"
 embedded_jp = os.environ.get("NECT_SVG_ACCEPTANCE_JP_FIXTURE") == "1"
 assert not layer_lock or list_objects
+assert not layer_duplicate or (
+    list_objects and not (layer_reorder or layer_rename or layer_lock or layer_visibility or
+    artwork or embedded_jp or mixed_text_probe or renamed_roundtrip or locked_roundtrip or hidden_roundtrip)
+)
 assert not layer_reorder or (
     artwork and list_objects and not (text_edit or embedded_jp or mixed_text_probe or
     layer_visibility or layer_lock or layer_rename or
@@ -90,8 +95,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_rename_layer")
         if layer_reorder:
             extra.append("nect_test_reorder_layer")
+        if layer_duplicate:
+            extra.append("nect_test_duplicate_layer")
         assert [t["name"] for t in listed["tools"]] == ["nect_test_inspect", "nect_test_set_blend_distance", "nect_test_export_svg", "nect_test_export_png", "nect_test_save_copy", "nect_test_reopen_copy", "nect_test_undo", "nect_test_redo","nect_test_save_state","nect_test_save_receipt","nect_test_save_as"] + extra
-        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects) - int(graph_wires) - int(layer_visibility) - int(layer_lock) - int(layer_rename) - int(layer_reorder)) + [True] * (int(list_objects) + int(graph_wires)) + [False] * (int(layer_visibility) + int(layer_lock) + int(layer_rename) + int(layer_reorder))
+        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects) - int(graph_wires) - int(layer_visibility) - int(layer_lock) - int(layer_rename) - int(layer_reorder) - int(layer_duplicate)) + [True] * (int(list_objects) + int(graph_wires)) + [False] * (int(layer_visibility) + int(layer_lock) + int(layer_rename) + int(layer_reorder) + int(layer_duplicate))
         start = call(3, "tools/call", name="nect_test_inspect", arguments={})
         assert not start["isError"], start
         target = start["structuredContent"]["target"]
@@ -306,6 +313,33 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             assert layer_order(1503, undone) == ordered
             current = invoke("redo", {"target": undone}, "changed")["target"]
             assert layer_order(1504, current) == next_order
+        if layer_duplicate:
+            def layer_ids(id_, revision):
+                reply = list_page(id_, None, revision)
+                assert not reply["isError"], reply
+                data = reply["structuredContent"]
+                assert data["target"] == revision and data["nextOffset"] is None, data
+                return [item["layerId"] for item in data["items"]]
+
+            assert layer_ids(1601, current) == [source_layer]
+            duplicate = dict(target=current, layerId=source_layer)
+            invoke("duplicate_layer", {**duplicate, "layerId": "missing"}, "unsupported-target", True)
+            invoke("duplicate_layer", {**duplicate, "token": "ignored"}, "invalid-arguments", True)
+            next_id += 1
+            send(dict(id=next_id, method="tools/call", params={"name":"nect_test_duplicate_layer","arguments":duplicate}))
+            assert replies.get(timeout=12) is not None  # Intentionally do not parse this reply.
+            observed = invoke("inspect", {}, "ok")["target"]
+            assert observed["projectRevision"] == current["projectRevision"] + 1
+            after_ids = layer_ids(1602, observed)
+            assert len(after_ids) == 2 and after_ids[0] == source_layer
+            copied_layer = after_ids[1]
+            assert copied_layer != source_layer
+            invoke("duplicate_layer", duplicate, "stale-target", True)
+            assert layer_ids(1603, observed) == after_ids
+            undone = invoke("undo", {"target": observed}, "changed")["target"]
+            assert layer_ids(1604, undone) == [source_layer]
+            current = invoke("redo", {"target": undone}, "changed")["target"]
+            assert layer_ids(1605, current) == after_ids
         if hidden_roundtrip:
             current=invoke("set_layer_visibility",dict(target=current,layerId=source_layer,visible=False),"changed")["target"]
         if locked_roundtrip:
@@ -359,7 +393,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             invoke("reorder_layer", {**move, "target": current}, "stale-target", True)
             assert invoke("reorder_layer", {**move, "target": reopened}, "unchanged")["target"] == reopened
             assert layer_order(1505, reopened) == next_order
-        if layer_visibility or graph_wires or layer_lock or renamed_roundtrip or layer_reorder:
+        if layer_duplicate:
+            invoke("duplicate_layer", {**duplicate, "target": current}, "stale-target", True)
+            assert layer_ids(1606, reopened) == after_ids
+        if layer_visibility or graph_wires or layer_lock or renamed_roundtrip or layer_reorder or layer_duplicate:
             assert invoke("inspect",{},"ok")["target"]==reopened
         if hidden_roundtrip:
             unchanged=invoke("set_layer_visibility",dict(target=reopened,layerId=source_layer,visible=False),"unchanged")
@@ -406,6 +443,9 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                     assert data.count(new_string) == 1
                     normalized = data.replace(new_string, old_string)
                 assert hashlib.sha256(normalized).hexdigest()==expected[role+"SHA256"].lower(), role
+            elif layer_duplicate:
+                if role != "png":
+                    assert digests[role] != expected[role+"SHA256"].lower(), role
             elif artwork or hidden_roundtrip or (locked_roundtrip and role == "copy"):
                 assert digests[role]!=expected[role+"SHA256"].lower(), role
             else:
@@ -465,6 +505,22 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             [persisted]=[x for x in composition["layers"] if x["id"]==source_layer]
             assert persisted["name"]==label
             assert any(n["id"]==source_node for n in persisted["nodes"])
+        if layer_duplicate:
+            from xml.etree import ElementTree
+            snapshot = json.loads((outputs/"live-api-project.json").read_bytes())
+            [composition] = [x for x in snapshot["compositions"] if x["id"] == reopened["compositionId"]]
+            original, copied = composition["layers"]
+            assert [original["id"], copied["id"]] == [source_layer, copied_layer]
+            assert copied["name"] == original["name"] + " copy"
+            assert any(n["id"] == source_node for n in original["nodes"])
+            assert [n["type"] for n in copied["nodes"]] == [n["type"] for n in original["nodes"]]
+            assert {n["id"] for n in copied["nodes"]}.isdisjoint(n["id"] for n in original["nodes"])
+            tree = ElementTree.fromstring((outputs/"live-api-export.svg").read_bytes())
+            labels = {n.attrib["data-layer"] for n in tree.iter() if "data-layer" in n.attrib}
+            assert labels == {original["name"], copied["name"]}
+            png = (outputs/"live-api-export.png").read_bytes()
+            assert png[:8] == b"\x89PNG\r\n\x1a\n" and png[12:16] == b"IHDR"
+            assert (int.from_bytes(png[16:20], "big"), int.from_bytes(png[20:24], "big")) == (960, 540)
         bound=run/"documents/live-api-save-as.json"
         assert hashlib.sha256(bound.read_bytes()).hexdigest()==digests["copy"]
         assert len(list((run/"documents").glob("live-api-save-as*")))==1
@@ -474,7 +530,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "edit":"changed","history":"undo/redo verified","saveCopy":"accepted-by-writer","reopen":"reopened",
                   "exportSvg":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer",
                   "exportPng":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer","caseGuards":"pass",
-                  "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "layerLock":layer_lock, "layerRename":layer_rename, "layerReorder":layer_reorder, "renamedLayerRoundtrip":renamed_roundtrip, "lockedLayerRoundtrip":locked_roundtrip, "hiddenLayerRoundtrip":hidden_roundtrip, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
+                  "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "layerLock":layer_lock, "layerRename":layer_rename, "layerReorder":layer_reorder, "layerDuplicate":layer_duplicate, "renamedLayerRoundtrip":renamed_roundtrip, "lockedLayerRoundtrip":locked_roundtrip, "hiddenLayerRoundtrip":hidden_roundtrip, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))

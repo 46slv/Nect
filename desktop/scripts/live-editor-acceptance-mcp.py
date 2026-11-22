@@ -182,6 +182,15 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "layer.reorder"
+if os.environ.get("NECT_ACCEPTANCE_LAYER_DUPLICATE") == "1":
+    name = "nect_test_duplicate_layer"
+    TOOLS.append({
+        "name": name,
+        "description": "Duplicate one unlocked authored layer within the isolated fixture",
+        "inputSchema": schema(dict(target=target, layerId=ident)),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "layer.duplicate"
 if PREVIEW_ONLY:
     TOOLS = [{
         "name": "nect_test_inspect",
