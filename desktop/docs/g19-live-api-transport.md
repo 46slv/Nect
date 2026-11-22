@@ -27,9 +27,19 @@ shared Session commands and compare GUI outcomes on the same starting state.
 | Inspect and discover     | Existing editor identity, bounded layer/node enumeration, stale-target rejection                            | Ordinary-app Inspect with approved exact client, then bounded listing through that same grant          |
 | Basic creation           | Rectangle and Text; other supported shape types are listed by the narrow creation contract                  | Verified create/edit/delete and positioning coverage across the 1.0 shape set and layer hierarchy      |
 | Text                     | Content, undo/redo, and persistence for the bundled Japanese sample and Meiryo Regular                      | Font/style selection, Typography settings and composition-sensitive editing with the same rules as GUI |
-| Blend and graph          | Distance and Steps edits against the shared editor command, with stale/locked/inactive guards where defined | Mode selection, remaining properties, explicit node/port connections and topology edits                |
+| Blend and graph          | Read active spacing, change mode and spacing, and replace or detach eligible Blend inputs on the same layer through shared editor commands | General node and port discovery, graph operations outside Blend, and equivalent GUI/API verification |
 | Appearance and reuse     | Existing GUI Session commands are the starting point, not proof of API parity                               | Color, effects, macros and shared assets must be usable from the same document model                   |
 | History, save and export | Undo/redo, a fixed-path Save As receipt replay, exact copy reopen, SVG/PNG                                  | Ordinary UI destination consent, scoped write permission and disconnection/outcome checks              |
+
+For general graph coverage, start by reading the incoming edges of one
+addressed node in a captured revision. Return stable layer/node/port
+identifiers and distinguish the default port from a named port. Do not
+return expressions, file paths, values, or a whole-graph dump. Read-only
+discovery must not change selection, history, or authored state. Allow a
+client to plan an edit from this result, but validate the original revision
+again and reuse the GUI Session commands at edit time. Blend input edits are
+not proof of general graph parity: the shared GUI commands may also
+normalize existing paint routes as part of the same undoable command.
 
 Only the first read-only shipping route is designed below. A mutation grant
 would be a separate explicit capability and never implicit in Inspect.
