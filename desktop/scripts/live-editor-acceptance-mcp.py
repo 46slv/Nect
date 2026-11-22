@@ -209,6 +209,16 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "layer.reorder"
+if os.environ.get("NECT_ACCEPTANCE_SOLID_FILL") == "1":
+    name = "nect_test_set_solid_fill_color"
+    TOOLS.append({
+        "name": name,
+        "description": "Change the literal RGB color of one exact Fill node without changing its alpha",
+        "inputSchema": schema(dict(target=target, layerId=ident, nodeId=ident,
+            hex={"type":"string","pattern":"^#[0-9a-fA-F]{6}$","minLength":7,"maxLength":7})),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "fill.setSolidColor"
 if os.environ.get("NECT_ACCEPTANCE_ARTWORK_GAPS") == "1":
     name = "nect_test_distribute_artwork_gaps"
     TOOLS.append({

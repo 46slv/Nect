@@ -43,6 +43,7 @@ locked_roundtrip = os.environ.get("NECT_ACCEPTANCE_LOCKED_ROUNDTRIP") == "1"
 hidden_roundtrip = os.environ.get("NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP") == "1"
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
+solid_fill = os.environ.get("NECT_ACCEPTANCE_SOLID_FILL") == "1"
 artwork_gaps = os.environ.get("NECT_ACCEPTANCE_ARTWORK_GAPS") == "1"
 artwork_gaps_auto = os.environ.get("NECT_ACCEPTANCE_ARTWORK_GAPS_AUTO") == "1"
 assert not artwork_gaps_auto or artwork_gaps
@@ -68,8 +69,8 @@ assert not layer_guide or (artwork and layer_lock and not (
 assert not layer_solo or (artwork and layer_visibility and not (
     layer_folder_plan or layer_folders or layer_reorder or layer_duplicate or embedded_jp or mixed_text_probe
 ))
-assert sum((artwork_align, artwork_translate, artwork_distribute, artwork_gaps)) <= 1
-assert not (artwork_align or artwork_translate or artwork_distribute or artwork_gaps) or (artwork and layer_lock and list_objects and not (
+assert sum((artwork_align, artwork_translate, artwork_distribute, artwork_gaps, solid_fill)) <= 1
+assert not (artwork_align or artwork_translate or artwork_distribute or artwork_gaps or solid_fill) or (artwork and layer_lock and list_objects and not (
     layer_delete or layer_solo or layer_guide or layer_folders or layer_folder_plan or
     hidden_roundtrip or locked_roundtrip or renamed_roundtrip or text_edit or embedded_jp or mixed_text_probe
 ))
@@ -157,6 +158,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_set_layer_lock")
         if layer_rename:
             extra.append("nect_test_rename_layer")
+        if solid_fill:
+            extra.append("nect_test_set_solid_fill_color")
         if artwork_gaps:
             extra.append("nect_test_distribute_artwork_gaps")
         if artwork_distribute:
@@ -405,6 +408,30 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             invoke("redo",{"target":before_undo},"stale-target",True)
             current=invoke("redo",{"target":current},"changed")["target"]
             assert current["projectRevision"]==before_undo["projectRevision"]+2
+        if solid_fill:
+            _, _, fill_layer, shape_id = made[0]
+            def fill_identity(revision):
+                layer_page = list_page(1870, None, revision)
+                [entry] = [item for item in layer_page["structuredContent"]["items"]
+                           if item["layerId"] == fill_layer]
+                node_page = list_page(1871, entry["layerIndex"], revision)
+                [fill] = [item for item in node_page["structuredContent"]["items"] if item["type"] == "Fill"]
+                return fill["nodeId"]
+            fill_node = fill_identity(current)
+            fill_hex = "#1177aa"
+            paint = dict(target=current, layerId=fill_layer, nodeId=fill_node, hex=fill_hex)
+            invoke("set_solid_fill_color", {**paint, "nodeId":shape_id}, "unsupported-target", True)
+            invoke("set_solid_fill_color", {**paint, "hex":"#fff"}, "invalid-arguments", True)
+            current = invoke("set_layer_lock", dict(target=current, layerId=fill_layer, locked=True), "changed")["target"]
+            invoke("set_solid_fill_color", {**paint, "target":current}, "rejected", True)
+            current = invoke("set_layer_lock", dict(target=current, layerId=fill_layer, locked=False), "changed")["target"]
+            paint["target"] = current
+            changed = invoke("set_solid_fill_color", paint, "changed")["target"]
+            assert changed["projectRevision"] == current["projectRevision"] + 1
+            invoke("set_solid_fill_color", paint, "stale-target", True)
+            undone = invoke("undo", {"target":changed}, "changed")["target"]
+            current = invoke("redo", {"target":undone}, "changed")["target"]
+            assert invoke("set_solid_fill_color", {**paint, "target":current}, "unchanged")["target"] == current
         if artwork_gaps:
             gap_ids = [item[2] for item in made]
             current = invoke("set_layer_lock", dict(target=current, layerId=gap_ids[1], locked=True),
@@ -879,6 +906,11 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             invoke("reorder_layer", {**move, "target": current}, "stale-target", True)
             assert invoke("reorder_layer", {**move, "target": reopened}, "unchanged")["target"] == reopened
             assert layer_order(1505, reopened) == next_order
+        if solid_fill:
+            assert fill_identity(reopened) == fill_node
+            invoke("set_solid_fill_color", {**paint, "target":current}, "stale-target", True)
+            assert invoke("set_solid_fill_color", {**paint, "target":reopened},
+                          "unchanged")["target"] == reopened
         if artwork_gaps_auto:
             invoke("distribute_artwork_gaps", {**arrange, "target":current}, "stale-target", True)
             assert invoke("distribute_artwork_gaps", {**arrange, "target":reopened},
@@ -1043,6 +1075,11 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 from xml.etree import ElementTree
                 tree = ElementTree.fromstring(svg)
                 assert tree.tag.endswith("}svg")
+                if solid_fill:
+                    [painted] = [layer for layer in composition["layers"] if layer["id"] == fill_layer]
+                    [fill] = [node for node in painted["nodes"] if node["id"] == fill_node]
+                    assert fill["params"]["color"]["value"] == dict(hex=fill_hex, alpha=1)
+                    assert any(element.get("fill", "").lower() == fill_hex for element in tree.iter())
                 if layer_guide:
                     assert [l["id"] for l in composition["layers"]] == [source_layer, guide_id, retained_id]
                     source, guide_layer, text_layer = composition["layers"]
@@ -1179,6 +1216,9 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             evidence["layerState"] = "exact stored flags before edit, after edit and reopen; stale and unsupported IDs rejected; revision unchanged by reads"
         if layer_create_blank:
             evidence["blankLayer"] = "one empty Output created; dropped reply reconciled by listing; stale replay refused; Undo/Redo, reopened IDs and byte-identical baseline SVG/PNG"
+        if solid_fill:
+            evidence["solidFill"] = dict(layerId=fill_layer, nodeId=fill_node, hex=fill_hex,
+                lockedAndStaleRejected=True, undoRedoReopenAndSVGVerified=True)
         if artwork_gaps:
             evidence["artworkGaps"] = dict(action="gap-x", endpointCenters=[260, 770],
                 fixedSpacing=25, savedMiddleCenter=saved_middle_x, restoredAutomaticOnUndo=True,
