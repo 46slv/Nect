@@ -45,6 +45,7 @@ export function createLiveEditorProtocol({
   reorderLayer,
   duplicateLayer,
   createBlankLayer,
+  deleteLayer,
   setBlendDistance,
   setBlendSteps,
   setBlendMode,
@@ -257,6 +258,29 @@ export function createLiveEditorProtocol({
         const { status, layerId, nodeId } = createBlankLayer(args);
         return status === 'changed'
           ? { status, layerId, nodeId, target: captureEditorTarget(readTarget()) }
+          : { status };
+      } catch {
+        return { status: 'outcome-unknown' };
+      }
+    }
+    if (deleteLayer && request.operation === 'layer.delete') {
+      if (
+        !closed(args, ['target', 'layerId', 'confirmed']) ||
+        !validTarget(args.target) ||
+        !id(args.layerId) ||
+        args.confirmed !== true
+      )
+        return { status: 'invalid-arguments' };
+      try {
+        const { status, removedLayerId, nextLayerId, replacedLastLayer } = deleteLayer(args);
+        return status === 'changed'
+          ? {
+              status,
+              removedLayerId,
+              nextLayerId,
+              replacedLastLayer,
+              target: captureEditorTarget(readTarget()),
+            }
           : { status };
       } catch {
         return { status: 'outcome-unknown' };

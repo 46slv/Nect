@@ -76,6 +76,7 @@ import {
 } from './live-layer-visibility.js';
 import { createLiveLayerReorder } from './live-layer-reorder.js';
 import { createLiveBlankLayer } from './live-layer-create.js';
+import { createLiveLayerDeletion } from './live-layer-delete.js';
 import { createLiveLayerDuplicate } from './live-layer-duplicate.js';
 import { createLiveLayerFolder } from './live-layer-folder-create.js';
 import { createLiveFolderPlanSession } from './live-folder-plan-session.js';
@@ -9793,29 +9794,33 @@ function deleteArtwork(layerId) {
     const target = history.doc.layers.find((layer) => layer.id === layerId);
     if (!target) throw Error('Layer is unavailable; select it again');
     if (target.locked) throw Error('Composition is locked');
-    const priorUI = selectionSnapshot(true);
-    const deleted = session.dispatch({
-      ...session.state,
-      type: 'delete-layer',
-      payload: { layerId },
-    });
-    resetTransient();
-    activeLayer = deleted.nextLayerId;
-    selected = null;
-    artworkTarget = null;
-    artworkSelection = new Set();
-    selection = new Set();
-    tool = 'select';
-    selectionHistory.set(history.past.at(-1), priorUI);
-    selectionHistory.set(history.doc, selectionSnapshot(true));
-    notify(
-      deleted.replacedLastLayer ? 'Layer deleted · empty composition retained' : 'Layer deleted',
-    );
-    render();
-    document.querySelector('.canvas-stage').focus({ preventScroll: true });
+    commitLayerDeletion(layerId, session.state, true);
   } catch (error) {
     notify(error.message, true);
   }
+}
+function commitLayerDeletion(layerId, envelope, focusCanvas = false) {
+  const priorUI = selectionSnapshot(true);
+  const deleted = session.dispatch({
+    ...envelope,
+    type: 'delete-layer',
+    payload: { layerId },
+  });
+  resetTransient();
+  activeLayer = deleted.nextLayerId;
+  selected = null;
+  artworkTarget = null;
+  artworkSelection = new Set();
+  selection = new Set();
+  tool = 'select';
+  selectionHistory.set(history.past.at(-1), priorUI);
+  selectionHistory.set(history.doc, selectionSnapshot(true));
+  notify(
+    deleted.replacedLastLayer ? 'Layer deleted · empty composition retained' : 'Layer deleted',
+  );
+  render();
+  if (focusCanvas) document.querySelector('.canvas-stage').focus({ preventScroll: true });
+  return deleted;
 }
 function duplicateArtwork(layerId, selectionKey) {
   // A stale/forced click must not finish a draft, cancel a gesture, or duplicate
@@ -19638,6 +19643,16 @@ if (
       createBlankLayer: createLiveBlankLayer({
         ...liveBlendHost,
         isEditBlocked: () => compositionActionBusy() || closeInputBlocked() || Boolean(nameEdit),
+      }),
+      deleteLayer: createLiveLayerDeletion({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() ||
+          deletionBusy() ||
+          closeInputBlocked() ||
+          Boolean(variableAction),
+        commit: (owner, envelope, layerId) =>
+          owner === session ? commitLayerDeletion(layerId, envelope) : null,
       }),
       duplicateLayer: createLiveLayerDuplicate({
         ...liveBlendHost,
