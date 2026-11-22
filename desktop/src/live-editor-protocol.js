@@ -5,6 +5,7 @@ import {
   readEditorInspection,
   validEditorTarget as validTarget,
 } from './live-editor-target.js';
+import { validArtworkTranslation } from './live-artwork-translation.js';
 import { validBlankLayerName } from './live-layer-create.js';
 
 const object = (value) =>
@@ -53,6 +54,7 @@ export function createLiveEditorProtocol({
   readBlendSettings,
   stepHistory,
   createArtwork,
+  translateArtwork,
   setTextContent,
   writeSvg,
   writePng,
@@ -372,6 +374,22 @@ export function createLiveEditorProtocol({
         if (status === 'changed' || status === 'unchanged')
           return { status, target: captureEditorTarget(readTarget()) };
         return { status };
+      } catch {
+        return { status: 'outcome-unknown' };
+      }
+    }
+    if (translateArtwork && request.operation === 'artwork.translate') {
+      if (
+        !closed(args, ['target', 'layerIds', 'delta']) ||
+        !validTarget(args.target) ||
+        !validArtworkTranslation(args.layerIds, args.delta)
+      )
+        return { status: 'invalid-arguments' };
+      try {
+        const { status } = translateArtwork(args);
+        return status === 'changed' || status === 'unchanged'
+          ? { status, target: captureEditorTarget(readTarget()) }
+          : { status };
       } catch {
         return { status: 'outcome-unknown' };
       }
