@@ -173,6 +173,15 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_RENAME") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "layer.rename"
+if os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1":
+    name = "nect_test_reorder_layer"
+    TOOLS.append({
+        "name": name,
+        "description": "Reorder one layer relative to a stable ID in the isolated fixture; null moves it to the front",
+        "inputSchema": schema(dict(target=target, layerId=ident, beforeLayerId={"anyOf": [ident, {"type": "null"}]})),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "layer.reorder"
 if PREVIEW_ONLY:
     TOOLS = [{
         "name": "nect_test_inspect",

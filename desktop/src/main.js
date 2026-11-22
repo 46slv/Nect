@@ -67,6 +67,7 @@ import {
   createLiveLayerRename,
   createLiveLayerVisibility,
 } from './live-layer-visibility.js';
+import { createLiveLayerReorder } from './live-layer-reorder.js';
 import { createLiveArtworkCreation } from './live-artwork-creation.js';
 import { createLiveTextContent } from './live-text-content.js';
 import { editorTargetMatches } from './live-editor-target.js';
@@ -19563,6 +19564,10 @@ if (
         isEditBlocked: () => liveBlendHost.isEditBlocked() || Boolean(nameEdit),
       }),
       renameLayer: createLiveLayerRename({
+        ...liveBlendHost,
+        isEditBlocked: () => liveBlendHost.isEditBlocked() || Boolean(nameEdit),
+      }),
+      reorderLayer: createLiveLayerReorder({
         ...liveBlendHost,
         isEditBlocked: () => liveBlendHost.isEditBlocked() || Boolean(nameEdit),
       }),

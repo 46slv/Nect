@@ -70,6 +70,15 @@ The saved JSON and exported SVG may differ only in the layer name and
 data-layer labels respectively; the PNG must be byte-identical. Do not
 combine with artwork, font fixtures, or hidden/locked roundtrip tests.
 
+For a separate reorder run, set `NECT_ACCEPTANCE_LAYER_REORDER=1`,
+`NECT_ACCEPTANCE_OBJECTS=1`, and `NECT_ACCEPTANCE_ARTWORK=1`. Leave other
+edit scenarios and Japanese fixtures off. This uses the existing Blend plus
+one test rectangle, verifies the stable-ID order and stale/no-op guards,
+Undo/Redo, then saves, reopens, and compares persisted order with SVG paint
+order. The standard PNG header and canvas size checks still run. The tool
+is visible only when opted into this acceptance adapter, not in read-only
+preview or the ordinary app.
+
 For a separate layer-lock run with a fresh receipt, set both
 `NECT_ACCEPTANCE_OBJECTS=1` and `NECT_ACCEPTANCE_LAYER_LOCK=1`. The test sets
 one stored lock flag, confirms layer discovery reports that change, rejects

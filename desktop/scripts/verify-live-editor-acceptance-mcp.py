@@ -20,6 +20,7 @@ graph_wires = os.environ.get("NECT_ACCEPTANCE_GRAPH_WIRES") == "1"
 layer_visibility = os.environ.get("NECT_ACCEPTANCE_LAYER_VISIBILITY") == "1"
 layer_lock = os.environ.get("NECT_ACCEPTANCE_LAYER_LOCK") == "1"
 layer_rename = os.environ.get("NECT_ACCEPTANCE_LAYER_RENAME") == "1"
+layer_reorder = os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1"
 renamed_roundtrip = os.environ.get("NECT_ACCEPTANCE_RENAMED_ROUNDTRIP") == "1"
 locked_roundtrip = os.environ.get("NECT_ACCEPTANCE_LOCKED_ROUNDTRIP") == "1"
 hidden_roundtrip = os.environ.get("NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP") == "1"
@@ -28,6 +29,11 @@ text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
 mixed_text_probe = os.environ.get("NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE") == "1"
 embedded_jp = os.environ.get("NECT_SVG_ACCEPTANCE_JP_FIXTURE") == "1"
 assert not layer_lock or list_objects
+assert not layer_reorder or (
+    artwork and list_objects and not (text_edit or embedded_jp or mixed_text_probe or
+    layer_visibility or layer_lock or layer_rename or
+    renamed_roundtrip or locked_roundtrip or hidden_roundtrip)
+)
 assert not renamed_roundtrip or (layer_rename and not locked_roundtrip and not hidden_roundtrip and not artwork and not embedded_jp and not mixed_text_probe)
 assert not locked_roundtrip or (layer_lock and not hidden_roundtrip and not artwork and not embedded_jp and not mixed_text_probe)
 assert not (embedded_jp and mixed_text_probe)
@@ -82,8 +88,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_set_layer_lock")
         if layer_rename:
             extra.append("nect_test_rename_layer")
+        if layer_reorder:
+            extra.append("nect_test_reorder_layer")
         assert [t["name"] for t in listed["tools"]] == ["nect_test_inspect", "nect_test_set_blend_distance", "nect_test_export_svg", "nect_test_export_png", "nect_test_save_copy", "nect_test_reopen_copy", "nect_test_undo", "nect_test_redo","nect_test_save_state","nect_test_save_receipt","nect_test_save_as"] + extra
-        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects) - int(graph_wires) - int(layer_visibility) - int(layer_lock) - int(layer_rename)) + [True] * (int(list_objects) + int(graph_wires)) + [False] * (int(layer_visibility) + int(layer_lock) + int(layer_rename))
+        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects) - int(graph_wires) - int(layer_visibility) - int(layer_lock) - int(layer_rename) - int(layer_reorder)) + [True] * (int(list_objects) + int(graph_wires)) + [False] * (int(layer_visibility) + int(layer_lock) + int(layer_rename) + int(layer_reorder))
         start = call(3, "tools/call", name="nect_test_inspect", arguments={})
         assert not start["isError"], start
         target = start["structuredContent"]["target"]
@@ -239,7 +247,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         created = []
         if artwork:
             create_cases = [("Rectangle",[430,180])]
-            if not embedded_jp:
+            if not embedded_jp and not layer_reorder:
                 create_cases.append(("Text",[610,230]))
             for kind, point in create_cases:
                 create_args = dict(target=current, artworkType=kind, at=point)
@@ -270,6 +278,34 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             invoke("redo",{"target":before_undo},"stale-target",True)
             current=invoke("redo",{"target":current},"changed")["target"]
             assert current["projectRevision"]==before_undo["projectRevision"]+2
+        if layer_reorder:
+            created_layer = made[0][2]
+
+            def layer_order(id_, revision):
+                reply = list_page(id_, None, revision)
+                assert not reply["isError"], reply
+                data = reply["structuredContent"]
+                assert data["target"] == revision and data["nextOffset"] is None, data
+                assert [item["layerIndex"] for item in data["items"]] == list(range(len(data["items"])))
+                return [item["layerId"] for item in data["items"]]
+
+            ordered = layer_order(1501, current)
+            assert ordered == [source_layer, created_layer], ordered
+            next_order = [created_layer, source_layer]
+            move = dict(target=current, layerId=source_layer, beforeLayerId=None)
+            invoke("reorder_layer", {**move, "beforeLayerId": 1}, "invalid-arguments", True)
+            invoke("reorder_layer", {**move, "beforeLayerId": "missing"}, "unsupported-target", True)
+            assert invoke("reorder_layer", {**move, "beforeLayerId": created_layer},
+                          "unchanged")["target"] == current
+            moved = invoke("reorder_layer", move, "changed")["target"]
+            assert moved["projectRevision"] == current["projectRevision"] + 1
+            assert layer_order(1502, moved) == next_order
+            invoke("reorder_layer", move, "stale-target", True)
+            assert invoke("reorder_layer", {**move, "target": moved}, "unchanged")["target"] == moved
+            undone = invoke("undo", {"target": moved}, "changed")["target"]
+            assert layer_order(1503, undone) == ordered
+            current = invoke("redo", {"target": undone}, "changed")["target"]
+            assert layer_order(1504, current) == next_order
         if hidden_roundtrip:
             current=invoke("set_layer_visibility",dict(target=current,layerId=source_layer,visible=False),"changed")["target"]
         if locked_roundtrip:
@@ -319,7 +355,11 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         if renamed_roundtrip:
             invoke("rename_layer",dict(target=current,layerId=source_layer,name=original_name),"stale-target",True)
             assert invoke("rename_layer",dict(target=reopened,layerId=source_layer,name=label),"unchanged")["target"]==reopened
-        if layer_visibility or graph_wires or layer_lock or renamed_roundtrip:
+        if layer_reorder:
+            invoke("reorder_layer", {**move, "target": current}, "stale-target", True)
+            assert invoke("reorder_layer", {**move, "target": reopened}, "unchanged")["target"] == reopened
+            assert layer_order(1505, reopened) == next_order
+        if layer_visibility or graph_wires or layer_lock or renamed_roundtrip or layer_reorder:
             assert invoke("inspect",{},"ok")["target"]==reopened
         if hidden_roundtrip:
             unchanged=invoke("set_layer_visibility",dict(target=reopened,layerId=source_layer,visible=False),"unchanged")
@@ -391,7 +431,14 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 svg=(artifacts/"live-api-export.svg").read_bytes()
                 png=(artifacts/"live-api-export.png").read_bytes()
                 from xml.etree import ElementTree
-                assert ElementTree.fromstring(svg).tag.endswith("}svg")
+                tree = ElementTree.fromstring(svg)
+                assert tree.tag.endswith("}svg")
+                if layer_reorder:
+                    assert [l["id"] for l in composition["layers"]] == next_order
+                    expected_labels = [l["name"] for l in composition["layers"]]
+                    assert len(set(expected_labels)) == 2
+                    labels = list(dict.fromkeys(n.attrib["data-layer"] for n in tree.iter() if "data-layer" in n.attrib))
+                    assert labels == expected_labels, labels
                 assert png[:8]==b"\x89PNG\r\n\x1a\n" and png[12:16]==b"IHDR"
                 assert (int.from_bytes(png[16:20],"big"),int.from_bytes(png[20:24],"big"))==(960,540)
         if hidden_roundtrip:
@@ -427,7 +474,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "edit":"changed","history":"undo/redo verified","saveCopy":"accepted-by-writer","reopen":"reopened",
                   "exportSvg":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer",
                   "exportPng":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer","caseGuards":"pass",
-                  "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "layerLock":layer_lock, "layerRename":layer_rename, "renamedLayerRoundtrip":renamed_roundtrip, "lockedLayerRoundtrip":locked_roundtrip, "hiddenLayerRoundtrip":hidden_roundtrip, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
+                  "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "layerLock":layer_lock, "layerRename":layer_rename, "layerReorder":layer_reorder, "renamedLayerRoundtrip":renamed_roundtrip, "lockedLayerRoundtrip":locked_roundtrip, "hiddenLayerRoundtrip":hidden_roundtrip, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))
