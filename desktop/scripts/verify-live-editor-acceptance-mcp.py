@@ -23,6 +23,7 @@ layer_rename = os.environ.get("NECT_ACCEPTANCE_LAYER_RENAME") == "1"
 layer_reorder = os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1"
 layer_duplicate = os.environ.get("NECT_ACCEPTANCE_LAYER_DUPLICATE") == "1"
 layer_folders = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDERS") == "1"
+create_layer_folder = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_CREATE") == "1"
 renamed_roundtrip = os.environ.get("NECT_ACCEPTANCE_RENAMED_ROUNDTRIP") == "1"
 locked_roundtrip = os.environ.get("NECT_ACCEPTANCE_LOCKED_ROUNDTRIP") == "1"
 hidden_roundtrip = os.environ.get("NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP") == "1"
@@ -30,6 +31,7 @@ artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
 mixed_text_probe = os.environ.get("NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE") == "1"
 embedded_jp = os.environ.get("NECT_SVG_ACCEPTANCE_JP_FIXTURE") == "1"
+assert not create_layer_folder or (layer_folders and not (artwork or hidden_roundtrip or locked_roundtrip or renamed_roundtrip))
 assert not layer_folders or not (embedded_jp or mixed_text_probe or layer_reorder or layer_duplicate)
 assert not layer_lock or list_objects
 assert not layer_duplicate or (
@@ -101,8 +103,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_duplicate_layer")
         if layer_folders:
             extra.append("nect_test_list_layer_folders")
+        if create_layer_folder:
+            extra.append("nect_test_create_layer_folder")
         assert [t["name"] for t in listed["tools"]] == ["nect_test_inspect", "nect_test_set_blend_distance", "nect_test_export_svg", "nect_test_export_png", "nect_test_save_copy", "nect_test_reopen_copy", "nect_test_undo", "nect_test_redo","nect_test_save_state","nect_test_save_receipt","nect_test_save_as"] + extra
-        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects) - int(graph_wires) - int(layer_visibility) - int(layer_lock) - int(layer_rename) - int(layer_reorder) - int(layer_duplicate) - int(layer_folders)) + [True] * (int(list_objects) + int(graph_wires)) + [False] * (int(layer_visibility) + int(layer_lock) + int(layer_rename) + int(layer_reorder) + int(layer_duplicate)) + [True] * int(layer_folders)
+        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects) - int(graph_wires) - int(layer_visibility) - int(layer_lock) - int(layer_rename) - int(layer_reorder) - int(layer_duplicate) - int(layer_folders) - int(create_layer_folder)) + [True] * (int(list_objects) + int(graph_wires)) + [False] * (int(layer_visibility) + int(layer_lock) + int(layer_rename) + int(layer_reorder) + int(layer_duplicate)) + [True] * int(layer_folders) + [False] * int(create_layer_folder)
         start = call(3, "tools/call", name="nect_test_inspect", arguments={})
         assert not start["isError"], start
         target = start["structuredContent"]["target"]
@@ -372,6 +376,30 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             current=invoke("set_layer_lock",dict(target=current,layerId=source_layer,locked=True),"changed")["target"]
         if renamed_roundtrip:
             current=invoke("rename_layer",dict(target=current,layerId=source_layer,name=label),"changed")["target"]
+        if create_layer_folder:
+            create_folder = dict(target=current, name="Synthetic New Folder", layerIds=[source_layer], folderIds=[])
+            invoke("create_layer_folder", {**create_folder, "folderId":"invented"}, "invalid-arguments", True)
+            invoke("create_layer_folder", {**create_folder, "layerIds":["absent"]}, "rejected", True)
+            assert invoke("inspect",{},"ok")["target"] == current
+            next_id += 1
+            send(dict(id=next_id, method="tools/call",
+                      params={"name":"nect_test_create_layer_folder","arguments":create_folder}))
+            assert replies.get(timeout=12) is not None  # Deliberately discard the creation result.
+            current = invoke("inspect",{},"ok")["target"]
+            assert current["projectRevision"] == create_folder["target"]["projectRevision"] + 1
+            new_items = invoke("list_layer_folders",{"target":current,"offset":0},"ok")["items"]
+            [created_folder] = [x["folderId"] for x in new_items if x["kind"] == "folder" and
+                                x["parentFolderId"] == "fixture-folder-child"]
+            assert new_items == folder_items[:2] + [
+                dict(kind="folder", folderId=created_folder, parentFolderId="fixture-folder-child"),
+                dict(kind="membership", folderId=created_folder, layerId=source_layer),
+            ]
+            invoke("create_layer_folder",create_folder,"stale-target",True)
+            undone = invoke("undo",{"target":current},"changed")["target"]
+            assert invoke("list_layer_folders",{"target":undone,"offset":0},"ok")["items"] == folder_items
+            current = invoke("redo",{"target":undone},"changed")["target"]
+            assert invoke("list_layer_folders",{"target":current,"offset":0},"ok")["items"] == new_items
+            folder_items = new_items
         state=invoke("save_state",{},"ok")
         assert state==dict(status="ok",saveEpoch=0,dirty=True,pending=False)
         k="save_as_fault_01"
@@ -476,11 +504,16 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             elif layer_folders and role == "copy":
                 snapshot = json.loads(data)
                 [comp] = [c for c in snapshot["compositions"] if c["id"] == reopened["compositionId"]]
-                assert comp["editor"]["layerFolders"] == [
+                expected_folders = [
                     dict(id="fixture-folder-parent", name="Synthetic Parent", members=[]),
                     dict(id="fixture-folder-child", name="Synthetic Child", parentId="fixture-folder-parent",
                          members=[dict(layerId=source_layer)]),
                 ]
+                if create_layer_folder:
+                    expected_folders[1]["members"] = []
+                    expected_folders.append(dict(id=created_folder, name="Synthetic New Folder",
+                                                parentId="fixture-folder-child", members=[dict(layerId=source_layer)]))
+                assert comp["editor"]["layerFolders"] == expected_folders
                 assert [layer["id"] for layer in comp["layers"]] == [source_layer]
             elif layer_duplicate:
                 if role != "png":
@@ -589,6 +622,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         if layer_duplicate:
             evidence["duplicateReplyRecovery"] = "discarded reply; one copy discovered; exact old target rejected"
             evidence["copiedInternalWires"] = verified_wires
+        if create_layer_folder:
+            evidence["layerFolderCreate"] = "one nested folder found after discarded reply; exact replay stale; Undo/Redo and reopen verified"
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))

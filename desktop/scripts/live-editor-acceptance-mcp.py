@@ -200,6 +200,17 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDERS") == "1":
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     })
     OPERATIONS[name] = "layerFolders.list"
+if os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_CREATE") == "1":
+    name = "nect_test_create_layer_folder"
+    picked = {"type": "array", "items": ident, "maxItems": 32, "uniqueItems": True}
+    TOOLS.append({
+        "name": name,
+        "description": "Create a new Folder from exact siblings in the isolated fixture",
+        "inputSchema": schema(dict(target=target, name={"type":"string","minLength":1,"maxLength":100},
+                                   layerIds=picked, folderIds=picked)),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "layerFolders.create"
 if PREVIEW_ONLY:
     TOOLS = [{
         "name": "nect_test_inspect",
