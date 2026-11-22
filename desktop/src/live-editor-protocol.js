@@ -45,6 +45,7 @@ export function createLiveEditorProtocol({
   setLayerVisibility,
   setLayerLock,
   renameLayer,
+  reorderLayer,
   setBlendDistance,
   setBlendSteps,
   setBlendMode,
@@ -102,6 +103,23 @@ export function createLiveEditorProtocol({
         return readNodeInputWires(args);
       } catch {
         return { status: 'unavailable' };
+      }
+    }
+    if (reorderLayer && request.operation === 'layer.reorder') {
+      if (
+        !closed(args, ['target', 'layerId', 'beforeLayerId']) ||
+        !validTarget(args.target) ||
+        !id(args.layerId) ||
+        (args.beforeLayerId !== null && !id(args.beforeLayerId))
+      )
+        return { status: 'invalid-arguments' };
+      try {
+        const { status } = reorderLayer(args);
+        return status === 'changed' || status === 'unchanged'
+          ? { status, target: captureEditorTarget(readTarget()) }
+          : { status };
+      } catch {
+        return { status: 'outcome-unknown' };
       }
     }
     if (renameLayer && request.operation === 'layer.rename') {

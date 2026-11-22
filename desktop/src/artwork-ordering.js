@@ -41,19 +41,29 @@ export function moveArtworkLayer(doc, layerId, direction) {
   return { moved: true, layerId, direction };
 }
 
-/** Move one layer to the exact visual insertion point without changing IDs. */
-export function moveArtworkLayerBefore(doc, layerId, beforeLayerId) {
+/** Resolve an exact insertion without editing layers or folder membership. */
+export function resolveArtworkReorderTarget(doc, layerId, beforeLayerId) {
   const source = doc?.layers?.find((layer) => layer.id === layerId);
   const before = doc?.layers?.find((layer) => layer.id === beforeLayerId);
   if (!source || (beforeLayerId !== null && !before) || source === before) return { moved: false };
-  if (source.locked) throw Error('Unlock this layer before ordering it.');
+  if (source.locked) return { error: 'Unlock this layer before ordering it.' };
   const from = doc.layers.indexOf(source);
   let to = beforeLayerId === null ? doc.layers.length : doc.layers.indexOf(before);
   if (from < to) to -= 1;
   if (!canReorderLayerInFolders(doc, layerId, to))
-    throw Error('Move Layers into or out of a Folder explicitly.');
-  doc.layers.splice(from, 1);
-  doc.layers.splice(to, 0, source);
-  return { moved: from !== to, layerId, beforeLayerId };
+    return { error: 'Move Layers into or out of a Folder explicitly.' };
+  return { moved: from !== to, from, to, source };
+}
+
+/** Move one layer to the exact visual insertion point without changing IDs. */
+export function moveArtworkLayerBefore(doc, layerId, beforeLayerId) {
+  const target = resolveArtworkReorderTarget(doc, layerId, beforeLayerId);
+  if (target.error) throw Error(target.error);
+  if (!target.source) return target;
+  if (target.moved) {
+    doc.layers.splice(target.from, 1);
+    doc.layers.splice(target.to, 0, target.source);
+  }
+  return { moved: target.moved, layerId, beforeLayerId };
 }
 import { canReorderLayerInFolders } from './layer-folders.js';
