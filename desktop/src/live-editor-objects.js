@@ -55,3 +55,47 @@ export function readLiveEditorObjects(
   const page = reply(index);
   return fitsFrame(page) ? page : { status: 'unavailable' };
 }
+
+// Authored parameter wires only; expressions, computed dependencies and
+// references to other documents are deliberately outside this projection.
+export function readLiveNodeInputWires(
+  { readTarget, readDocument },
+  { target, layerId, nodeId, offset },
+) {
+  if (!validId(layerId) || !validId(nodeId) || !validIndex(offset))
+    return { status: 'invalid-arguments' };
+  const current = captureEditorTarget(readTarget());
+  if (!editorTargetMatches(current, target)) return { status: 'stale-target' };
+  const layers = readDocument()?.layers;
+  if (!Array.isArray(layers)) return { status: 'unavailable' };
+  const layer = layers.find((entry) => entry.id === layerId);
+  const node = layer?.nodes?.find((entry) => entry.id === nodeId);
+  if (!node) return { status: 'unsupported-target' };
+  const entries = Object.entries(node.params ?? {}).filter(([, param]) => param?.source != null);
+  if (offset > entries.length) return { status: 'invalid-arguments' };
+  const items = [];
+  const reply = (next) => ({
+    status: 'ok',
+    target: current,
+    layerId,
+    nodeId,
+    items,
+    nextOffset: next < entries.length ? next : null,
+  });
+  let index = offset;
+  for (; index < Math.min(entries.length, offset + LIVE_OBJECT_PAGE_SIZE); index++) {
+    const [input, param] = entries[index];
+    const sourcePort = param.sourcePort ?? null;
+    if (!validId(input) || !validId(param.source) || (sourcePort !== null && !validId(sourcePort)))
+      return { status: 'unavailable' };
+    items.push({ input, sourceId: param.source, sourcePort });
+    if (!fitsFrame(reply(index + 1))) {
+      items.pop();
+      if (!items.length) return { status: 'unavailable' };
+      break;
+    }
+  }
+  if (!editorTargetMatches(readTarget(), current)) return { status: 'stale-target' };
+  const page = reply(index);
+  return fitsFrame(page) ? page : { status: 'unavailable' };
+}

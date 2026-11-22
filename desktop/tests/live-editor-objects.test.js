@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LIVE_OBJECT_PAGE_SIZE, readLiveEditorObjects } from '../src/live-editor-objects.js';
+import {
+  LIVE_OBJECT_PAGE_SIZE,
+  readLiveEditorObjects,
+  readLiveNodeInputWires,
+} from '../src/live-editor-objects.js';
 
 const target = {
   documentGeneration: 1,
@@ -97,6 +101,92 @@ test('stale target never reads a newer document or returns a stale page', () => 
         },
       },
       args,
+    ),
+    { status: 'stale-target' },
+  );
+});
+
+test('node wire discovery projects only the explicitly addressed input names and sources', () => {
+  const document = {
+    layers: [
+      { id: 'other', nodes: [{ id: 'selected', params: { private: { source: 'not-mine' } } }] },
+      {
+        id: 'layer',
+        nodes: [
+          { id: 'a' },
+          { id: 'b' },
+          {
+            id: 'selected',
+            params: {
+              first: { source: 'a', value: 'not-returned' },
+              second: { source: 'b', sourcePort: 'position' },
+              expression: { expression: 'not-returned' },
+              literal: { value: '/not-returned' },
+            },
+            reference: { nodeId: 'another-reference' },
+          },
+        ],
+      },
+    ],
+  };
+  const before = structuredClone(document);
+  const host = { readTarget: () => target, readDocument: () => document };
+  const args = { target, layerId: 'layer', nodeId: 'selected', offset: 0 };
+  assert.deepEqual(readLiveNodeInputWires(host, args), {
+    status: 'ok',
+    target,
+    layerId: 'layer',
+    nodeId: 'selected',
+    items: [
+      { input: 'first', sourceId: 'a', sourcePort: null },
+      { input: 'second', sourceId: 'b', sourcePort: 'position' },
+    ],
+    nextOffset: null,
+  });
+  assert.deepEqual(document, before);
+  assert.deepEqual(readLiveNodeInputWires(host, { ...args, offset: 2 }).items, []);
+  assert.deepEqual(readLiveNodeInputWires(host, { ...args, offset: 3 }), {
+    status: 'invalid-arguments',
+  });
+  assert.deepEqual(readLiveNodeInputWires(host, { ...args, nodeId: 'absent' }), {
+    status: 'unsupported-target',
+  });
+});
+
+test('node wire discovery has bounded pages and rechecks the target before publishing', () => {
+  const params = Object.fromEntries(
+    Array.from({ length: 45 }, (_, index) => [
+      'input' + index,
+      { source: '\u63db'.repeat(245) + '\n' + index },
+    ]),
+  );
+  const document = { layers: [{ id: 'layer', nodes: [{ id: 'node', params }] }] };
+  let revision = target.projectRevision;
+  const host = {
+    readTarget: () => ({ ...target, projectRevision: revision }),
+    readDocument: () => document,
+  };
+  const args = { target, layerId: 'layer', nodeId: 'node', offset: 0 };
+  const found = [];
+  do {
+    const page = readLiveNodeInputWires(host, args);
+    assert.equal(page.status, 'ok');
+    assert.ok(page.items.length > 0 && Buffer.byteLength(JSON.stringify(page)) <= 3500);
+    if (page.nextOffset !== null) assert.ok(page.nextOffset > args.offset);
+    found.push(...page.items.map((item) => item.input));
+    args.offset = page.nextOffset;
+  } while (args.offset !== null);
+  assert.deepEqual(found, Object.keys(params));
+  assert.deepEqual(
+    readLiveNodeInputWires(
+      {
+        ...host,
+        readDocument: () => {
+          revision++;
+          return document;
+        },
+      },
+      { ...args, offset: 0 },
     ),
     { status: 'stale-target' },
   );
