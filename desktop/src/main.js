@@ -74,6 +74,7 @@ import {
 import { createLiveLayerReorder } from './live-layer-reorder.js';
 import { createLiveLayerDuplicate } from './live-layer-duplicate.js';
 import { createLiveLayerFolder } from './live-layer-folder-create.js';
+import { createLiveFolderPlanSession } from './live-folder-plan-session.js';
 import { createLiveLayerFolderDissolve } from './live-layer-folder-dissolve.js';
 import { createLiveLayerFolderRename } from './live-layer-folder-rename.js';
 import { createLiveLayerFolderMembership } from './live-layer-folder-membership.js';
@@ -19541,8 +19542,16 @@ if (
         render(true);
       },
     });
+    const folderPlans = createLiveFolderPlanSession({
+      ...liveBlendHost,
+      readDocument: () => (documents.transitioning ? null : history.doc),
+      isEditBlocked: () =>
+        liveBlendHost.isEditBlocked() || compositionActionBusy() || Boolean(nameEdit),
+    });
     const handle = createLiveEditorProtocol({
       readTarget: readLiveEditorTarget,
+      readLayerFolderPlan: folderPlans.preview,
+      applyLayerFolderPlan: folderPlans.apply,
       canInspect: () => !documents.transitioning,
       listArtwork: (args) =>
         readLiveEditorObjects(
@@ -19650,6 +19659,7 @@ if (
     });
     const closeInspection = () => {
       inspectionOpen = false;
+      folderPlans.revoke();
       detach?.();
       void binding
         .then((epoch) => epoch && invoke('live_acceptance_inspect_detach', { epoch }))

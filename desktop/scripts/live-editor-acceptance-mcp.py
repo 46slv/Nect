@@ -240,6 +240,22 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_DISSOLVE") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False},
     })
     OPERATIONS[name] = "layerFolders.dissolve"
+if os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_PLAN") == "1":
+    selection = {"type":"array","items":ident,"minItems":1,"maxItems":32,"uniqueItems":True}
+    request = {"oneOf": [
+        schema(dict(folderId=ident, mode={"enum":["move","remove"]}, layerIds=selection)),
+        schema(dict(folderId=ident, mode={"const":"order"}, direction={"enum":["forward","backward"]})),
+    ]}
+    TOOLS.extend([
+        {"name":"nect_test_plan_layer_folder","description":"Preview a folder edit on this isolated document",
+         "inputSchema":schema(dict(target=target, request=request)),
+         "annotations":{"readOnlyHint":True,"openWorldHint":False}},
+        {"name":"nect_test_apply_layer_folder_plan","description":"Apply the exact reviewed plan once in this isolated document",
+         "inputSchema":schema(dict(target=target, planId={"type":"string","format":"uuid"}, confirmed={"const":True})),
+         "annotations":{"readOnlyHint":False,"destructiveHint":True,"idempotentHint":False,"openWorldHint":False}},
+    ])
+    OPERATIONS["nect_test_plan_layer_folder"] = "layerFolders.plan"
+    OPERATIONS["nect_test_apply_layer_folder_plan"] = "layerFolders.applyPlan"
 if PREVIEW_ONLY:
     TOOLS = [{
         "name": "nect_test_inspect",
