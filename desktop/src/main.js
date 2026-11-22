@@ -54,6 +54,7 @@ import { createLiveDocumentSave, createLiveSaveAsBoundary } from './live-documen
 import {
   createLiveBlendDistanceOperation,
   createLiveBlendStepsOperation,
+  createLiveBlendModeOperation,
   createReadLiveBlendSettings,
 } from './live-blend-distance.js';
 import { createLiveDocumentCopy } from './live-document-copy.js';
@@ -6639,6 +6640,7 @@ const liveBlendHost = {
 };
 const liveBlendDistance = createLiveBlendDistanceOperation(liveBlendHost);
 const liveBlendSteps = createLiveBlendStepsOperation(liveBlendHost);
+const liveBlendMode = createLiveBlendModeOperation(liveBlendHost);
 const readLiveBlendSettings = createReadLiveBlendSettings(liveBlendHost);
 // The acceptance adapter calls the same history and view restoration as the
 // menu and keyboard. Do not launch asynchronous font preparation from it.
@@ -19243,6 +19245,7 @@ const testLiveEditorProtocol =
         canInspect: () => !documents.transitioning,
         setBlendDistance: liveBlendDistance,
         setBlendSteps: liveBlendSteps,
+        setBlendMode: liveBlendMode,
         readBlendSettings: readLiveBlendSettings,
         stepHistory: stepAcceptanceHistory,
         createArtwork: liveArtworkCreation,
@@ -19533,6 +19536,7 @@ if (
         ),
       setBlendDistance: liveBlendDistance,
       setBlendSteps: liveBlendSteps,
+      setBlendMode: liveBlendMode,
       readBlendSettings: readLiveBlendSettings,
       stepHistory: stepAcceptanceHistory,
       createArtwork: liveArtworkCreation,

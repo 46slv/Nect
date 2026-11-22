@@ -8,6 +8,7 @@ import {
   serializeCompositionProject,
 } from '../src/composition-project-model.js';
 import {
+  createLiveBlendModeOperation,
   createLiveBlendStepsOperation,
   createReadLiveBlendSettings,
 } from '../src/live-blend-distance.js';
@@ -189,4 +190,50 @@ test('Blend settings distinguish a driven value from its unused saved literal', 
   assert.deepEqual(read(args), { status: 'ok', mode: 'smooth-color', spacing: null });
   blend.operation = 'unrecognized';
   assert.deepEqual(read(args), { status: 'unsupported-target' });
+});
+
+test('Blend mode is a closed, target-bound shared edit that retains authored input wires', () => {
+  const live = ownerFor('blend-distance'),
+    gui = ownerFor('blend-distance'),
+    addr = addressed(live);
+  const target = () => targetFor(live);
+  let commits = 0,
+    blocked = false;
+  const setBlendMode = createLiveBlendModeOperation({
+    readTarget: target,
+    getOwner: () => live,
+    isEditBlocked: () => blocked,
+    commit(owner, command) {
+      commits++;
+      return owner.dispatch(command);
+    },
+  });
+  const run = createLiveEditorProtocol({ readTarget: target, setBlendMode });
+  const args = { ...addr, target: target(), mode: 'steps' },
+    before = snapshot(live);
+  const initial = live.snapshot().layers[0].nodes.find((n) => n.id === addr.nodeId);
+  const call = (patch = {}) =>
+    run({ version: 1, operation: 'blend.setMode', arguments: { ...args, ...patch } });
+  assert.equal(call({ mode: 'bogus' }).status, 'invalid-arguments');
+  assert.equal(call({ mode: 'subtract' }).status, 'invalid-arguments');
+  assert.equal(call({ layerId: 'missing' }).status, 'unsupported-target');
+  assert.equal(call({ mode: 'distance' }).status, 'unchanged');
+  blocked = true;
+  assert.equal(call().status, 'edit-in-progress');
+  blocked = false;
+  assert.equal(commits, 0);
+  assert.equal(call().status, 'changed');
+  assert.equal(call().status, 'stale-target');
+  assert.equal(commits, 1);
+  const result = live.snapshot().layers[0].nodes.find((n) => n.id === addr.nodeId);
+  assert.equal(result.operation, 'steps');
+  for (const id of ['a', 'b']) assert.equal(result.params[id].source, initial.params[id].source);
+  gui.dispatch({ ...gui.state, type: 'set-operation', payload: { ...addr, operation: 'steps' } });
+  assert.equal(exportSVG(live.snapshot()), exportSVG(gui.snapshot()));
+  const after = snapshot(live);
+  assert.equal(after, snapshot(gui));
+  live.dispatch({ ...live.state, type: 'undo', payload: {} });
+  assert.equal(snapshot(live), before);
+  live.dispatch({ ...live.state, type: 'redo', payload: {} });
+  assert.equal(snapshot(live), after);
 });

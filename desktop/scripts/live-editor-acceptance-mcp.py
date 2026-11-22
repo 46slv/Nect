@@ -106,6 +106,17 @@ if os.environ.get("NECT_ACCEPTANCE_BLEND_STEPS") == "1":
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     })
     OPERATIONS[read_name] = "blend.settings"
+    mode_name = "nect_test_set_blend_mode"
+    TOOLS.append({
+        "name": mode_name,
+        "description": "Set a declared Blend mode without changing its input wires in the isolated fixture",
+        "inputSchema": schema(dict(target=target, layerId=ident, nodeId=ident,
+                                   mode={"enum": ["steps", "three-source-steps", "smooth-color",
+                                                  "distance", "spine-distance", "spine-steps",
+                                                  "spine-tangent-steps"]})),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[mode_name] = "blend.setMode"
 if os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1":
     name = "nect_test_list_artwork"
     TOOLS.append({

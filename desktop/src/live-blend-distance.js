@@ -91,3 +91,25 @@ export function createLiveBlendDistanceOperation(host) {
 export function createLiveBlendStepsOperation(host) {
   return createBlendParameterOperation(host, 'steps');
 }
+
+export function createLiveBlendModeOperation({ readTarget, getOwner, isEditBlocked, commit }) {
+  return function setMode({ target, layerId, nodeId, mode }) {
+    if (!editorTargetMatches(readTarget(), target)) return { status: 'stale-target' };
+    if (isEditBlocked()) return { status: 'edit-in-progress' };
+    if (!blendNodeDeclaration.operations.some((row) => row.id === mode))
+      return { status: 'invalid-arguments' };
+    const owner = getOwner();
+    const { layer, node } = addressedBlend(owner, layerId, nodeId);
+    if (!node || layer.locked || node.locked || node.bypassed)
+      return { status: 'unsupported-target' };
+    if (blendOperation(node)?.id === mode) return { status: 'unchanged' };
+    const receipt = commit(owner, {
+      sessionId: target.sessionId,
+      expectedRevision: target.sessionRevision,
+      type: 'set-operation',
+      payload: { layerId, nodeId, operation: mode },
+    });
+    if (!receipt) return { status: 'rejected' };
+    return { status: receipt.changed ? 'changed' : 'unchanged' };
+  };
+}
