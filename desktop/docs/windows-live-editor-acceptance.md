@@ -117,6 +117,16 @@ baseline. All four variables are optional; on means exactly `1`.
 | Japanese text, missing glyph | on                        | on                     | on                                      | off                              | 13         |
 | Japanese text, embedded font | on                        | on                     | off                                     | on                               | 13         |
 
+### Layer state readback
+
+Add `NECT_ACCEPTANCE_LAYER_STATE=1` to a Guide or Solo scenario on the same
+fixture build. The read tool takes only a captured editor target and a layer
+ID, and returns the stored visibility, lock, Guide, and Solo flags. It does
+not infer effective rendering visibility or return a name, nodes, or paths.
+The test reads the flags before and after editing and reopening, rejects an
+old target and an unknown layer, and checks that the read leaves the revision
+unchanged.
+
 ### Guide layer scenario
 
 In a separate run, enable `NECT_ACCEPTANCE_ARTWORK=1`,

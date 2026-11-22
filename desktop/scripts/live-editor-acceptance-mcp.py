@@ -146,6 +146,15 @@ if os.environ.get("NECT_ACCEPTANCE_GRAPH_WIRES") == "1":
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     })
     OPERATIONS[name] = "graph.inputWires"
+if os.environ.get("NECT_ACCEPTANCE_LAYER_STATE") == "1":
+    name = "nect_test_read_layer_state"
+    TOOLS.append({
+        "name": name,
+        "description": "Read stored visible, locked, guide and solo flags for one specific fixture layer",
+        "inputSchema": schema(dict(target=target, layerId=ident)),
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "layer.state"
 if os.environ.get("NECT_ACCEPTANCE_LAYER_VISIBILITY") == "1":
     name = "nect_test_set_layer_visibility"
     TOOLS.append({
