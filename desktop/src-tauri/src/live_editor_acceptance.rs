@@ -205,6 +205,11 @@ pub(crate) fn live_acceptance_fixture(
                  "members":[{"layerId":layer_id}]}
             ]});
             project["editor"] = editor;
+            if std::env::var("NECT_ACCEPTANCE_LAYER_FOLDER_MEMBERSHIP").as_deref() == Ok("1") {
+                project["editor"]["layerFolders"] = serde_json::json!([
+                    {"id":"fixture-folder-flat","name":"Synthetic Flat","members":[]}
+                ]);
+            }
             return serde_json::to_string(&project).map_err(|_| "Invalid embedded Folder fixture");
         }
         if std::env::var("NECT_SVG_ACCEPTANCE_JP_FIXTURE").as_deref() != Ok("1") {

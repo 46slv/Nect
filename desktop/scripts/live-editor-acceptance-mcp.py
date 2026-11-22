@@ -221,6 +221,16 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_RENAME") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "layerFolders.rename"
+if os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_MEMBERSHIP") == "1":
+    name = "nect_test_change_layer_folder_membership"
+    selected = {"type":"array","items":ident,"minItems":1,"maxItems":32,"uniqueItems":True}
+    TOOLS.append({
+        "name": name,
+        "description": "Add or remove an exact Layer selection without changing paint order in the isolated fixture",
+        "inputSchema": schema(dict(target=target, folderId=ident, mode={"enum":["add","remove"]}, layerIds=selected)),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "layerFolders.changeMembership"
 if PREVIEW_ONLY:
     TOOLS = [{
         "name": "nect_test_inspect",
