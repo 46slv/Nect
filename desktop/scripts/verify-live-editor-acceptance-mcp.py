@@ -515,6 +515,22 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             assert any(n["id"] == source_node for n in original["nodes"])
             assert [n["type"] for n in copied["nodes"]] == [n["type"] for n in original["nodes"]]
             assert {n["id"] for n in copied["nodes"]}.isdisjoint(n["id"] for n in original["nodes"])
+            original_by_id = {n["id"]: n for n in original["nodes"]}
+            copied_by_id = {n["id"]: n for n in copied["nodes"]}
+            remap = dict(zip(original_by_id, copied_by_id, strict=True))
+            assert copied["output"] == remap[original["output"]]
+            verified_wires = 0
+            for original_id, copied_id in remap.items():
+                old_params = original_by_id[original_id]["params"]
+                new_params = copied_by_id[copied_id]["params"]
+                for key, old_port in old_params.items():
+                    if isinstance(old_port, dict) and old_port.get("source"):
+                        assert old_port["source"] in remap, old_port
+                        new_port = new_params[key]
+                        assert new_port["source"] == remap[old_port["source"]]
+                        assert new_port.get("sourceOutput") == old_port.get("sourceOutput")
+                        verified_wires += 1
+            assert verified_wires == 5
             tree = ElementTree.fromstring((outputs/"live-api-export.svg").read_bytes())
             labels = {n.attrib["data-layer"] for n in tree.iter() if "data-layer" in n.attrib}
             assert labels == {original["name"], copied["name"]}
@@ -531,6 +547,9 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "exportSvg":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer",
                   "exportPng":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer","caseGuards":"pass",
                   "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "layerLock":layer_lock, "layerRename":layer_rename, "layerReorder":layer_reorder, "layerDuplicate":layer_duplicate, "renamedLayerRoundtrip":renamed_roundtrip, "lockedLayerRoundtrip":locked_roundtrip, "hiddenLayerRoundtrip":hidden_roundtrip, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
+        if layer_duplicate:
+            evidence["duplicateReplyRecovery"] = "discarded reply; one copy discovered; exact old target rejected"
+            evidence["copiedInternalWires"] = verified_wires
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))
