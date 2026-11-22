@@ -209,6 +209,20 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "layer.reorder"
+if os.environ.get("NECT_ACCEPTANCE_ARTWORK_TRANSLATE") == "1":
+    name = "nect_test_translate_artwork"
+    TOOLS.append({
+        "name": name,
+        "description": "Move explicit artwork layers by a document-coordinate delta in the isolated fixture",
+        "inputSchema": schema(dict(
+            target=target,
+            layerIds={"type":"array","items":ident,"minItems":1,"maxItems":100,"uniqueItems":True},
+            delta={"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},
+        )),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False,
+                        "openWorldHint": False},
+    })
+    OPERATIONS[name] = "artwork.translate"
 if os.environ.get("NECT_ACCEPTANCE_LAYER_DELETE") == "1":
     name = "nect_test_delete_layer"
     TOOLS.append({
