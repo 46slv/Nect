@@ -6,7 +6,7 @@ export async function mountLiveInspectPreviewIfAvailable(options) {
   if (await call('live_preview_available', {})) mountLiveInspectPreview(options);
 }
 
-// Optional in-app diagnostic, with no external listener or document result.
+// Optional read-only diagnostic. A disposable host can bind one test client.
 export function mountLiveInspectPreview({
   readTarget,
   canInspect,
@@ -24,7 +24,7 @@ export function mountLiveInspectPreview({
   title.textContent = 'Local inspection preview';
   const status = dom.createElement('p');
   status.setAttribute('role', 'status');
-  status.textContent = 'Off. No external access.';
+  status.textContent = 'Off. Document inspection disabled.';
   let binding = null;
   let detach = null;
   let pending = 0;
@@ -52,7 +52,7 @@ export function mountLiveInspectPreview({
     binding = null;
     detach?.();
     detach = null;
-    const epoch = await current;
+    const epoch = await current?.catch(() => null);
     if (epoch) await call('live_preview_detach', { epoch });
   }
   const enable = button('Enable', async () => {
@@ -69,11 +69,13 @@ export function mountLiveInspectPreview({
     if (!detach) throw new Error('Already bound');
     const current = call('live_preview_attach', { channel });
     binding = current;
+    refresh();
     try {
       if (!(await current)) throw new Error('Inspection unavailable');
-      if (binding === current) status.textContent = 'On. No external access.';
+      if (binding === current) status.textContent = 'On. Read-only document inspection enabled.';
     } catch (error) {
-      if (binding === current) await stop().catch(() => {});
+      if (binding !== current) return;
+      await stop().catch(() => {});
       throw error;
     }
   });
@@ -92,7 +94,7 @@ export function mountLiveInspectPreview({
     'Disable',
     async () => {
       await stop();
-      status.textContent = 'Off. No external access.';
+      status.textContent = 'Off. Document inspection disabled.';
     },
     true,
   );
