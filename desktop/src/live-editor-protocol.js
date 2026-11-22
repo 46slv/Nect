@@ -31,6 +31,7 @@ export function createLiveEditorProtocol({
   createLayerFolder,
   renameLayerFolder,
   setLayerFolderMembership,
+  dissolveLayerFolder,
   readNodeInputWires,
   setLayerVisibility,
   setLayerLock,
@@ -142,6 +143,18 @@ export function createLiveEditorProtocol({
         return { status: 'invalid-arguments' };
       try {
         const { status } = setLayerFolderMembership(args);
+        return status === 'changed'
+          ? { status, target: captureEditorTarget(readTarget()) }
+          : { status };
+      } catch {
+        return { status: 'outcome-unknown' };
+      }
+    }
+    if (dissolveLayerFolder && request.operation === 'layerFolders.dissolve') {
+      if (!closed(args, ['target', 'folderId']) || !validTarget(args.target) || !id(args.folderId))
+        return { status: 'invalid-arguments' };
+      try {
+        const { status } = dissolveLayerFolder(args);
         return status === 'changed'
           ? { status, target: captureEditorTarget(readTarget()) }
           : { status };
