@@ -32,6 +32,7 @@ export function createLiveEditorProtocol({
   renameLayerFolder,
   setLayerFolderMembership,
   dissolveLayerFolder,
+  readLayerFolderPlan,
   readNodeInputWires,
   setLayerVisibility,
   setLayerLock,
@@ -160,6 +161,39 @@ export function createLiveEditorProtocol({
           : { status };
       } catch {
         return { status: 'outcome-unknown' };
+      }
+    }
+    if (readLayerFolderPlan && request.operation === 'layerFolders.plan') {
+      if (
+        !closed(args, ['target', 'request']) ||
+        !validTarget(args.target) ||
+        !object(args.request)
+      )
+        return { status: 'invalid-arguments' };
+      const plan = args.request;
+      if (!id(plan.folderId)) return { status: 'invalid-arguments' };
+      if (plan.mode === 'order') {
+        if (
+          !closed(plan, ['folderId', 'mode', 'direction']) ||
+          !['forward', 'backward'].includes(plan.direction)
+        )
+          return { status: 'invalid-arguments' };
+      } else if (
+        !closed(plan, ['folderId', 'mode', 'layerIds']) ||
+        !['move', 'remove'].includes(plan.mode) ||
+        !Array.isArray(plan.layerIds) ||
+        !plan.layerIds.length ||
+        plan.layerIds.length > 32 ||
+        !plan.layerIds.every(id) ||
+        new Set(plan.layerIds).size !== plan.layerIds.length
+      )
+        return { status: 'invalid-arguments' };
+      if (new TextEncoder().encode(JSON.stringify(args)).byteLength > 3500)
+        return { status: 'invalid-arguments' };
+      try {
+        return readLayerFolderPlan(args);
+      } catch {
+        return { status: 'unavailable' };
       }
     }
     if (readNodeInputWires && request.operation === 'graph.inputWires') {
