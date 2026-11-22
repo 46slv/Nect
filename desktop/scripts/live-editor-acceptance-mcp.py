@@ -191,6 +191,15 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_DUPLICATE") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "layer.duplicate"
+if os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDERS") == "1":
+    name = "nect_test_list_layer_folders"
+    TOOLS.append({
+        "name": name,
+        "description": "Read the isolated fixture folder topology without names or edits",
+        "inputSchema": schema(dict(target=target, offset={"type": "integer", "minimum": 0})),
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "layerFolders.list"
 if PREVIEW_ONLY:
     TOOLS = [{
         "name": "nect_test_inspect",

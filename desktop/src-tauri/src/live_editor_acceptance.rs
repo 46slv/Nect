@@ -190,6 +190,23 @@ pub(crate) fn live_acceptance_fixture(
     #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
     {
         let blend = include_str!("../../examples/blend-distance.json");
+        if std::env::var("NECT_ACCEPTANCE_LAYER_FOLDERS").as_deref() == Ok("1") {
+            let mut project: serde_json::Value =
+                serde_json::from_str(blend).map_err(|_| "Invalid embedded Blend fixture")?;
+            let layer_id = project["layers"][0]["id"]
+                .as_str()
+                .ok_or("Missing embedded Blend layer ID")?;
+            let editor = serde_json::json!({
+                "visible":true,"locked":false,"gridVisible":false,"gridSize":8,
+                "snap":false,"snapGuides":true,"snapArtboard":true,"snapGrid":true,"guides":[],
+                "layerFolders":[
+                {"id":"fixture-folder-parent","name":"Synthetic Parent","members":[]},
+                {"id":"fixture-folder-child","name":"Synthetic Child","parentId":"fixture-folder-parent",
+                 "members":[{"layerId":layer_id}]}
+            ]});
+            project["editor"] = editor;
+            return serde_json::to_string(&project).map_err(|_| "Invalid embedded Folder fixture");
+        }
         if std::env::var("NECT_SVG_ACCEPTANCE_JP_FIXTURE").as_deref() != Ok("1") {
             return Ok(blend.into());
         }

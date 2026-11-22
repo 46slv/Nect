@@ -61,7 +61,11 @@ import {
 import { createLiveDocumentCopy } from './live-document-copy.js';
 import { createLiveDocumentReopen } from './live-document-reopen.js';
 import { createLiveEditorProtocol } from './live-editor-protocol.js';
-import { readLiveEditorObjects, readLiveNodeInputWires } from './live-editor-objects.js';
+import {
+  readLiveEditorObjects,
+  readLiveLayerFolders,
+  readLiveNodeInputWires,
+} from './live-editor-objects.js';
 import {
   createLiveLayerLock,
   createLiveLayerRename,
@@ -19538,6 +19542,14 @@ if (
       canInspect: () => !documents.transitioning,
       listArtwork: (args) =>
         readLiveEditorObjects(
+          {
+            readTarget: readLiveEditorTarget,
+            readDocument: () => (documents.transitioning ? null : history.doc),
+          },
+          args,
+        ),
+      listLayerFolders: (args) =>
+        readLiveLayerFolders(
           {
             readTarget: readLiveEditorTarget,
             readDocument: () => (documents.transitioning ? null : history.doc),

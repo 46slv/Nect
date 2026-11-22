@@ -22,6 +22,7 @@ layer_lock = os.environ.get("NECT_ACCEPTANCE_LAYER_LOCK") == "1"
 layer_rename = os.environ.get("NECT_ACCEPTANCE_LAYER_RENAME") == "1"
 layer_reorder = os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1"
 layer_duplicate = os.environ.get("NECT_ACCEPTANCE_LAYER_DUPLICATE") == "1"
+layer_folders = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDERS") == "1"
 renamed_roundtrip = os.environ.get("NECT_ACCEPTANCE_RENAMED_ROUNDTRIP") == "1"
 locked_roundtrip = os.environ.get("NECT_ACCEPTANCE_LOCKED_ROUNDTRIP") == "1"
 hidden_roundtrip = os.environ.get("NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP") == "1"
@@ -29,6 +30,7 @@ artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
 mixed_text_probe = os.environ.get("NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE") == "1"
 embedded_jp = os.environ.get("NECT_SVG_ACCEPTANCE_JP_FIXTURE") == "1"
+assert not layer_folders or not (embedded_jp or mixed_text_probe or layer_reorder or layer_duplicate)
 assert not layer_lock or list_objects
 assert not layer_duplicate or (
     list_objects and not (layer_reorder or layer_rename or layer_lock or layer_visibility or
@@ -97,8 +99,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_reorder_layer")
         if layer_duplicate:
             extra.append("nect_test_duplicate_layer")
+        if layer_folders:
+            extra.append("nect_test_list_layer_folders")
         assert [t["name"] for t in listed["tools"]] == ["nect_test_inspect", "nect_test_set_blend_distance", "nect_test_export_svg", "nect_test_export_png", "nect_test_save_copy", "nect_test_reopen_copy", "nect_test_undo", "nect_test_redo","nect_test_save_state","nect_test_save_receipt","nect_test_save_as"] + extra
-        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects) - int(graph_wires) - int(layer_visibility) - int(layer_lock) - int(layer_rename) - int(layer_reorder) - int(layer_duplicate)) + [True] * (int(list_objects) + int(graph_wires)) + [False] * (int(layer_visibility) + int(layer_lock) + int(layer_rename) + int(layer_reorder) + int(layer_duplicate))
+        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects) - int(graph_wires) - int(layer_visibility) - int(layer_lock) - int(layer_rename) - int(layer_reorder) - int(layer_duplicate) - int(layer_folders)) + [True] * (int(list_objects) + int(graph_wires)) + [False] * (int(layer_visibility) + int(layer_lock) + int(layer_rename) + int(layer_reorder) + int(layer_duplicate)) + [True] * int(layer_folders)
         start = call(3, "tools/call", name="nect_test_inspect", arguments={})
         assert not start["isError"], start
         target = start["structuredContent"]["target"]
@@ -218,6 +222,23 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             assert wrong["isError"] and wrong["structuredContent"] == {"status": "invalid-arguments"}, wrong
             readback = call(1104, "tools/call", name="nect_test_inspect", arguments={})
             assert readback["structuredContent"]["target"] == target, readback
+        if layer_folders:
+            def folders(id_, revision, offset=0):
+                return call(id_, "tools/call", name="nect_test_list_layer_folders",
+                            arguments=dict(target=revision, offset=offset))
+            folder_items = [
+                dict(kind="folder", folderId="fixture-folder-parent", parentFolderId=None),
+                dict(kind="folder", folderId="fixture-folder-child", parentFolderId="fixture-folder-parent"),
+                dict(kind="membership", folderId="fixture-folder-child", layerId=source_layer),
+            ]
+            for id_, offset in [(1170, 0), (1171, 2), (1172, 3)]:
+                page = folders(id_, target, offset)
+                assert not page["isError"] and page["structuredContent"] == dict(
+                    status="ok", target=target, items=folder_items[offset:], nextOffset=None), page
+            bad = folders(1173, target, 4)
+            assert bad["isError"] and bad["structuredContent"] == {"status":"invalid-arguments"}, bad
+            assert call(1174, "tools/call", name="nect_test_inspect",
+                        arguments={})["structuredContent"]["target"] == target
         intent = dict(target=target, layerId=source_layer, nodeId=source_node, value=60)
         edited = call(4, "tools/call", name="nect_test_set_blend_distance", arguments=intent)
         assert not edited["isError"] and edited["structuredContent"]["status"] == "changed", edited
@@ -231,6 +252,11 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             assert rejected["isError"] and rejected["structuredContent"] == {"status": "stale-target"}, rejected
             latest = read_wires(1106, current)
             assert not latest["isError"] and latest["structuredContent"]["items"] == expected_wires, latest
+        if layer_folders:
+            rejected = folders(1175, target)
+            assert rejected["isError"] and rejected["structuredContent"] == {"status":"stale-target"}, rejected
+            latest = folders(1176, current)
+            assert not latest["isError"] and latest["structuredContent"]["items"] == folder_items, latest
         stale = call(5, "tools/call", name="nect_test_set_blend_distance", arguments={**intent, "value":70})
         assert stale["isError"] and stale["structuredContent"]["status"] == "stale-target", stale
         after = call(6, "tools/call", name="nect_test_inspect", arguments={})
@@ -398,6 +424,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             assert layer_ids(1606, reopened) == after_ids
         if layer_visibility or graph_wires or layer_lock or renamed_roundtrip or layer_reorder or layer_duplicate:
             assert invoke("inspect",{},"ok")["target"]==reopened
+        if layer_folders:
+            readback = folders(1177, reopened)
+            assert not readback["isError"] and readback["structuredContent"] == dict(
+                status="ok", target=reopened, items=folder_items, nextOffset=None), readback
         if hidden_roundtrip:
             unchanged=invoke("set_layer_visibility",dict(target=reopened,layerId=source_layer,visible=False),"unchanged")
             assert unchanged["target"]==reopened
@@ -443,6 +473,15 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                     assert data.count(new_string) == 1
                     normalized = data.replace(new_string, old_string)
                 assert hashlib.sha256(normalized).hexdigest()==expected[role+"SHA256"].lower(), role
+            elif layer_folders and role == "copy":
+                snapshot = json.loads(data)
+                [comp] = [c for c in snapshot["compositions"] if c["id"] == reopened["compositionId"]]
+                assert comp["editor"]["layerFolders"] == [
+                    dict(id="fixture-folder-parent", name="Synthetic Parent", members=[]),
+                    dict(id="fixture-folder-child", name="Synthetic Child", parentId="fixture-folder-parent",
+                         members=[dict(layerId=source_layer)]),
+                ]
+                assert [layer["id"] for layer in comp["layers"]] == [source_layer]
             elif layer_duplicate:
                 if role != "png":
                     assert digests[role] != expected[role+"SHA256"].lower(), role
@@ -528,7 +567,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                         assert old_port["source"] in remap, old_port
                         new_port = new_params[key]
                         assert new_port["source"] == remap[old_port["source"]]
-                        assert new_port.get("sourceOutput") == old_port.get("sourceOutput")
+                        assert new_port.get("sourcePort") == old_port.get("sourcePort")
                         verified_wires += 1
             assert verified_wires == 5
             tree = ElementTree.fromstring((outputs/"live-api-export.svg").read_bytes())
@@ -546,7 +585,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "edit":"changed","history":"undo/redo verified","saveCopy":"accepted-by-writer","reopen":"reopened",
                   "exportSvg":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer",
                   "exportPng":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer","caseGuards":"pass",
-                  "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "layerLock":layer_lock, "layerRename":layer_rename, "layerReorder":layer_reorder, "layerDuplicate":layer_duplicate, "renamedLayerRoundtrip":renamed_roundtrip, "lockedLayerRoundtrip":locked_roundtrip, "hiddenLayerRoundtrip":hidden_roundtrip, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
+                  "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "layerLock":layer_lock, "layerRename":layer_rename, "layerReorder":layer_reorder, "layerDuplicate":layer_duplicate, "layerFolderTopology":layer_folders, "renamedLayerRoundtrip":renamed_roundtrip, "lockedLayerRoundtrip":locked_roundtrip, "hiddenLayerRoundtrip":hidden_roundtrip, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
         if layer_duplicate:
             evidence["duplicateReplyRecovery"] = "discarded reply; one copy discovered; exact old target rejected"
             evidence["copiedInternalWires"] = verified_wires
