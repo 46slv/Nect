@@ -8,11 +8,31 @@ from GUI and non-GUI clients, not remote mouse control.
 ## What the proof does and does not establish
 
 The Windows acceptance instance proves document identity, authored object
-discovery, Blend and Text edits, history, save receipts and export on a
-single isolated editor. It does not prove a production connection, native
-chooser behavior, installed fonts, or an active Hermes Desktop session.
-Keep its fixed paths, fixture injection and test commands out of normal builds.
-The legacy Qt IPC and stdio MCP adapter are precedent, not the Tauri backend.
+discovery, selected Blend and Text edits, history, save receipts and export
+on an isolated editor. The installed-face test uses one exact Meiryo Regular
+and compares Inspector and MCP edits, retained Text, and the same export
+route after both edits. It does not prove an installed production connection,
+font selection over MCP, IME, native chooser behavior, or an active Hermes
+Desktop session. Keep fixed paths, fixture injection and test commands out
+of ordinary builds. Legacy Qt IPC is precedent, not this Tauri backend.
+
+## Authoring coverage checkpoints
+
+Keep command behavior and connection availability separate. A checked fixture
+does not put that operation into the ordinary app. Expand the catalog through
+shared Session commands and compare GUI outcomes on the same starting state.
+
+| Workflow                 | Verified in the Windows fixture                                                                             | Still needed for the 1.0 goal                                                                          |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Inspect and discover     | Existing editor identity, bounded layer/node enumeration, stale-target rejection                            | Ordinary-app Inspect with approved exact client, then bounded listing through that same grant          |
+| Basic creation           | Rectangle and Text; other supported shape types are listed by the narrow creation contract                  | Verified create/edit/delete and positioning coverage across the 1.0 shape set and layer hierarchy      |
+| Text                     | Content, undo/redo, and persistence for the bundled Japanese sample and Meiryo Regular                      | Font/style selection, Typography settings and composition-sensitive editing with the same rules as GUI |
+| Blend and graph          | Distance and Steps edits against the shared editor command, with stale/locked/inactive guards where defined | Mode selection, remaining properties, explicit node/port connections and topology edits                |
+| Appearance and reuse     | Existing GUI Session commands are the starting point, not proof of API parity                               | Color, effects, macros and shared assets must be usable from the same document model                   |
+| History, save and export | Undo/redo, a fixed-path Save As receipt replay, exact copy reopen, SVG/PNG                                  | Ordinary UI destination consent, scoped write permission and disconnection/outcome checks              |
+
+Only the first read-only shipping route is designed below. A mutation grant
+would be a separate explicit capability and never implicit in Inspect.
 
 ## First product route
 
