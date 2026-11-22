@@ -44,6 +44,8 @@ hidden_roundtrip = os.environ.get("NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP") == "1"
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
 artwork_gaps = os.environ.get("NECT_ACCEPTANCE_ARTWORK_GAPS") == "1"
+artwork_gaps_auto = os.environ.get("NECT_ACCEPTANCE_ARTWORK_GAPS_AUTO") == "1"
+assert not artwork_gaps_auto or artwork_gaps
 artwork_distribute = os.environ.get("NECT_ACCEPTANCE_ARTWORK_DISTRIBUTE") == "1"
 artwork_align = os.environ.get("NECT_ACCEPTANCE_ARTWORK_ALIGN") == "1"
 artwork_translate = os.environ.get("NECT_ACCEPTANCE_ARTWORK_TRANSLATE") == "1"
@@ -368,7 +370,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         if artwork:
             create_cases = [("Rectangle",[430,180])]
             if artwork_gaps:
-                create_cases = [("Rectangle",[260,180]), ("Circle",[505,210]), ("Rectangle",[770,180])]
+                right_type = "Ellipse" if artwork_gaps_auto else "Rectangle"
+                create_cases = [("Rectangle",[260,180]), ("Circle",[505,210]), (right_type,[770,180])]
             elif artwork_distribute:
                 create_cases.extend([("Rectangle",[505,230]), ("Rectangle",[770,180])])
             elif not embedded_jp and not layer_reorder:
@@ -426,8 +429,11 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             current = invoke("redo", {"target":undone}, "changed")["target"]
             assert invoke("distribute_artwork_gaps", {**fixed, "target":current},
                           "unchanged")["target"] == current
+            if artwork_gaps_auto:
+                current = invoke("undo", {"target":current}, "changed")["target"]
             kind, point, layer, node = made[1]
-            made[1] = (kind, [495, point[1]], layer, node)
+            saved_middle_x = 500 if artwork_gaps_auto else 495
+            made[1] = (kind, [saved_middle_x, point[1]], layer, node)
         if artwork_distribute:
             ordered = [item[2] for item in made]
             middle_id = ordered[1]
@@ -873,6 +879,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             invoke("reorder_layer", {**move, "target": current}, "stale-target", True)
             assert invoke("reorder_layer", {**move, "target": reopened}, "unchanged")["target"] == reopened
             assert layer_order(1505, reopened) == next_order
+        if artwork_gaps_auto:
+            invoke("distribute_artwork_gaps", {**arrange, "target":current}, "stale-target", True)
+            assert invoke("distribute_artwork_gaps", {**arrange, "target":reopened},
+                          "unchanged")["target"] == reopened
         if layer_delete_member:
             invoke("delete_layer", {**request, "target":current}, "stale-target", True)
             assert [x["layerId"] for x in list_exact(1830, reopened)] == survivor_order
@@ -1018,7 +1028,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 [shape_layer]=[x for x in composition["layers"] if x["id"]==layer_id]
                 [shape]=[n for n in shape_layer["nodes"] if n["id"]==node_id]
                 assert shape["type"]==kind, shape["type"]
-                if kind in ("Rectangle", "Circle"):
+                if kind in ("Rectangle", "Circle", "Ellipse"):
                     assert shape["params"]["center"]["value"]==point, shape["params"]["center"]
                 else:
                     assert shape["params"]["position"]["value"]==point, shape["params"]["position"]
@@ -1171,8 +1181,9 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             evidence["blankLayer"] = "one empty Output created; dropped reply reconciled by listing; stale replay refused; Undo/Redo, reopened IDs and byte-identical baseline SVG/PNG"
         if artwork_gaps:
             evidence["artworkGaps"] = dict(action="gap-x", endpointCenters=[260, 770],
-                fixedSpacing=25, savedMiddleCenter=495, restoredAutomaticOnUndo=True,
-                lockedAndStaleRejected=True, fixedSpacingRedoAndReopenVerified=True)
+                fixedSpacing=25, savedMiddleCenter=saved_middle_x, restoredAutomaticOnUndo=True,
+                lockedAndStaleRejected=True, savedMode="auto" if artwork_gaps_auto else "fixed",
+                differentEndpointWidthsAndReopenedNoOp=artwork_gaps_auto)
         if artwork_distribute:
             evidence["artworkDistribution"] = dict(action="center-x", endpoints=[430, 770],
                 savedMiddleX=600, originalMiddleX=505, lockedAndStaleRejected=True,
