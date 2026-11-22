@@ -141,6 +141,31 @@ expiry, and serialize final publication with revocation. Do not promote
 the test-only SID lookup into the app. The ordinary editor does not start
 this endpoint or discover client programs. No product profile or installed client is modified.
 
+## First ordinary connection candidate
+
+An already-open, initially disabled editor should present one explicit
+approval for the selected local adapter and active document. The approval
+establishes a short-lived read-only connection, not a global enable flag.
+Show the verified client identity, the document in scope, the allowed
+operations, and an immediate disconnect action. Approving a replacement
+first revokes the previous connection. A tab change, reload, expiry, exit
+of the selected process, or explicit disconnect revokes the grant.
+
+A trusted launcher or OS-mediated selection must provide each expected
+process identity before document traffic. A user-supplied name or numeric
+PID alone is not a credential. Retain the processes throughout the grant,
+check the client and server on the pipe handles before sending or exposing
+document data, and fail closed if identity or liveness cannot be checked.
+The adapter must not connect by discovery to a same-named endpoint. See
+[Windows server-process lookup](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getnamedpipeserverprocessid)
+and [Windows client-process lookup](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getnamedpipeclientprocessid).
+
+Start with the normal editor plus one explicitly selected local adapter,
+no network listener or persistent allowlist, and only Inspect/List. The
+next verification is normal GUI consent plus same-document read. Do not
+add edits, paths, profile registration, or persistent permission before
+the read-only grant and its revocation pass on the normal route.
+
 ## Acceptance before broader exposure
 
 1. A connection with no grant, a disabled connection, another instance, and a
