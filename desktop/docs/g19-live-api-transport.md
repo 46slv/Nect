@@ -177,11 +177,31 @@ The adapter must not connect by discovery to a same-named endpoint. See
 [Windows server-process lookup](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getnamedpipeserverprocessid)
 and [Windows client-process lookup](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getnamedpipeclientprocessid).
 
-Start with the normal editor plus one explicitly selected local adapter,
-no network listener or persistent allowlist, and only Inspect/List. The
-next verification is normal GUI consent plus same-document read. Do not
-add edits, paths, profile registration, or persistent permission before
-the read-only grant and its revocation pass on the normal route.
+Start with a fixed packaged Windows MCP stdio helper and an already-open
+normal editor. A pairing action gives the helper one short-lived local
+endpoint and places one minimal offer in an owner-only pairing folder.
+The editor does not start a listener or scan the folder. The user picks one
+offer, then the native owner checks the peer and presents read-only consent
+for that peer and the active document. Decline, expiry or disconnect ends
+the connection; no automated reconnect or durable permission is granted.
+
+Only a strict, bounded versioned rendezvous identifier is decoded from
+the chosen offer. The offer cannot name a program, include a path or PID,
+set a scope, or confer authority. Keep it out of tool output and logs.
+Use the existing duplex connection for both pairing and the authorized
+read, with no document traffic before consent. On each end validate the
+kernel-reported process, live handle, and trusted installed package or
+signed release identity. A basename, writable hash-pin fixture, same
+logon, or token by itself is not sufficient for the ordinary route.
+
+First acceptance is Inspect once: a standard MCP client can initialize
+without sharing any document; a specific native consent in the already-open
+editor is needed before one exact synthetic-document identity can be read.
+Deny, disable, expiry, peer exit, and switching away and back must not
+recover the earlier permission. The helper does not launch the editor.
+Defer List until its bounded return schema is verified on the same route.
+Do not add edits, arbitrary paths, installed-profile registration, or
+persistent permission before the ordinary read-only grant works.
 
 ## Acceptance before broader exposure
 

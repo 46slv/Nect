@@ -38,6 +38,8 @@ mod live_inspect_lane;
 mod live_inspect_preview;
 #[cfg(all(windows, any(test, feature = "live-inspect-preview")))]
 mod live_inspect_windows_pipe;
+#[cfg(test)]
+mod live_mcp_pairing_offer;
 mod os_font_outlines;
 mod private_fonts;
 #[cfg(feature = "recovery-acceptance-test")]
