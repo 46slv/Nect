@@ -69,6 +69,11 @@ one stored lock flag, confirms layer discovery reports that change, rejects
 stale unlock and non-boolean input, checks no-op revision stability, and uses
 Undo to restore the fixture before the standard save/reopen and export probes.
 The lock operation is not registered by the ordinary app or read-only preview.
+With `NECT_ACCEPTANCE_LOCKED_ROUNDTRIP=1`, the same scenario sets the lock again
+immediately before saving. Reopening must preserve that flag and the authored
+Blend; a stale unlock must fail even though the layer ID is unchanged. SVG and
+PNG must still match the unlocked fixture. Do not combine this scenario with
+hidden-layer, artwork, or Japanese text probes.
 
 For a separate run with a fresh receipt, also set
 `NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP=1` and leave artwork/JP extensions off.
