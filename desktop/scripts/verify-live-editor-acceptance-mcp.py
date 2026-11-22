@@ -18,11 +18,13 @@ assert result_file.parent == root
 list_objects = os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1"
 graph_wires = os.environ.get("NECT_ACCEPTANCE_GRAPH_WIRES") == "1"
 layer_visibility = os.environ.get("NECT_ACCEPTANCE_LAYER_VISIBILITY") == "1"
+layer_lock = os.environ.get("NECT_ACCEPTANCE_LAYER_LOCK") == "1"
 hidden_roundtrip = os.environ.get("NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP") == "1"
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
 mixed_text_probe = os.environ.get("NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE") == "1"
 embedded_jp = os.environ.get("NECT_SVG_ACCEPTANCE_JP_FIXTURE") == "1"
+assert not layer_lock or list_objects
 assert not (embedded_jp and mixed_text_probe)
 assert not hidden_roundtrip or (layer_visibility and not artwork and not embedded_jp and not mixed_text_probe)
 assert not (embedded_jp or mixed_text_probe) or text_edit
@@ -71,8 +73,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_read_node_input_wires")
         if layer_visibility:
             extra.append("nect_test_set_layer_visibility")
+        if layer_lock:
+            extra.append("nect_test_set_layer_lock")
         assert [t["name"] for t in listed["tools"]] == ["nect_test_inspect", "nect_test_set_blend_distance", "nect_test_export_svg", "nect_test_export_png", "nect_test_save_copy", "nect_test_reopen_copy", "nect_test_undo", "nect_test_redo","nect_test_save_state","nect_test_save_receipt","nect_test_save_as"] + extra
-        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects) - int(graph_wires) - int(layer_visibility)) + [True] * (int(list_objects) + int(graph_wires)) + [False] * int(layer_visibility)
+        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects) - int(graph_wires) - int(layer_visibility) - int(layer_lock)) + [True] * (int(list_objects) + int(graph_wires)) + [False] * (int(layer_visibility) + int(layer_lock))
         start = call(3, "tools/call", name="nect_test_inspect", arguments={})
         assert not start["isError"], start
         target = start["structuredContent"]["target"]
@@ -97,6 +101,31 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             [blend] = [item for item in page["items"] if item["type"] == "Blend"]
             assert blend["nodeId"] == node["id"]
             source_layer, source_node = page["layerId"], blend["nodeId"]
+        if layer_lock:
+            def set_locked(id_, revision, value, **extra_args):
+                args = dict(target=revision, layerId=source_layer, locked=value)
+                return call(id_, "tools/call", name="nect_test_set_layer_lock",
+                            arguments=dict(args, **extra_args))
+
+            def expect_lock(reply, status, failed=False):
+                assert reply["isError"] == failed and reply["structuredContent"]["status"] == status, reply
+                return reply["structuredContent"]
+
+            assert address["locked"] is False
+            expect_lock(set_locked(1301, target, True, key="guide"), "invalid-arguments", True)
+            expect_lock(set_locked(1302, target, 1), "invalid-arguments", True)
+            assert expect_lock(set_locked(1303, target, False), "unchanged")["target"] == target
+            locked = expect_lock(set_locked(1304, target, True), "changed")["target"]
+            assert locked["projectRevision"] == target["projectRevision"] + 1
+            expect_lock(set_locked(1305, target, False), "stale-target", True)
+            assert expect_lock(set_locked(1306, locked, True), "unchanged")["target"] == locked
+            page = list_page(1307, None, locked)
+            assert not page["isError"], page
+            [current_address] = [x for x in page["structuredContent"]["items"] if x["layerId"] == source_layer]
+            assert current_address == {**address, "locked": True}
+            undo = call(1308, "tools/call", name="nect_test_undo", arguments=dict(target=locked))
+            target = expect_lock(undo, "changed")["target"]
+            assert expect_lock(set_locked(1309, target, False), "unchanged")["target"] == target
         if layer_visibility:
             def set_visible(id_, revision, value, **extra_args):
                 args = dict(target=revision, layerId=source_layer, visible=value)
@@ -328,7 +357,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "edit":"changed","history":"undo/redo verified","saveCopy":"accepted-by-writer","reopen":"reopened",
                   "exportSvg":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer",
                   "exportPng":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer","caseGuards":"pass",
-                  "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "hiddenLayerRoundtrip":hidden_roundtrip, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
+                  "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "layerLock":layer_lock, "hiddenLayerRoundtrip":hidden_roundtrip, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))

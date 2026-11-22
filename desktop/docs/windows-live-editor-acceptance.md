@@ -63,6 +63,13 @@ non-boolean values, verifies that selecting the current visibility changes
 neither history nor revision, then runs the existing save/reopen and SVG/PNG
 checks after restoring the visible layer. It cannot change lock or solo.
 
+For a separate layer-lock run with a fresh receipt, set both
+`NECT_ACCEPTANCE_OBJECTS=1` and `NECT_ACCEPTANCE_LAYER_LOCK=1`. The test sets
+one stored lock flag, confirms layer discovery reports that change, rejects
+stale unlock and non-boolean input, checks no-op revision stability, and uses
+Undo to restore the fixture before the standard save/reopen and export probes.
+The lock operation is not registered by the ordinary app or read-only preview.
+
 For a separate run with a fresh receipt, also set
 `NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP=1` and leave artwork/JP extensions off.
 The smoke test then saves and reopens with the layer hidden. It verifies

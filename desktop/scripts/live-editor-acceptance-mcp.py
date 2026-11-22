@@ -155,6 +155,15 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_VISIBILITY") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "layer.setVisibility"
+if os.environ.get("NECT_ACCEPTANCE_LAYER_LOCK") == "1":
+    name = "nect_test_set_layer_lock"
+    TOOLS.append({
+        "name": name,
+        "description": "Explicitly lock or unlock one layer in the isolated fixture",
+        "inputSchema": schema(dict(target=target, layerId=ident, locked={"type": "boolean"})),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "layer.setLock"
 if PREVIEW_ONLY:
     TOOLS = [{
         "name": "nect_test_inspect",
