@@ -188,6 +188,16 @@ the connection; no automated reconnect or durable permission is granted.
 Only a strict, bounded versioned rendezvous identifier is decoded from
 the chosen offer. The offer cannot name a program, include a path or PID,
 set a scope, or confer authority. Keep it out of tool output and logs.
+A Windows-only feature test exercises the prospective offer lifetime:
+read the process's actual logon SID, draw the rendezvous ID from the
+system RNG, create a new file with a logon-only DACL in a fresh owned
+directory, and mark it for removal when the handles close. The local
+same-logon test reads the exact bounded format, promptly closes that read
+handle, verifies attempted replacement is refused, and confirms cleanup.
+It does not test a different logon or the production file chooser.
+These are fixture results only: the ordinary helper still does not issue
+offers, create an endpoint, read credentials, or touch user profiles.
+
 Use the existing duplex connection for both pairing and the authorized
 read, with no document traffic before consent. On each end validate the
 kernel-reported process, live handle, and trusted installed package or
