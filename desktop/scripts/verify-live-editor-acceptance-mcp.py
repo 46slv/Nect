@@ -16,6 +16,7 @@ exe = Path(os.environ["NECT_ACCEPTANCE_EXE"]).resolve(strict=True)
 root = exe.parent
 assert result_file.parent == root
 list_objects = os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1"
+graph_wires = os.environ.get("NECT_ACCEPTANCE_GRAPH_WIRES") == "1"
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
 mixed_text_probe = os.environ.get("NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE") == "1"
@@ -63,8 +64,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_set_text_content")
         if list_objects:
             extra.append("nect_test_list_artwork")
+        if graph_wires:
+            extra.append("nect_test_read_node_input_wires")
         assert [t["name"] for t in listed["tools"]] == ["nect_test_inspect", "nect_test_set_blend_distance", "nect_test_export_svg", "nect_test_export_png", "nect_test_save_copy", "nect_test_reopen_copy", "nect_test_undo", "nect_test_redo","nect_test_save_state","nect_test_save_receipt","nect_test_save_as"] + extra
-        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects)) + [True] * int(list_objects)
+        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects) - int(graph_wires)) + [True] * (int(list_objects) + int(graph_wires))
         start = call(3, "tools/call", name="nect_test_inspect", arguments={})
         assert not start["isError"], start
         target = start["structuredContent"]["target"]
@@ -88,6 +91,29 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             [blend] = [item for item in page["items"] if item["type"] == "Blend"]
             assert blend["nodeId"] == node["id"]
             source_layer, source_node = page["layerId"], blend["nodeId"]
+        if graph_wires:
+            expected_wires = [
+                dict(input=key, sourceId=param["source"], sourcePort=param.get("sourcePort"))
+                for key, param in node["params"].items() if param.get("source") is not None
+            ]
+            assert expected_wires, "Fixture needs at least one authored input wire"
+
+            def read_wires(id_, revision, offset=0, **extra_args):
+                args = dict(target=revision, layerId=source_layer, nodeId=source_node, offset=offset)
+                return call(id_, "tools/call", name="nect_test_read_node_input_wires",
+                            arguments=dict(args, **extra_args))
+
+            wires = read_wires(1101, target)
+            assert not wires["isError"] and wires["structuredContent"] == dict(
+                status="ok", target=target, layerId=source_layer, nodeId=source_node,
+                items=expected_wires, nextOffset=None
+            ), wires
+            empty = read_wires(1102, target, offset=len(expected_wires))
+            assert not empty["isError"] and empty["structuredContent"]["items"] == [], empty
+            wrong = read_wires(1103, target, path="not-an-api-field")
+            assert wrong["isError"] and wrong["structuredContent"] == {"status": "invalid-arguments"}, wrong
+            readback = call(1104, "tools/call", name="nect_test_inspect", arguments={})
+            assert readback["structuredContent"]["target"] == target, readback
         intent = dict(target=target, layerId=source_layer, nodeId=source_node, value=60)
         edited = call(4, "tools/call", name="nect_test_set_blend_distance", arguments=intent)
         assert not edited["isError"] and edited["structuredContent"]["status"] == "changed", edited
@@ -96,6 +122,11 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         if list_objects:
             rejected = list_page(1003, 0, target)
             assert rejected["isError"] and rejected["structuredContent"] == {"status":"stale-target"}, rejected
+        if graph_wires:
+            rejected = read_wires(1105, target)
+            assert rejected["isError"] and rejected["structuredContent"] == {"status": "stale-target"}, rejected
+            latest = read_wires(1106, current)
+            assert not latest["isError"] and latest["structuredContent"]["items"] == expected_wires, latest
         stale = call(5, "tools/call", name="nect_test_set_blend_distance", arguments={**intent, "value":70})
         assert stale["isError"] and stale["structuredContent"]["status"] == "stale-target", stale
         after = call(6, "tools/call", name="nect_test_inspect", arguments={})
@@ -237,7 +268,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "edit":"changed","history":"undo/redo verified","saveCopy":"accepted-by-writer","reopen":"reopened",
                   "exportSvg":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer",
                   "exportPng":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer","caseGuards":"pass",
-                  "artwork":created, "authoredObjectDiscovery":list_objects, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
+                  "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))

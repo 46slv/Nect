@@ -48,6 +48,14 @@ read-only tool. This checks that the same target can list layers, discover
 the Blend node address, and use that address for the edit. Old list requests
 are rejected after the edit. Keep the flag off with older executables.
 
+Set `NECT_ACCEPTANCE_GRAPH_WIRES=1` to additionally read the Blend fixture's
+stored input connections over the same MCP process. This checks exact input
+and source IDs, missing named output represented by null, an empty end page,
+and rejection of extra arguments and stale document revisions. The probe also
+confirms that reading does not change the target, and a distance-only edit
+does not change the returned wiring. The flag is for the acceptance build,
+not the ordinary editor or the separate read-only preview.
+
 Use a fresh receipt for each scenario. Clear inherited flags that are off in
 the table before starting the verifier, including when switching back to the
 baseline. All four variables are optional; on means exactly `1`.
