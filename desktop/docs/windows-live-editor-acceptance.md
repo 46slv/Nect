@@ -62,6 +62,13 @@ non-boolean values, verifies that selecting the current visibility changes
 neither history nor revision, then runs the existing save/reopen and SVG/PNG
 checks after restoring the visible layer. It cannot change lock or solo.
 
+For a separate run with a fresh receipt, also set
+`NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP=1` and leave artwork/JP extensions off.
+The smoke test then saves and reopens with the layer hidden. It verifies
+that the original Blend node is still in the saved document, the hidden
+state persists, and SVG export contains no path. PNG must remain a valid
+960 × 540 image and differ from the visible baseline.
+
 Use a fresh receipt for each scenario. Clear inherited flags that are off in
 the table before starting the verifier, including when switching back to the
 baseline. All four variables are optional; on means exactly `1`.

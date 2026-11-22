@@ -18,11 +18,13 @@ assert result_file.parent == root
 list_objects = os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1"
 graph_wires = os.environ.get("NECT_ACCEPTANCE_GRAPH_WIRES") == "1"
 layer_visibility = os.environ.get("NECT_ACCEPTANCE_LAYER_VISIBILITY") == "1"
+hidden_roundtrip = os.environ.get("NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP") == "1"
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
 mixed_text_probe = os.environ.get("NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE") == "1"
 embedded_jp = os.environ.get("NECT_SVG_ACCEPTANCE_JP_FIXTURE") == "1"
 assert not (embedded_jp and mixed_text_probe)
+assert not hidden_roundtrip or (layer_visibility and not artwork and not embedded_jp and not mixed_text_probe)
 assert not (embedded_jp or mixed_text_probe) or text_edit
 replacement = "\u63db\u30fbA1\uff0812\uff09" if mixed_text_probe else ("\u65e5\u672c\u8a9e A1\uff0812\uff09" if embedded_jp else "Nect A1 (12)")
 def fixture_runs():
@@ -204,6 +206,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             invoke("redo",{"target":before_undo},"stale-target",True)
             current=invoke("redo",{"target":current},"changed")["target"]
             assert current["projectRevision"]==before_undo["projectRevision"]+2
+        if hidden_roundtrip:
+            current=invoke("set_layer_visibility",dict(target=current,layerId=source_layer,visible=False),"changed")["target"]
         state=invoke("save_state",{},"ok")
         assert state==dict(status="ok",saveEpoch=0,dirty=True,pending=False)
         k="save_as_fault_01"
@@ -228,6 +232,9 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         reopened=invoke("inspect",{},"ok")["target"]
         assert reopened["documentGeneration"]>current["documentGeneration"] and reopened["sessionId"]!=current["sessionId"]
         invoke("reopen_copy",{"target":current},"stale-target",True)
+        if hidden_roundtrip:
+            unchanged=invoke("set_layer_visibility",dict(target=reopened,layerId=source_layer,visible=False),"unchanged")
+            assert unchanged["target"]==reopened
         if mixed_text_probe:
             for kind in ("svg", "png"):
                 invoke("export_"+kind,{"target":reopened},"unsupported-glyph",True)
@@ -254,7 +261,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             if mixed_text_probe and role != "copy":
                 continue
             digests[role]=hashlib.sha256((run/"documents"/filename).read_bytes()).hexdigest()
-            if artwork:
+            if artwork or hidden_roundtrip:
                 assert digests[role]!=expected[role+"SHA256"].lower(), role
             else:
                 assert digests[role]==expected[role+"SHA256"].lower()
@@ -282,6 +289,18 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 assert ElementTree.fromstring(svg).tag.endswith("}svg")
                 assert png[:8]==b"\x89PNG\r\n\x1a\n" and png[12:16]==b"IHDR"
                 assert (int.from_bytes(png[16:20],"big"),int.from_bytes(png[20:24],"big"))==(960,540)
+        if hidden_roundtrip:
+            from xml.etree import ElementTree
+            snapshot=json.loads((outputs/"live-api-project.json").read_bytes())
+            [composition]=[x for x in snapshot["compositions"] if x["id"]==reopened["compositionId"]]
+            [persisted]=[x for x in composition["layers"] if x["id"]==source_layer]
+            assert persisted["visible"] is False
+            assert any(n["id"]==source_node for n in persisted["nodes"])
+            svg=ElementTree.fromstring((outputs/"live-api-export.svg").read_bytes())
+            assert svg.tag.endswith("}svg") and not svg.findall(".//{*}path")
+            png=(outputs/"live-api-export.png").read_bytes()
+            assert png[:8]==b"\x89PNG\r\n\x1a\n" and png[12:16]==b"IHDR"
+            assert (int.from_bytes(png[16:20],"big"),int.from_bytes(png[20:24],"big"))==(960,540)
         bound=run/"documents/live-api-save-as.json"
         assert hashlib.sha256(bound.read_bytes()).hexdigest()==digests["copy"]
         assert len(list((run/"documents").glob("live-api-save-as*")))==1
@@ -291,7 +310,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "edit":"changed","history":"undo/redo verified","saveCopy":"accepted-by-writer","reopen":"reopened",
                   "exportSvg":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer",
                   "exportPng":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer","caseGuards":"pass",
-                  "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
+                  "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "hiddenLayerRoundtrip":hidden_roundtrip, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))
