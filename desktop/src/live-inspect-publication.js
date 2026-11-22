@@ -1,16 +1,8 @@
-import { createLiveEditorProtocol } from './live-editor-protocol.js';
-import { editorTargetMatches } from './live-editor-target.js';
-
-const inspect = Object.freeze({
-  version: 1,
-  operation: 'editor.inspect',
-  arguments: Object.freeze({}),
-});
+import { editorTargetMatches, readEditorInspection } from './live-editor-target.js';
 
 // In-process, single-slot renderer boundary. The caller owns connection admission,
 // transport cancellation and final write serialization. No wire or global access.
 export function createLiveInspectPublication({ readTarget, canInspect }) {
-  const handle = createLiveEditorProtocol({ readTarget, canInspect });
   let binding = null;
   let pending = null;
 
@@ -27,7 +19,7 @@ export function createLiveInspectPublication({ readTarget, canInspect }) {
     },
     prepare(owner) {
       if (!binding || binding !== owner || pending) return null;
-      const reply = handle(inspect);
+      const reply = readEditorInspection(readTarget, canInspect);
       if (reply.status !== 'ok') return null;
       const ticket = Object.freeze({});
       pending = { ticket, reply };
@@ -37,7 +29,7 @@ export function createLiveInspectPublication({ readTarget, canInspect }) {
       if (!binding || binding !== owner || !pending || pending.ticket !== ticket) return null;
       const prepared = pending.reply;
       pending = null;
-      const current = handle(inspect);
+      const current = readEditorInspection(readTarget, canInspect);
       if (current.status !== 'ok' || !editorTargetMatches(current.target, prepared.target))
         return null;
       return prepared;

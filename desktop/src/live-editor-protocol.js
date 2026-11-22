@@ -1,6 +1,10 @@
 // In-process boundary for the live editor. The transport must authenticate its
 // caller before forwarding a request. This module defines operations, not I/O.
-import { captureEditorTarget } from './live-editor-target.js';
+import {
+  captureEditorTarget,
+  readEditorInspection,
+  validEditorTarget as validTarget,
+} from './live-editor-target.js';
 
 const object = (value) =>
   value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype;
@@ -10,30 +14,12 @@ const closed = (value, keys) =>
   keys.every((key) => Object.hasOwn(value, key));
 const id = (value) => typeof value === 'string' && value.length > 0 && value.length <= 256;
 const version = (value) => Number.isSafeInteger(value) && value >= 0;
-const targetKeys = [
-  'documentGeneration',
-  'compositionId',
-  'sessionId',
-  'sessionRevision',
-  'projectRevision',
-];
 export function isEditorInspectRequest(request) {
   return (
     closed(request, ['version', 'operation', 'arguments']) &&
     request.version === 1 &&
     request.operation === 'editor.inspect' &&
     closed(request.arguments, [])
-  );
-}
-
-function validTarget(target) {
-  return (
-    closed(target, targetKeys) &&
-    version(target.documentGeneration) &&
-    id(target.compositionId) &&
-    id(target.sessionId) &&
-    version(target.sessionRevision) &&
-    version(target.projectRevision)
   );
 }
 
@@ -71,13 +57,7 @@ export function createLiveEditorProtocol({
     const args = request.arguments;
     if (request.operation === 'editor.inspect') {
       if (!closed(args, [])) return { status: 'invalid-arguments' };
-      try {
-        if (!canInspect()) return { status: 'unavailable' };
-        const target = captureEditorTarget(readTarget());
-        return validTarget(target) ? { status: 'ok', target } : { status: 'unavailable' };
-      } catch {
-        return { status: 'unavailable' };
-      }
+      return readEditorInspection(readTarget, canInspect);
     }
     if (listArtwork && request.operation === 'artwork.list') {
       if (
