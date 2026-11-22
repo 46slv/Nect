@@ -170,9 +170,16 @@ fn overlapped_io(
     pipe: Handle,
     window: &IoWindow<'_>,
     allow_already_connected: bool,
+    peer: &SelectedClient,
     start: impl FnOnce(*mut Overlapped) -> i32,
 ) -> io::Result<usize> {
-    window.remaining()?;
+    let remaining = || {
+        if !peer.live() {
+            return Err(io::Error::from(io::ErrorKind::BrokenPipe));
+        }
+        window.remaining()
+    };
+    remaining()?;
     let event = unsafe { CreateEventW(null_mut(), 1, 0, std::ptr::null()) };
     if event.is_null() {
         return Err(io::Error::last_os_error());
@@ -192,14 +199,14 @@ fn overlapped_io(
     if start(operation) == 0 {
         let error = io::Error::last_os_error();
         if allow_already_connected && error.raw_os_error() == Some(ERROR_PIPE_CONNECTED) {
-            window.remaining()?;
+            remaining()?;
             return Ok(0);
         }
         if error.raw_os_error() != Some(ERROR_IO_PENDING) {
             return Err(error);
         }
         loop {
-            let wait = window.remaining().and_then(|ms| {
+            let wait = remaining().and_then(|ms| {
                 match unsafe { WaitForSingleObject(event.as_raw_handle(), ms) } {
                     0 => Ok(true),
                     WAIT_TIMEOUT => Ok(false),
@@ -224,7 +231,7 @@ fn overlapped_io(
     if unsafe { GetOverlappedResult(pipe, operation, &mut transferred, 0) } == 0 {
         return Err(io::Error::last_os_error());
     }
-    window.remaining()?;
+    remaining()?;
     Ok(transferred as usize)
 }
 
@@ -286,7 +293,7 @@ impl LocalReadPipe {
             return Err(io::Error::from(io::ErrorKind::PermissionDenied));
         }
         let handle = self.0.as_raw_handle();
-        overlapped_io(handle, window, true, |op| unsafe {
+        overlapped_io(handle, window, true, client, |op| unsafe {
             ConnectNamedPipe(handle, op)
         })?;
         let mut actual = 0;
@@ -305,11 +312,11 @@ impl LocalReadPipe {
 
 impl ConnectedPipe<'_> {
     fn read(&self, bytes: &mut [u8], window: &IoWindow<'_>) -> io::Result<usize> {
-        if bytes.len() > MAX_IO || !self.1.live() {
+        if bytes.len() > MAX_IO {
             return Err(io::Error::from(io::ErrorKind::InvalidInput));
         }
         let handle = self.0.as_raw_handle();
-        overlapped_io(handle, window, false, |op| unsafe {
+        overlapped_io(handle, window, false, self.1, |op| unsafe {
             ReadFile(
                 handle,
                 bytes.as_mut_ptr(),
@@ -321,11 +328,11 @@ impl ConnectedPipe<'_> {
     }
 
     fn write(&self, bytes: &[u8], window: &IoWindow<'_>) -> io::Result<usize> {
-        if bytes.len() > MAX_IO || !self.1.live() {
+        if bytes.len() > MAX_IO {
             return Err(io::Error::from(io::ErrorKind::InvalidInput));
         }
         let handle = self.0.as_raw_handle();
-        overlapped_io(handle, window, false, |op| unsafe {
+        overlapped_io(handle, window, false, self.1, |op| unsafe {
             WriteFile(handle, bytes.as_ptr(), bytes.len() as u32, null_mut(), op)
         })
     }
@@ -446,5 +453,123 @@ mod tests {
                 io::ErrorKind::Interrupted
             );
         });
+    }
+
+    const CHILD_TEST: &str = "live_inspect_windows_pipe::tests::native_pipe_fixture_child";
+
+    #[test]
+    #[ignore = "internal child of the explicit cross-process fixture"]
+    fn native_pipe_fixture_child() {
+        let Ok(id) = std::env::var("NECT_PIPE_TEST_ID") else {
+            return;
+        };
+        let expected = std::env::var("NECT_PIPE_TEST_OUTCOME").unwrap();
+        assert!(matches!(expected.as_str(), "allow" | "deny"));
+        let name = endpoint_name(&id).expect("fixture endpoint");
+        let mut pipe = OpenOptions::new()
+            .access_mode(0x00120083)
+            .open(name)
+            .unwrap();
+        let mut bytes = [0; 12];
+        if expected == "allow" {
+            pipe.write_all(b"inspect").unwrap();
+            pipe.read_exact(&mut bytes).unwrap();
+            assert_eq!(&bytes, b"fixture-only");
+            let mut release = [0; 1];
+            std::io::stdin().read_exact(&mut release).unwrap();
+            assert_eq!(release, [1]);
+        } else {
+            // A denied peer never sees application bytes.
+            match pipe.read(&mut bytes) {
+                Ok(0) => {}
+                Err(e) if matches!(e.raw_os_error(), Some(109 | 232 | 233)) => {}
+                other => panic!("Denied connector had an unexpected read: {other:?}"),
+            }
+        }
+    }
+
+    struct FixtureChild(std::process::Child);
+    impl Drop for FixtureChild {
+        fn drop(&mut self) {
+            if self.0.try_wait().ok().flatten().is_none() {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+    }
+    impl FixtureChild {
+        fn spawn(id: &str, expected: &str) -> Self {
+            use std::os::windows::process::CommandExt;
+            use std::process::{Command, Stdio};
+            let exe = std::env::current_exe().unwrap();
+            Self(
+                Command::new(exe)
+                    .args(["--exact", CHILD_TEST, "--include-ignored"])
+                    .env("NECT_PIPE_TEST_ID", id)
+                    .env("NECT_PIPE_TEST_OUTCOME", expected)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .creation_flags(0x0800_0000)
+                    .spawn()
+                    .unwrap(),
+            )
+        }
+        fn finish(&mut self) {
+            let until = Instant::now() + Duration::from_secs(4);
+            loop {
+                if let Some(status) = self.0.try_wait().unwrap() {
+                    assert!(status.success(), "fixture client failed: {status}");
+                    return;
+                }
+                assert!(Instant::now() < until, "fixture client did not exit");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a standard Windows logon session with local pipe access"]
+    fn distinct_processes_only_selected_client_reads_and_exit_revokes() {
+        let account = existing_logon_sid();
+        let revoked = AtomicBool::new(false);
+        let window = || IoWindow {
+            deadline: Instant::now() + Duration::from_secs(4),
+            revoked: &revoked,
+        };
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let id = format!("{:032x}", stamp ^ (u128::from(std::process::id()) << 32));
+        let pipe = LocalReadPipe::create(&id, &account).unwrap();
+        let mut not_selected = FixtureChild::spawn(&id, "deny");
+        let selected_parent = SelectedClient::retain(std::process::id()).unwrap();
+        assert_ne!(selected_parent.pid, not_selected.0.id());
+        assert_eq!(
+            pipe.attach(&selected_parent, &window()).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        not_selected.finish();
+
+        let id = format!(
+            "{:032x}",
+            stamp.wrapping_add(1) ^ (u128::from(std::process::id()) << 32)
+        );
+        let pipe = LocalReadPipe::create(&id, &account).unwrap();
+        let mut actual = FixtureChild::spawn(&id, "allow");
+        let selected_child = SelectedClient::retain(actual.0.id()).unwrap();
+        let connection = pipe.attach(&selected_child, &window()).unwrap();
+        let mut bytes = [0; 7];
+        assert_eq!(connection.read(&mut bytes, &window()).unwrap(), bytes.len());
+        assert_eq!(&bytes, b"inspect");
+        assert_eq!(connection.write(b"fixture-only", &window()).unwrap(), 12);
+        actual.0.stdin.take().unwrap().write_all(&[1]).unwrap();
+        actual.finish();
+        assert!(!selected_child.live());
+        assert_eq!(
+            connection.read(&mut bytes, &window()).unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
     }
 }

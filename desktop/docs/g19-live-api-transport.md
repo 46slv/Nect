@@ -111,7 +111,10 @@ connect/read/write with a cancellation flag and time budget. The focused
 Windows test exercises connect/read timeout, read cancellation, and a fresh
 synthetic round trip. The deadline requests OS cancellation; draining the
 completion can outlast the budget. This does not prove cancellation of a
-blocked write or that a racing write did not complete.
+blocked write or that a racing write did not complete. A second opt-in test
+uses separately launched fixture clients. It confirms that a wrong process
+gets no bytes, that the selected process can read one synthetic response, and
+that the retained identity is no longer live after client exit.
 See [Windows overlapped pipe I/O](https://learn.microsoft.com/en-us/windows/win32/ipc/synchronous-and-overlapped-input-and-output).
 
 Before enabling attachment to a running editor, the native owner must bind
