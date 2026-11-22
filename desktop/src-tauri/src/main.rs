@@ -36,7 +36,7 @@ mod live_editor_mailbox;
 ))]
 mod live_inspect_lane;
 mod live_inspect_preview;
-#[cfg(all(test, windows))]
+#[cfg(all(windows, any(test, feature = "live-inspect-preview")))]
 mod live_inspect_windows_pipe;
 mod os_font_outlines;
 mod private_fonts;
@@ -192,6 +192,12 @@ fn run() -> Result<(), String> {
         storage.0.is_some(),
         live_test_enabled,
     )?;
+    let pipe_request = std::env::var_os("NECT_LIVE_INSPECT_PIPE_PROOF");
+    let inspect_preview = live_inspect_preview::Preview::configured(
+        pipe_request,
+        storage.0.is_some(),
+        live_test_enabled || preview_stdio,
+    )?;
     let window_storage = storage.clone();
     let identity = build_identity::BuildIdentity::compiled(
         &context.config().identifier,
@@ -200,7 +206,7 @@ fn run() -> Result<(), String> {
     );
     tauri::Builder::default()
         .manage(live_acceptance)
-        .manage(live_inspect_preview::Preview::default())
+        .manage(inspect_preview)
         .manage(identity)
         .manage(storage)
         .manage(asset_library::AssetLibrary::default())

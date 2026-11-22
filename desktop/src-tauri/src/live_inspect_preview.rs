@@ -8,9 +8,36 @@ use tauri::{ipc::Channel, State, WebviewWindow};
 pub(crate) struct Preview {
     #[cfg(all(windows, feature = "live-inspect-preview"))]
     lane: std::sync::Arc<crate::live_inspect_lane::LiveInspectLane>,
+    #[cfg(all(windows, feature = "live-inspect-preview"))]
+    pipe: pipe_proof::State,
 }
 
+#[cfg(all(windows, feature = "live-inspect-preview"))]
+mod pipe_proof;
+
 impl Preview {
+    pub(crate) fn configured(
+        request: Option<std::ffi::OsString>,
+        isolated: bool,
+        other_proof: bool,
+    ) -> Result<Self, &'static str> {
+        let Some(request) = request else {
+            return Ok(Self::default());
+        };
+        if !cfg!(all(windows, feature = "live-inspect-preview")) || !isolated || other_proof {
+            return Err("Inspection pipe proof requires an isolated Windows preview");
+        }
+        #[cfg(all(windows, feature = "live-inspect-preview"))]
+        return Ok(Self {
+            pipe: pipe_proof::State::from_request(request)?,
+            ..Self::default()
+        });
+        #[cfg(not(all(windows, feature = "live-inspect-preview")))]
+        {
+            let _ = request;
+            Err("Inspection pipe proof unavailable")
+        }
+    }
     pub(crate) fn require_disposable_stdio(
         requested: bool,
         isolated: bool,
@@ -50,7 +77,9 @@ impl Preview {
 
     pub(crate) fn revoke(&self) {
         #[cfg(all(windows, feature = "live-inspect-preview"))]
-        self.lane.revoke();
+        {
+            self.pipe.close(None, || self.lane.revoke());
+        }
     }
 
     fn admit(window: &WebviewWindow) -> Result<(), &'static str> {
@@ -67,12 +96,22 @@ fn read_once(
     packet: &str,
     writer: &mut impl std::io::Write,
 ) -> std::io::Result<()> {
+    read_once_at(lane, packet, lane.current_epoch(), writer)
+}
+
+#[cfg(all(windows, feature = "live-inspect-preview"))]
+fn read_once_at(
+    lane: &crate::live_inspect_lane::LiveInspectLane,
+    packet: &str,
+    epoch: Option<u64>,
+    writer: &mut impl std::io::Write,
+) -> std::io::Result<()> {
     use crate::live_editor_frames::write_frame;
     let contract = serde_json::json!({"version":1,"operation":"editor.inspect","arguments":{}});
     if serde_json::from_str::<Value>(packet).ok().as_ref() != Some(&contract) {
         return write_frame(writer, r#"{"status":"unsupported-operation"}"#);
     }
-    if let Some(epoch) = lane.current_epoch() {
+    if let Some(epoch) = epoch {
         if let Some(reply) = lane.inspect_now(Some(epoch)) {
             if let Some(outcome) = lane.publish_for_epoch(epoch, || write_frame(writer, &reply)) {
                 return outcome;
@@ -96,7 +135,14 @@ pub(crate) fn live_preview_attach(
     Preview::admit(&window)?;
     #[cfg(all(windows, feature = "live-inspect-preview"))]
     {
-        return Ok(state.lane.enable_and_attach(channel));
+        let Some(epoch) = state.lane.enable_and_attach(channel) else {
+            return Ok(None);
+        };
+        if let Err(error) = state.pipe.begin(state.lane.clone(), epoch) {
+            state.lane.detach(epoch);
+            return Err(error);
+        }
+        return Ok(Some(epoch));
     }
     #[cfg(not(all(windows, feature = "live-inspect-preview")))]
     {
@@ -161,7 +207,9 @@ pub(crate) fn live_preview_detach(
 ) -> Result<bool, &'static str> {
     Preview::admit(&window)?;
     #[cfg(all(windows, feature = "live-inspect-preview"))]
-    return Ok(state.lane.detach(epoch));
+    {
+        return Ok(state.pipe.close(Some(epoch), || state.lane.detach(epoch)));
+    }
     #[cfg(not(all(windows, feature = "live-inspect-preview")))]
     {
         let _ = (state, epoch);

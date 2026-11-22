@@ -103,7 +103,13 @@ The adapter owns and closes only the disposable process it starts.
 
 ## Local attachment development gate
 
-The Windows pipe prototype is compiled only in tests. It creates one local
+The Windows pipe prototype is compiled in tests and in the explicitly
+opt-in Windows inspection preview. Its host-provided proof settings are
+accepted only with disposable storage and cannot be combined with either
+stdio proof. The preview does not open a pipe at startup: it opens one only
+when Enable succeeds, binds it to the retained fixture client and current
+WebView, and closes after one request or on timeout. Disable and reload
+request cancellation before dropping the renderer binding. It creates one local
 pipe restricted to the current logon SID and verifies the expected client PID
 before reading bytes. This tests a transport boundary, not a product grant.
 It retains a client process handle during authorization and uses overlapped
@@ -121,7 +127,7 @@ Before enabling attachment to a running editor, the native owner must bind
 client selection to an explicit user decision, preserve per-client grant
 expiry, and serialize final publication with revocation. Do not promote
 the test-only SID lookup into the app. The ordinary editor does not start
-this endpoint or discover client programs.
+this endpoint or discover client programs. No product profile or installed client is modified.
 
 ## Acceptance before broader exposure
 

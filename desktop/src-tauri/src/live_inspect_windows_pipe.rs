@@ -1,5 +1,5 @@
 //! A Windows-only prototype of the local single-client authorization boundary.
-//! Not registered with Tauri or started by the app. No discovery or product data.
+//! Available to tests and isolated, explicitly enabled development proofs.
 use std::{
     ffi::c_void,
     fs::File,
@@ -7,7 +7,7 @@ use std::{
     os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
     ptr::null_mut,
     sync::atomic::{AtomicBool, Ordering},
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 type Handle = *mut c_void;
@@ -97,7 +97,7 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-fn endpoint_name(id: &str) -> Option<String> {
+pub(crate) fn endpoint_name(id: &str) -> Option<String> {
     (id.len() == 32
         && id
             .bytes()
@@ -105,7 +105,7 @@ fn endpoint_name(id: &str) -> Option<String> {
     .then(|| format!(r"\\.\pipe\NectReadProof-{id}"))
 }
 
-fn logon_sid(value: &str) -> bool {
+pub(crate) fn logon_sid(value: &str) -> bool {
     value.strip_prefix("S-1-5-5-").is_some_and(|tail| {
         let mut fields = tail.split('-');
         let decimal_u32 = |s: &str| {
@@ -118,13 +118,13 @@ fn logon_sid(value: &str) -> bool {
 }
 
 #[derive(Debug)]
-struct SelectedClient {
+pub(crate) struct SelectedClient {
     pid: u32,
     handle: OwnedHandle,
 }
 impl SelectedClient {
     // Bind selection before accepting a peer; the raw PID is not a grant.
-    fn retain(pid: u32) -> io::Result<Self> {
+    pub(crate) fn retain(pid: u32) -> io::Result<Self> {
         let raw = unsafe { OpenProcess(PROCESS_QUERY_AND_WAIT, 0, pid) };
         if raw.is_null() {
             return Err(io::Error::last_os_error());
@@ -135,14 +135,14 @@ impl SelectedClient {
         })
     }
 
-    fn live(&self) -> bool {
+    pub(crate) fn live(&self) -> bool {
         (unsafe { WaitForSingleObject(self.handle.as_raw_handle(), 0) }) == WAIT_TIMEOUT
     }
 }
 
-struct IoWindow<'a> {
-    deadline: Instant,
-    revoked: &'a AtomicBool,
+pub(crate) struct IoWindow<'a> {
+    pub(crate) deadline: Instant,
+    pub(crate) revoked: &'a AtomicBool,
 }
 
 impl IoWindow<'_> {
@@ -162,9 +162,9 @@ impl IoWindow<'_> {
     }
 }
 
-struct LocalReadPipe(File);
+pub(crate) struct LocalReadPipe(File);
 #[derive(Debug)]
-struct ConnectedPipe<'a>(File, &'a SelectedClient);
+pub(crate) struct ConnectedPipe<'a>(File, &'a SelectedClient);
 
 fn overlapped_io(
     pipe: Handle,
@@ -236,7 +236,7 @@ fn overlapped_io(
 }
 
 impl LocalReadPipe {
-    fn create(id: &str, logon: &str) -> io::Result<Self> {
+    pub(crate) fn create(id: &str, logon: &str) -> io::Result<Self> {
         let name = endpoint_name(id)
             .filter(|_| logon_sid(logon))
             .ok_or_else(|| {
@@ -284,7 +284,7 @@ impl LocalReadPipe {
         Ok(Self(unsafe { File::from_raw_handle(raw) }))
     }
 
-    fn attach<'a>(
+    pub(crate) fn attach<'a>(
         self,
         client: &'a SelectedClient,
         window: &IoWindow<'_>,
@@ -311,7 +311,7 @@ impl LocalReadPipe {
 }
 
 impl ConnectedPipe<'_> {
-    fn read(&self, bytes: &mut [u8], window: &IoWindow<'_>) -> io::Result<usize> {
+    pub(crate) fn read(&self, bytes: &mut [u8], window: &IoWindow<'_>) -> io::Result<usize> {
         if bytes.len() > MAX_IO {
             return Err(io::Error::from(io::ErrorKind::InvalidInput));
         }
@@ -327,7 +327,7 @@ impl ConnectedPipe<'_> {
         })
     }
 
-    fn write(&self, bytes: &[u8], window: &IoWindow<'_>) -> io::Result<usize> {
+    pub(crate) fn write(&self, bytes: &[u8], window: &IoWindow<'_>) -> io::Result<usize> {
         if bytes.len() > MAX_IO {
             return Err(io::Error::from(io::ErrorKind::InvalidInput));
         }
@@ -341,6 +341,7 @@ impl ConnectedPipe<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
     use std::{
         fs::OpenOptions,
         io::{Read, Write},
