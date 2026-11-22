@@ -43,6 +43,7 @@ locked_roundtrip = os.environ.get("NECT_ACCEPTANCE_LOCKED_ROUNDTRIP") == "1"
 hidden_roundtrip = os.environ.get("NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP") == "1"
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
+artwork_distribute = os.environ.get("NECT_ACCEPTANCE_ARTWORK_DISTRIBUTE") == "1"
 artwork_align = os.environ.get("NECT_ACCEPTANCE_ARTWORK_ALIGN") == "1"
 artwork_translate = os.environ.get("NECT_ACCEPTANCE_ARTWORK_TRANSLATE") == "1"
 mixed_text_probe = os.environ.get("NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE") == "1"
@@ -64,8 +65,8 @@ assert not layer_guide or (artwork and layer_lock and not (
 assert not layer_solo or (artwork and layer_visibility and not (
     layer_folder_plan or layer_folders or layer_reorder or layer_duplicate or embedded_jp or mixed_text_probe
 ))
-assert not artwork_align or not artwork_translate
-assert not (artwork_align or artwork_translate) or (artwork and layer_lock and list_objects and not (
+assert sum((artwork_align, artwork_translate, artwork_distribute)) <= 1
+assert not (artwork_align or artwork_translate or artwork_distribute) or (artwork and layer_lock and list_objects and not (
     layer_delete or layer_solo or layer_guide or layer_folders or layer_folder_plan or
     hidden_roundtrip or locked_roundtrip or renamed_roundtrip or text_edit or embedded_jp or mixed_text_probe
 ))
@@ -153,6 +154,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_set_layer_lock")
         if layer_rename:
             extra.append("nect_test_rename_layer")
+        if artwork_distribute:
+            extra.append("nect_test_distribute_artwork")
         if artwork_align:
             extra.append("nect_test_align_artwork")
         if artwork_translate:
@@ -361,7 +364,9 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         created = []
         if artwork:
             create_cases = [("Rectangle",[430,180])]
-            if not embedded_jp and not layer_reorder:
+            if artwork_distribute:
+                create_cases.extend([("Rectangle",[505,230]), ("Rectangle",[770,180])])
+            elif not embedded_jp and not layer_reorder:
                 create_cases.append(("Text",[610,230]))
             for kind, point in create_cases:
                 create_args = dict(target=current, artworkType=kind, at=point)
@@ -392,6 +397,27 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             invoke("redo",{"target":before_undo},"stale-target",True)
             current=invoke("redo",{"target":current},"changed")["target"]
             assert current["projectRevision"]==before_undo["projectRevision"]+2
+        if artwork_distribute:
+            ordered = [item[2] for item in made]
+            middle_id = ordered[1]
+            current = invoke("set_layer_lock", dict(target=current, layerId=middle_id, locked=True),
+                             "changed")["target"]
+            arrange = dict(target=current, layerIds=ordered, action="center-x")
+            invoke("distribute_artwork", arrange, "rejected", True)
+            assert invoke("inspect", {}, "ok")["target"] == current
+            current = invoke("set_layer_lock", dict(target=current, layerId=middle_id, locked=False),
+                             "changed")["target"]
+            arrange["target"] = current
+            invoke("distribute_artwork", {**arrange, "layerIds":ordered[:2]}, "invalid-arguments", True)
+            changed = invoke("distribute_artwork", arrange, "changed")["target"]
+            assert changed["projectRevision"] == current["projectRevision"] + 1
+            invoke("distribute_artwork", arrange, "stale-target", True)
+            assert invoke("distribute_artwork", {**arrange, "target":changed},
+                          "unchanged")["target"] == changed
+            undone = invoke("undo", {"target":changed}, "changed")["target"]
+            current = invoke("redo", {"target":undone}, "changed")["target"]
+            kind, point, layer, node = made[1]
+            made[1] = (kind, [600, point[1]], layer, node)
         if artwork_align:
             [aligned_id, other_id] = [item[2] for item in made]
             align = dict(target=current, layerIds=[aligned_id], action="center-x", reference="artboard")
@@ -1112,6 +1138,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             evidence["layerState"] = "exact stored flags before edit, after edit and reopen; stale and unsupported IDs rejected; revision unchanged by reads"
         if layer_create_blank:
             evidence["blankLayer"] = "one empty Output created; dropped reply reconciled by listing; stale replay refused; Undo/Redo, reopened IDs and byte-identical baseline SVG/PNG"
+        if artwork_distribute:
+            evidence["artworkDistribution"] = dict(action="center-x", endpoints=[430, 770],
+                savedMiddleX=600, originalMiddleX=505, lockedAndStaleRejected=True,
+                undoRedoAndReopenVerified=True)
         if artwork_align:
             evidence["artworkAlignment"] = dict(reference="artboard", action="center-x",
                 alignedLayer=aligned_id, untouchedLayer=other_id, savedCenterX=480,

@@ -209,6 +209,17 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "layer.reorder"
+if os.environ.get("NECT_ACCEPTANCE_ARTWORK_DISTRIBUTE") == "1":
+    name = "nect_test_distribute_artwork"
+    TOOLS.append({
+        "name": name,
+        "description": "Distribute selected artwork centers or edges, holding the endpoints in the isolated fixture",
+        "inputSchema": schema(dict(target=target,
+            layerIds={"type":"array","items":ident,"minItems":3,"maxItems":100,"uniqueItems":True},
+            action={"enum":["left","center-x","right","top","center-y","bottom"]})),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "artwork.distribute"
 if os.environ.get("NECT_ACCEPTANCE_ARTWORK_ALIGN") == "1":
     name = "nect_test_align_artwork"
     TOOLS.append({
