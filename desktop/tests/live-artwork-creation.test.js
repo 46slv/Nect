@@ -66,3 +66,56 @@ test('target-bound shape and text creation go through the existing editor comman
   owner.dispatch({ ...owner.state, type: 'redo', payload: {} });
   assert.equal(snapshot(), after);
 });
+
+for (const artworkType of ['Circle', 'Ellipse', 'Polygon', 'Star']) {
+  test(`scoped ${artworkType} creation preserves other layers and round-trips through History`, () => {
+    const raw = readFileSync(new URL('../examples/blend-distance.json', import.meta.url), 'utf8');
+    const owner = createCompositionSessionOwner(deserializeCompositionProject(raw, deserialize));
+    const target = () => ({
+      documentGeneration: 1,
+      compositionId: owner.activeCompositionId,
+      sessionId: owner.state.sessionId,
+      sessionRevision: owner.state.expectedRevision,
+      projectRevision: owner.projectRevision,
+    });
+    const snapshot = () => serializeCompositionProject(owner.projectSnapshot());
+    const handle = createLiveEditorProtocol({
+      readTarget: target,
+      createArtwork: createLiveArtworkCreation({
+        readTarget: target,
+        isEditBlocked: () => false,
+        commit: (command) => owner.dispatch(command),
+      }),
+    });
+    const before = snapshot();
+    const layers = structuredClone(owner.snapshot().layers);
+    const at = [-25.5, 300.25];
+    const request = {
+      version: 1,
+      operation: 'artwork.create',
+      arguments: { target: target(), artworkType, at },
+    };
+    const result = handle(request);
+    assert.equal(result.status, 'changed');
+    assert.deepEqual(result.target, target());
+    assert.deepEqual(owner.snapshot().layers.slice(0, -1), layers);
+    const created = owner.snapshot().layers.at(-1);
+    assert.equal(created.id, result.layerId);
+    const node = created.nodes.find((entry) => entry.id === result.nodeId);
+    assert.equal(node.type, artworkType);
+    assert.deepEqual(node.params.center.value, at);
+    const after = snapshot();
+    assert.deepEqual(handle(request), { status: 'stale-target' });
+    assert.equal(snapshot(), after);
+
+    owner.dispatch({ ...owner.state, type: 'undo', payload: {} });
+    assert.equal(snapshot(), before);
+    owner.dispatch({ ...owner.state, type: 'redo', payload: {} });
+    assert.equal(snapshot(), after);
+
+    const reopened = createCompositionSessionOwner(
+      deserializeCompositionProject(after, deserialize),
+    );
+    assert.equal(serializeCompositionProject(reopened.projectSnapshot()), after);
+  });
+}
