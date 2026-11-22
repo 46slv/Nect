@@ -7,7 +7,10 @@ import {
   deserializeCompositionProject,
   serializeCompositionProject,
 } from '../src/composition-project-model.js';
-import { createLiveBlendStepsOperation } from '../src/live-blend-distance.js';
+import {
+  createLiveBlendStepsOperation,
+  createReadLiveBlendSettings,
+} from '../src/live-blend-distance.js';
 import { createLiveEditorProtocol } from '../src/live-editor-protocol.js';
 
 const ownerFor = (name) =>
@@ -119,4 +122,71 @@ test('Blend Steps cannot write an inactive or driven parameter, or exceed the th
     'unsupported-target',
   );
   assert.equal(call({}, { operation: 'three-source-steps' }, 127), 'invalid-arguments');
+});
+
+test('read-only Blend settings expose only one active control, without touching history', () => {
+  const owner = ownerFor('live-blend'),
+    target = () => targetFor(owner),
+    addr = addressed(owner);
+  const read = createReadLiveBlendSettings({ readTarget: target, getOwner: () => owner });
+  const protocol = createLiveEditorProtocol({ readTarget: target, readBlendSettings: read });
+  const args = { target: target(), ...addr };
+  const packet = { version: 1, operation: 'blend.settings', arguments: args };
+  const orig = snapshot(owner);
+  assert.equal(
+    createLiveEditorProtocol({ readTarget: target })(packet).status,
+    'unsupported-operation',
+  );
+  assert.equal(
+    protocol({ ...packet, arguments: { ...args, key: 'a' } }).status,
+    'invalid-arguments',
+  );
+  assert.deepEqual(protocol(packet), {
+    status: 'ok',
+    mode: 'steps',
+    spacing: { kind: 'steps', control: 'literal', value: 7, editable: true, maxSteps: 254 },
+  });
+  assert.equal(snapshot(owner), orig);
+  assert.deepEqual(target(), args.target);
+  owner.dispatch({
+    ...owner.state,
+    type: 'set-parameter',
+    payload: { ...addr, key: 'steps', value: 3 },
+  });
+  assert.equal(protocol(packet).status, 'stale-target');
+  assert.equal(protocol({ ...packet, arguments: { ...args, target: target() } }).spacing.value, 3);
+});
+
+test('Blend settings distinguish a driven value from its unused saved literal', () => {
+  const owner = ownerFor('blend-distance'),
+    addr = addressed(owner),
+    target = targetFor(owner);
+  const doc = owner.snapshot(),
+    layer = doc.layers[0],
+    blend = layer.nodes.find((n) => n.id === addr.nodeId);
+  const read = createReadLiveBlendSettings({
+    readTarget: () => target,
+    getOwner: () => ({ snapshot: () => doc }),
+  });
+  const args = { ...addr, target };
+  assert.equal(read(args).spacing.kind, 'distance');
+  blend.params.distance.expression = 'unpublished expression';
+  assert.deepEqual(read(args), {
+    status: 'ok',
+    mode: 'distance',
+    spacing: {
+      kind: 'distance',
+      control: 'expression',
+      value: null,
+      editable: false,
+      maxSteps: null,
+    },
+  });
+  blend.params.distance.source = 'unpublished source';
+  assert.equal(read(args).spacing.control, 'connection');
+  assert.equal(read(args).spacing.value, null);
+  blend.operation = 'smooth-color';
+  assert.deepEqual(read(args), { status: 'ok', mode: 'smooth-color', spacing: null });
+  blend.operation = 'unrecognized';
+  assert.deepEqual(read(args), { status: 'unsupported-target' });
 });

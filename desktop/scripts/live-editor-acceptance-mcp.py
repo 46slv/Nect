@@ -98,6 +98,14 @@ if os.environ.get("NECT_ACCEPTANCE_BLEND_STEPS") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "blend.setSteps"
+    read_name = "nect_test_read_blend_settings"
+    TOOLS.append({
+        "name": read_name,
+        "description": "Read only the active Blend spacing control in the addressed isolated fixture",
+        "inputSchema": schema(dict(target=target, layerId=ident, nodeId=ident)),
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
+    })
+    OPERATIONS[read_name] = "blend.settings"
 if os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1":
     name = "nect_test_list_artwork"
     TOOLS.append({

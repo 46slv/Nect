@@ -43,6 +43,7 @@ export function createLiveEditorProtocol({
   listArtwork,
   setBlendDistance,
   setBlendSteps,
+  readBlendSettings,
   stepHistory,
   createArtwork,
   setTextContent,
@@ -178,6 +179,20 @@ export function createLiveEditorProtocol({
         .then(() => output(args.target))
         .then(({ status }) => ({ status }))
         .catch(() => ({ status: 'outcome-unknown' }));
+    }
+    if (readBlendSettings && request.operation === 'blend.settings') {
+      if (
+        !closed(args, ['target', 'layerId', 'nodeId']) ||
+        !validTarget(args.target) ||
+        !id(args.layerId) ||
+        !id(args.nodeId)
+      )
+        return { status: 'invalid-arguments' };
+      try {
+        return readBlendSettings(args);
+      } catch {
+        return { status: 'unavailable' };
+      }
     }
     const setBlendSpacing =
       request.operation === 'blend.setDistance'

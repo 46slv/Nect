@@ -1,6 +1,45 @@
 import { editorTargetMatches } from './live-editor-target.js';
 import { blendNodeDeclaration } from './blend-node-declaration.js';
 
+function blendOperation(node) {
+  const { operationAliases, defaultOperation, operations } = blendNodeDeclaration;
+  const raw = node.operation || defaultOperation;
+  const id = Object.hasOwn(operationAliases, raw) ? operationAliases[raw] : raw;
+  return operations.find((op) => op.id === id);
+}
+
+function addressedBlend(owner, layerId, nodeId) {
+  const layer = owner.snapshot().layers.find((row) => row.id === layerId);
+  const node = layer?.nodes.find((row) => row.id === nodeId);
+  return node?.type === 'Blend' ? { layer, node } : {};
+}
+
+export function createReadLiveBlendSettings({ readTarget, getOwner }) {
+  return function read({ target, layerId, nodeId }) {
+    if (!editorTargetMatches(readTarget(), target)) return { status: 'stale-target' };
+    const { layer, node } = addressedBlend(getOwner(), layerId, nodeId);
+    const operation = node && blendOperation(node);
+    if (!operation) return { status: 'unsupported-target' };
+    const key = operation.active.find((id) => id === 'distance' || id === 'steps');
+    if (!key) return { status: 'ok', mode: operation.id, spacing: null };
+    const param = node.params?.[key];
+    if (param?.type !== 'Scalar') return { status: 'unsupported-target' };
+    const control = param.source ? 'connection' : param.expression ? 'expression' : 'literal';
+    return {
+      status: 'ok',
+      mode: operation.id,
+      spacing: {
+        kind: key,
+        control,
+        value: control === 'literal' && Number.isFinite(param.value) ? param.value : null,
+        editable:
+          control === 'literal' && !layer.locked && !node.locked && !node.bypassed && !param.locked,
+        maxSteps: key === 'steps' ? (operation.id === 'three-source-steps' ? 126 : 254) : null,
+      },
+    };
+  };
+}
+
 // The host owns the live dispatcher and its draft checks. This narrow entry
 // never names a file, commits another document or invents an editing engine.
 function createBlendParameterOperation({ readTarget, getOwner, isEditBlocked, commit }, key) {
@@ -15,17 +54,11 @@ function createBlendParameterOperation({ readTarget, getOwner, isEditBlocked, co
     )
       return { status: 'invalid-arguments' };
     const owner = getOwner();
-    const layer = owner.snapshot().layers.find((candidate) => candidate.id === layerId);
-    const node = layer?.nodes.find((candidate) => candidate.id === nodeId);
-    if (node?.type !== 'Blend' || node.params?.[key]?.type !== 'Scalar')
-      return { status: 'unsupported-target' };
+    const { layer, node } = addressedBlend(owner, layerId, nodeId);
+    if (node?.params?.[key]?.type !== 'Scalar') return { status: 'unsupported-target' };
     if (key === 'steps') {
-      const operation =
-        blendNodeDeclaration.operationAliases[node.operation] ??
-        (node.operation || blendNodeDeclaration.defaultOperation);
-      const enabled = blendNodeDeclaration.operations.some(
-        (row) => row.id === operation && row.active.includes(key),
-      );
+      const operation = blendOperation(node);
+      const enabled = operation?.active.includes(key);
       const parameter = node.params[key];
       if (
         !enabled ||
@@ -37,7 +70,8 @@ function createBlendParameterOperation({ readTarget, getOwner, isEditBlocked, co
         parameter.expression
       )
         return { status: 'unsupported-target' };
-      if (operation === 'three-source-steps' && value > 126) return { status: 'invalid-arguments' };
+      if (operation.id === 'three-source-steps' && value > 126)
+        return { status: 'invalid-arguments' };
     }
     const receipt = commit(owner, {
       sessionId: target.sessionId,
