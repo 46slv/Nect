@@ -10,7 +10,141 @@ use std::{
 };
 
 #[derive(Clone, Default)]
-pub(crate) struct LiveAcceptance(pub(crate) Option<Arc<LiveEditorMailbox>>);
+pub(crate) struct LiveAcceptance(
+    pub(crate) Option<Arc<LiveEditorMailbox>>,
+    #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
+    Option<Arc<inspect_channel::Lane>>,
+);
+
+#[cfg(all(windows, feature = "live-editor-acceptance-test"))]
+mod inspect_channel {
+    use crate::live_api_read_admission::{InspectSlot, ReadAdmission, ReadGrant};
+    use std::{
+        sync::{mpsc, Mutex},
+        time::{Duration, Instant},
+    };
+    use tauri::ipc::Channel;
+
+    pub(super) struct Lane {
+        clock: Instant,
+        state: Mutex<State>,
+    }
+
+    struct State {
+        channel: Option<Channel<serde_json::Value>>,
+        gate: ReadAdmission,
+        slot: InspectSlot,
+        pending: Option<(ReadGrant, mpsc::SyncSender<String>)>,
+    }
+
+    impl Default for Lane {
+        fn default() -> Self {
+            Self {
+                clock: Instant::now(),
+                state: Mutex::new(State {
+                    channel: None,
+                    // Exactly one synthetic app instance; no production credentials.
+                    gate: ReadAdmission::new(1),
+                    slot: InspectSlot::default(),
+                    pending: None,
+                }),
+            }
+        }
+    }
+
+    impl Lane {
+        fn now(&self) -> u64 {
+            self.clock.elapsed().as_millis() as u64
+        }
+
+        pub(super) fn attach(&self, channel: Channel<serde_json::Value>) -> bool {
+            let Ok(mut state) = self.state.lock() else {
+                return false;
+            };
+            if state.channel.is_some() || state.gate.enable().is_err() {
+                return false;
+            }
+            state.gate.set_ready(true);
+            state.channel = Some(channel);
+            true
+        }
+
+        pub(super) fn inspect(&self) -> Option<String> {
+            // The stdio smoke client starts before the WebView loads its fixture.
+            let startup_deadline = Instant::now() + Duration::from_secs(4);
+            while self.state.lock().ok()?.channel.is_none() {
+                if Instant::now() >= startup_deadline {
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let (tx, rx) = mpsc::sync_channel(1);
+            {
+                let mut state = self.state.lock().ok()?;
+                let State {
+                    channel,
+                    gate,
+                    slot,
+                    pending,
+                } = &mut *state;
+                if pending.is_some() {
+                    return None;
+                }
+                let channel = channel.as_ref()?;
+                let now = self.now();
+                let grant = gate.issue(now, now + 4000).ok()?;
+                let prepare = slot.prepare(gate, &grant, now).ok()?;
+                let publish = slot.publish(gate, &grant, now, prepare.request_id).ok()?;
+                if channel
+                    .send(serde_json::json!(prepare))
+                    .and_then(|_| channel.send(serde_json::json!(publish)))
+                    .is_err()
+                {
+                    if let Some(discard) = slot.discard() {
+                        let _ = channel.send(serde_json::json!(discard));
+                    }
+                    return None;
+                }
+                *pending = Some((grant, tx));
+            }
+            let reply = rx.recv_timeout(Duration::from_secs(4)).ok();
+            if reply.is_none() {
+                let mut state = self.state.lock().ok()?;
+                state.pending = None;
+                if let Some(discard) = state.slot.discard() {
+                    if let Some(channel) = &state.channel {
+                        let _ = channel.send(serde_json::json!(discard));
+                    }
+                }
+            }
+            reply
+        }
+
+        pub(super) fn respond(&self, id: u64, receipt: &str) -> bool {
+            let Ok(mut state) = self.state.lock() else {
+                return false;
+            };
+            let State {
+                gate,
+                slot,
+                pending,
+                ..
+            } = &mut *state;
+            let Some((grant, _)) = pending.as_ref() else {
+                return false;
+            };
+            let Ok(reply) = slot.receive(gate, grant, self.now(), id, receipt.as_bytes()) else {
+                return false;
+            };
+            let Ok(serialized) = serde_json::to_string(&reply) else {
+                return false;
+            };
+            pending
+                .take()
+                .is_some_and(|(_, sender)| sender.try_send(serialized).is_ok())
+        }
+    }
+}
 
 pub(crate) fn enabled(isolated: bool, explicit: bool) -> Result<LiveAcceptance, String> {
     if !cfg!(all(windows, feature = "live-editor-acceptance-test")) {
@@ -21,13 +155,19 @@ pub(crate) fn enabled(isolated: bool, explicit: bool) -> Result<LiveAcceptance, 
             "Live editor acceptance requires isolated storage and explicit stdio mode".into(),
         );
     }
-    Ok(LiveAcceptance(Some(Arc::new(LiveEditorMailbox::default()))))
+    Ok(LiveAcceptance(
+        Some(Arc::new(LiveEditorMailbox::default())),
+        #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
+        Some(Arc::new(inspect_channel::Lane::default())),
+    ))
 }
 
 pub(crate) fn run(state: &LiveAcceptance) -> Result<(), String> {
     let Some(mailbox) = state.0.clone() else {
         return Ok(());
     };
+    #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
+    let inspect_lane = state.1.clone();
     thread::Builder::new()
         .name("nect-live-acceptance-stdio".into())
         .spawn(move || {
@@ -35,7 +175,12 @@ pub(crate) fn run(state: &LiveAcceptance) -> Result<(), String> {
             let stdout = std::io::stdout();
             if let Err(error) = serve(BufReader::new(stdin.lock()), stdout.lock(), |packet| {
                 #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
-                let inspect = is_inspect_packet(&packet);
+                if is_inspect_packet(&packet) {
+                    return inspect_lane
+                        .as_ref()
+                        .and_then(|lane| lane.inspect())
+                        .unwrap_or_else(|| r#"{"status":"unavailable"}"#.into());
+                }
                 let Some(id) = mailbox.enqueue(packet) else {
                     return r#"{"status":"busy"}"#.into();
                 };
@@ -48,10 +193,6 @@ pub(crate) fn run(state: &LiveAcceptance) -> Result<(), String> {
                             return r#"{"status":"outcome-unknown"}"#.into()
                         }
                         Poll::Complete(receipt) => {
-                            #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
-                            if inspect {
-                                return validated_inspect_receipt(&receipt);
-                            }
                             return receipt;
                         }
                     }
@@ -71,13 +212,40 @@ fn is_inspect_packet(packet: &str) -> bool {
         == Some(json!({"version":1, "operation":"editor.inspect", "arguments":{}}))
 }
 
-#[cfg(all(windows, feature = "live-editor-acceptance-test"))]
-fn validated_inspect_receipt(receipt: &str) -> String {
-    use crate::live_api_read_admission::InspectReply;
-    InspectReply::parse(receipt.as_bytes())
-        .ok()
-        .and_then(|reply| serde_json::to_string(&reply).ok())
-        .unwrap_or_else(|| r#"{"status":"unavailable"}"#.into())
+#[tauri::command]
+pub(crate) fn live_acceptance_inspect_attach(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, LiveAcceptance>,
+    channel: tauri::ipc::Channel<serde_json::Value>,
+) -> Result<bool, &'static str> {
+    admitted(&state, window.label())?;
+    #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
+    return Ok(state.1.as_ref().is_some_and(|lane| lane.attach(channel)));
+    #[cfg(not(all(windows, feature = "live-editor-acceptance-test")))]
+    {
+        let _ = channel;
+        Err("Live editor test disabled")
+    }
+}
+
+#[tauri::command]
+pub(crate) fn live_acceptance_inspect_reply(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, LiveAcceptance>,
+    id: u64,
+    receipt: String,
+) -> Result<bool, &'static str> {
+    admitted(&state, window.label())?;
+    #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
+    return Ok(state
+        .1
+        .as_ref()
+        .is_some_and(|lane| lane.respond(id, &receipt)));
+    #[cfg(not(all(windows, feature = "live-editor-acceptance-test")))]
+    {
+        let _ = (id, receipt);
+        Err("Live editor test disabled")
+    }
 }
 
 fn admitted<'a>(

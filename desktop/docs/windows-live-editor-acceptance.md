@@ -17,6 +17,13 @@ streams; there is no listener. Normal Nect does not enable this mode.
    the repository. It verifies the binary checksum before spawning the runner.
    Do not use the adapter as a product MCP server.
 
+In this build, a valid `editor.inspect` request travels over a dedicated
+Tauri Channel to the fixture WebView and returns through the scoped reply
+command; inspection cannot fall back to the edit mailbox. Native admission
+validates the request ID, current synthetic grant and response shape. The
+test does not cover production grants, an already-open app, concurrent GUI
+tab changes, or Hermes.
+
 The fixture exercises MCP initialization and tool discovery, Blend editing,
 Undo and Redo, stale target rejection, Save As, request receipt readback,
 separate copy save and reopen, and SVG/PNG. The Save As destination is fixed
@@ -32,7 +39,7 @@ model session. It never touches existing projects.
 For a normal renderer build, explicitly unset the acceptance flag or set it to
 `0`. The generated JavaScript must contain none of
 `__NECT_LIVE_EDITOR_TEST_INSTANCE__`, `testLiveEditorProtocol`,
-`live_acceptance_claim`, or `live_acceptance_save_as`.
+`live_acceptance_claim`, `live_acceptance_save_as`, or `live_acceptance_inspect_attach`.
 
 ### Choose one scenario per run
 

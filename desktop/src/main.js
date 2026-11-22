@@ -53,7 +53,7 @@ import { createLiveDocumentSave, createLiveSaveAsBoundary } from './live-documen
 import { createLiveBlendDistanceOperation } from './live-blend-distance.js';
 import { createLiveDocumentCopy } from './live-document-copy.js';
 import { createLiveDocumentReopen } from './live-document-reopen.js';
-import { createLiveEditorProtocol, isEditorInspectRequest } from './live-editor-protocol.js';
+import { createLiveEditorProtocol } from './live-editor-protocol.js';
 import { readLiveEditorObjects } from './live-editor-objects.js';
 import { createLiveArtworkCreation } from './live-artwork-creation.js';
 import { createLiveTextContent } from './live-text-content.js';
@@ -19457,7 +19457,7 @@ if (
   window.__NECT_LIVE_EDITOR_TEST_INSTANCE__ === true
 ) {
   void (async () => {
-    const { invoke } = await import('@tauri-apps/api/core');
+    const { invoke, Channel } = await import('@tauri-apps/api/core');
     const acceptanceArtwork = createLiveArtworkOutput({
       readTarget: readLiveEditorTarget,
       readSnapshot: () => ({ document: history.doc, fonts }),
@@ -19511,18 +19511,26 @@ if (
       writePng: (target) =>
         acceptanceArtwork.run({ target, format: 'png', pngOptions: { mode: 'scale', scale: 1 } }),
     });
-    const { createLiveInspectPublication } = await import('./live-inspect-publication.js');
-    const publication = createLiveInspectPublication({
+    const { createLiveInspectChannel } = await import('./live-inspect-channel.js');
+    const inspection = createLiveInspectChannel({
       readTarget: readLiveEditorTarget,
       canInspect: () => !documents.transitioning,
     });
-    const readOwner = Object.freeze({});
-    publication.bind(readOwner);
     const wait = () => new Promise((resolve) => setTimeout(resolve, 50));
     const deadline = Date.now() + 120_000;
     while (closeInputBlocked() && Date.now() < deadline) await wait();
     if (closeInputBlocked()) return;
     await window.nect.load(await invoke('live_acceptance_fixture'));
+    const channel = new Channel();
+    const detach = inspection.attach(channel, (id, reply) => {
+      void invoke('live_acceptance_inspect_reply', { id, receipt: JSON.stringify(reply) })
+        .catch((error) => console.error('Isolated inspection reply stopped', error));
+    });
+    if (!detach || !(await invoke('live_acceptance_inspect_attach', { channel }))) {
+      detach?.();
+      throw new Error('Isolated inspection channel unavailable');
+    }
+    window.addEventListener('pagehide', detach, { once: true });
     while (Date.now() < deadline) {
       const request = await invoke('live_acceptance_claim');
       if (!request) {
@@ -19532,13 +19540,7 @@ if (
       const [id, packet] = request;
       let reply;
       try {
-        const input = JSON.parse(packet);
-        if (isEditorInspectRequest(input)) {
-          const ticket = publication.prepare(readOwner);
-          reply = (ticket && publication.take(readOwner, ticket)) || { status: 'unavailable' };
-        } else {
-          reply = await handle(input);
-        }
+        reply = await handle(JSON.parse(packet));
       } catch {
         reply = { status: 'outcome-unknown' };
       }
