@@ -43,6 +43,7 @@ locked_roundtrip = os.environ.get("NECT_ACCEPTANCE_LOCKED_ROUNDTRIP") == "1"
 hidden_roundtrip = os.environ.get("NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP") == "1"
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
+artwork_align = os.environ.get("NECT_ACCEPTANCE_ARTWORK_ALIGN") == "1"
 artwork_translate = os.environ.get("NECT_ACCEPTANCE_ARTWORK_TRANSLATE") == "1"
 mixed_text_probe = os.environ.get("NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE") == "1"
 embedded_jp = os.environ.get("NECT_SVG_ACCEPTANCE_JP_FIXTURE") == "1"
@@ -63,7 +64,8 @@ assert not layer_guide or (artwork and layer_lock and not (
 assert not layer_solo or (artwork and layer_visibility and not (
     layer_folder_plan or layer_folders or layer_reorder or layer_duplicate or embedded_jp or mixed_text_probe
 ))
-assert not artwork_translate or (artwork and layer_lock and list_objects and not (
+assert not artwork_align or not artwork_translate
+assert not (artwork_align or artwork_translate) or (artwork and layer_lock and list_objects and not (
     layer_delete or layer_solo or layer_guide or layer_folders or layer_folder_plan or
     hidden_roundtrip or locked_roundtrip or renamed_roundtrip or text_edit or embedded_jp or mixed_text_probe
 ))
@@ -151,6 +153,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_set_layer_lock")
         if layer_rename:
             extra.append("nect_test_rename_layer")
+        if artwork_align:
+            extra.append("nect_test_align_artwork")
         if artwork_translate:
             extra.append("nect_test_translate_artwork")
         if layer_reorder:
@@ -388,6 +392,24 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             invoke("redo",{"target":before_undo},"stale-target",True)
             current=invoke("redo",{"target":current},"changed")["target"]
             assert current["projectRevision"]==before_undo["projectRevision"]+2
+        if artwork_align:
+            [aligned_id, other_id] = [item[2] for item in made]
+            align = dict(target=current, layerIds=[aligned_id], action="center-x", reference="artboard")
+            invoke("align_artwork", {**align, "reference":"selection"}, "invalid-arguments", True)
+            current = invoke("set_layer_lock", dict(target=current, layerId=other_id, locked=True),
+                             "changed")["target"]
+            align["target"] = current
+            invoke("align_artwork", {**align, "reference":"selection", "layerIds":[aligned_id, other_id]},
+                   "rejected", True)
+            assert invoke("inspect", {}, "ok")["target"] == current
+            aligned = invoke("align_artwork", align, "changed")["target"]
+            assert aligned["projectRevision"] == current["projectRevision"] + 1
+            invoke("align_artwork", align, "stale-target", True)
+            assert invoke("align_artwork", {**align, "target":aligned}, "unchanged")["target"] == aligned
+            undone = invoke("undo", {"target":aligned}, "changed")["target"]
+            current = invoke("redo", {"target":undone}, "changed")["target"]
+            kind, point, layer, node = made[0]
+            made[0] = (kind, [480, point[1]], layer, node)  # 960 px fixture artboard.
         if artwork_translate:
             moved_ids = [item[2] for item in made]
             delta = [12.5, -8]
@@ -1090,6 +1112,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             evidence["layerState"] = "exact stored flags before edit, after edit and reopen; stale and unsupported IDs rejected; revision unchanged by reads"
         if layer_create_blank:
             evidence["blankLayer"] = "one empty Output created; dropped reply reconciled by listing; stale replay refused; Undo/Redo, reopened IDs and byte-identical baseline SVG/PNG"
+        if artwork_align:
+            evidence["artworkAlignment"] = dict(reference="artboard", action="center-x",
+                alignedLayer=aligned_id, untouchedLayer=other_id, savedCenterX=480,
+                lockedMixedSelectionRejected=True, noOpAndStaleVerified=True)
         if artwork_translate:
             evidence["artworkTranslation"] = dict(delta=delta, movedLayers=moved_ids,
                 rejectsLockedAndStale=True, verifiedViaUndoRedoSavedCoordinates=True)
