@@ -119,6 +119,11 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             assert expect_lock(set_locked(1303, target, False), "unchanged")["target"] == target
             locked = expect_lock(set_locked(1304, target, True), "changed")["target"]
             assert locked["projectRevision"] == target["projectRevision"] + 1
+            blocked_edit = call(1311, "tools/call", name="nect_test_set_blend_distance",
+                                arguments=dict(target=locked,layerId=source_layer,nodeId=source_node,value=60))
+            expect_lock(blocked_edit, "rejected", True)
+            readback = call(1312, "tools/call", name="nect_test_inspect", arguments={})
+            assert not readback["isError"] and readback["structuredContent"]["target"] == locked, readback
             expect_lock(set_locked(1305, target, False), "stale-target", True)
             assert expect_lock(set_locked(1306, locked, True), "unchanged")["target"] == locked
             page = list_page(1307, None, locked)
