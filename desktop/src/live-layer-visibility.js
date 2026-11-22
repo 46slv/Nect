@@ -15,10 +15,11 @@ function createLiveLayerFlag(key, { readTarget, getOwner, isEditBlocked, commit 
     if (isEditBlocked()) return { status: 'edit-in-progress' };
     const owner = getOwner();
     const layer = owner.snapshot().layers.find((entry) => entry.id === layerId);
-    if (!layer || (key !== 'solo' && typeof layer[key] !== 'boolean'))
+    const optional = key === 'solo' || key === 'guide';
+    if (!layer || (typeof layer[key] !== 'boolean' && !(optional && layer[key] === undefined)))
       return { status: 'unsupported-target' };
-    if ((key === 'solo' ? layer.solo === true : layer[key]) === value)
-      return { status: 'unchanged' };
+    if (key === 'guide' && layer.locked) return { status: 'rejected' };
+    if ((layer[key] === true) === value) return { status: 'unchanged' };
     const receipt = commit(owner, {
       sessionId: target.sessionId,
       expectedRevision: target.sessionRevision,
@@ -35,6 +36,10 @@ export function createLiveLayerVisibility(host) {
 
 export function createLiveLayerSolo(host) {
   return createLiveLayerFlag('solo', host);
+}
+
+export function createLiveLayerGuide(host) {
+  return createLiveLayerFlag('guide', host);
 }
 
 export function createLiveLayerLock(host) {

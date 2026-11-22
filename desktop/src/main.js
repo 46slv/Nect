@@ -71,6 +71,7 @@ import {
   createLiveLayerRename,
   createLiveLayerVisibility,
   createLiveLayerSolo,
+  createLiveLayerGuide,
 } from './live-layer-visibility.js';
 import { createLiveLayerReorder } from './live-layer-reorder.js';
 import { createLiveLayerDuplicate } from './live-layer-duplicate.js';
@@ -19587,6 +19588,11 @@ if (
         isEditBlocked: () => liveBlendHost.isEditBlocked() || Boolean(nameEdit),
       }),
       setLayerSolo: createLiveLayerSolo({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() || closeInputBlocked() || Boolean(nameEdit),
+      }),
+      setLayerGuide: createLiveLayerGuide({
         ...liveBlendHost,
         isEditBlocked: () =>
           liveBlendHost.isEditBlocked() || closeInputBlocked() || Boolean(nameEdit),

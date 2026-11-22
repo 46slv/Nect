@@ -9,6 +9,7 @@ import {
 } from '../src/composition-project-model.js';
 import {
   createLiveLayerLock,
+  createLiveLayerGuide,
   createLiveLayerRename,
   createLiveLayerSolo,
   createLiveLayerVisibility,
@@ -357,4 +358,66 @@ test('explicit layer Solo follows GUI semantics, including hidden layers and und
   assert.deepEqual(labels(live), [green.name]);
   live.dispatch({ ...live.state, type: 'redo' });
   assert.equal(snapshot(live), saved);
+});
+
+test('explicit Guide conversion matches the GUI, keeps the source layer, and rejects locked layers', () => {
+  const doc = orderingDocument();
+  const [red, green, blue] = doc.layers;
+  blue.locked = true;
+  const make = () =>
+    createCompositionSessionOwner(deserializeCompositionProject(serialize(doc), deserialize));
+  const live = make();
+  const gui = make();
+  const readTarget = () => ({
+    documentGeneration: 1,
+    compositionId: live.activeCompositionId,
+    sessionId: live.state.sessionId,
+    sessionRevision: live.state.expectedRevision,
+    projectRevision: live.projectRevision,
+  });
+  const handler = createLiveEditorProtocol({
+    readTarget,
+    setLayerGuide: createLiveLayerGuide({
+      readTarget,
+      getOwner: () => live,
+      isEditBlocked: () => false,
+      commit: (owner, command) => owner.dispatch(command),
+    }),
+  });
+  const request = (layerId, guide, target = readTarget()) => ({
+    version: 1,
+    operation: 'layer.setGuide',
+    arguments: { target, layerId, guide },
+  });
+  const run = (layerId, guide, target) => handler(request(layerId, guide, target));
+  const start = snapshot(live);
+  const revision = readTarget();
+  assert.equal(
+    createLiveEditorProtocol({ readTarget })(request(red.id, true)).status,
+    'unsupported-operation',
+  );
+  assert.equal(run(red.id, false).status, 'unchanged');
+  assert.equal(run(red.id, 1).status, 'invalid-arguments');
+  assert.equal(run(blue.id, true).status, 'rejected');
+  assert.equal(snapshot(live), start);
+  for (const guide of [true, false]) {
+    assert.equal(run(green.id, guide).status, 'changed');
+    gui.dispatch({
+      ...gui.state,
+      type: 'set-layer-state',
+      payload: { layerId: green.id, key: 'guide', value: guide },
+    });
+    assert.equal(snapshot(live), snapshot(gui));
+    assert.equal(svg(live), svg(gui));
+    assert.equal(svg(live).includes('data-layer="' + green.name + '"'), !guide);
+    assert.deepEqual(
+      live.snapshot().layers.map((l) => l.id),
+      [red.id, green.id, blue.id],
+    );
+  }
+  assert.equal(run(green.id, true, revision).status, 'stale-target');
+  live.dispatch({ ...live.state, type: 'undo' });
+  assert.equal(live.snapshot().layers[1].guide, true);
+  live.dispatch({ ...live.state, type: 'redo' });
+  assert.equal(live.snapshot().layers[1].guide, false);
 });
