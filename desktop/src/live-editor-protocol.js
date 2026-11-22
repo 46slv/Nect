@@ -42,6 +42,7 @@ export function createLiveEditorProtocol({
   canInspect = () => true,
   listArtwork,
   listLayerFolders,
+  createLayerFolder,
   readNodeInputWires,
   setLayerVisibility,
   setLayerLock,
@@ -99,6 +100,29 @@ export function createLiveEditorProtocol({
         return listLayerFolders(args);
       } catch {
         return { status: 'unavailable' };
+      }
+    }
+    if (createLayerFolder && request.operation === 'layerFolders.create') {
+      const validIds = (ids) =>
+        Array.isArray(ids) && ids.length <= 32 && ids.every(id) && new Set(ids).size === ids.length;
+      if (
+        !closed(args, ['target', 'name', 'layerIds', 'folderIds']) ||
+        !validTarget(args.target) ||
+        typeof args.name !== 'string' ||
+        !args.name.trim() ||
+        args.name.length > 100 ||
+        !validIds(args.layerIds) ||
+        !validIds(args.folderIds) ||
+        new TextEncoder().encode(JSON.stringify(args)).byteLength > 3500
+      )
+        return { status: 'invalid-arguments' };
+      try {
+        const { status, folderId } = createLayerFolder(args);
+        return status === 'changed'
+          ? { status, folderId, target: captureEditorTarget(readTarget()) }
+          : { status };
+      } catch {
+        return { status: 'outcome-unknown' };
       }
     }
     if (readNodeInputWires && request.operation === 'graph.inputWires') {
