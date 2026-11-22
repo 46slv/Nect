@@ -82,7 +82,18 @@ Disable should cancel or hide any pending result. Reload and close revoke
 the binding from the native WebView lifecycle. Rerun the check after a fresh
 Enable. The preview registers no OS or MCP listener and is off at startup;
 the ordinary build omits the preview UI and denies these commands.
-This does not demonstrate permission to attach a separate client.
+This does not demonstrate permission to attach a separate client to an already
+running editor.
+
+A hash-pinned disposable preview may additionally opt into
+`NECT_LIVE_INSPECT_PREVIEW_STDIO=1`. It requires isolated storage and rejects
+the separate live-editor acceptance mode. The launching parent owns the
+inherited stdin/stdout handles; no named or discoverable listener is opened.
+The host processes one bounded `editor.inspect` frame only, while the local
+preview is enabled for the current WebView. Disable or reload invalidates
+that binding, including results waiting for publication. Test this with
+synthetic data only. This is not a daemon, a general MCP server, or attach
+authority for an already running installation.
 
 ## Acceptance before broader exposure
 

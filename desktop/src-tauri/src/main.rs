@@ -168,6 +168,9 @@ fn run() -> Result<(), String> {
             == Some(std::ffi::OsStr::new("1")),
     )?;
     let live_test_enabled = live_acceptance.0.is_some();
+    let preview_stdio = std::env::var_os("NECT_LIVE_INSPECT_PREVIEW_STDIO").as_deref()
+        == Some(std::ffi::OsStr::new("1"));
+    live_inspect_preview::Preview::require_disposable_stdio(preview_stdio, storage.0.is_some(), live_test_enabled)?;
     let window_storage = storage.clone();
     let identity = build_identity::BuildIdentity::compiled(
         &context.config().identifier,
@@ -293,6 +296,9 @@ fn run() -> Result<(), String> {
                 };
                 builder.build()?;
                 live_editor_acceptance::run(&app.state::<live_editor_acceptance::LiveAcceptance>())?;
+                if preview_stdio {
+                    app.state::<live_inspect_preview::Preview>().run_disposable_stdio()?;
+                }
             }
             Ok(())
         })

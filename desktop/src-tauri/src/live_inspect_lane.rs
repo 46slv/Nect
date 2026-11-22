@@ -97,6 +97,24 @@ impl LiveInspectLane {
         Some(epoch)
     }
 
+    #[cfg(feature = "live-inspect-preview")]
+    pub(crate) fn current_epoch(&self) -> Option<u64> {
+        self.state.lock().ok()?.channel.as_ref().map(|(id, _)| *id)
+    }
+
+    // Only for the one-frame disposable stdio proof. A persistent transport
+    // needs cancellable, bounded writes before it can use this check.
+    #[cfg(feature = "live-inspect-preview")]
+    pub(crate) fn publish_for_epoch<T>(&self, epoch: u64, send: impl FnOnce() -> T) -> Option<T> {
+        let state = self.state.lock().ok()?;
+        if state.channel.as_ref().map(|(id, _)| *id) != Some(epoch) {
+            return None;
+        }
+        let sent = send();
+        drop(state);
+        Some(sent)
+    }
+
     pub(crate) fn is_current(&self, epoch: u64) -> bool {
         self.state
             .lock()

@@ -9,12 +9,31 @@ pub(crate) fn serve<R: BufRead, W: Write>(
     mut replies: W,
     mut handle: impl FnMut(String) -> String,
 ) -> io::Result<()> {
+    while let Some(packet) = read_frame(&mut requests)? {
+        write_frame(&mut replies, &handle(packet))?;
+    }
+    Ok(())
+}
+
+#[cfg(all(windows, feature = "live-inspect-preview"))]
+pub(crate) fn serve_one<R: BufRead, W: Write>(
+    mut requests: R,
+    mut replies: W,
+    handle: impl FnOnce(String, &mut W) -> io::Result<()>,
+) -> io::Result<()> {
+    if let Some(packet) = read_frame(&mut requests)? {
+        handle(packet, &mut replies)?;
+    }
+    Ok(())
+}
+
+fn read_frame(requests: &mut impl BufRead) -> io::Result<Option<String>> {
     let mut frame = Vec::with_capacity(LIMIT);
     loop {
         let bytes = requests.fill_buf()?;
         if bytes.is_empty() {
             return if frame.is_empty() {
-                Ok(())
+                Ok(None)
             } else {
                 Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
@@ -39,19 +58,24 @@ pub(crate) fn serve<R: BufRead, W: Write>(
         if frame.last() == Some(&b'\r') {
             frame.pop();
         }
-        let packet = String::from_utf8(std::mem::take(&mut frame))
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid request encoding"))?;
-        let reply = handle(packet);
-        if reply.is_empty() || reply.len() > LIMIT || reply.contains(['\r', '\n']) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "invalid reply frame",
-            ));
-        }
-        replies.write_all(reply.as_bytes())?;
-        replies.write_all(b"\n")?;
-        replies.flush()?;
+        return String::from_utf8(frame)
+            .map(Some)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid request encoding"));
     }
+}
+
+pub(crate) fn write_frame(replies: &mut impl Write, reply: &str) -> io::Result<()> {
+    if reply.is_empty() || reply.len() > LIMIT || reply.contains(['\r', '\n']) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid reply frame",
+        ));
+    }
+    let mut frame = Vec::with_capacity(reply.len() + 1);
+    frame.extend_from_slice(reply.as_bytes());
+    frame.push(b'\n');
+    replies.write_all(&frame)?;
+    replies.flush()
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 //! Read-only diagnostics for an opt-in application build. No startup arm,
-//! external listener, document content, target metadata, or persisted settings.
+//! external listener, or persisted settings. The normal preview UI only gets a
+//! boolean. A disposable build may serve a single read on inherited handles.
 use serde_json::Value;
 use tauri::{ipc::Channel, State, WebviewWindow};
 
@@ -10,6 +11,43 @@ pub(crate) struct Preview {
 }
 
 impl Preview {
+    pub(crate) fn require_disposable_stdio(
+        requested: bool,
+        isolated: bool,
+        other_stdio: bool,
+    ) -> Result<(), &'static str> {
+        if !requested {
+            return Ok(());
+        }
+        if !cfg!(all(windows, feature = "live-inspect-preview")) || !isolated || other_stdio {
+            return Err("Inspection stdio requires a disposable preview and exclusive handles");
+        }
+        Ok(())
+    }
+
+    pub(crate) fn run_disposable_stdio(&self) -> Result<(), String> {
+        #[cfg(all(windows, feature = "live-inspect-preview"))]
+        {
+            use crate::live_editor_frames::serve_one;
+            let lane = self.lane.clone();
+            return std::thread::Builder::new()
+                .name("nect-preview-read-proof".into())
+                .spawn(move || {
+                    let stdin = std::io::stdin();
+                    let stdout = std::io::stdout();
+                    let _ = serve_one(
+                        std::io::BufReader::new(stdin.lock()),
+                        stdout.lock(),
+                        |packet, writer| read_once(&lane, &packet, writer),
+                    );
+                })
+                .map(|_| ())
+                .map_err(|e| e.to_string());
+        }
+        #[cfg(not(all(windows, feature = "live-inspect-preview")))]
+        Err("Inspection stdio unavailable".into())
+    }
+
     pub(crate) fn revoke(&self) {
         #[cfg(all(windows, feature = "live-inspect-preview"))]
         self.lane.revoke();
@@ -21,6 +59,27 @@ impl Preview {
         }
         Ok(())
     }
+}
+
+#[cfg(all(windows, feature = "live-inspect-preview"))]
+fn read_once(
+    lane: &crate::live_inspect_lane::LiveInspectLane,
+    packet: &str,
+    writer: &mut impl std::io::Write,
+) -> std::io::Result<()> {
+    use crate::live_editor_frames::write_frame;
+    let contract = serde_json::json!({"version":1,"operation":"editor.inspect","arguments":{}});
+    if serde_json::from_str::<Value>(packet).ok().as_ref() != Some(&contract) {
+        return write_frame(writer, r#"{"status":"unsupported-operation"}"#);
+    }
+    if let Some(epoch) = lane.current_epoch() {
+        if let Some(reply) = lane.inspect_now(Some(epoch)) {
+            if let Some(outcome) = lane.publish_for_epoch(epoch, || write_frame(writer, &reply)) {
+                return outcome;
+            }
+        }
+    }
+    write_frame(writer, r#"{"status":"unavailable"}"#)
 }
 
 #[tauri::command]
@@ -107,5 +166,39 @@ pub(crate) fn live_preview_detach(
     {
         let _ = (state, epoch);
         Err("Local inspection preview unavailable")
+    }
+}
+
+#[cfg(all(test, windows, feature = "live-inspect-preview"))]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn disposable_stdio_is_opt_in_and_exclusive() {
+        assert!(Preview::require_disposable_stdio(false, false, true).is_ok());
+        assert!(Preview::require_disposable_stdio(true, true, false).is_ok());
+        assert!(Preview::require_disposable_stdio(true, false, false).is_err());
+        assert!(Preview::require_disposable_stdio(true, true, true).is_err());
+    }
+
+    #[test]
+    fn exactly_one_frame_and_unarmed_read_unavailable() {
+        let lane = crate::live_inspect_lane::LiveInspectLane::default();
+        let input = b"{\"version\":1,\"operation\":\"editor.inspect\",\"arguments\":{}}\nignored\n";
+        let mut output = vec![];
+        crate::live_editor_frames::serve_one(Cursor::new(input), &mut output, |packet, writer| {
+            read_once(&lane, &packet, writer)
+        })
+        .unwrap();
+        assert_eq!(output, b"{\"status\":\"unavailable\"}\n");
+        output.clear();
+        read_once(
+            &lane,
+            r#"{"version":1,"operation":"artwork.list","arguments":{}}"#,
+            &mut output,
+        )
+        .unwrap();
+        assert_eq!(output, b"{\"status\":\"unsupported-operation\"}\n");
     }
 }
