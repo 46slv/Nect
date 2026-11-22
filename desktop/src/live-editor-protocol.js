@@ -29,6 +29,7 @@ export function createLiveEditorProtocol({
   listArtwork,
   listLayerFolders,
   createLayerFolder,
+  renameLayerFolder,
   readNodeInputWires,
   setLayerVisibility,
   setLayerLock,
@@ -100,6 +101,25 @@ export function createLiveEditorProtocol({
         const { status, folderId } = createLayerFolder(args);
         return status === 'changed'
           ? { status, folderId, target: captureEditorTarget(readTarget()) }
+          : { status };
+      } catch {
+        return { status: 'outcome-unknown' };
+      }
+    }
+    if (renameLayerFolder && request.operation === 'layerFolders.rename') {
+      const validName = (name) => typeof name === 'string' && name.length <= 100 && !!name.trim();
+      if (
+        !closed(args, ['target', 'folderId', 'expectedName', 'name']) ||
+        !validTarget(args.target) ||
+        !id(args.folderId) ||
+        !validName(args.expectedName) ||
+        !validName(args.name)
+      )
+        return { status: 'invalid-arguments' };
+      try {
+        const { status } = renameLayerFolder(args);
+        return status === 'changed' || status === 'unchanged'
+          ? { status, target: captureEditorTarget(readTarget()) }
           : { status };
       } catch {
         return { status: 'outcome-unknown' };
