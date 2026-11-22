@@ -26,6 +26,7 @@ layer_rename = os.environ.get("NECT_ACCEPTANCE_LAYER_RENAME") == "1"
 layer_reorder = os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1"
 layer_delete = os.environ.get("NECT_ACCEPTANCE_LAYER_DELETE") == "1"
 layer_delete_restore = os.environ.get("NECT_ACCEPTANCE_LAYER_DELETE_RESTORE") == "1"
+layer_delete_member = os.environ.get("NECT_ACCEPTANCE_LAYER_DELETE_MEMBER") == "1"
 layer_create_blank = os.environ.get("NECT_ACCEPTANCE_LAYER_CREATE_BLANK") == "1"
 layer_duplicate = os.environ.get("NECT_ACCEPTANCE_LAYER_DUPLICATE") == "1"
 layer_folders = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDERS") == "1"
@@ -33,7 +34,7 @@ layer_folder_plan = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_PLAN") == "1"
 folder_plan_move_order = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_MOVE_ORDER_CASE") == "1"
 assert not folder_plan_move_order or layer_folder_plan
 folder_create_tool = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_CREATE") == "1"
-create_layer_folder = folder_create_tool and not layer_folder_plan
+create_layer_folder = folder_create_tool and not (layer_folder_plan or layer_delete_member)
 rename_layer_folder = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_RENAME") == "1"
 change_folder_membership = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_MEMBERSHIP") == "1"
 dissolve_layer_folder = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_DISSOLVE") == "1"
@@ -62,9 +63,14 @@ assert not layer_solo or (artwork and layer_visibility and not (
     layer_folder_plan or layer_folders or layer_reorder or layer_duplicate or embedded_jp or mixed_text_probe
 ))
 assert not layer_lock or list_objects
+assert not layer_delete_member or (
+    layer_delete and artwork and list_objects and folder_create_tool and not (layer_delete_restore or
+    layer_folder_plan or embedded_jp or mixed_text_probe or text_edit)
+)
 assert not layer_delete_restore or layer_delete
 assert not layer_delete or (
-    list_objects and not (layer_create_blank or layer_duplicate or layer_reorder or artwork or layer_folders or
+    list_objects and not (layer_create_blank or layer_duplicate or layer_reorder or
+    (artwork and not layer_delete_member) or layer_folders or
     layer_state or layer_solo or layer_guide or layer_lock or renamed_roundtrip or locked_roundtrip or hidden_roundtrip)
 )
 assert not layer_create_blank or (
@@ -522,6 +528,32 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 data = reply["structuredContent"]
                 assert data["target"] == revision and data["nextOffset"] is None, data
                 return data["items"]
+        if layer_delete_member:
+            [rect_id, text_id] = [item[2] for item in made]
+            grouped_order = [source_layer, rect_id, text_id]
+            survivor_order = [source_layer, text_id]
+            group_name = "Synthetic Deletion Folder"
+            grouped = invoke("create_layer_folder", dict(
+                target=current, name=group_name, layerIds=grouped_order, folderIds=[]
+            ), "changed")
+            folder_id, current = grouped["folderId"], grouped["target"]
+            assert [x["layerId"] for x in list_exact(1820, current)] == grouped_order
+            original_graphs = [list_exact(1821+i, current, i) for i in range(3)]
+            request = dict(target=current, layerId=rect_id, confirmed=True)
+            next_id += 1
+            send(dict(id=next_id, method="tools/call",
+                      params={"name":"nect_test_delete_layer", "arguments":request}))
+            assert replies.get(timeout=12) is not None  # Discard acknowledgement.
+            observed = invoke("inspect", {}, "ok")["target"]
+            assert observed["projectRevision"] == current["projectRevision"] + 1
+            assert [x["layerId"] for x in list_exact(1824, observed)] == survivor_order
+            invoke("delete_layer", request, "stale-target", True)
+            undone = invoke("undo", {"target":observed}, "changed")["target"]
+            assert [x["layerId"] for x in list_exact(1825, undone)] == grouped_order
+            assert [list_exact(1826+i, undone, i) for i in range(3)] == original_graphs
+            current = invoke("redo", {"target":undone}, "changed")["target"]
+            assert [x["layerId"] for x in list_exact(1829, current)] == survivor_order
+        elif layer_delete:
             assert [x["layerId"] for x in list_exact(1800, current)] == [source_layer]
             original_nodes = list_exact(1801, current, 0)
             request = dict(target=current, layerId=source_layer, confirmed=True)
@@ -733,7 +765,11 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             invoke("reorder_layer", {**move, "target": current}, "stale-target", True)
             assert invoke("reorder_layer", {**move, "target": reopened}, "unchanged")["target"] == reopened
             assert layer_order(1505, reopened) == next_order
-        if layer_delete:
+        if layer_delete_member:
+            invoke("delete_layer", {**request, "target":current}, "stale-target", True)
+            assert [x["layerId"] for x in list_exact(1830, reopened)] == survivor_order
+            assert [list_exact(1831+i, reopened, i) for i in range(2)] == original_graphs[::2]
+        elif layer_delete:
             invoke("delete_layer", {**request, "target":current}, "stale-target", True)
             saved_layer = source_layer if layer_delete_restore else blank_id
             assert [x["layerId"] for x in list_exact(1808, reopened)] == [saved_layer]
@@ -838,7 +874,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                     del expected_folders[1]
                 assert comp["editor"]["layerFolders"] == expected_folders
                 assert [layer["id"] for layer in comp["layers"]] == [source_layer]
-            elif layer_delete and not layer_delete_restore:
+            elif layer_delete and not (layer_delete_restore or layer_delete_member):
                 assert digests[role] != expected[role+"SHA256"].lower(), role
                 if role == "copy":
                     snapshot = json.loads(data)
@@ -869,6 +905,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             snapshot=json.loads((artifacts/"live-api-project.json").read_bytes())
             [composition]=[x for x in snapshot["compositions"] if x["id"]==reopened["compositionId"]]
             for kind,point,layer_id,node_id in made:
+                if layer_delete_member and layer_id == rect_id:
+                    continue
                 [shape_layer]=[x for x in composition["layers"] if x["id"]==layer_id]
                 [shape]=[n for n in shape_layer["nodes"] if n["id"]==node_id]
                 assert shape["type"]==kind, shape["type"]
@@ -902,6 +940,15 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                     assert text_layer["solo"] is True and not text_layer["visible"]
                     labels = {n.attrib["data-layer"] for n in tree.iter() if "data-layer" in n.attrib}
                     assert labels == {rect["name"]}, labels
+                if layer_delete_member:
+                    assert [l["id"] for l in composition["layers"]] == survivor_order
+                    assert composition["editor"]["layerFolders"] == [
+                        dict(id=folder_id, name=group_name, members=[dict(layerId=l) for l in survivor_order])
+                    ]
+                    expected_labels = [l["name"] for l in composition["layers"]]
+                    assert len(set(expected_labels)) == 2
+                    labels = list(dict.fromkeys(n.attrib["data-layer"] for n in tree.iter() if "data-layer" in n.attrib))
+                    assert labels == expected_labels, labels
                 if layer_folder_plan:
                     assert [l["id"] for l in composition["layers"]] == planned_order
                     assert composition["editor"]["layerFolders"] == [
@@ -1014,7 +1061,13 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             evidence["layerState"] = "exact stored flags before edit, after edit and reopen; stale and unsupported IDs rejected; revision unchanged by reads"
         if layer_create_blank:
             evidence["blankLayer"] = "one empty Output created; dropped reply reconciled by listing; stale replay refused; Undo/Redo, reopened IDs and byte-identical baseline SVG/PNG"
-        if layer_delete:
+        if layer_delete_member:
+            evidence["folderMemberDeletion"] = dict(
+                folderId=folder_id, removedLayerId=rect_id, survivorIds=survivor_order,
+                discardedReplyReconciledByID=True, oldRequestRefused=True,
+                undoRestoredAllGraphs=True, redoAndReopenRetainedMembershipAndSvgOrder=True,
+            )
+        elif layer_delete:
             evidence["layerDeletion"] = dict(
                 discardedReplyReconciledByID=True, oldLayerId=source_layer, blankLayerId=blank_id,
                 oldRequestRefused=True, undoRestoredOriginalGraph=True,
