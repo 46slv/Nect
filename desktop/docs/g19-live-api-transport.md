@@ -204,6 +204,14 @@ unsigned, so do not accept it as release identity. An installed pairing
 pilot needs an approved trust source, e.g. a verified
 [Windows PE signature](https://learn.microsoft.com/en-us/windows/win32/seccrypto/example-c-program--verifying-the-signature-of-a-pe-file)
 plus an expected publisher and role, before any document traffic.
+The development-only verify-pe-publisher.c checks a Windows trust result
+and an independently supplied exact signing-certificate SHA-256. Do not
+derive the expected value from the peer being accepted. Its Windows proof
+distinguished a known signed development dependency, the wrong certificate,
+and the unsigned Nect candidate without network revocation fetches. This
+validates the check, not any Nect release identity. An absent release trust
+anchor, unavailable trust, wrong role, or unverifiable running image still
+means no document may be shared.
 
 First acceptance is Inspect once: a standard MCP client can initialize
 without sharing any document; a specific native consent in the already-open
