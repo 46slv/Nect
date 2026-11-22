@@ -62,6 +62,30 @@ export function readLiveEditorObjects(
   return fitsFrame(page) ? page : { status: 'unavailable' };
 }
 
+// Stored flags of one authored layer (not render/effective visibility).
+// Keep the existing paged artwork.list response stable.
+export function readLiveLayerState({ readTarget, readDocument }, { target, layerId }) {
+  if (!validId(layerId)) return { status: 'invalid-arguments' };
+  const current = captureEditorTarget(readTarget());
+  if (!editorTargetMatches(current, target)) return { status: 'stale-target' };
+  const layers = readDocument()?.layers;
+  if (!Array.isArray(layers)) return { status: 'unavailable' };
+  const [layer, duplicate] = layers.filter((entry) => entry?.id === layerId);
+  if (!editorTargetMatches(readTarget(), current)) return { status: 'stale-target' };
+  if (!layer) return { status: 'unsupported-target' };
+  if (duplicate) return { status: 'unavailable' };
+  const reply = {
+    status: 'ok',
+    target: current,
+    layerId,
+    visible: layer.visible !== false,
+    locked: layer.locked === true,
+    guide: layer.guide === true,
+    solo: layer.solo === true,
+  };
+  return fitsFrame(reply) ? reply : { status: 'unavailable' };
+}
+
 // Authored parameter wires only; expressions, computed dependencies and
 // references to other documents are deliberately outside this projection.
 export function readLiveNodeInputWires(

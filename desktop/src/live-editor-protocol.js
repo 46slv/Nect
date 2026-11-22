@@ -27,6 +27,7 @@ export function createLiveEditorProtocol({
   readTarget,
   canInspect = () => true,
   listArtwork,
+  readLayerState,
   listLayerFolders,
   createLayerFolder,
   renameLayerFolder,
@@ -76,6 +77,15 @@ export function createLiveEditorProtocol({
         return { status: 'invalid-arguments' };
       try {
         return listArtwork(args);
+      } catch {
+        return { status: 'unavailable' };
+      }
+    }
+    if (readLayerState && request.operation === 'layer.state') {
+      if (!closed(args, ['target', 'layerId']) || !validTarget(args.target) || !id(args.layerId))
+        return { status: 'invalid-arguments' };
+      try {
+        return readLayerState(args);
       } catch {
         return { status: 'unavailable' };
       }

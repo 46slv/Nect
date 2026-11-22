@@ -65,6 +65,7 @@ import {
   readLiveEditorObjects,
   readLiveLayerFolders,
   readLiveNodeInputWires,
+  readLiveLayerState,
 } from './live-editor-objects.js';
 import {
   createLiveLayerLock,
@@ -19575,6 +19576,14 @@ if (
       setBlendSteps: liveBlendSteps,
       setBlendMode: liveBlendMode,
       setBlendInput: liveBlendInput,
+      readLayerState: (args) =>
+        readLiveLayerState(
+          {
+            readTarget: readLiveEditorTarget,
+            readDocument: () => (documents.transitioning ? null : history.doc),
+          },
+          args,
+        ),
       readNodeInputWires: (args) =>
         readLiveNodeInputWires(
           {
