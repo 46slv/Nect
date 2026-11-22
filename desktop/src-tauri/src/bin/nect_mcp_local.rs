@@ -7,6 +7,15 @@ use std::io::{self, BufRead, Write};
 #[path = "../live_editor_frames.rs"]
 mod frames;
 
+#[cfg(windows)]
+#[allow(dead_code)]
+#[path = "../live_inspect_windows_pipe.rs"]
+mod local_pipe;
+#[cfg(windows)]
+#[allow(dead_code)]
+#[path = "../live_mcp_pairing_offer.rs"]
+mod pairing_offer;
+
 const REVISION: &str = "2025-06-18";
 const INSPECT: &str = "nect_inspect";
 
@@ -110,8 +119,67 @@ fn run(mut requests: impl BufRead, mut replies: impl Write) -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
+struct FixtureWindow {
+    stop: std::sync::mpsc::Sender<()>,
+    owner: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg(windows)]
+impl FixtureWindow {
+    fn start() -> io::Result<Self> {
+        // A developer must start a separate process with the exact fixture
+        // flag from a controlled working directory. MCP requests cannot open
+        // this window. It does not attach or read from any peer.
+        let parent = std::env::current_dir()?.canonicalize()?;
+        let dir = tempfile::Builder::new()
+            .prefix("nect-mcp-pairing-fixture-")
+            .tempdir_in(parent)?;
+        let (sid, offer) = pairing_offer::windows_seed()
+            .map_err(|_| io::Error::other("Windows pairing identity unavailable"))?;
+        let idle_pipe = local_pipe::LocalReadPipe::create_pairing(offer.ticket(), &sid)?;
+        let offer_file = pairing_offer::write_selected_offer(dir.path(), &sid, &offer)?;
+        let (stop, stop_signal) = std::sync::mpsc::channel();
+        let owner = std::thread::Builder::new()
+            .name("pairing-fixture-owner".into())
+            .spawn(move || {
+                // A live MCP client may keep stdin open. Revoke independently.
+                let _ = stop_signal.recv_timeout(std::time::Duration::from_secs(10));
+                drop(offer_file);
+                drop(idle_pipe);
+                drop(dir);
+            })?;
+        Ok(Self {
+            stop,
+            owner: Some(owner),
+        })
+    }
+}
+
+#[cfg(windows)]
+impl Drop for FixtureWindow {
+    fn drop(&mut self) {
+        let _ = self.stop.send(());
+        if let Some(owner) = self.owner.take() {
+            let _ = owner.join();
+        }
+    }
+}
+
 fn main() -> io::Result<()> {
-    run(io::stdin().lock(), io::stdout().lock())
+    let mut args = std::env::args_os().skip(1);
+    match (args.next(), args.next()) {
+        (None, None) => run(io::stdin().lock(), io::stdout().lock()),
+        #[cfg(windows)]
+        (Some(flag), None) if flag == "--verify-pairing-window" => {
+            let _window = FixtureWindow::start()?;
+            run(io::stdin().lock(), io::stdout().lock())
+        }
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Unsupported mode",
+        )),
+    }
 }
 
 #[cfg(test)]

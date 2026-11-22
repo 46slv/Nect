@@ -267,6 +267,21 @@ impl LocalReadPipe {
             .ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidInput, "Invalid endpoint identity")
             })?;
+        Self::create_named(&name, logon)
+    }
+
+    #[cfg(feature = "live-mcp-pairing")]
+    pub(crate) fn create_pairing(id: &str, logon: &str) -> io::Result<Self> {
+        if endpoint_name(id).is_none() || !logon_sid(logon) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Invalid pairing identity",
+            ));
+        }
+        Self::create_named(&format!(r"\\.\pipe\NectPairLocal-{id}"), logon)
+    }
+
+    fn create_named(name: &str, logon: &str) -> io::Result<Self> {
         let mut descriptor = null_mut();
         // FILE_GENERIC_READ with FILE_WRITE_DATA, not FILE_APPEND_DATA /
         // FILE_CREATE_PIPE_INSTANCE. The remote-client flag is independent.
@@ -289,7 +304,7 @@ impl LocalReadPipe {
         };
         let raw = unsafe {
             CreateNamedPipeW(
-                wide(&name).as_ptr(),
+                wide(name).as_ptr(),
                 PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE | FILE_FLAG_OVERLAPPED,
                 PIPE_REJECT_REMOTE_CLIENTS,
                 1,

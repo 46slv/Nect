@@ -50,7 +50,7 @@ impl LocalPairingOffer {
     }
 }
 
-#[cfg(all(test, windows, feature = "live-mcp-pairing"))]
+#[cfg(all(windows, feature = "live-mcp-pairing"))]
 pub(crate) fn windows_seed() -> Result<(String, LocalPairingOffer), InvalidOffer> {
     extern "C" {
         fn nect_pairing_seed(sid: *mut u16, capacity: u32, nonce: *mut u8) -> i32;
@@ -146,8 +146,8 @@ mod tests {
     }
 }
 
-#[cfg(all(test, windows, feature = "live-mcp-pairing"))]
-fn write_selected_offer(
+#[cfg(all(windows, feature = "live-mcp-pairing"))]
+pub(crate) fn write_selected_offer(
     owned_root: &std::path::Path,
     logon_sid: &str,
     offer: &LocalPairingOffer,

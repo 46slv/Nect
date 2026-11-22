@@ -206,10 +206,19 @@ logon, or token by itself is not sufficient for the ordinary route.
 
 The opt-in nect-mcp-local executable currently starts only the
 [MCP stdio protocol](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports).
-It advertises one no-argument Inspect tool and returns pairing-required;
-it does not create an offer, start an endpoint, launch an editor, or read
-files or document data. The ordinary editor remains the default build and
-does not package this candidate. The local development executable is
+It advertises one no-argument Inspect tool and returns pairing-required.
+Ordinary invocation does not issue an offer or create an endpoint. An
+explicit developer-only --verify-pairing-window invocation creates an
+idle one-instance local endpoint and its temporary offer in a fresh
+fixture directory. A ten-second independent deadline or stdio exit
+removes both. The Windows helper process kept serving MCP after the
+fixture expired, without returning a document. An ordinary Python reader
+could not open the delete-on-close file; the native reader must share
+read, write and delete explicitly, read bounded bytes and close promptly.
+This mode never dispatches a peer connection, launches an editor or
+reads document data; it is not available from an MCP tool request. The
+ordinary editor remains the default build and does not package this
+candidate. The local development executable is
 unsigned, so do not accept it as release identity. An installed pairing
 pilot needs an approved trust source, e.g. a verified
 [Windows PE signature](https://learn.microsoft.com/en-us/windows/win32/seccrypto/example-c-program--verifying-the-signature-of-a-pe-file)
