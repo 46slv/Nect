@@ -211,6 +211,16 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_CREATE") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "layerFolders.create"
+if os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_RENAME") == "1":
+    name = "nect_test_rename_layer_folder"
+    label = {"type":"string","minLength":1,"maxLength":100}
+    TOOLS.append({
+        "name": name,
+        "description": "Rename one exact Folder in the isolated fixture if the expected name matches",
+        "inputSchema": schema(dict(target=target, folderId=ident, expectedName=label, name=label)),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "layerFolders.rename"
 if PREVIEW_ONLY:
     TOOLS = [{
         "name": "nect_test_inspect",
