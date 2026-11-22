@@ -42,6 +42,7 @@ export function createLiveEditorProtocol({
   canInspect = () => true,
   listArtwork,
   readNodeInputWires,
+  setLayerVisibility,
   setBlendDistance,
   setBlendSteps,
   setBlendMode,
@@ -99,6 +100,23 @@ export function createLiveEditorProtocol({
         return readNodeInputWires(args);
       } catch {
         return { status: 'unavailable' };
+      }
+    }
+    if (setLayerVisibility && request.operation === 'layer.setVisibility') {
+      if (
+        !closed(args, ['target', 'layerId', 'visible']) ||
+        !validTarget(args.target) ||
+        !id(args.layerId) ||
+        typeof args.visible !== 'boolean'
+      )
+        return { status: 'invalid-arguments' };
+      try {
+        const { status } = setLayerVisibility(args);
+        return status === 'changed' || status === 'unchanged'
+          ? { status, target: captureEditorTarget(readTarget()) }
+          : { status };
+      } catch {
+        return { status: 'outcome-unknown' };
       }
     }
     if (

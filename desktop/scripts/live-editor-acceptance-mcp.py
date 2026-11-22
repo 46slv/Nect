@@ -146,6 +146,15 @@ if os.environ.get("NECT_ACCEPTANCE_GRAPH_WIRES") == "1":
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     })
     OPERATIONS[name] = "graph.inputWires"
+if os.environ.get("NECT_ACCEPTANCE_LAYER_VISIBILITY") == "1":
+    name = "nect_test_set_layer_visibility"
+    TOOLS.append({
+        "name": name,
+        "description": "Explicitly set the visibility of one layer in the isolated fixture",
+        "inputSchema": schema(dict(target=target, layerId=ident, visible={"type": "boolean"})),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "layer.setVisibility"
 if PREVIEW_ONLY:
     TOOLS = [{
         "name": "nect_test_inspect",

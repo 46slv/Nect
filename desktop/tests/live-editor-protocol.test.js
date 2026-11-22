@@ -256,3 +256,31 @@ test('authored node wires require a fixed target, ids and cursor on an opt-in re
   assert.deepEqual(handler(packet), { status: 'stale-target' });
   assert.deepEqual(handler(packet), { status: 'unavailable' });
 });
+
+test('set layer visibility is an opt-in exact-value editor operation, not a general layer command', () => {
+  const args = { target, layerId: 'layer', visible: false };
+  const packet = request('layer.setVisibility', args);
+  const host = { readTarget: () => target };
+  assert.deepEqual(createLiveEditorProtocol(host)(packet), { status: 'unsupported-operation' });
+  let calls = 0;
+  const handler = createLiveEditorProtocol({
+    ...host,
+    setLayerVisibility: (input) => {
+      assert.deepEqual(input, args);
+      if (++calls === 2) throw Error('private failure');
+      return { status: 'changed', receipt: { private: true } };
+    },
+  });
+  for (const input of [
+    { ...args, key: 'locked' },
+    { ...args, visible: 'false' },
+    { ...args, layerId: '' },
+    { ...args, target: {} },
+  ])
+    assert.deepEqual(handler(request('layer.setVisibility', input)), {
+      status: 'invalid-arguments',
+    });
+  assert.equal(calls, 0);
+  assert.deepEqual(handler(packet), { status: 'changed', target });
+  assert.deepEqual(handler(packet), { status: 'outcome-unknown' });
+});
