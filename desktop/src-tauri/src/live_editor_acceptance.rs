@@ -31,10 +31,11 @@ mod inspect_channel {
     }
 
     struct State {
-        channel: Option<Channel<serde_json::Value>>,
+        channel: Option<(u64, Channel<serde_json::Value>)>,
+        binding_epoch: u64,
         gate: ReadAdmission,
         slot: InspectSlot,
-        pending: Option<(ReadGrant, mpsc::SyncSender<String>)>,
+        pending: Option<(u64, ReadGrant, mpsc::SyncSender<String>)>,
     }
 
     impl Default for Lane {
@@ -43,6 +44,7 @@ mod inspect_channel {
                 clock: Instant::now(),
                 state: Mutex::new(State {
                     channel: None,
+                    binding_epoch: 0,
                     // Exactly one synthetic app instance; no production credentials.
                     gate: ReadAdmission::new(1),
                     slot: InspectSlot::default(),
@@ -57,15 +59,33 @@ mod inspect_channel {
             self.clock.elapsed().as_millis() as u64
         }
 
-        pub(super) fn attach(&self, channel: Channel<serde_json::Value>) -> bool {
+        pub(super) fn attach(&self, channel: Channel<serde_json::Value>) -> Option<u64> {
+            let mut state = self.state.lock().ok()?;
+            if state.channel.is_some() {
+                return None;
+            }
+            let epoch = state
+                .binding_epoch
+                .checked_add(1)
+                .filter(|epoch| *epoch <= 9_007_199_254_740_991)?;
+            state.gate.enable().ok()?;
+            state.gate.set_ready(true);
+            state.binding_epoch = epoch;
+            state.channel = Some((epoch, channel));
+            Some(epoch)
+        }
+
+        pub(super) fn detach(&self, epoch: u64) -> bool {
             let Ok(mut state) = self.state.lock() else {
                 return false;
             };
-            if state.channel.is_some() || state.gate.enable().is_err() {
+            if state.channel.as_ref().map(|(id, _)| *id) != Some(epoch) {
                 return false;
             }
-            state.gate.set_ready(true);
-            state.channel = Some(channel);
+            state.gate.disable();
+            state.slot.discard();
+            state.pending = None;
+            state.channel = None;
             true
         }
 
@@ -79,22 +99,24 @@ mod inspect_channel {
                 std::thread::sleep(Duration::from_millis(10));
             }
             let (tx, rx) = mpsc::sync_channel(1);
-            {
+            let request = {
                 let mut state = self.state.lock().ok()?;
                 let State {
                     channel,
                     gate,
                     slot,
                     pending,
+                    ..
                 } = &mut *state;
                 if pending.is_some() {
                     return None;
                 }
-                let channel = channel.as_ref()?;
+                let (_, channel) = channel.as_ref()?;
                 let now = self.now();
                 let grant = gate.issue(now, now + 4000).ok()?;
                 let prepare = slot.prepare(gate, &grant, now).ok()?;
                 let publish = slot.publish(gate, &grant, now, prepare.request_id).ok()?;
+                let request = prepare.request_id;
                 if channel
                     .send(serde_json::json!(prepare))
                     .and_then(|_| channel.send(serde_json::json!(publish)))
@@ -105,32 +127,39 @@ mod inspect_channel {
                     }
                     return None;
                 }
-                *pending = Some((grant, tx));
-            }
+                *pending = Some((request, grant, tx));
+                request
+            };
             let reply = rx.recv_timeout(Duration::from_secs(4)).ok();
             if reply.is_none() {
                 let mut state = self.state.lock().ok()?;
-                state.pending = None;
-                if let Some(discard) = state.slot.discard() {
-                    if let Some(channel) = &state.channel {
-                        let _ = channel.send(serde_json::json!(discard));
+                if state.pending.as_ref().map(|(id, _, _)| *id) == Some(request) {
+                    state.pending = None;
+                    if let Some(discard) = state.slot.discard() {
+                        if let Some((_, channel)) = &state.channel {
+                            let _ = channel.send(serde_json::json!(discard));
+                        }
                     }
                 }
             }
             reply
         }
 
-        pub(super) fn respond(&self, id: u64, receipt: &str) -> bool {
+        pub(super) fn respond(&self, epoch: u64, id: u64, receipt: &str) -> bool {
             let Ok(mut state) = self.state.lock() else {
                 return false;
             };
             let State {
+                channel,
                 gate,
                 slot,
                 pending,
                 ..
             } = &mut *state;
-            let Some((grant, _)) = pending.as_ref() else {
+            if channel.as_ref().map(|(id, _)| *id) != Some(epoch) {
+                return false;
+            }
+            let Some((_, grant, _)) = pending.as_ref() else {
                 return false;
             };
             let Ok(reply) = slot.receive(gate, grant, self.now(), id, receipt.as_bytes()) else {
@@ -141,7 +170,63 @@ mod inspect_channel {
             };
             pending
                 .take()
-                .is_some_and(|(_, sender)| sender.try_send(serialized).is_ok())
+                .is_some_and(|(_, _, sender)| sender.try_send(serialized).is_ok())
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use tauri::ipc::InvokeResponseBody;
+
+        fn capture() -> (
+            Channel<serde_json::Value>,
+            mpsc::Receiver<serde_json::Value>,
+        ) {
+            let (tx, rx) = mpsc::channel();
+            let channel = Channel::new(move |body| {
+                if let InvokeResponseBody::Json(json) = body {
+                    tx.send(serde_json::from_str(&json).unwrap()).unwrap();
+                }
+                Ok(())
+            });
+            (channel, rx)
+        }
+
+        fn published(rx: &mpsc::Receiver<serde_json::Value>) -> u64 {
+            let prepare = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            let publish = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            assert_eq!(prepare["phase"], "prepare");
+            assert_eq!(publish["phase"], "publish");
+            assert_eq!(prepare["requestId"], publish["requestId"]);
+            publish["requestId"].as_u64().unwrap()
+        }
+
+        #[test]
+        fn closes_pending_and_rebind_ignores_old_epoch_and_receipts() {
+            let lane = Lane::default();
+            let (first, frames) = capture();
+            let old_epoch = lane.attach(first).unwrap();
+            let (second, new_frames) = capture();
+            const EMPTY: &str = r#"{"status":"unavailable"}"#;
+            std::thread::scope(|scope| {
+                let old_reply = scope.spawn(|| lane.inspect());
+                let old_id = published(&frames);
+                assert!(lane.detach(old_epoch));
+                let new_epoch = lane.attach(second).unwrap();
+                assert_ne!(new_epoch, old_epoch);
+                let new_reply = scope.spawn(|| lane.inspect());
+                let id = published(&new_frames);
+                assert_ne!(id, old_id);
+                assert!(old_reply.join().unwrap().is_none());
+                assert!(!lane.detach(old_epoch));
+                assert!(!lane.respond(old_epoch, id, EMPTY));
+                assert!(!lane.respond(new_epoch, old_id, EMPTY));
+                assert!(lane.respond(new_epoch, id, EMPTY));
+                assert!(!lane.respond(new_epoch, id, EMPTY));
+                assert_eq!(new_reply.join().unwrap().as_deref(), Some(EMPTY));
+                assert!(lane.detach(new_epoch));
+            });
         }
     }
 }
@@ -217,10 +302,10 @@ pub(crate) fn live_acceptance_inspect_attach(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, LiveAcceptance>,
     channel: tauri::ipc::Channel<serde_json::Value>,
-) -> Result<bool, &'static str> {
+) -> Result<Option<u64>, &'static str> {
     admitted(&state, window.label())?;
     #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
-    return Ok(state.1.as_ref().is_some_and(|lane| lane.attach(channel)));
+    return Ok(state.1.as_ref().and_then(|lane| lane.attach(channel)));
     #[cfg(not(all(windows, feature = "live-editor-acceptance-test")))]
     {
         let _ = channel;
@@ -229,9 +314,26 @@ pub(crate) fn live_acceptance_inspect_attach(
 }
 
 #[tauri::command]
+pub(crate) fn live_acceptance_inspect_detach(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, LiveAcceptance>,
+    epoch: u64,
+) -> Result<bool, &'static str> {
+    admitted(&state, window.label())?;
+    #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
+    return Ok(state.1.as_ref().is_some_and(|lane| lane.detach(epoch)));
+    #[cfg(not(all(windows, feature = "live-editor-acceptance-test")))]
+    {
+        let _ = epoch;
+        Err("Live editor test disabled")
+    }
+}
+
+#[tauri::command]
 pub(crate) fn live_acceptance_inspect_reply(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, LiveAcceptance>,
+    epoch: u64,
     id: u64,
     receipt: String,
 ) -> Result<bool, &'static str> {
@@ -240,10 +342,10 @@ pub(crate) fn live_acceptance_inspect_reply(
     return Ok(state
         .1
         .as_ref()
-        .is_some_and(|lane| lane.respond(id, &receipt)));
+        .is_some_and(|lane| lane.respond(epoch, id, &receipt)));
     #[cfg(not(all(windows, feature = "live-editor-acceptance-test")))]
     {
-        let _ = (id, receipt);
+        let _ = (epoch, id, receipt);
         Err("Live editor test disabled")
     }
 }

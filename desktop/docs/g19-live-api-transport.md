@@ -58,10 +58,15 @@ consumes that capture once only if document generation and revisions still
 match. WebView replacement or closing the read session invalidates that ID.
 Rust validates the reply shape and the current grant again before delivery.
 
-The isolated Windows acceptance build currently exercises the renderer's
-capture and the Rust reply shape. It does not wire the normal channel,
-exercise interactive tab changes during publication, or prove client grants
-on this path. Keep the first normal-channel verification in-process with a
+The isolated Windows acceptance build exercises a real Tauri Channel and the
+Rust reply shape. It does not wire the normal channel, exercise interactive
+tab changes during publication, or prove client grants on this path. Native
+rebind must not revive old requests or let an old renderer close the current
+binding. For the normal app, native WebView replacement and explicit disable
+must be authoritative; renderer pagehide is only a best-effort signal. A
+renderer reply already in transit is not proof that the target is still current.
+An edit must independently validate its requested generation and revisions at
+dispatch. Keep the first normal-channel verification in-process with a
 synthetic document: denied when disabled; accepted when enabled; stale on
 switch, reload, or revocation; exact unchanged document and history. An
 external transport or Hermes registration is a separate change.

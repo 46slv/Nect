@@ -19522,15 +19522,26 @@ if (
     if (closeInputBlocked()) return;
     await window.nect.load(await invoke('live_acceptance_fixture'));
     const channel = new Channel();
+    // A request may arrive during the attach round trip. The reply waits for the
+    // exact native binding epoch, rather than guessing from the WebView label.
+    const binding = invoke('live_acceptance_inspect_attach', { channel });
+    let inspectionOpen = true;
     const detach = inspection.attach(channel, (id, reply) => {
-      void invoke('live_acceptance_inspect_reply', { id, receipt: JSON.stringify(reply) })
+      void binding.then((epoch) => inspectionOpen && epoch && invoke('live_acceptance_inspect_reply',
+        { epoch, id, receipt: JSON.stringify(reply) }))
         .catch((error) => console.error('Isolated inspection reply stopped', error));
     });
-    if (!detach || !(await invoke('live_acceptance_inspect_attach', { channel }))) {
+    const closeInspection = () => {
+      inspectionOpen = false;
       detach?.();
+      void binding.then((epoch) => epoch && invoke('live_acceptance_inspect_detach', { epoch }))
+        .catch(() => {});
+    };
+    window.addEventListener('pagehide', closeInspection, { once: true });
+    if (!detach || !(await binding)) {
+      closeInspection();
       throw new Error('Isolated inspection channel unavailable');
     }
-    window.addEventListener('pagehide', detach, { once: true });
     while (Date.now() < deadline) {
       const request = await invoke('live_acceptance_claim');
       if (!request) {
