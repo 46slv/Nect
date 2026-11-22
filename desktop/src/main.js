@@ -74,6 +74,7 @@ import {
 import { createLiveLayerReorder } from './live-layer-reorder.js';
 import { createLiveLayerDuplicate } from './live-layer-duplicate.js';
 import { createLiveLayerFolder } from './live-layer-folder-create.js';
+import { createLiveLayerFolderDissolve } from './live-layer-folder-dissolve.js';
 import { createLiveLayerFolderRename } from './live-layer-folder-rename.js';
 import { createLiveLayerFolderMembership } from './live-layer-folder-membership.js';
 import { createLiveArtworkCreation } from './live-artwork-creation.js';
@@ -19594,6 +19595,11 @@ if (
           liveBlendHost.isEditBlocked() || closeInputBlocked() || Boolean(nameEdit),
       }),
       setLayerFolderMembership: createLiveLayerFolderMembership({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() || closeInputBlocked() || Boolean(nameEdit),
+      }),
+      dissolveLayerFolder: createLiveLayerFolderDissolve({
         ...liveBlendHost,
         isEditBlocked: () =>
           liveBlendHost.isEditBlocked() || closeInputBlocked() || Boolean(nameEdit),

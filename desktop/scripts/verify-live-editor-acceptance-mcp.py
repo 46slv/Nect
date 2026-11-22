@@ -26,6 +26,7 @@ layer_folders = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDERS") == "1"
 create_layer_folder = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_CREATE") == "1"
 rename_layer_folder = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_RENAME") == "1"
 change_folder_membership = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_MEMBERSHIP") == "1"
+dissolve_layer_folder = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_DISSOLVE") == "1"
 renamed_roundtrip = os.environ.get("NECT_ACCEPTANCE_RENAMED_ROUNDTRIP") == "1"
 locked_roundtrip = os.environ.get("NECT_ACCEPTANCE_LOCKED_ROUNDTRIP") == "1"
 hidden_roundtrip = os.environ.get("NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP") == "1"
@@ -33,6 +34,7 @@ artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
 mixed_text_probe = os.environ.get("NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE") == "1"
 embedded_jp = os.environ.get("NECT_SVG_ACCEPTANCE_JP_FIXTURE") == "1"
+assert not dissolve_layer_folder or (create_layer_folder and not change_folder_membership)
 assert not change_folder_membership or (layer_folders and not (artwork or hidden_roundtrip or locked_roundtrip or
     renamed_roundtrip or rename_layer_folder or create_layer_folder))
 assert not rename_layer_folder or (layer_folders and not (artwork or hidden_roundtrip or locked_roundtrip or renamed_roundtrip))
@@ -114,8 +116,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_rename_layer_folder")
         if change_folder_membership:
             extra.append("nect_test_change_layer_folder_membership")
+        if dissolve_layer_folder:
+            extra.append("nect_test_dissolve_layer_folder")
         assert [t["name"] for t in listed["tools"]] == ["nect_test_inspect", "nect_test_set_blend_distance", "nect_test_export_svg", "nect_test_export_png", "nect_test_save_copy", "nect_test_reopen_copy", "nect_test_undo", "nect_test_redo","nect_test_save_state","nect_test_save_receipt","nect_test_save_as"] + extra
-        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects) - int(graph_wires) - int(layer_visibility) - int(layer_lock) - int(layer_rename) - int(layer_reorder) - int(layer_duplicate) - int(layer_folders) - int(create_layer_folder) - int(rename_layer_folder) - int(change_folder_membership)) + [True] * (int(list_objects) + int(graph_wires)) + [False] * (int(layer_visibility) + int(layer_lock) + int(layer_rename) + int(layer_reorder) + int(layer_duplicate)) + [True] * int(layer_folders) + [False] * (int(create_layer_folder) + int(rename_layer_folder) + int(change_folder_membership))
+        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects) - int(graph_wires) - int(layer_visibility) - int(layer_lock) - int(layer_rename) - int(layer_reorder) - int(layer_duplicate) - int(layer_folders) - int(create_layer_folder) - int(rename_layer_folder) - int(change_folder_membership) - int(dissolve_layer_folder)) + [True] * (int(list_objects) + int(graph_wires)) + [False] * (int(layer_visibility) + int(layer_lock) + int(layer_rename) + int(layer_reorder) + int(layer_duplicate)) + [True] * int(layer_folders) + [False] * (int(create_layer_folder) + int(rename_layer_folder) + int(change_folder_membership) + int(dissolve_layer_folder))
         start = call(3, "tools/call", name="nect_test_inspect", arguments={})
         assert not start["isError"], start
         target = start["structuredContent"]["target"]
@@ -446,6 +450,23 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             assert invoke("list_layer_folders",{"target":redone,"offset":0},"ok")["items"] == folder_items
             current = invoke("undo",{"target":redone},"changed")["target"]
             folder_items = added_items
+        if dissolve_layer_folder:
+            dissolve = dict(target=current,folderId="fixture-folder-child")
+            invoke("dissolve_layer_folder",{**dissolve,"deleteChildren":True},"invalid-arguments",True)
+            invoke("dissolve_layer_folder",{**dissolve,"folderId":"absent"},"unsupported-target",True)
+            assert invoke("inspect",{},"ok")["target"] == current
+            dissolved = invoke("dissolve_layer_folder",dissolve,"changed")["target"]
+            assert dissolved["projectRevision"] == current["projectRevision"] + 1
+            promoted = [folder_items[0],
+                        dict(kind="folder",folderId=created_folder,parentFolderId="fixture-folder-parent"),
+                        folder_items[-1]]
+            assert invoke("list_layer_folders",{"target":dissolved,"offset":0},"ok")["items"] == promoted
+            invoke("dissolve_layer_folder",dissolve,"stale-target",True)
+            undone = invoke("undo",{"target":dissolved},"changed")["target"]
+            assert invoke("list_layer_folders",{"target":undone,"offset":0},"ok")["items"] == folder_items
+            current = invoke("redo",{"target":undone},"changed")["target"]
+            assert invoke("list_layer_folders",{"target":current,"offset":0},"ok")["items"] == promoted
+            folder_items = promoted
         state=invoke("save_state",{},"ok")
         assert state==dict(status="ok",saveEpoch=0,dirty=True,pending=False)
         k="save_as_fault_01"
@@ -564,6 +585,9 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 if change_folder_membership:
                     expected_folders = [dict(id="fixture-folder-flat", name="Synthetic Flat",
                                              members=[dict(layerId=source_layer)])]
+                if dissolve_layer_folder:
+                    expected_folders[2]["parentId"] = "fixture-folder-parent"
+                    del expected_folders[1]
                 assert comp["editor"]["layerFolders"] == expected_folders
                 assert [layer["id"] for layer in comp["layers"]] == [source_layer]
             elif layer_duplicate:
@@ -679,6 +703,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             evidence["layerFolderRename"] = "same ID and topology; old name and revision guarded; Undo/Redo and reopen verified"
         if change_folder_membership:
             evidence["layerFolderMembership"] = "add and remove one root layer; stale request rejected; Undo/Redo and reopen verified without paint-order change"
+        if dissolve_layer_folder:
+            evidence["layerFolderDissolve"] = "one intermediate folder dissolved; nested child and authored layer preserved; exact replay stale; Undo/Redo and reopen verified"
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))

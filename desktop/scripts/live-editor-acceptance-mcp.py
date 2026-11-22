@@ -231,6 +231,15 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_MEMBERSHIP") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "layerFolders.changeMembership"
+if os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_DISSOLVE") == "1":
+    name = "nect_test_dissolve_layer_folder"
+    TOOLS.append({
+        "name": name,
+        "description": "Ungroup one Folder in the isolated fixture, preserving all artwork",
+        "inputSchema": schema(dict(target=target, folderId=ident)),
+        "annotations": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "layerFolders.dissolve"
 if PREVIEW_ONLY:
     TOOLS = [{
         "name": "nect_test_inspect",
