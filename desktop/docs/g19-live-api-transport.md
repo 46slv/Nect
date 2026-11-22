@@ -22,15 +22,15 @@ Keep command behavior and connection availability separate. A checked fixture
 does not put that operation into the ordinary app. Expand the catalog through
 shared Session commands and compare GUI outcomes on the same starting state.
 
-| Workflow                   | Verified in the Windows fixture                                                                          | Still needed for the 1.0 goal                                                                               |
-| -------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Inspect and discover       | Existing editor identity, bounded layer/node enumeration, stale-target rejection                         | Ordinary-app Inspect with approved exact client, then bounded listing through that same grant               |
-| Basic creation             | Rectangle and Text; other supported shape types are listed by the narrow creation contract               | Verified create/edit/delete and positioning coverage across the 1.0 shape set and layer hierarchy           |
-| Text                       | Content, undo/redo, and persistence for the bundled Japanese sample and Meiryo Regular                   | Font/style selection, Typography settings and composition-sensitive editing with the same rules as GUI      |
-| Blend and graph            | Read spacing; change mode/spacing and replace or detach eligible same-layer inputs via shared commands   | General node and port discovery, graph operations outside Blend, and equivalent GUI/API verification        |
-| Layer properties and order | Visibility, lock, rename and stable-ID reorder through shared commands; changed state persists on reopen | Scene selection, creation/deletion/duplication and folder hierarchy; complete Solo and multi-layer behavior |
-| Appearance and reuse       | Existing GUI Session commands are the starting point, not proof of API parity                            | Color, effects, macros and shared assets must be usable from the same document model                        |
-| History, save and export   | Undo/redo, a fixed-path Save As receipt replay, exact copy reopen, SVG/PNG                               | Ordinary UI destination consent, scoped write permission and disconnection/outcome checks                   |
+| Workflow                   | Verified in the Windows fixture                                                                                 | Still needed for the 1.0 goal                                                                          |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Inspect and discover       | Existing editor identity, bounded layer/node enumeration, stale-target rejection                                | Ordinary-app Inspect with approved exact client, then bounded listing through that same grant          |
+| Basic creation             | Rectangle and Text; other supported shape types are listed by the narrow creation contract                      | Verified create/edit/delete and positioning coverage across the 1.0 shape set and layer hierarchy      |
+| Text                       | Content, undo/redo, and persistence for the bundled Japanese sample and Meiryo Regular                          | Font/style selection, Typography settings and composition-sensitive editing with the same rules as GUI |
+| Blend and graph            | Read spacing; change mode/spacing and replace or detach eligible same-layer inputs via shared commands          | General node and port discovery, graph operations outside Blend, and equivalent GUI/API verification   |
+| Layer properties and order | Visibility, lock, rename, reorder, duplicate, folder topology and nested folder creation; persistence on reopen | Scene selection, ordinary layer creation/deletion, other folder edits, Solo and multi-layer behavior   |
+| Appearance and reuse       | Existing GUI Session commands are the starting point, not proof of API parity                                   | Color, effects, macros and shared assets must be usable from the same document model                   |
+| History, save and export   | Undo/redo, a fixed-path Save As receipt replay, exact copy reopen, SVG/PNG                                      | Ordinary UI destination consent, scoped write permission and disconnection/outcome checks              |
 
 The fixture now pages the stored input wires of one addressed node in a
 captured revision. It returns input and source identifiers, distinguishing
@@ -48,6 +48,17 @@ The focused command tests also cover a locked source and a folder-boundary
 refusal. These are separate proofs; they do not establish ordinary MCP
 editing or full folder support. See the
 [Windows fixture runbook](windows-live-editor-acceptance.md).
+
+The fixture now also confirms one duplicated layer with remapped graph IDs,
+and one nested folder created through the same GUI Session transaction.
+An interrupted acknowledgement is not a retry grant: use current discovery
+to locate the result and reject the original request at its old revision.
+Neither operation has a request-ID receipt lookup. The folder read returns
+IDs, ancestry and direct ownership, not names. Save/reopen preserves the
+structure, and grouping alone does not change SVG/PNG. Further Folder
+coverage needs separate proofs for rename, membership changes, and dissolve;
+a move that changes paint order must use the existing reviewed plan workflow.
+The local inspection preview does not load the edit dispatcher.
 
 Only the first read-only shipping route is designed below. A mutation grant
 would be a separate explicit capability and never implicit in Inspect.
