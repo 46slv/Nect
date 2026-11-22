@@ -209,6 +209,16 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "layer.reorder"
+if os.environ.get("NECT_ACCEPTANCE_LAYER_DELETE") == "1":
+    name = "nect_test_delete_layer"
+    TOOLS.append({
+        "name": name,
+        "description": "Delete one exact layer from the isolated fixture after explicit confirmation",
+        "inputSchema": schema(dict(target=target, layerId=ident, confirmed={"const":True})),
+        "annotations": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False,
+                        "openWorldHint": False},
+    })
+    OPERATIONS[name] = "layer.delete"
 if os.environ.get("NECT_ACCEPTANCE_LAYER_CREATE_BLANK") == "1":
     name = "nect_test_create_blank_layer"
     TOOLS.append({

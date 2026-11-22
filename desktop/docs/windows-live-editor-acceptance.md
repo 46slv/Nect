@@ -117,6 +117,21 @@ baseline. All four variables are optional; on means exactly `1`.
 | Japanese text, missing glyph | on                        | on                     | on                                      | off                              | 13         |
 | Japanese text, embedded font | on                        | on                     | off                                     | on                               | 13         |
 
+### Last-layer deletion scenarios
+
+In a separate disposable run, set `NECT_ACCEPTANCE_OBJECTS=1` and
+`NECT_ACCEPTANCE_LAYER_DELETE=1`. The request requires the exact editor
+target, layer ID, and explicit confirmation. After discarding the reply,
+check that the old ID is gone and the new layer contains only an empty
+Output, even though the layer count is still one. Replaying the old
+request must fail. Undo restores the original graph; Redo restores the
+same blank ID, which must persist after save and reopen.
+
+In another fresh directory with the same executable, also set
+`NECT_ACCEPTANCE_LAYER_DELETE_RESTORE=1`. This run saves after Undo
+without Redo and requires the reopened project, SVG and PNG to match the
+baseline byte for byte. Neither run tests Undo across reopen.
+
 ### Blank layer scenario
 
 In a separate run, set `NECT_ACCEPTANCE_OBJECTS=1` and

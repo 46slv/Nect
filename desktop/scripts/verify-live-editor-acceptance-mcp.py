@@ -24,6 +24,8 @@ layer_solo = os.environ.get("NECT_ACCEPTANCE_LAYER_SOLO") == "1"
 layer_lock = os.environ.get("NECT_ACCEPTANCE_LAYER_LOCK") == "1"
 layer_rename = os.environ.get("NECT_ACCEPTANCE_LAYER_RENAME") == "1"
 layer_reorder = os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1"
+layer_delete = os.environ.get("NECT_ACCEPTANCE_LAYER_DELETE") == "1"
+layer_delete_restore = os.environ.get("NECT_ACCEPTANCE_LAYER_DELETE_RESTORE") == "1"
 layer_create_blank = os.environ.get("NECT_ACCEPTANCE_LAYER_CREATE_BLANK") == "1"
 layer_duplicate = os.environ.get("NECT_ACCEPTANCE_LAYER_DUPLICATE") == "1"
 layer_folders = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDERS") == "1"
@@ -60,6 +62,11 @@ assert not layer_solo or (artwork and layer_visibility and not (
     layer_folder_plan or layer_folders or layer_reorder or layer_duplicate or embedded_jp or mixed_text_probe
 ))
 assert not layer_lock or list_objects
+assert not layer_delete_restore or layer_delete
+assert not layer_delete or (
+    list_objects and not (layer_create_blank or layer_duplicate or layer_reorder or artwork or layer_folders or
+    layer_state or layer_solo or layer_guide or layer_lock or renamed_roundtrip or locked_roundtrip or hidden_roundtrip)
+)
 assert not layer_create_blank or (
     list_objects and not (layer_duplicate or layer_reorder or artwork or layer_folders or
     renamed_roundtrip or locked_roundtrip or hidden_roundtrip or layer_folder_plan)
@@ -135,6 +142,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_rename_layer")
         if layer_reorder:
             extra.append("nect_test_reorder_layer")
+        if layer_delete:
+            extra.append("nect_test_delete_layer")
         if layer_create_blank:
             extra.append("nect_test_create_blank_layer")
         if layer_duplicate:
@@ -506,6 +515,40 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             assert layer_order(1503, undone) == ordered
             current = invoke("redo", {"target": undone}, "changed")["target"]
             assert layer_order(1504, current) == next_order
+        if layer_delete:
+            def list_exact(id_, revision, layer_index=None):
+                reply = list_page(id_, layer_index, revision)
+                assert not reply["isError"], reply
+                data = reply["structuredContent"]
+                assert data["target"] == revision and data["nextOffset"] is None, data
+                return data["items"]
+            assert [x["layerId"] for x in list_exact(1800, current)] == [source_layer]
+            original_nodes = list_exact(1801, current, 0)
+            request = dict(target=current, layerId=source_layer, confirmed=True)
+            invoke("delete_layer", {**request, "confirmed":False}, "invalid-arguments", True)
+            invoke("delete_layer", {**request, "layerId":"absent"}, "unsupported-target", True)
+            assert invoke("inspect", {}, "ok")["target"] == current
+            next_id += 1
+            send(dict(id=next_id, method="tools/call",
+                      params={"name":"nect_test_delete_layer","arguments":request}))
+            assert replies.get(timeout=12) is not None  # Discard acknowledgement.
+            observed = invoke("inspect", {}, "ok")["target"]
+            assert observed["projectRevision"] == current["projectRevision"] + 1
+            [blank] = list_exact(1802, observed)
+            blank_id = blank["layerId"]
+            assert blank_id != source_layer
+            [output] = list_exact(1803, observed, 0)
+            assert output["type"] == "Output"
+            invoke("delete_layer", request, "stale-target", True)
+            undone = invoke("undo", {"target":observed}, "changed")["target"]
+            assert [x["layerId"] for x in list_exact(1804, undone)] == [source_layer]
+            assert list_exact(1805, undone, 0) == original_nodes
+            if layer_delete_restore:
+                current = undone
+            else:
+                current = invoke("redo", {"target":undone}, "changed")["target"]
+                assert [x["layerId"] for x in list_exact(1806, current)] == [blank_id]
+                assert list_exact(1807, current, 0) == [output]
         if layer_create_blank:
             def blank_listing(id_, revision, layer_index=None):
                 reply = list_page(id_, layer_index, revision)
@@ -690,6 +733,11 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             invoke("reorder_layer", {**move, "target": current}, "stale-target", True)
             assert invoke("reorder_layer", {**move, "target": reopened}, "unchanged")["target"] == reopened
             assert layer_order(1505, reopened) == next_order
+        if layer_delete:
+            invoke("delete_layer", {**request, "target":current}, "stale-target", True)
+            saved_layer = source_layer if layer_delete_restore else blank_id
+            assert [x["layerId"] for x in list_exact(1808, reopened)] == [saved_layer]
+            assert list_exact(1809, reopened, 0) == (original_nodes if layer_delete_restore else [output])
         if layer_create_blank:
             invoke("create_blank_layer", {**request, "target":current}, "stale-target", True)
             assert [x["layerId"] for x in blank_listing(1706, reopened)] == [source_layer, empty_id]
@@ -790,6 +838,18 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                     del expected_folders[1]
                 assert comp["editor"]["layerFolders"] == expected_folders
                 assert [layer["id"] for layer in comp["layers"]] == [source_layer]
+            elif layer_delete and not layer_delete_restore:
+                assert digests[role] != expected[role+"SHA256"].lower(), role
+                if role == "copy":
+                    snapshot = json.loads(data)
+                    [comp] = [c for c in snapshot["compositions"] if c["id"] == reopened["compositionId"]]
+                    [persisted] = comp["layers"]
+                    assert persisted["id"] == blank_id and persisted["output"] == output["nodeId"]
+                    assert [(n["id"], n["type"]) for n in persisted["nodes"]] == [(output["nodeId"], "Output")]
+                elif role == "svg":
+                    from xml.etree import ElementTree
+                    canvas = ElementTree.fromstring(data)
+                    assert not any("data-layer" in element.attrib for element in canvas.iter())
             elif layer_create_blank and role == "copy":
                 snapshot = json.loads(data)
                 [comp] = [c for c in snapshot["compositions"] if c["id"] == reopened["compositionId"]]
@@ -954,6 +1014,13 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             evidence["layerState"] = "exact stored flags before edit, after edit and reopen; stale and unsupported IDs rejected; revision unchanged by reads"
         if layer_create_blank:
             evidence["blankLayer"] = "one empty Output created; dropped reply reconciled by listing; stale replay refused; Undo/Redo, reopened IDs and byte-identical baseline SVG/PNG"
+        if layer_delete:
+            evidence["layerDeletion"] = dict(
+                discardedReplyReconciledByID=True, oldLayerId=source_layer, blankLayerId=blank_id,
+                oldRequestRefused=True, undoRestoredOriginalGraph=True,
+                savedUndoWithBaselineOutputs=layer_delete_restore,
+                redoAndReopenRetainedReplacement=not layer_delete_restore,
+            )
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))
