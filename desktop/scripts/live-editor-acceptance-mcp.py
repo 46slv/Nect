@@ -137,6 +137,15 @@ if os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1":
         "annotations":{"readOnlyHint":True,"openWorldHint":False},
     })
     OPERATIONS[name] = "artwork.list"
+if os.environ.get("NECT_ACCEPTANCE_GRAPH_WIRES") == "1":
+    name = "nect_test_read_node_input_wires"
+    TOOLS.append({
+        "name": name,
+        "description": "Read authored input wires of the addressed node in the isolated fixture",
+        "inputSchema": schema(dict(target=target, layerId=ident, nodeId=ident, offset=revision)),
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "graph.inputWires"
 if PREVIEW_ONLY:
     TOOLS = [{
         "name": "nect_test_inspect",

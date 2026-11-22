@@ -61,7 +61,7 @@ import {
 import { createLiveDocumentCopy } from './live-document-copy.js';
 import { createLiveDocumentReopen } from './live-document-reopen.js';
 import { createLiveEditorProtocol } from './live-editor-protocol.js';
-import { readLiveEditorObjects } from './live-editor-objects.js';
+import { readLiveEditorObjects, readLiveNodeInputWires } from './live-editor-objects.js';
 import { createLiveArtworkCreation } from './live-artwork-creation.js';
 import { createLiveTextContent } from './live-text-content.js';
 import { editorTargetMatches } from './live-editor-target.js';
@@ -19541,6 +19541,14 @@ if (
       setBlendSteps: liveBlendSteps,
       setBlendMode: liveBlendMode,
       setBlendInput: liveBlendInput,
+      readNodeInputWires: (args) =>
+        readLiveNodeInputWires(
+          {
+            readTarget: readLiveEditorTarget,
+            readDocument: () => (documents.transitioning ? null : history.doc),
+          },
+          args,
+        ),
       readBlendSettings: readLiveBlendSettings,
       stepHistory: stepAcceptanceHistory,
       createArtwork: liveArtworkCreation,

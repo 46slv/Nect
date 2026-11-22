@@ -229,3 +229,30 @@ test('Save As routes are opt-in and project receipt state without native binding
     pending: false,
   });
 });
+
+test('authored node wires require a fixed target, ids and cursor on an opt-in read route', () => {
+  const args = { target, layerId: 'layer', nodeId: 'node', offset: 0 };
+  const packet = request('graph.inputWires', args);
+  const host = { readTarget: () => target };
+  assert.deepEqual(createLiveEditorProtocol(host)(packet), { status: 'unsupported-operation' });
+  let reads = 0;
+  const handler = createLiveEditorProtocol({
+    ...host,
+    readNodeInputWires: (value) => {
+      assert.deepEqual(value, args);
+      if (++reads === 2) throw Error('internal');
+      return { status: 'stale-target' };
+    },
+  });
+  for (const input of [
+    { ...args, path: 'private' },
+    { ...args, offset: -1 },
+    { ...args, layerId: null },
+    { ...args, nodeId: 'x'.repeat(257) },
+    { ...args, target: { ...target, private: true } },
+  ])
+    assert.deepEqual(handler(request('graph.inputWires', input)), { status: 'invalid-arguments' });
+  assert.equal(reads, 0);
+  assert.deepEqual(handler(packet), { status: 'stale-target' });
+  assert.deepEqual(handler(packet), { status: 'unavailable' });
+});

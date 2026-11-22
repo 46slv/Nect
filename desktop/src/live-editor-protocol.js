@@ -41,6 +41,7 @@ export function createLiveEditorProtocol({
   readTarget,
   canInspect = () => true,
   listArtwork,
+  readNodeInputWires,
   setBlendDistance,
   setBlendSteps,
   setBlendMode,
@@ -81,6 +82,21 @@ export function createLiveEditorProtocol({
         return { status: 'invalid-arguments' };
       try {
         return listArtwork(args);
+      } catch {
+        return { status: 'unavailable' };
+      }
+    }
+    if (readNodeInputWires && request.operation === 'graph.inputWires') {
+      if (
+        !closed(args, ['target', 'layerId', 'nodeId', 'offset']) ||
+        !validTarget(args.target) ||
+        !id(args.layerId) ||
+        !id(args.nodeId) ||
+        !version(args.offset)
+      )
+        return { status: 'invalid-arguments' };
+      try {
+        return readNodeInputWires(args);
       } catch {
         return { status: 'unavailable' };
       }
