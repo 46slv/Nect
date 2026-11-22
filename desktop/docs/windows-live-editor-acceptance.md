@@ -56,6 +56,12 @@ confirms that reading does not change the target, and a distance-only edit
 does not change the returned wiring. The flag is for the acceptance build,
 not the ordinary editor or the separate read-only preview.
 
+Set `NECT_ACCEPTANCE_LAYER_VISIBILITY=1` to also exercise an explicit
+hide and Undo on the fixture layer. The probe rejects stale revisions and
+non-boolean values, verifies that selecting the current visibility changes
+neither history nor revision, then runs the existing save/reopen and SVG/PNG
+checks after restoring the visible layer. It cannot change lock or solo.
+
 Use a fresh receipt for each scenario. Clear inherited flags that are off in
 the table before starting the verifier, including when switching back to the
 baseline. All four variables are optional; on means exactly `1`.

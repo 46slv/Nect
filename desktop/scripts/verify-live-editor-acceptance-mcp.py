@@ -17,6 +17,7 @@ root = exe.parent
 assert result_file.parent == root
 list_objects = os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1"
 graph_wires = os.environ.get("NECT_ACCEPTANCE_GRAPH_WIRES") == "1"
+layer_visibility = os.environ.get("NECT_ACCEPTANCE_LAYER_VISIBILITY") == "1"
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
 mixed_text_probe = os.environ.get("NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE") == "1"
@@ -66,8 +67,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_list_artwork")
         if graph_wires:
             extra.append("nect_test_read_node_input_wires")
+        if layer_visibility:
+            extra.append("nect_test_set_layer_visibility")
         assert [t["name"] for t in listed["tools"]] == ["nect_test_inspect", "nect_test_set_blend_distance", "nect_test_export_svg", "nect_test_export_png", "nect_test_save_copy", "nect_test_reopen_copy", "nect_test_undo", "nect_test_redo","nect_test_save_state","nect_test_save_receipt","nect_test_save_as"] + extra
-        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects) - int(graph_wires)) + [True] * (int(list_objects) + int(graph_wires))
+        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects) - int(graph_wires) - int(layer_visibility)) + [True] * (int(list_objects) + int(graph_wires)) + [False] * int(layer_visibility)
         start = call(3, "tools/call", name="nect_test_inspect", arguments={})
         assert not start["isError"], start
         target = start["structuredContent"]["target"]
@@ -91,6 +94,26 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             [blend] = [item for item in page["items"] if item["type"] == "Blend"]
             assert blend["nodeId"] == node["id"]
             source_layer, source_node = page["layerId"], blend["nodeId"]
+        if layer_visibility:
+            def set_visible(id_, revision, value, **extra_args):
+                args = dict(target=revision, layerId=source_layer, visible=value)
+                return call(id_, "tools/call", name="nect_test_set_layer_visibility",
+                            arguments=dict(args, **extra_args))
+
+            def expect_visibility(reply, status, failed=False):
+                assert reply["isError"] == failed and reply["structuredContent"]["status"] == status, reply
+                return reply["structuredContent"]
+
+            expect_visibility(set_visible(1201, target, False, key="solo"), "invalid-arguments", True)
+            expect_visibility(set_visible(1202, target, "false"), "invalid-arguments", True)
+            assert expect_visibility(set_visible(1203, target, True), "unchanged")["target"] == target
+            hidden = expect_visibility(set_visible(1204, target, False), "changed")["target"]
+            assert hidden["projectRevision"] == target["projectRevision"] + 1
+            expect_visibility(set_visible(1205, target, True), "stale-target", True)
+            assert expect_visibility(set_visible(1206, hidden, False), "unchanged")["target"] == hidden
+            restore = call(1207, "tools/call", name="nect_test_undo", arguments=dict(target=hidden))
+            target = expect_visibility(restore, "changed")["target"]
+            assert expect_visibility(set_visible(1208, target, True), "unchanged")["target"] == target
         if graph_wires:
             expected_wires = [
                 dict(input=key, sourceId=param["source"], sourcePort=param.get("sourcePort"))
@@ -268,7 +291,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "edit":"changed","history":"undo/redo verified","saveCopy":"accepted-by-writer","reopen":"reopened",
                   "exportSvg":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer",
                   "exportPng":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer","caseGuards":"pass",
-                  "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
+                  "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))
