@@ -91,3 +91,26 @@ one pre-authored text layer to the Blend fixture. The run edits that Text
 node, verifies its exact Unicode and font asset after reopening, and checks
 SVG and PNG output. No OS font installation or lookup occurs. Same-build GUI
 and native installed-face parity and normal-product MCP remain separate.
+
+### Installed Windows text content parity
+
+Use the same hash-pinned hidden Windows acceptance build, placed in a
+dedicated disposable build directory outside the ordinary installation.
+Run the Windows Rust test
+`desktop_font_layout::tests::actual_os_japanese_basic_wrap_vertical_and_boundaries`
+with `NECT_JP_WRAP_SMOKE_OUTPUT` pointing to a fresh scratch JSON file. This
+produces only synthetic Meiryo outlines, not font files. Then run:
+
+```text
+node desktop/scripts/verify-live-installed-font-parity.mjs <acceptance-exe> <repo-root> <outline-json> <reviewed-exe-sha256>
+```
+
+Two independent editor runs load the same synthetic seed. One edits through
+the Inspector's Apply Text control and the other through the independent MCP
+client. Compare the entire resulting Text node and exact installed Meiryo
+descriptor, reject a stale edit, and verify Undo/Redo and copy save/reopen.
+The same isolated export route writes SVG and PNG after both edits; compare
+their digests. The fixture profile and WebView debugger are disposable and
+loopback-only. This is not a test of IME, the export file picker, Hermes,
+or the product's external pairing and permissions. Do not commit the local
+outline JSON, project copies, or exported artwork.
