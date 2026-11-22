@@ -19569,11 +19569,17 @@ if (
 // Compile-time only. Vite removes this branch and module from ordinary builds.
 startRecoveryAcceptanceWhenReady();
 
-if (import.meta.env.VITE_NECT_LIVE_INSPECT_PREVIEW === '1' && window.__TAURI_INTERNALS__) {
-  void import('./live-inspect-preview.js').then(({ mountLiveInspectPreview }) => {
-    mountLiveInspectPreview({
-      readTarget: readLiveEditorTarget,
-      canInspect: () => !documents.transitioning,
-    });
-  });
+if (
+  typeof import.meta.env !== 'undefined' &&
+  import.meta.env.VITE_NECT_LIVE_INSPECT_PREVIEW === '1' &&
+  window.__TAURI_INTERNALS__
+) {
+  void import('./live-inspect-preview.js')
+    .then(({ mountLiveInspectPreviewIfAvailable }) => {
+      return mountLiveInspectPreviewIfAvailable({
+        readTarget: readLiveEditorTarget,
+        canInspect: () => !documents.transitioning,
+      });
+    })
+    .catch(() => {});
 }

@@ -186,6 +186,7 @@ fn run() -> Result<(), String> {
         .manage(private_fonts::PrivateFonts::default())
         .manage(Recovery::default())
         .invoke_handler(tauri::generate_handler![
+            live_inspect_preview::live_preview_available,
             live_inspect_preview::live_preview_attach,
             live_inspect_preview::live_preview_reply,
             live_inspect_preview::live_preview_read,

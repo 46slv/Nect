@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mountLiveInspectPreview } from '../src/live-inspect-preview.js';
+import {
+  mountLiveInspectPreview,
+  mountLiveInspectPreviewIfAvailable,
+} from '../src/live-inspect-preview.js';
 
 function fixture(call) {
   const el = () => ({
@@ -32,34 +35,50 @@ function fixture(call) {
   return { enable, check, disable, status };
 }
 
-test('preview starts off, ignores synthetic clicks and drops a reply after disable', async () => {
-  const calls = [];
-  let finish;
-  const view = fixture(async (name, args) => {
-    calls.push([name, args.epoch]);
-    if (name === 'live_preview_attach') return 71;
-    if (name === 'live_preview_read')
-      return new Promise((resolve) => {
-        finish = resolve;
-      });
-    return true;
+test('a missing native feature does not mount the preview', async () => {
+  const commands = [];
+  await mountLiveInspectPreviewIfAvailable({
+    call: async (name) => {
+      commands.push(name);
+      return false;
+    },
   });
-  assert.match(view.status.textContent, /^Off/);
-  assert.equal(view.check.disabled, true);
-  await view.enable.click(false);
-  assert.deepEqual(calls, []);
-  await view.enable.click();
-  assert.match(view.status.textContent, /^On/);
-  const pending = view.check.click();
-  await Promise.resolve();
-  await view.disable.click();
-  finish(true);
-  await pending;
-  assert.match(view.status.textContent, /^Off/);
-  assert.equal(view.check.disabled, true);
-  assert.deepEqual(calls, [
-    ['live_preview_attach', undefined],
-    ['live_preview_read', 71],
-    ['live_preview_detach', 71],
-  ]);
+  assert.deepEqual(commands, ['live_preview_available']);
 });
+
+for (const reject of [false, true]) {
+  test(
+    'preview ignores synthetic clicks and a late ' + (reject ? 'rejection' : 'result'),
+    async () => {
+      const calls = [];
+      let finish;
+      const view = fixture(async (name, args) => {
+        calls.push([name, args.epoch]);
+        if (name === 'live_preview_attach') return 71;
+        if (name === 'live_preview_read')
+          return new Promise((resolve, deny) => {
+            finish = () => (reject ? deny(new Error('Old read')) : resolve(true));
+          });
+        return true;
+      });
+      assert.match(view.status.textContent, /^Off/);
+      assert.equal(view.check.disabled, true);
+      await view.enable.click(false);
+      assert.deepEqual(calls, []);
+      await view.enable.click();
+      assert.match(view.status.textContent, /^On/);
+      const pending = view.check.click();
+      await Promise.resolve();
+      await view.disable.click();
+      finish();
+      await pending;
+      assert.match(view.status.textContent, /^Off/);
+      assert.equal(view.check.disabled, true);
+      assert.deepEqual(calls, [
+        ['live_preview_attach', undefined],
+        ['live_preview_read', 71],
+        ['live_preview_detach', 71],
+      ]);
+    },
+  );
+}

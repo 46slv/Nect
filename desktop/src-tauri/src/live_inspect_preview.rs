@@ -24,6 +24,11 @@ impl Preview {
 }
 
 #[tauri::command]
+pub(crate) fn live_preview_available(window: WebviewWindow) -> bool {
+    Preview::admit(&window).is_ok()
+}
+
+#[tauri::command]
 pub(crate) fn live_preview_attach(
     window: WebviewWindow,
     state: State<'_, Preview>,

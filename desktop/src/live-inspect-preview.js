@@ -1,6 +1,11 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { createLiveInspectChannel } from './live-inspect-channel.js';
 
+export async function mountLiveInspectPreviewIfAvailable(options) {
+  const call = options.call ?? invoke;
+  if (await call('live_preview_available', {})) mountLiveInspectPreview(options);
+}
+
 // Optional in-app diagnostic, with no external listener or document result.
 export function mountLiveInspectPreview({
   readTarget,
@@ -74,10 +79,14 @@ export function mountLiveInspectPreview({
   });
   const check = button('Check document', async () => {
     const current = binding;
-    const epoch = await current;
-    const ready = epoch && binding === current && (await call('live_preview_read', { epoch }));
-    if (binding === current)
-      status.textContent = ready ? 'Active document confirmed' : 'No ready document';
+    try {
+      const epoch = await current;
+      const ready = epoch && binding === current && (await call('live_preview_read', { epoch }));
+      if (binding === current)
+        status.textContent = ready ? 'Active document confirmed' : 'No ready document';
+    } catch (error) {
+      if (binding === current) throw error;
+    }
   });
   const disable = button(
     'Disable',
