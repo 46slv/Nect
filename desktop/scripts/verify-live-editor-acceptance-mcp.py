@@ -19,6 +19,7 @@ list_objects = os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1"
 graph_wires = os.environ.get("NECT_ACCEPTANCE_GRAPH_WIRES") == "1"
 layer_visibility = os.environ.get("NECT_ACCEPTANCE_LAYER_VISIBILITY") == "1"
 layer_lock = os.environ.get("NECT_ACCEPTANCE_LAYER_LOCK") == "1"
+layer_rename = os.environ.get("NECT_ACCEPTANCE_LAYER_RENAME") == "1"
 locked_roundtrip = os.environ.get("NECT_ACCEPTANCE_LOCKED_ROUNDTRIP") == "1"
 hidden_roundtrip = os.environ.get("NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP") == "1"
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
@@ -77,8 +78,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_set_layer_visibility")
         if layer_lock:
             extra.append("nect_test_set_layer_lock")
+        if layer_rename:
+            extra.append("nect_test_rename_layer")
         assert [t["name"] for t in listed["tools"]] == ["nect_test_inspect", "nect_test_set_blend_distance", "nect_test_export_svg", "nect_test_export_png", "nect_test_save_copy", "nect_test_reopen_copy", "nect_test_undo", "nect_test_redo","nect_test_save_state","nect_test_save_receipt","nect_test_save_as"] + extra
-        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects) - int(graph_wires) - int(layer_visibility) - int(layer_lock)) + [True] * (int(list_objects) + int(graph_wires)) + [False] * (int(layer_visibility) + int(layer_lock))
+        assert [t["annotations"]["readOnlyHint"] for t in listed["tools"]] == [True,False,False,False,False,False,False,False,True,True,False] + [False] * (len(extra) - int(list_objects) - int(graph_wires) - int(layer_visibility) - int(layer_lock) - int(layer_rename)) + [True] * (int(list_objects) + int(graph_wires)) + [False] * (int(layer_visibility) + int(layer_lock) + int(layer_rename))
         start = call(3, "tools/call", name="nect_test_inspect", arguments={})
         assert not start["isError"], start
         target = start["structuredContent"]["target"]
@@ -103,6 +106,24 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             [blend] = [item for item in page["items"] if item["type"] == "Blend"]
             assert blend["nodeId"] == node["id"]
             source_layer, source_node = page["layerId"], blend["nodeId"]
+        if layer_rename:
+            def rename(id_, revision, name):
+                result = call(id_, "tools/call", name="nect_test_rename_layer",
+                              arguments=dict(target=revision, layerId=source_layer, name=name))
+                return result["isError"], result["structuredContent"]
+
+            original_name = layer["name"]
+            label = "Blend \u540d\u79f0"
+            assert rename(1401, target, "  ") == (True, {"status": "invalid-arguments"})
+            assert rename(1402, target, "x" * 257) == (True, {"status": "invalid-arguments"})
+            failed, change = rename(1403, target, "  " + label + "  ")
+            assert not failed and change["status"] == "changed" and change["target"]["projectRevision"] == target["projectRevision"] + 1
+            assert rename(1404, target, original_name) == (True, {"status": "stale-target"})
+            assert rename(1405, change["target"], label) == (False, {"status": "unchanged", "target": change["target"]})
+            undo = call(1406, "tools/call", name="nect_test_undo", arguments=dict(target=change["target"]))
+            assert not undo["isError"] and undo["structuredContent"]["status"] == "changed"
+            target = undo["structuredContent"]["target"]
+            assert rename(1407, target, original_name) == (False, {"status": "unchanged", "target": target})
         if layer_lock:
             def set_locked(id_, revision, value, **extra_args):
                 args = dict(target=revision, layerId=source_layer, locked=value)
@@ -381,7 +402,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "edit":"changed","history":"undo/redo verified","saveCopy":"accepted-by-writer","reopen":"reopened",
                   "exportSvg":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer",
                   "exportPng":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer","caseGuards":"pass",
-                  "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "layerLock":layer_lock, "lockedLayerRoundtrip":locked_roundtrip, "hiddenLayerRoundtrip":hidden_roundtrip, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
+                  "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "layerLock":layer_lock, "layerRename":layer_rename, "lockedLayerRoundtrip":locked_roundtrip, "hiddenLayerRoundtrip":hidden_roundtrip, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))

@@ -164,6 +164,15 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_LOCK") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "layer.setLock"
+if os.environ.get("NECT_ACCEPTANCE_LAYER_RENAME") == "1":
+    name = "nect_test_rename_layer"
+    TOOLS.append({
+        "name": name,
+        "description": "Rename one unlocked layer in the isolated fixture",
+        "inputSchema": schema(dict(target=target, layerId=ident, name=ident)),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "layer.rename"
 if PREVIEW_ONLY:
     TOOLS = [{
         "name": "nect_test_inspect",
@@ -201,6 +210,10 @@ def app_call(child, native_replies, name, args):
     try:
         if child.poll() is not None:
             return {"status": "app-unavailable"}
+        if name == "nect_test_rename_layer":
+            label = args.get("name")
+            if not isinstance(label, str) or not 1 <= len(label) <= ident["maxLength"]:
+                return {"status": "invalid-arguments"}
         packet = json.dumps({"version": 1, "operation": OPERATIONS[name], "arguments": args},
                             allow_nan=False, separators=(",", ":")).encode("utf-8")
         if len(packet) > 4096:

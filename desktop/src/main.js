@@ -62,7 +62,11 @@ import { createLiveDocumentCopy } from './live-document-copy.js';
 import { createLiveDocumentReopen } from './live-document-reopen.js';
 import { createLiveEditorProtocol } from './live-editor-protocol.js';
 import { readLiveEditorObjects, readLiveNodeInputWires } from './live-editor-objects.js';
-import { createLiveLayerLock, createLiveLayerVisibility } from './live-layer-visibility.js';
+import {
+  createLiveLayerLock,
+  createLiveLayerRename,
+  createLiveLayerVisibility,
+} from './live-layer-visibility.js';
 import { createLiveArtworkCreation } from './live-artwork-creation.js';
 import { createLiveTextContent } from './live-text-content.js';
 import { editorTargetMatches } from './live-editor-target.js';
@@ -19555,6 +19559,10 @@ if (
         isEditBlocked: () => liveBlendHost.isEditBlocked() || Boolean(nameEdit),
       }),
       setLayerLock: createLiveLayerLock({
+        ...liveBlendHost,
+        isEditBlocked: () => liveBlendHost.isEditBlocked() || Boolean(nameEdit),
+      }),
+      renameLayer: createLiveLayerRename({
         ...liveBlendHost,
         isEditBlocked: () => liveBlendHost.isEditBlocked() || Boolean(nameEdit),
       }),
