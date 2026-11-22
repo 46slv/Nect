@@ -36,6 +36,8 @@ mod live_editor_mailbox;
 ))]
 mod live_inspect_lane;
 mod live_inspect_preview;
+#[cfg(all(test, windows))]
+mod live_inspect_windows_pipe;
 mod os_font_outlines;
 mod private_fonts;
 #[cfg(feature = "recovery-acceptance-test")]

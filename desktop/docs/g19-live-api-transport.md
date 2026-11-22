@@ -101,6 +101,18 @@ inspection arguments without consuming the proof, and reports a consumed
 proof after the first valid request. Enable/disable still happens in the app.
 The adapter owns and closes only the disposable process it starts.
 
+## Local attachment development gate
+
+The Windows pipe prototype is compiled only in tests. It creates one local
+pipe restricted to the current logon SID and verifies the expected client PID
+before reading bytes. This tests a transport boundary, not a product grant.
+Before enabling attachment to a running editor, the native owner must hold
+the selected live client process identity across connection acceptance,
+issue and revoke a separate per-client grant, and use cancellable I/O with
+bounded connect/read/write. Do not promote the blocking test connector or
+the test-only SID lookup into the app. No program is discovered or started
+by the ordinary editor.
+
 ## Acceptance before broader exposure
 
 1. A connection with no grant, a disabled connection, another instance, and a
