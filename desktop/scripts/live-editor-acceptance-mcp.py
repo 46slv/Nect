@@ -88,6 +88,16 @@ if os.environ.get("NECT_ACCEPTANCE_ARTWORK") == os.environ.get("NECT_ACCEPTANCE_
         "annotations":{"readOnlyHint":False,"destructiveHint":False,"openWorldHint":False},
     })
     OPERATIONS[name] = "text.setContent"
+if os.environ.get("NECT_ACCEPTANCE_BLEND_STEPS") == "1":
+    name = "nect_test_set_blend_steps"
+    TOOLS.append({
+        "name": name,
+        "description": "Set an integer Steps count in the addressed isolated Blend fixture",
+        "inputSchema": schema(dict(target=target, layerId=ident, nodeId=ident,
+                                   value={"type": "integer", "minimum": 0, "maximum": 254})),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "blend.setSteps"
 if os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1":
     name = "nect_test_list_artwork"
     TOOLS.append({

@@ -42,6 +42,7 @@ export function createLiveEditorProtocol({
   canInspect = () => true,
   listArtwork,
   setBlendDistance,
+  setBlendSteps,
   stepHistory,
   createArtwork,
   setTextContent,
@@ -178,18 +179,26 @@ export function createLiveEditorProtocol({
         .then(({ status }) => ({ status }))
         .catch(() => ({ status: 'outcome-unknown' }));
     }
-    if (request.operation !== 'blend.setDistance') return { status: 'unsupported-operation' };
+    const setBlendSpacing =
+      request.operation === 'blend.setDistance'
+        ? setBlendDistance
+        : request.operation === 'blend.setSteps'
+          ? setBlendSteps
+          : undefined;
+    if (!setBlendSpacing) return { status: 'unsupported-operation' };
     if (
       !closed(args, ['target', 'layerId', 'nodeId', 'value']) ||
       !validTarget(args.target) ||
       !id(args.layerId) ||
       !id(args.nodeId) ||
-      !Number.isFinite(args.value)
+      !Number.isFinite(args.value) ||
+      (request.operation === 'blend.setSteps' &&
+        (!Number.isInteger(args.value) || args.value < 0 || args.value > 254))
     )
       return { status: 'invalid-arguments' };
 
     try {
-      const { status } = setBlendDistance(args);
+      const { status } = setBlendSpacing(args);
       if (status === 'changed' || status === 'unchanged')
         return { status, target: captureEditorTarget(readTarget()) };
       return { status };

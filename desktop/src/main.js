@@ -51,7 +51,10 @@ import { formatParameterResult } from './parameter-result-format.js';
 import { createArtworkExporter } from './artwork-export.js';
 import { createLiveArtworkOutput } from './live-artwork-output.js';
 import { createLiveDocumentSave, createLiveSaveAsBoundary } from './live-document-save.js';
-import { createLiveBlendDistanceOperation } from './live-blend-distance.js';
+import {
+  createLiveBlendDistanceOperation,
+  createLiveBlendStepsOperation,
+} from './live-blend-distance.js';
 import { createLiveDocumentCopy } from './live-document-copy.js';
 import { createLiveDocumentReopen } from './live-document-reopen.js';
 import { createLiveEditorProtocol } from './live-editor-protocol.js';
@@ -6624,15 +6627,17 @@ function readLiveEditorTarget() {
   };
 }
 const liveDocumentSave = createLiveDocumentSave({ readTarget: readLiveEditorTarget, documents });
-const liveBlendDistance = createLiveBlendDistanceOperation({
+const liveBlendHost = {
   readTarget: readLiveEditorTarget,
   getOwner: () => session,
-  isEditBlocked: () => documents.transitioning || documents.hasPendingEdits(),
+  isEditBlocked: () => documents.transitioning || documents.saving || documents.hasPendingEdits(),
   commit: (owner, { type, payload, sessionId, expectedRevision }) =>
     owner === session
       ? commandChange(type, payload, undefined, true, { sessionId, expectedRevision })
       : null,
-});
+};
+const liveBlendDistance = createLiveBlendDistanceOperation(liveBlendHost);
+const liveBlendSteps = createLiveBlendStepsOperation(liveBlendHost);
 // The acceptance adapter calls the same history and view restoration as the
 // menu and keyboard. Do not launch asynchronous font preparation from it.
 function stepAcceptanceHistory(target, redo) {
@@ -19235,6 +19240,7 @@ const testLiveEditorProtocol =
         readTarget: readLiveEditorTarget,
         canInspect: () => !documents.transitioning,
         setBlendDistance: liveBlendDistance,
+        setBlendSteps: liveBlendSteps,
         stepHistory: stepAcceptanceHistory,
         createArtwork: liveArtworkCreation,
         setTextContent: liveTextContent,
@@ -19523,6 +19529,7 @@ if (
           args,
         ),
       setBlendDistance: liveBlendDistance,
+      setBlendSteps: liveBlendSteps,
       stepHistory: stepAcceptanceHistory,
       createArtwork: liveArtworkCreation,
       setTextContent: liveTextContent,
