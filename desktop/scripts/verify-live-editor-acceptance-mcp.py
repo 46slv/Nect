@@ -4,6 +4,7 @@ from queue import Queue
 import json
 import hashlib
 import os
+import re
 import subprocess
 import sys
 from threading import Thread
@@ -22,7 +23,13 @@ embedded_jp = os.environ.get("NECT_SVG_ACCEPTANCE_JP_FIXTURE") == "1"
 assert not (embedded_jp and mixed_text_probe)
 assert not (embedded_jp or mixed_text_probe) or text_edit
 replacement = "\u63db\u30fbA1\uff0812\uff09" if mixed_text_probe else ("\u65e5\u672c\u8a9e A1\uff0812\uff09" if embedded_jp else "Nect A1 (12)")
-before_dirs=set(root.glob("nect-svg-acceptance-*"))
+def fixture_runs():
+    return {
+        path for path in root.glob("nect-svg-acceptance-*")
+        if re.fullmatch(r"nect-svg-acceptance-[a-f0-9]{32}", path.name) and path.is_dir()
+    }
+
+before_dirs=fixture_runs()
 fixture = json.loads((base.parent / "examples/blend-distance.json").read_text(encoding="utf-8"))
 layer = fixture["layers"][0]
 node = next(n for n in layer["nodes"] if n["type"] == "Blend")
@@ -178,7 +185,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         assert invoke("inspect",{},"ok")["target"] == reopened
         bridge.stdin.close()
         assert bridge.wait(timeout=10) == 0
-        [run]=set(root.glob("nect-svg-acceptance-*"))-before_dirs
+        [run]=fixture_runs()-before_dirs
         expected = {
             "copySHA256": "5cd60a9b6de8662cd5fcad4d22b170b578e3d5cfcc6f76ba079b7761c94bc85d",
             "svgSHA256": "2fc89ac6200e9ad681cc8ec7fec3ba382d6937d4943fab4386261782034f1095",
