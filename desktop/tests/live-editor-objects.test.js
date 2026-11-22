@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import { deserialize } from '../src/core.js';
+import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
+import {
+  deserializeCompositionProject,
+  serializeCompositionProject,
+} from '../src/composition-project-model.js';
+import { createLiveEditorProtocol } from '../src/live-editor-protocol.js';
 import {
   LIVE_OBJECT_PAGE_SIZE,
   readLiveEditorObjects,
@@ -190,4 +198,49 @@ test('node wire discovery has bounded pages and rechecks the target before publi
     ),
     { status: 'stale-target' },
   );
+});
+
+test('authored wire discovery follows GUI history for a real named Text output', () => {
+  const seed = readFileSync(
+    new URL('../examples/text-position-reuse.json', import.meta.url),
+    'utf8',
+  );
+  const live = createCompositionSessionOwner(deserializeCompositionProject(seed, deserialize));
+  const readTarget = () => ({
+    documentGeneration: 1,
+    compositionId: live.activeCompositionId,
+    sessionId: live.state.sessionId,
+    sessionRevision: live.state.expectedRevision,
+    projectRevision: live.projectRevision,
+  });
+  const host = { readTarget, readDocument: () => live.snapshot() };
+  const handler = createLiveEditorProtocol({
+    readTarget,
+    readNodeInputWires: (args) => readLiveNodeInputWires(host, args),
+  });
+  const layer = live.snapshot().layers[0];
+  const address = { layerId: layer.id, nodeId: 'text-xy', offset: 0 };
+  const inspect = (target = readTarget()) =>
+    handler({ version: 1, operation: 'graph.inputWires', arguments: { ...address, target } });
+  const before = readTarget();
+  const serialize = () => serializeCompositionProject(live.projectSnapshot());
+  const original = serialize();
+  const edges = [{ input: 'position', sourceId: 'text-master', sourcePort: 'position' }];
+  assert.deepEqual(inspect().items, edges);
+  assert.deepEqual(readTarget(), before);
+  assert.equal(serialize(), original);
+  const { offset, ...nodeAddress } = address;
+  assert.equal(
+    live.dispatch({
+      ...live.state,
+      type: 'disconnect',
+      payload: { ...nodeAddress, key: 'position' },
+    }).changed,
+    true,
+  );
+  assert.deepEqual(inspect(before), { status: 'stale-target' });
+  assert.deepEqual(inspect().items, []);
+  assert.equal(live.dispatch({ ...live.state, type: 'undo' }).changed, true);
+  assert.deepEqual(inspect().items, edges);
+  assert.equal(serialize(), original);
 });
