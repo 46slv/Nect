@@ -41,6 +41,7 @@ export function createLiveEditorProtocol({
   readTarget,
   canInspect = () => true,
   listArtwork,
+  listLayerFolders,
   readNodeInputWires,
   setLayerVisibility,
   setLayerLock,
@@ -87,6 +88,15 @@ export function createLiveEditorProtocol({
         return { status: 'invalid-arguments' };
       try {
         return listArtwork(args);
+      } catch {
+        return { status: 'unavailable' };
+      }
+    }
+    if (listLayerFolders && request.operation === 'layerFolders.list') {
+      if (!closed(args, ['target', 'offset']) || !validTarget(args.target) || !version(args.offset))
+        return { status: 'invalid-arguments' };
+      try {
+        return listLayerFolders(args);
       } catch {
         return { status: 'unavailable' };
       }

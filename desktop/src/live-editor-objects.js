@@ -1,4 +1,5 @@
 import { captureEditorTarget, editorTargetMatches } from './live-editor-target.js';
+import { validateLayerFolders } from './layer-folders.js';
 
 const validIndex = (value) => Number.isSafeInteger(value) && value >= 0;
 const validId = (value) => typeof value === 'string' && value.length > 0 && value.length <= 256;
@@ -100,6 +101,58 @@ export function readLiveNodeInputWires(
       break;
     }
   }
+  if (!editorTargetMatches(readTarget(), current)) return { status: 'stale-target' };
+  const page = reply(index);
+  return fitsFrame(page) ? page : { status: 'unavailable' };
+}
+
+// Expose only folder topology. Each membership is a separate paged row, so a
+// folder with many children or escaped IDs cannot fill a native frame.
+export function readLiveLayerFolders({ readTarget, readDocument }, { target, offset }) {
+  if (!validIndex(offset)) return { status: 'invalid-arguments' };
+  const current = captureEditorTarget(readTarget());
+  if (!editorTargetMatches(current, target)) return { status: 'stale-target' };
+  const doc = readDocument();
+  if (!Array.isArray(doc?.layers) || doc.layers.length > 100) return { status: 'unavailable' };
+  const folders = doc.editor?.layerFolders ?? [];
+  if (!Array.isArray(folders) || folders.length > 100) return { status: 'unavailable' };
+  try {
+    validateLayerFolders(doc, (folderId) => {
+      if (!validId(folderId)) throw Error('Invalid Folder ID');
+    });
+  } catch {
+    return { status: 'unavailable' };
+  }
+
+  const source = [];
+  for (const folder of folders) {
+    const parentFolderId = folder.parentId ?? null;
+    if (parentFolderId !== null && !validId(parentFolderId)) return { status: 'unavailable' };
+    source.push({ kind: 'folder', folderId: folder.id, parentFolderId });
+    for (const { layerId } of folder.members) {
+      if (!validId(layerId)) return { status: 'unavailable' };
+      source.push({ kind: 'membership', folderId: folder.id, layerId });
+    }
+  }
+
+  if (offset > source.length) return { status: 'invalid-arguments' };
+  const items = [];
+  const reply = (next) => ({
+    status: 'ok',
+    target: current,
+    items,
+    nextOffset: next < source.length ? next : null,
+  });
+  let index = offset;
+  for (; index < Math.min(source.length, offset + LIVE_OBJECT_PAGE_SIZE); index++) {
+    items.push(source[index]);
+    if (!fitsFrame(reply(index + 1))) {
+      items.pop();
+      if (!items.length) return { status: 'unavailable' };
+      break;
+    }
+  }
+
   if (!editorTargetMatches(readTarget(), current)) return { status: 'stale-target' };
   const page = reply(index);
   return fitsFrame(page) ? page : { status: 'unavailable' };
