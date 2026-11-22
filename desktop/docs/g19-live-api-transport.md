@@ -72,6 +72,16 @@ not add nested reordering or prove the normal installed transport. The plan
 identifier is single-use state, not access permission. The local inspection
 preview does not load the edit dispatcher.
 
+The Windows deletion checks cover the last layer and a middle member of a
+three-layer folder. The last-layer command replaces the original with one new
+empty Output layer; Undo restores the original identity and graph. Deleting a
+folder member retains the remaining IDs and graph nodes, prunes only that
+membership, and preserves the survivors' SVG paint order after save/reopen.
+In both cases, discovery reconciles a dropped reply and the old revision is
+refused. Blank creation, deletion and layer-state commands are absent from
+the ordinary inspection preview. These are fixture results, not an installed
+product editing grant.
+
 Only the first read-only shipping route is designed below. A mutation grant
 would be a separate explicit capability and never implicit in Inspect.
 
