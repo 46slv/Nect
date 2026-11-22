@@ -3,14 +3,9 @@ import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 import { translateArtworkMoves } from './artwork-multi-move.js';
 import { artworkBoundsPrecision } from './artwork-alignment.js';
 
-export const artworkDistributions = [
-  ['center-x', '横方向', 0, 1],
-  ['center-y', '縦方向', 1, 1],
-  ['left', 'Left edges', 0, 0],
-  ['right', 'Right edges', 0, 2],
-  ['top', 'Top edges', 1, 0],
-  ['bottom', 'Bottom edges', 1, 2],
-];
+import { artworkDistributions } from './artwork-alignment-actions.js';
+
+export { artworkDistributions };
 
 export function resolveArtworkDistribution(doc, layerIds, options = {}) {
   const ids = [...layerIds];

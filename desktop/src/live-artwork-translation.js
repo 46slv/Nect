@@ -1,4 +1,4 @@
-import { artworkAlignments } from './artwork-alignment-actions.js';
+import { artworkAlignments, artworkDistributions } from './artwork-alignment-actions.js';
 import { editorTargetMatches } from './live-editor-target.js';
 
 function validArtworkLayerIds(layerIds, minimum = 1) {
@@ -27,6 +27,10 @@ export function validArtworkAlignment(layerIds, action, reference) {
     validArtworkLayerIds(layerIds, reference === 'artboard' ? 1 : 2) &&
     artworkAlignments.some(([id]) => id === action)
   );
+}
+
+export function validArtworkDistribution(layerIds, action) {
+  return validArtworkLayerIds(layerIds, 3) && artworkDistributions.some(([id]) => id === action);
 }
 
 function createArtworkEdit({ readTarget, getOwner, isEditBlocked, commit }, type, payloadFor) {
@@ -70,5 +74,11 @@ export function createLiveArtworkAlignment(host) {
     validArtworkAlignment(layerIds, action, reference)
       ? { layerIds: [...layerIds], action, reference }
       : null,
+  );
+}
+
+export function createLiveArtworkDistribution(host) {
+  return createArtworkEdit(host, 'distribute-artworks', ({ layerIds, action }) =>
+    validArtworkDistribution(layerIds, action) ? { layerIds: [...layerIds], action } : null,
   );
 }

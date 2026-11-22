@@ -9,6 +9,7 @@ import {
 import { createLiveEditorProtocol } from '../src/live-editor-protocol.js';
 import {
   createLiveArtworkAlignment,
+  createLiveArtworkDistribution,
   createLiveArtworkTranslation,
 } from '../src/live-artwork-translation.js';
 import { orderingDocument } from './fixtures/artwork-ordering.js';
@@ -150,4 +151,64 @@ test('artwork alignment uses explicit reference and matches the GUI history and 
   gui.dispatch({ ...gui.state, type: 'align-artworks', payload: toArtboard });
   assert.equal(edit({ target: readTarget(), ...toArtboard }).status, 'changed');
   assert.equal(snapshot(live), snapshot(gui));
+});
+
+test('artwork distribution pins outer shapes and matches one GUI history edit', () => {
+  const live = makeOwner(),
+    gui = makeOwner();
+  const layerIds = live.snapshot().layers.map((layer) => layer.id);
+  const [, middle] = layerIds;
+  const readTarget = () => ({
+    documentGeneration: 1,
+    compositionId: live.activeCompositionId,
+    sessionId: live.state.sessionId,
+    sessionRevision: live.state.expectedRevision,
+    projectRevision: live.projectRevision,
+  });
+  const distributeArtwork = createLiveArtworkDistribution({
+    readTarget,
+    getOwner: () => live,
+    isEditBlocked: () => false,
+    commit: (owner, command) => owner.dispatch(command),
+  });
+  const handle = createLiveEditorProtocol({ readTarget, distributeArtwork });
+  const payload = { layerIds, action: 'center-x' };
+  const request = (overrides) => ({
+    version: 1,
+    operation: 'artwork.distribute',
+    arguments: { target: readTarget(), ...payload, ...overrides },
+  });
+  assert.equal(createLiveEditorProtocol({ readTarget })(request()).status, 'unsupported-operation');
+  assert.equal(handle(request({ layerIds: layerIds.slice(0, 2) })).status, 'invalid-arguments');
+  assert.equal(handle(request({ action: 'gap-x' })).status, 'invalid-arguments');
+  assert.equal(handle(request({ spacing: 25 })).status, 'invalid-arguments');
+  assert.equal(handle(request()).status, 'rejected');
+  for (const owner of [live, gui]) {
+    owner.dispatch({
+      ...owner.state,
+      type: 'set-layer-state',
+      payload: { layerId: middle, key: 'locked', value: false },
+    });
+    owner.dispatch({
+      ...owner.state,
+      type: 'translate-artworks',
+      payload: { layerIds: [middle], delta: [15, 0] },
+    });
+  }
+  const before = snapshot(live),
+    old = request();
+  const pinned = [live.snapshot().layers[0], live.snapshot().layers[2]];
+  gui.dispatch({ ...gui.state, type: 'distribute-artworks', payload });
+  assert.equal(handle(old).status, 'changed');
+  assert.equal(snapshot(live), snapshot(gui));
+  assert.equal(exportSVG(live.snapshot()), exportSVG(gui.snapshot()));
+  assert.deepEqual([live.snapshot().layers[0], live.snapshot().layers[2]], pinned);
+  assert.equal(live.snapshot().layers[1].nodes[0].params.center.value[0], 220);
+  assert.equal(handle(old).status, 'stale-target');
+  assert.equal(handle(request()).status, 'unchanged');
+  const after = snapshot(live);
+  live.dispatch({ ...live.state, type: 'undo' });
+  assert.equal(snapshot(live), before);
+  live.dispatch({ ...live.state, type: 'redo' });
+  assert.equal(snapshot(live), after);
 });
