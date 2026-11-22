@@ -70,18 +70,38 @@ impl LiveInspectLane {
     }
 
     pub(crate) fn attach(&self, channel: Channel<serde_json::Value>) -> Option<u64> {
+        self.bind(channel, false)
+    }
+
+    #[cfg(feature = "live-inspect-preview")]
+    pub(crate) fn enable_and_attach(&self, channel: Channel<serde_json::Value>) -> Option<u64> {
+        self.bind(channel, true)
+    }
+
+    fn bind(&self, channel: Channel<serde_json::Value>, enable: bool) -> Option<u64> {
         let mut state = self.state.lock().ok()?;
-        if !state.armed || state.channel.is_some() {
+        if state.channel.is_some() || (!state.armed && !enable) {
             return None;
         }
         let epoch = state
             .binding_epoch
             .checked_add(1)
             .filter(|epoch| *epoch <= 9_007_199_254_740_991)?;
+        if enable {
+            state.gate.enable().ok()?;
+            state.armed = true;
+        }
         state.gate.set_ready(true);
         state.binding_epoch = epoch;
         state.channel = Some((epoch, channel));
         Some(epoch)
+    }
+
+    pub(crate) fn is_current(&self, epoch: u64) -> bool {
+        self.state
+            .lock()
+            .ok()
+            .is_some_and(|state| state.channel.as_ref().map(|(id, _)| *id) == Some(epoch))
     }
 
     pub(crate) fn detach(&self, epoch: u64) -> bool {
@@ -104,6 +124,10 @@ impl LiveInspectLane {
             }
             std::thread::sleep(Duration::from_millis(10));
         }
+        self.inspect_now(None)
+    }
+
+    pub(crate) fn inspect_now(&self, expected_epoch: Option<u64>) -> Option<String> {
         let (tx, rx) = mpsc::sync_channel(1);
         let request = {
             let mut state = self.state.lock().ok()?;
@@ -117,7 +141,10 @@ impl LiveInspectLane {
             if pending.is_some() {
                 return None;
             }
-            let (_, channel) = channel.as_ref()?;
+            let (epoch, channel) = channel.as_ref()?;
+            if expected_epoch.is_some_and(|expected| expected != *epoch) {
+                return None;
+            }
             let now = self.now();
             let grant = gate.issue(now, now + 4000).ok()?;
             let prepare = slot.prepare(gate, &grant, now).ok()?;
@@ -213,6 +240,7 @@ mod tests {
         let lane = LiveInspectLane::default();
         let (denied, _) = capture();
         assert!(lane.attach(denied).is_none());
+        assert!(lane.inspect_now(None).is_none());
         assert!(lane.arm());
         let (first, frames) = capture();
         let old_epoch = lane.attach(first).unwrap();
@@ -222,6 +250,7 @@ mod tests {
             let old_reply = scope.spawn(|| lane.inspect());
             let old_id = published(&frames);
             lane.revoke();
+            assert!(!lane.is_current(old_epoch));
             let (denied, _) = capture();
             assert!(lane.attach(denied).is_none());
             assert!(lane.arm());

@@ -19527,14 +19527,20 @@ if (
     const binding = invoke('live_acceptance_inspect_attach', { channel });
     let inspectionOpen = true;
     const detach = inspection.attach(channel, (id, reply) => {
-      void binding.then((epoch) => inspectionOpen && epoch && invoke('live_acceptance_inspect_reply',
-        { epoch, id, receipt: JSON.stringify(reply) }))
+      void binding
+        .then(
+          (epoch) =>
+            inspectionOpen &&
+            epoch &&
+            invoke('live_acceptance_inspect_reply', { epoch, id, receipt: JSON.stringify(reply) }),
+        )
         .catch((error) => console.error('Isolated inspection reply stopped', error));
     });
     const closeInspection = () => {
       inspectionOpen = false;
       detach?.();
-      void binding.then((epoch) => epoch && invoke('live_acceptance_inspect_detach', { epoch }))
+      void binding
+        .then((epoch) => epoch && invoke('live_acceptance_inspect_detach', { epoch }))
         .catch(() => {});
     };
     window.addEventListener('pagehide', closeInspection, { once: true });
@@ -19562,3 +19568,12 @@ if (
 
 // Compile-time only. Vite removes this branch and module from ordinary builds.
 startRecoveryAcceptanceWhenReady();
+
+if (import.meta.env.VITE_NECT_LIVE_INSPECT_PREVIEW === '1' && window.__TAURI_INTERNALS__) {
+  void import('./live-inspect-preview.js').then(({ mountLiveInspectPreview }) => {
+    mountLiveInspectPreview({
+      readTarget: readLiveEditorTarget,
+      canInspect: () => !documents.transitioning,
+    });
+  });
+}

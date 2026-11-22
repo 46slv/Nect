@@ -71,6 +71,19 @@ synthetic document: denied when disabled; accepted when enabled; stale on
 switch, reload, or revocation; exact unchanged document and history. An
 external transport or Hermes registration is a separate change.
 
+## In-app Windows preview
+
+For development only, build with Vite `VITE_NECT_LIVE_INSPECT_PREVIEW=1`,
+acceptance flags unset, and Rust features `custom-protocol,live-inspect-preview`.
+In an editor with a disposable project, open Local inspection preview, choose
+Enable, then Check document. Expected: Active document confirmed, with no
+target metadata returned to the UI and no authored state or history change.
+Disable should cancel or hide any pending result. Reload and close revoke
+the binding from the native WebView lifecycle. Rerun the check after a fresh
+Enable. The preview registers no OS or MCP listener and is off at startup;
+the ordinary build omits the preview UI and denies these commands.
+This does not demonstrate permission to attach a separate client.
+
 ## Acceptance before broader exposure
 
 1. A connection with no grant, a disabled connection, another instance, and a
