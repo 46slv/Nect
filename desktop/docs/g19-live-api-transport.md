@@ -242,6 +242,25 @@ validates the check, not any Nect release identity. An absent release trust
 anchor, unavailable trust, wrong role, or unverifiable running image still
 means no document may be shared.
 
+A separate development-only Windows acceptance script,
+`verify-local-mcp-refusal.py`, runs the unsigned build of
+`nect-mcp-local` (Cargo feature `live-mcp-pairing`) and the compiled
+publisher probe in a disposable scratch directory. Supply the unsigned
+helper, a scratch directory, and the probe in that order:
+
+```powershell
+python -B desktop/scripts/verify-local-mcp-refusal.py <unsigned-helper.exe> <scratch-directory> <verify-pe-publisher.exe>
+```
+
+The script holds the process that Windows attributes to the connected pipe
+and verifies its image with the probe. The connection is local and carries
+no app payload. Windows must report no signature, and Inspect must remain
+unavailable. Any policy for an installed pairing pilot must independently
+bind both publisher and component role to an approved distribution. An
+offer, same-logon access, a signed file found on disk, and the test probe
+are not substitutes for that policy or for attribution of the live peer.
+The disposable GUI's offer review remains format-only.
+
 First acceptance is Inspect once: a standard MCP client can initialize
 without sharing any document; a specific native consent in the already-open
 editor is needed before one exact synthetic-document identity can be read.
