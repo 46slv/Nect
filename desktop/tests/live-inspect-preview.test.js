@@ -5,7 +5,7 @@ import {
   mountLiveInspectPreviewIfAvailable,
 } from '../src/live-inspect-preview.js';
 
-function fixture(call) {
+function fixture(call, fixturePeer) {
   const el = () => ({
     style: {},
     dataset: {},
@@ -27,6 +27,7 @@ function fixture(call) {
     dom,
     host,
     call,
+    fixturePeer,
     makeChannel: () => ({}),
     readTarget: () => ({
       documentGeneration: 1,
@@ -37,8 +38,8 @@ function fixture(call) {
     }),
     canInspect: () => true,
   });
-  const [, enable, check, disable, status] = dom.body.children[0].children;
-  return { enable, check, disable, status };
+  const [, enable, check, disable, status, chooser] = dom.body.children[0].children;
+  return { enable, check, disable, status, selector: chooser?.children[0] };
 }
 
 test('a missing native feature does not mount the preview', async () => {
@@ -128,4 +129,33 @@ test('disabling during enable detaches a late successful attach', async () => {
     ['live_preview_attach', undefined],
     ['live_preview_detach', 71],
   ]);
+});
+
+test('an offered test client is opt-in and its selection cannot be reused', async () => {
+  const selected = [];
+  const view = fixture(
+    async (name, args) => {
+      if (name === 'live_preview_attach') {
+        selected.push(args.selectedTestClient);
+        return 41;
+      }
+      return true;
+    },
+    { pid: 123, executable: 'verified-test.exe' },
+  );
+  assert.equal(view.selector.value, 'in-app');
+  assert.match(view.selector.children[1].textContent, /verified-test.exe/);
+  await view.enable.click();
+  await view.disable.click();
+  view.selector.value = 'test-client';
+  await view.enable.click(false);
+  assert.deepEqual(selected, [null]);
+  await view.enable.click();
+  assert.deepEqual(selected, [null, 123]);
+  assert.match(view.status.textContent, /selected test client/);
+  await view.disable.click();
+  assert.equal(view.selector.value, 'in-app');
+  assert.equal(view.selector.children[1].disabled, true);
+  await view.enable.click();
+  assert.deepEqual(selected, [null, 123, null]);
 });

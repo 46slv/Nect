@@ -23,7 +23,22 @@ pub(super) struct State {
     active: Mutex<Option<(u64, Arc<AtomicBool>)>>,
 }
 
+#[derive(serde::Serialize)]
+pub(super) struct LocalPeer {
+    pid: u32,
+    executable: String,
+}
+
 impl State {
+    pub(super) fn candidate(&self) -> Option<LocalPeer> {
+        let state = self.prepared.lock().ok()?;
+        let proof = state.as_ref()?;
+        Some(LocalPeer {
+            pid: proof.client.pid(),
+            executable: proof.client.executable_name()?,
+        })
+    }
+
     pub(super) fn from_request(request: std::ffi::OsString) -> Result<Self, &'static str> {
         let request = request.to_str().ok_or("Invalid inspection proof")?;
         let mut fields = request.split(',');
@@ -78,7 +93,15 @@ impl State {
         result
     }
 
-    pub(super) fn begin(&self, lane: Arc<LiveInspectLane>, epoch: u64) -> Result<(), &'static str> {
+    pub(super) fn begin(
+        &self,
+        lane: Arc<LiveInspectLane>,
+        epoch: u64,
+        selected: Option<u32>,
+    ) -> Result<(), &'static str> {
+        let Some(selected) = selected else {
+            return Ok(());
+        };
         let mut active = self
             .active
             .lock()
@@ -86,13 +109,18 @@ impl State {
         if !lane.is_current(epoch) {
             return Err("Inspection binding closed");
         }
-        let Some(proof) = self
-            .prepared
-            .lock()
-            .map_err(|_| "Inspection proof unavailable")?
-            .take()
-        else {
-            return Ok(());
+        let proof = {
+            let mut candidate = self
+                .prepared
+                .lock()
+                .map_err(|_| "Inspection proof unavailable")?;
+            if !candidate
+                .as_ref()
+                .is_some_and(|proof| proof.client.pid() == selected && proof.client.live())
+            {
+                return Err("Selected test client unavailable");
+            }
+            candidate.take().ok_or("Selected test client unavailable")?
         };
         let pipe = LocalReadPipe::create(&proof.id, &proof.logon_sid)
             .map_err(|_| "Inspection pipe unavailable")?;

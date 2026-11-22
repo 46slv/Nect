@@ -1,6 +1,6 @@
-//! Read-only diagnostics for an opt-in application build. No startup arm,
-//! external listener, or persisted settings. The normal preview UI only gets a
-//! boolean. A disposable build may serve a single read on inherited handles.
+//! Read-only diagnostics for an opt-in application build. No startup arm or
+//! persisted settings. An isolated proof may offer one selected process a read
+//! after a separate explicit GUI choice, or use inherited test handles.
 use serde_json::Value;
 use tauri::{ipc::Channel, State, WebviewWindow};
 
@@ -122,8 +122,18 @@ fn read_once_at(
 }
 
 #[tauri::command]
-pub(crate) fn live_preview_available(window: WebviewWindow) -> bool {
-    Preview::admit(&window).is_ok()
+pub(crate) fn live_preview_available(
+    window: WebviewWindow,
+    state: State<'_, Preview>,
+) -> Option<Value> {
+    Preview::admit(&window).ok()?;
+    #[cfg(all(windows, feature = "live-inspect-preview"))]
+    return Some(serde_json::json!({ "fixturePeer": state.pipe.candidate() }));
+    #[cfg(not(all(windows, feature = "live-inspect-preview")))]
+    {
+        let _ = state;
+        None
+    }
 }
 
 #[tauri::command]
@@ -131,6 +141,7 @@ pub(crate) fn live_preview_attach(
     window: WebviewWindow,
     state: State<'_, Preview>,
     channel: Channel<Value>,
+    selected_test_client: Option<u32>,
 ) -> Result<Option<u64>, &'static str> {
     Preview::admit(&window)?;
     #[cfg(all(windows, feature = "live-inspect-preview"))]
@@ -138,7 +149,10 @@ pub(crate) fn live_preview_attach(
         let Some(epoch) = state.lane.enable_and_attach(channel) else {
             return Ok(None);
         };
-        if let Err(error) = state.pipe.begin(state.lane.clone(), epoch) {
+        if let Err(error) = state
+            .pipe
+            .begin(state.lane.clone(), epoch, selected_test_client)
+        {
             state.lane.detach(epoch);
             return Err(error);
         }
@@ -146,7 +160,7 @@ pub(crate) fn live_preview_attach(
     }
     #[cfg(not(all(windows, feature = "live-inspect-preview")))]
     {
-        let _ = (state, channel);
+        let _ = (state, channel, selected_test_client);
         Err("Local inspection preview unavailable")
     }
 }

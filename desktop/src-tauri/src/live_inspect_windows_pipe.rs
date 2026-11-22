@@ -61,6 +61,12 @@ extern "system" {
     ) -> Handle;
     fn ConnectNamedPipe(pipe: Handle, overlapped: *mut Overlapped) -> i32;
     fn OpenProcess(desired_access: u32, inherit: i32, id: u32) -> Handle;
+    fn QueryFullProcessImageNameW(
+        process: Handle,
+        flags: u32,
+        executable: *mut u16,
+        length: *mut u32,
+    ) -> i32;
     fn CreateEventW(
         attrs: *mut SecurityAttributes,
         manual_reset: i32,
@@ -133,6 +139,25 @@ impl SelectedClient {
             pid,
             handle: unsafe { OwnedHandle::from_raw_handle(raw) },
         })
+    }
+
+    pub(crate) fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    pub(crate) fn executable_name(&self) -> Option<String> {
+        let mut path = vec![0u16; 32768];
+        let mut len = path.len() as u32;
+        let ok = unsafe {
+            QueryFullProcessImageNameW(self.handle.as_raw_handle(), 0, path.as_mut_ptr(), &mut len)
+        };
+        if ok == 0 || !self.live() {
+            return None;
+        }
+        let path = String::from_utf16(path.get(..len as usize)?).ok()?;
+        let name = std::path::Path::new(&path).file_name()?.to_str()?;
+        (!name.is_empty() && name.len() <= 260 && !name.chars().any(char::is_control))
+            .then(|| name.to_owned())
     }
 
     pub(crate) fn live(&self) -> bool {

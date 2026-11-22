@@ -106,9 +106,13 @@ The adapter owns and closes only the disposable process it starts.
 The Windows pipe prototype is compiled in tests and in the explicitly
 opt-in Windows inspection preview. Its host-provided proof settings are
 accepted only with disposable storage and cannot be combined with either
-stdio proof. The preview does not open a pipe at startup: it opens one only
-when Enable succeeds, binds it to the retained fixture client and current
-WebView, and closes after one request or on timeout. Disable and reload
+stdio proof. The preview does not open a pipe at startup. Its chooser
+defaults to In-app only. That option can run a local check without opening
+the pipe. The user must explicitly select the test client, shown with the
+image name and PID of the retained Windows process, and then click Enable.
+The native side only accepts its already-retained selection and rechecks
+liveness. The selected route binds to the current WebView, then closes
+after one request or on timeout. Disable and reload
 request cancellation before dropping the renderer binding. It creates one local
 pipe restricted to the current logon SID and verifies the expected client PID
 before reading bytes. This tests a transport boundary, not a product grant.
