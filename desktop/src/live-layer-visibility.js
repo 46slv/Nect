@@ -34,3 +34,33 @@ export function createLiveLayerVisibility(host) {
 export function createLiveLayerLock(host) {
   return createLiveLayerFlag('locked', host);
 }
+
+export function createLiveLayerRename({ readTarget, getOwner, isEditBlocked, commit }) {
+  return function renameLayer({ target, layerId, name }) {
+    if (!editorTargetMatches(readTarget(), target)) return { status: 'stale-target' };
+    if (
+      typeof layerId !== 'string' ||
+      !layerId.length ||
+      layerId.length > 256 ||
+      typeof name !== 'string' ||
+      name.length > 100000 ||
+      !name.trim()
+    )
+      return { status: 'invalid-arguments' };
+    if (isEditBlocked()) return { status: 'edit-in-progress' };
+    const owner = getOwner();
+    const layer = owner.snapshot().layers.find((entry) => entry.id === layerId);
+    if (!layer) return { status: 'unsupported-target' };
+    if (layer.locked) return { status: 'rejected' };
+    const value = name.trim();
+    if (layer.name === value) return { status: 'unchanged' };
+    const receipt = commit(owner, {
+      sessionId: target.sessionId,
+      expectedRevision: target.sessionRevision,
+      type: 'rename',
+      payload: { layerId, name: value, expectedName: layer.name },
+    });
+    if (!receipt) return { status: 'rejected' };
+    return { status: receipt.changed ? 'changed' : 'unchanged' };
+  };
+}

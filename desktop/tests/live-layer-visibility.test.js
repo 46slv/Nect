@@ -7,7 +7,11 @@ import {
   deserializeCompositionProject,
   serializeCompositionProject,
 } from '../src/composition-project-model.js';
-import { createLiveLayerLock, createLiveLayerVisibility } from '../src/live-layer-visibility.js';
+import {
+  createLiveLayerLock,
+  createLiveLayerRename,
+  createLiveLayerVisibility,
+} from '../src/live-layer-visibility.js';
 import { createLiveEditorProtocol } from '../src/live-editor-protocol.js';
 import { readLiveEditorObjects } from '../src/live-editor-objects.js';
 
@@ -215,4 +219,79 @@ test('explicit opt-in layer lock matches GUI history and never unlocks a stale t
   });
   assert.equal(snapshot(live), before);
   assert.equal(writes, 2);
+});
+
+test('opt-in layer rename is the same atomic rename as the GUI', () => {
+  const live = makeOwner();
+  const gui = makeOwner();
+  const readTarget = () => ({
+    documentGeneration: 1,
+    compositionId: live.activeCompositionId,
+    sessionId: live.state.sessionId,
+    sessionRevision: live.state.expectedRevision,
+    projectRevision: live.projectRevision,
+  });
+  let blocked = false;
+  let commits = 0;
+  const renameLayer = createLiveLayerRename({
+    readTarget,
+    getOwner: () => live,
+    isEditBlocked: () => blocked,
+    commit(owner, command) {
+      commits++;
+      return owner.dispatch(command);
+    },
+  });
+  const handle = createLiveEditorProtocol({ readTarget, renameLayer });
+  const layer = live.snapshot().layers[0];
+  const before = snapshot(live);
+  const request = {
+    version: 1,
+    operation: 'layer.rename',
+    arguments: { target: readTarget(), layerId: layer.id, name: '  Blend study 日本語  ' },
+  };
+  const edit = (overrides) =>
+    handle({ ...request, arguments: { ...request.arguments, ...overrides } });
+  assert.deepEqual(createLiveEditorProtocol({ readTarget })(request), {
+    status: 'unsupported-operation',
+  });
+  assert.equal(edit({ nodeId: 'ignored' }).status, 'invalid-arguments');
+  assert.equal(edit({ name: '  ' }).status, 'invalid-arguments');
+  assert.equal(edit({ name: 'x'.repeat(100001) }).status, 'invalid-arguments');
+  assert.equal(edit({ layerId: 'missing' }).status, 'unsupported-target');
+  blocked = true;
+  assert.equal(handle(request).status, 'edit-in-progress');
+  blocked = false;
+  assert.equal(edit({ name: layer.name }).status, 'unchanged');
+  assert.equal(commits, 0);
+  assert.equal(snapshot(live), before);
+
+  gui.dispatch({
+    ...gui.state,
+    type: 'rename',
+    payload: { layerId: layer.id, name: request.arguments.name.trim(), expectedName: layer.name },
+  });
+  assert.deepEqual(handle(request), { status: 'changed', target: readTarget() });
+  const after = snapshot(live);
+  assert.equal(after, snapshot(gui));
+  assert.equal(svg(live), svg(gui));
+  assert.equal(edit({ name: 'Wrong revision' }).status, 'stale-target');
+  assert.equal(commits, 1);
+  live.dispatch({ ...live.state, type: 'undo' });
+  assert.equal(snapshot(live), before);
+  live.dispatch({ ...live.state, type: 'redo' });
+  assert.equal(snapshot(live), after);
+  const reopened = createCompositionSessionOwner(deserializeCompositionProject(after, deserialize));
+  assert.equal(reopened.snapshot().layers[0].id, layer.id);
+  assert.equal(reopened.snapshot().layers[0].name, request.arguments.name.trim());
+
+  live.dispatch({
+    ...live.state,
+    type: 'set-layer-state',
+    payload: { layerId: layer.id, key: 'locked', value: true },
+  });
+  const locked = snapshot(live);
+  assert.equal(edit({ target: readTarget(), name: 'Do not rename' }).status, 'rejected');
+  assert.equal(snapshot(live), locked);
+  assert.equal(commits, 1);
 });
