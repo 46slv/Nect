@@ -55,10 +55,18 @@ An interrupted acknowledgement is not a retry grant: use current discovery
 to locate the result and reject the original request at its old revision.
 Neither operation has a request-ID receipt lookup. The folder read returns
 IDs, ancestry and direct ownership, not names. Save/reopen preserves the
-structure, and grouping alone does not change SVG/PNG. Further Folder
-coverage needs separate proofs for rename, membership changes, and dissolve;
-a move that changes paint order must use the existing reviewed plan workflow.
-The local inspection preview does not load the edit dispatcher.
+structure, and grouping alone does not change SVG/PNG.
+
+The isolated Windows fixture also verifies folder rename, paint-order-preserving
+membership changes and dissolve without removing authored artwork. For an
+order-changing removal, the read-only preview returns the exact before/after
+order and affected memberships. Apply requires explicit confirmation of that
+plan on the same revision. A later preview replaces it; stale and replayed
+attempts are rejected. This is one Session edit: Undo/Redo, reopening the saved
+document and the resulting SVG paint order were checked using three authored
+layers. That Windows run does not prove order-changing move or folder-block
+reorder. The plan identifier is single-use state, not access permission. The
+local inspection preview does not load the edit dispatcher.
 
 Only the first read-only shipping route is designed below. A mutation grant
 would be a separate explicit capability and never implicit in Inspect.
