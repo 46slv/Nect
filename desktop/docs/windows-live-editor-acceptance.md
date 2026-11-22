@@ -63,6 +63,13 @@ non-boolean values, verifies that selecting the current visibility changes
 neither history nor revision, then runs the existing save/reopen and SVG/PNG
 checks after restoring the visible layer. It cannot change lock or solo.
 
+For rename persistence, set both NECT_ACCEPTANCE_LAYER_RENAME=1 and
+NECT_ACCEPTANCE_RENAMED_ROUNDTRIP=1 with a new receipt. The renamed layer
+must retain its Unicode name and stable ID after saving and reopening.
+The saved JSON and exported SVG may differ only in the layer name and
+data-layer labels respectively; the PNG must be byte-identical. Do not
+combine with artwork, font fixtures, or hidden/locked roundtrip tests.
+
 For a separate layer-lock run with a fresh receipt, set both
 `NECT_ACCEPTANCE_OBJECTS=1` and `NECT_ACCEPTANCE_LAYER_LOCK=1`. The test sets
 one stored lock flag, confirms layer discovery reports that change, rejects

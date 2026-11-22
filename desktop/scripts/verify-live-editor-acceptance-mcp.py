@@ -20,6 +20,7 @@ graph_wires = os.environ.get("NECT_ACCEPTANCE_GRAPH_WIRES") == "1"
 layer_visibility = os.environ.get("NECT_ACCEPTANCE_LAYER_VISIBILITY") == "1"
 layer_lock = os.environ.get("NECT_ACCEPTANCE_LAYER_LOCK") == "1"
 layer_rename = os.environ.get("NECT_ACCEPTANCE_LAYER_RENAME") == "1"
+renamed_roundtrip = os.environ.get("NECT_ACCEPTANCE_RENAMED_ROUNDTRIP") == "1"
 locked_roundtrip = os.environ.get("NECT_ACCEPTANCE_LOCKED_ROUNDTRIP") == "1"
 hidden_roundtrip = os.environ.get("NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP") == "1"
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
@@ -27,6 +28,7 @@ text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
 mixed_text_probe = os.environ.get("NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE") == "1"
 embedded_jp = os.environ.get("NECT_SVG_ACCEPTANCE_JP_FIXTURE") == "1"
 assert not layer_lock or list_objects
+assert not renamed_roundtrip or (layer_rename and not locked_roundtrip and not hidden_roundtrip and not artwork and not embedded_jp and not mixed_text_probe)
 assert not locked_roundtrip or (layer_lock and not hidden_roundtrip and not artwork and not embedded_jp and not mixed_text_probe)
 assert not (embedded_jp and mixed_text_probe)
 assert not hidden_roundtrip or (layer_visibility and not artwork and not embedded_jp and not mixed_text_probe)
@@ -272,6 +274,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             current=invoke("set_layer_visibility",dict(target=current,layerId=source_layer,visible=False),"changed")["target"]
         if locked_roundtrip:
             current=invoke("set_layer_lock",dict(target=current,layerId=source_layer,locked=True),"changed")["target"]
+        if renamed_roundtrip:
+            current=invoke("rename_layer",dict(target=current,layerId=source_layer,name=label),"changed")["target"]
         state=invoke("save_state",{},"ok")
         assert state==dict(status="ok",saveEpoch=0,dirty=True,pending=False)
         k="save_as_fault_01"
@@ -312,7 +316,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             assert not listed_again["isError"], listed_again
             [reopened_layer] = [x for x in listed_again["structuredContent"]["items"] if x["layerId"]==source_layer]
             assert reopened_layer == {**address, "locked": locked_roundtrip, "visible": not hidden_roundtrip}
-        if layer_visibility or graph_wires or layer_lock:
+        if renamed_roundtrip:
+            invoke("rename_layer",dict(target=current,layerId=source_layer,name=original_name),"stale-target",True)
+            assert invoke("rename_layer",dict(target=reopened,layerId=source_layer,name=label),"unchanged")["target"]==reopened
+        if layer_visibility or graph_wires or layer_lock or renamed_roundtrip:
             assert invoke("inspect",{},"ok")["target"]==reopened
         if hidden_roundtrip:
             unchanged=invoke("set_layer_visibility",dict(target=reopened,layerId=source_layer,visible=False),"unchanged")
@@ -346,8 +353,20 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         for role,filename in (("copy","live-api-project.json"),("svg","live-api-export.svg"),("png","live-api-export.png")):
             if mixed_text_probe and role != "copy":
                 continue
-            digests[role]=hashlib.sha256((run/"documents"/filename).read_bytes()).hexdigest()
-            if artwork or hidden_roundtrip or (locked_roundtrip and role == "copy"):
+            data=(outputs/filename).read_bytes()
+            digests[role]=hashlib.sha256(data).hexdigest()
+            if renamed_roundtrip and role in ("copy", "svg"):
+                new_name, old_name = label.encode("utf-8"), original_name.encode("utf-8")
+                if role == "svg":
+                    new_attr, old_attr = (b'data-layer="'+name+b'"' for name in (new_name, old_name))
+                    assert new_attr in data
+                    normalized = data.replace(new_attr, old_attr)
+                else:
+                    new_string, old_string = (b'"'+name+b'"' for name in (new_name, old_name))
+                    assert data.count(new_string) == 1
+                    normalized = data.replace(new_string, old_string)
+                assert hashlib.sha256(normalized).hexdigest()==expected[role+"SHA256"].lower(), role
+            elif artwork or hidden_roundtrip or (locked_roundtrip and role == "copy"):
                 assert digests[role]!=expected[role+"SHA256"].lower(), role
             else:
                 assert digests[role]==expected[role+"SHA256"].lower()
@@ -393,6 +412,12 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             [persisted]=[x for x in composition["layers"] if x["id"]==source_layer]
             assert persisted["locked"] is True and persisted["visible"] is True
             assert any(n["id"]==source_node for n in persisted["nodes"])
+        if renamed_roundtrip:
+            snapshot=json.loads((outputs/"live-api-project.json").read_bytes())
+            [composition]=[x for x in snapshot["compositions"] if x["id"]==reopened["compositionId"]]
+            [persisted]=[x for x in composition["layers"] if x["id"]==source_layer]
+            assert persisted["name"]==label
+            assert any(n["id"]==source_node for n in persisted["nodes"])
         bound=run/"documents/live-api-save-as.json"
         assert hashlib.sha256(bound.read_bytes()).hexdigest()==digests["copy"]
         assert len(list((run/"documents").glob("live-api-save-as*")))==1
@@ -402,7 +427,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "edit":"changed","history":"undo/redo verified","saveCopy":"accepted-by-writer","reopen":"reopened",
                   "exportSvg":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer",
                   "exportPng":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer","caseGuards":"pass",
-                  "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "layerLock":layer_lock, "layerRename":layer_rename, "lockedLayerRoundtrip":locked_roundtrip, "hiddenLayerRoundtrip":hidden_roundtrip, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
+                  "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "layerLock":layer_lock, "layerRename":layer_rename, "renamedLayerRoundtrip":renamed_roundtrip, "lockedLayerRoundtrip":locked_roundtrip, "hiddenLayerRoundtrip":hidden_roundtrip, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))
