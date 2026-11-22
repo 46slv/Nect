@@ -117,6 +117,16 @@ baseline. All four variables are optional; on means exactly `1`.
 | Japanese text, missing glyph | on                        | on                     | on                                      | off                              | 13         |
 | Japanese text, embedded font | on                        | on                     | off                                     | on                               | 13         |
 
+### Guide layer scenario
+
+In a separate run, enable `NECT_ACCEPTANCE_ARTWORK=1`,
+`NECT_ACCEPTANCE_OBJECTS=1`, `NECT_ACCEPTANCE_LAYER_LOCK=1`, and
+`NECT_ACCEPTANCE_LAYER_GUIDE=1` with a matching fixture executable.
+The 15-tool run converts a Rectangle layer, reverses the conversion, tests
+history and lock rejection, and saves that same layer as a locked Guide.
+After reopen, its ID and artwork remain in the project, but SVG excludes it
+while retaining the Blend and Text. PNG must export successfully.
+
 ### Layer Solo scenario
 
 In a separate run, use the matching fixture executable with

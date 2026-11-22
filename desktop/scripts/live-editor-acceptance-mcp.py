@@ -164,6 +164,15 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_SOLO") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "layer.setSolo"
+if os.environ.get("NECT_ACCEPTANCE_LAYER_GUIDE") == "1":
+    name = "nect_test_set_layer_guide"
+    TOOLS.append({
+        "name": name,
+        "description": "Convert one layer to or from a Guide in the isolated fixture",
+        "inputSchema": schema(dict(target=target, layerId=ident, guide={"type": "boolean"})),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "layer.setGuide"
 if os.environ.get("NECT_ACCEPTANCE_LAYER_LOCK") == "1":
     name = "nect_test_set_layer_lock"
     TOOLS.append({

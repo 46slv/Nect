@@ -18,6 +18,7 @@ assert result_file.parent == root
 list_objects = os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1"
 graph_wires = os.environ.get("NECT_ACCEPTANCE_GRAPH_WIRES") == "1"
 layer_visibility = os.environ.get("NECT_ACCEPTANCE_LAYER_VISIBILITY") == "1"
+layer_guide = os.environ.get("NECT_ACCEPTANCE_LAYER_GUIDE") == "1"
 layer_solo = os.environ.get("NECT_ACCEPTANCE_LAYER_SOLO") == "1"
 layer_lock = os.environ.get("NECT_ACCEPTANCE_LAYER_LOCK") == "1"
 layer_rename = os.environ.get("NECT_ACCEPTANCE_LAYER_RENAME") == "1"
@@ -48,6 +49,10 @@ assert not change_folder_membership or (layer_folders and not (artwork or hidden
 assert not rename_layer_folder or (layer_folders and not (artwork or hidden_roundtrip or locked_roundtrip or renamed_roundtrip))
 assert not create_layer_folder or (layer_folders and not (artwork or hidden_roundtrip or locked_roundtrip or renamed_roundtrip))
 assert not layer_folders or not (embedded_jp or mixed_text_probe or layer_reorder or layer_duplicate)
+assert not layer_guide or (artwork and layer_lock and not (
+    layer_solo or layer_folder_plan or layer_folders or layer_reorder or layer_duplicate or
+    embedded_jp or mixed_text_probe or hidden_roundtrip or locked_roundtrip or renamed_roundtrip
+))
 assert not layer_solo or (artwork and layer_visibility and not (
     layer_folder_plan or layer_folders or layer_reorder or layer_duplicate or embedded_jp or mixed_text_probe
 ))
@@ -113,6 +118,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_set_layer_visibility")
         if layer_solo:
             extra.append("nect_test_set_layer_solo")
+        if layer_guide:
+            extra.append("nect_test_set_layer_guide")
         if layer_lock:
             extra.append("nect_test_set_layer_lock")
         if layer_rename:
@@ -348,6 +355,27 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             invoke("redo",{"target":before_undo},"stale-target",True)
             current=invoke("redo",{"target":current},"changed")["target"]
             assert current["projectRevision"]==before_undo["projectRevision"]+2
+        if layer_guide:
+            [guide_id, retained_id] = [item[2] for item in made]
+            before = current
+            convert = dict(target=current, layerId=guide_id, guide=True)
+            invoke("set_layer_guide", {**convert, "guide": 1}, "invalid-arguments", True)
+            invoke("set_layer_guide", {**convert, "layerId":"absent"}, "unsupported-target", True)
+            assert invoke("set_layer_guide", {**convert, "guide":False}, "unchanged")["target"] == current
+            current = invoke("set_layer_guide", convert, "changed")["target"]
+            assert current["projectRevision"] == before["projectRevision"] + 1
+            invoke("set_layer_guide", convert, "stale-target", True)
+            assert invoke("set_layer_guide", {**convert, "target":current}, "unchanged")["target"] == current
+            current = invoke("set_layer_guide", {**convert, "target":current, "guide":False}, "changed")["target"]
+            restored = invoke("undo", {"target":current}, "changed")["target"]
+            assert invoke("set_layer_guide", {**convert, "target":restored}, "unchanged")["target"] == restored
+            redone = invoke("redo", {"target":restored}, "changed")["target"]
+            assert invoke("set_layer_guide", {**convert, "target":redone, "guide":False},
+                          "unchanged")["target"] == redone
+            current = invoke("undo", {"target":redone}, "changed")["target"]
+            current = invoke("set_layer_lock", dict(target=current, layerId=guide_id, locked=True), "changed")["target"]
+            invoke("set_layer_guide", {**convert, "target":current, "guide":False}, "rejected", True)
+            assert invoke("inspect", {}, "ok")["target"] == current
         if layer_solo:
             [rect_id, text_id] = [item[2] for item in made]
             original = current
@@ -608,6 +636,11 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             assert layer_ids(1606, reopened) == after_ids
         if layer_visibility or graph_wires or layer_lock or renamed_roundtrip or layer_reorder or layer_duplicate:
             assert invoke("inspect",{},"ok")["target"]==reopened
+        if layer_guide:
+            invoke("set_layer_guide", dict(target=current, layerId=guide_id, guide=False), "stale-target", True)
+            invoke("set_layer_guide", dict(target=reopened, layerId=guide_id, guide=False), "rejected", True)
+            assert invoke("set_layer_guide", dict(target=reopened, layerId=retained_id, guide=False),
+                          "unchanged")["target"] == reopened
         if layer_solo:
             invoke("set_layer_solo", dict(target=current, layerId=rect_id, solo=False), "stale-target", True)
             for lid, flag in [(rect_id, True), (text_id, True), (source_layer, False)]:
@@ -714,6 +747,13 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 from xml.etree import ElementTree
                 tree = ElementTree.fromstring(svg)
                 assert tree.tag.endswith("}svg")
+                if layer_guide:
+                    assert [l["id"] for l in composition["layers"]] == [source_layer, guide_id, retained_id]
+                    source, guide_layer, text_layer = composition["layers"]
+                    assert guide_layer["guide"] is True and guide_layer["locked"] is True and guide_layer["visible"]
+                    assert not source.get("guide") and not text_layer.get("guide")
+                    labels = {n.attrib["data-layer"] for n in tree.iter() if "data-layer" in n.attrib}
+                    assert labels == {source["name"], text_layer["name"]}, labels
                 if layer_solo:
                     assert [l["id"] for l in composition["layers"]] == [source_layer, rect_id, text_id]
                     source, rect, text_layer = composition["layers"]
@@ -828,6 +868,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 evidence[key]["edgeNoopVerified"] = True
         if layer_solo:
             evidence["layerSolo"] = "two persisted Solo flags; hidden Solo and non-Solo excluded from SVG; one-revision changes, stale rejection, Undo/Redo, and PNG export"
+        if layer_guide:
+            evidence["layerGuide"] = "guide conversion and restoration reuse the same layer; lock and stale rejection; Undo/Redo and persisted Guide excluded from SVG; PNG export"
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))
