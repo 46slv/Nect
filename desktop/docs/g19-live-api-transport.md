@@ -106,12 +106,19 @@ The adapter owns and closes only the disposable process it starts.
 The Windows pipe prototype is compiled only in tests. It creates one local
 pipe restricted to the current logon SID and verifies the expected client PID
 before reading bytes. This tests a transport boundary, not a product grant.
-Before enabling attachment to a running editor, the native owner must hold
-the selected live client process identity across connection acceptance,
-issue and revoke a separate per-client grant, and use cancellable I/O with
-bounded connect/read/write. Do not promote the blocking test connector or
-the test-only SID lookup into the app. No program is discovered or started
-by the ordinary editor.
+It retains a client process handle during authorization and uses overlapped
+connect/read/write with a cancellation flag and time budget. The focused
+Windows test exercises connect/read timeout, read cancellation, and a fresh
+synthetic round trip. The deadline requests OS cancellation; draining the
+completion can outlast the budget. This does not prove cancellation of a
+blocked write or that a racing write did not complete.
+See [Windows overlapped pipe I/O](https://learn.microsoft.com/en-us/windows/win32/ipc/synchronous-and-overlapped-input-and-output).
+
+Before enabling attachment to a running editor, the native owner must bind
+client selection to an explicit user decision, preserve per-client grant
+expiry, and serialize final publication with revocation. Do not promote
+the test-only SID lookup into the app. The ordinary editor does not start
+this endpoint or discover client programs.
 
 ## Acceptance before broader exposure
 
