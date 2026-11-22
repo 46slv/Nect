@@ -24,6 +24,8 @@ layer_reorder = os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1"
 layer_duplicate = os.environ.get("NECT_ACCEPTANCE_LAYER_DUPLICATE") == "1"
 layer_folders = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDERS") == "1"
 layer_folder_plan = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_PLAN") == "1"
+folder_plan_move_order = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_MOVE_ORDER_CASE") == "1"
+assert not folder_plan_move_order or layer_folder_plan
 folder_create_tool = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_CREATE") == "1"
 create_layer_folder = folder_create_tool and not layer_folder_plan
 rename_layer_folder = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_RENAME") == "1"
@@ -345,11 +347,13 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             planned_order = [source_layer, made[1][2], made[0][2]]
             plan_folder_name = "Synthetic Reviewed Folder"
             grouped = invoke("create_layer_folder", dict(
-                target=current, name=plan_folder_name, layerIds=original_plan_order, folderIds=[]
+                target=current, name=plan_folder_name, layerIds=original_plan_order[:1] if folder_plan_move_order else original_plan_order, folderIds=[]
             ), "changed")
             current = grouped["target"]
             folder = grouped["folderId"]
-            plan_args = dict(target=current, request=dict(mode="remove", folderId=folder, layerIds=[made[0][2]]))
+            mode = "move" if folder_plan_move_order else "remove"
+            chosen = made[1][2] if folder_plan_move_order else made[0][2]
+            plan_args = dict(target=current, request=dict(mode=mode, folderId=folder, layerIds=[chosen]))
             superseded = invoke("plan_layer_folder", plan_args, "ok")
             plan = invoke("plan_layer_folder", plan_args, "ok")
             assert plan["before"] == original_plan_order and plan["after"] == planned_order, plan
@@ -369,6 +373,26 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             current = invoke("redo", {"target": undone}, "changed")["target"]
             invoke("apply_layer_folder_plan", dict(target=undone, planId=restored_plan["planId"], confirmed=True),
                    "stale-target", True)
+            expected_plan_members = planned_order[:2]
+            if folder_plan_move_order:
+                order_args = dict(target=current, request=dict(mode="order", folderId=folder, direction="forward"))
+                order_plan = invoke("plan_layer_folder", order_args, "ok")
+                final_order = [planned_order[-1], *planned_order[:2]]
+                assert order_plan["before"] == planned_order and order_plan["after"] == final_order, order_plan
+                assert order_plan["membership"] == [] and order_plan["orderChanged"] is True
+                assert invoke("inspect", {}, "ok")["target"] == current
+                order_apply = dict(target=current, planId=order_plan["planId"], confirmed=True)
+                ordered = invoke("apply_layer_folder_plan", order_apply, "changed")["target"]
+                assert ordered["projectRevision"] == current["projectRevision"] + 1
+                invoke("apply_layer_folder_plan", order_apply, "unknown-plan", True)
+                undone = invoke("undo", {"target": ordered}, "changed")["target"]
+                assert invoke("plan_layer_folder", {**order_args, "target": undone}, "ok")["before"] == planned_order
+                current = invoke("redo", {"target": undone}, "changed")["target"]
+                at_edge = invoke("plan_layer_folder", {**order_args, "target": current}, "ok")
+                assert at_edge["before"] == at_edge["after"] == final_order and not at_edge["orderChanged"], at_edge
+                assert invoke("apply_layer_folder_plan", dict(target=current, planId=at_edge["planId"], confirmed=True),
+                              "unchanged")["target"] == current
+                planned_order = final_order
         if layer_reorder:
             created_layer = made[0][2]
 
@@ -662,7 +686,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 if layer_folder_plan:
                     assert [l["id"] for l in composition["layers"]] == planned_order
                     assert composition["editor"]["layerFolders"] == [
-                        dict(id=folder, name=plan_folder_name, members=[dict(layerId=l) for l in planned_order[:2]])
+                        dict(id=folder, name=plan_folder_name, members=[dict(layerId=l) for l in expected_plan_members])
                     ]
                     expected_labels = [l["name"] for l in composition["layers"]]
                     assert len(set(expected_labels)) == 3
@@ -754,12 +778,15 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         if dissolve_layer_folder:
             evidence["layerFolderDissolve"] = "one intermediate folder dissolved; nested child and authored layer preserved; exact replay stale; Undo/Redo and reopen verified"
         if layer_folder_plan:
-            evidence["layerFolderReviewedRemoval"] = dict(
-                before=original_plan_order, after=planned_order, folderId=folder,
+            key = "layerFolderReviewedMoveAndOrder" if folder_plan_move_order else "layerFolderReviewedRemoval"
+            evidence[key] = dict(
+                before=original_plan_order, afterPrimaryEdit=plan['after'], after=planned_order, folderId=folder,
                 previewNonMutating=True, supersededAndReplayRejected=True,
                 confirmationRequired=True, staleAfterRedoRejected=True,
                 undoRedoAndReopenVerified=True, svgLayerOrderVerified=True,
             )
+            if folder_plan_move_order:
+                evidence[key]["edgeNoopVerified"] = True
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))

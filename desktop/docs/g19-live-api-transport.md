@@ -64,9 +64,13 @@ order and affected memberships. Apply requires explicit confirmation of that
 plan on the same revision. A later preview replaces it; stale and replayed
 attempts are rejected. This is one Session edit: Undo/Redo, reopening the saved
 document and the resulting SVG paint order were checked using three authored
-layers. That Windows run does not prove order-changing move or folder-block
-reorder. The plan identifier is single-use state, not access permission. The
-local inspection preview does not load the edit dispatcher.
+layers. A second three-layer fixture moves a nonadjacent layer into a root
+folder, then advances that folder as a block. It verifies both resulting paint
+orders, Undo/Redo, saved membership, reopened SVG order, and a no-op when
+advancing at the front edge. These proofs cover flat folders only; they do
+not add nested reordering or prove the normal installed transport. The plan
+identifier is single-use state, not access permission. The local inspection
+preview does not load the edit dispatcher.
 
 Only the first read-only shipping route is designed below. A mutation grant
 would be a separate explicit capability and never implicit in Inspect.
