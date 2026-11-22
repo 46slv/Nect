@@ -132,10 +132,16 @@ test('graph default is disconnected and preserves every existing node even with 
   assert.equal(exportSVG(after), exportSVG(before));
 });
 const routeCases = [
-  ['line', '<line x1="1" y1="2" x2="13" y2="18" stroke="#345678"/>',
-    '<path d="M1 2L13 18" fill="none" stroke="#345678"/>'],
-  ['polygon', '<polygon points="1,2 13,18 25,2" fill="#345678"/>',
-    '<path d="M1 2L13 18L25 2Z" fill="#345678"/>'],
+  [
+    'line',
+    '<line x1="1" y1="2" x2="13" y2="18" stroke="#345678"/>',
+    '<path d="M1 2L13 18" fill="none" stroke="#345678"/>',
+  ],
+  [
+    'polygon',
+    '<polygon points="1,2 13,18 25,2" fill="#345678"/>',
+    '<path d="M1 2L13 18L25 2Z" fill="#345678"/>',
+  ],
 ];
 const svgFixture = (shape) =>
   tree('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">' + shape + '</svg>');
@@ -145,16 +151,23 @@ for (const route of ['layer', 'graph'])
       const f = fixture(blankDocument());
       f.add({ route });
       f.send('undo');
-      const before = f.s.snapshot(), state = f.s.state, history = structuredClone(f.s.historyView);
-      assert.throws(() => f.add({ route, source: svgFixture(unsupported) }),
-        { message: `Unsupported SVG element: ${tag}` });
+      const before = f.s.snapshot(),
+        state = f.s.state,
+        history = structuredClone(f.s.historyView);
+      assert.throws(() => f.add({ route, source: svgFixture(unsupported) }), {
+        message: `Unsupported SVG element: ${tag}`,
+      });
       assert.deepEqual(f.s.snapshot(), before);
       assert.deepEqual(f.s.state, state);
       assert.deepEqual(f.s.historyView, history);
-      const r = f.add({ route, source: svgFixture(portable) }), after = f.s.snapshot();
+      const r = f.add({ route, source: svgFixture(portable) }),
+        after = f.s.snapshot();
       const reopened = deserialize(serialize(after));
-      assert.deepEqual(reopened.layers.find((l) => l.id === r.layerId)
-        .nodes.find((n) => n.id === r.nodeId).svgAsset, provenance());
+      assert.deepEqual(
+        reopened.layers.find((l) => l.id === r.layerId).nodes.find((n) => n.id === r.nodeId)
+          .svgAsset,
+        provenance(),
+      );
       const svg = exportSVG(after);
       assert.equal(exportSVG(reopened), svg);
       if (route === 'layer') assert.match(svg, /#345678/);
