@@ -30,6 +30,7 @@ export function createLiveEditorProtocol({
   listLayerFolders,
   createLayerFolder,
   renameLayerFolder,
+  setLayerFolderMembership,
   readNodeInputWires,
   setLayerVisibility,
   setLayerLock,
@@ -119,6 +120,29 @@ export function createLiveEditorProtocol({
       try {
         const { status } = renameLayerFolder(args);
         return status === 'changed' || status === 'unchanged'
+          ? { status, target: captureEditorTarget(readTarget()) }
+          : { status };
+      } catch {
+        return { status: 'outcome-unknown' };
+      }
+    }
+    if (setLayerFolderMembership && request.operation === 'layerFolders.changeMembership') {
+      if (
+        !closed(args, ['target', 'folderId', 'mode', 'layerIds']) ||
+        !validTarget(args.target) ||
+        !id(args.folderId) ||
+        !['add', 'remove'].includes(args.mode) ||
+        !Array.isArray(args.layerIds) ||
+        !args.layerIds.length ||
+        args.layerIds.length > 32 ||
+        !args.layerIds.every(id) ||
+        new Set(args.layerIds).size !== args.layerIds.length ||
+        new TextEncoder().encode(JSON.stringify(args)).byteLength > 3500
+      )
+        return { status: 'invalid-arguments' };
+      try {
+        const { status } = setLayerFolderMembership(args);
+        return status === 'changed'
           ? { status, target: captureEditorTarget(readTarget()) }
           : { status };
       } catch {
