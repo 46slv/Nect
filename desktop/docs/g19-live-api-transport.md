@@ -123,6 +123,18 @@ gets no bytes, that the selected process can read one synthetic response, and
 that the retained identity is no longer live after client exit.
 See [Windows overlapped pipe I/O](https://learn.microsoft.com/en-us/windows/win32/ipc/synchronous-and-overlapped-input-and-output).
 
+An independent test MCP process can now use this proof without starting or
+restarting the editor. Set NECT_MCP_PREVIEW_READ_ONLY=1 and
+NECT_MCP_LOCAL_PIPE_PROOF to the exact disposable identifier before launching
+the adapter, then use its PID in the existing native proof settings. Its only
+tool is nect_test_inspect, and one valid call consumes the attempt. Windows
+acceptance checked an opened synthetic Blend document: the permitted call
+returned the active revision without changing editor state, and a separate
+run returned app-unavailable after Disable. It also rejected edit, extra
+arguments, and a repeat call. The adapter checks the closed inspect reply
+shape, but does not authenticate the server process. This is a trusted
+local fixture contract, not client registration or normal editor integration.
+
 Before enabling attachment to a running editor, the native owner must bind
 client selection to an explicit user decision, preserve per-client grant
 expiry, and serialize final publication with revocation. Do not promote

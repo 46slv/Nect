@@ -12,10 +12,19 @@ import uuid
 REV = "2025-06-18"
 PREVIEW_ONLY = os.environ.get("NECT_MCP_PREVIEW_READ_ONLY") == "1"
 BASE = Path(__file__).resolve().parent
-EXE = Path(os.environ["NECT_ACCEPTANCE_EXE"]).resolve(strict=True)
-HASH = os.environ["NECT_ACCEPTANCE_SHA256"].lower()
-if os.name != "nt" or EXE.suffix.lower() != ".exe" or len(HASH) != 64:
-    raise RuntimeError("A Windows acceptance build and its expected SHA-256 are required")
+PIPE_IDENTIFIER = os.environ.get("NECT_MCP_LOCAL_PIPE_PROOF")
+if os.name != "nt":
+    raise RuntimeError("A Windows acceptance host is required")
+if PIPE_IDENTIFIER is not None:
+    if not PREVIEW_ONLY:
+        raise RuntimeError("The local pipe proof requires read-only preview mode")
+    from live_inspect_pipe_proof_client import inspect_endpoint, inspect_once
+    PIPE_ENDPOINT = inspect_endpoint(PIPE_IDENTIFIER)
+else:
+    EXE = Path(os.environ["NECT_ACCEPTANCE_EXE"]).resolve(strict=True)
+    HASH = os.environ["NECT_ACCEPTANCE_SHA256"].lower()
+    if EXE.suffix.lower() != ".exe" or len(HASH) != 64:
+        raise RuntimeError("A Windows acceptance build and its expected SHA-256 are required")
 
 def schema(props):
     return {"type": "object", "properties": props, "required": list(props), "additionalProperties": False}
@@ -155,7 +164,8 @@ def serve(child):
                     return
         finally:
             native_replies.put(None)
-    Thread(target=read_native, daemon=True).start()
+    if child is not None:
+        Thread(target=read_native, daemon=True).start()
     handshake = "start"
     preview_used = False
     def response(id_, **payload):
@@ -210,7 +220,10 @@ def serve(child):
                     result = {"status": "proof-consumed"}
                 else:
                     preview_used = True
-                    result = app_call(child, native_replies, name, args)
+                    if PIPE_IDENTIFIER is not None:
+                        result = inspect_once(PIPE_ENDPOINT)
+                    else:
+                        result = app_call(child, native_replies, name, args)
             else:
                 result = app_call(child, native_replies, name, args)
             response(id_, result={"content": [{"type": "text", "text": json.dumps(result)}],
@@ -220,11 +233,14 @@ def serve(child):
             error(id_, -32601, "Method not found")
 
 if __name__ == "__main__":
-    child = make_child()
-    try:
-        serve(child)
-    finally:
-        child.stdin.close()
-        if child.poll() is None:
-            child.terminate()
-        child.wait(timeout=5)
+    if PIPE_IDENTIFIER is not None:
+        serve(None)
+    else:
+        child = make_child()
+        try:
+            serve(child)
+        finally:
+            child.stdin.close()
+            if child.poll() is None:
+                child.terminate()
+            child.wait(timeout=5)
