@@ -10,6 +10,7 @@ import { createLiveEditorProtocol } from '../src/live-editor-protocol.js';
 import {
   createLiveArtworkAlignment,
   createLiveArtworkDistribution,
+  createLiveArtworkGapDistribution,
   createLiveArtworkTranslation,
 } from '../src/live-artwork-translation.js';
 import { orderingDocument } from './fixtures/artwork-ordering.js';
@@ -211,4 +212,71 @@ test('artwork distribution pins outer shapes and matches one GUI history edit', 
   assert.equal(snapshot(live), before);
   live.dispatch({ ...live.state, type: 'redo' });
   assert.equal(snapshot(live), after);
+});
+
+test('edge gap distribution preserves the GUI automatic and explicit spacing semantics', () => {
+  const live = makeOwner(),
+    gui = makeOwner();
+  const [first, locked, last] = live.snapshot().layers;
+  const readTarget = () => ({
+    documentGeneration: 1,
+    compositionId: live.activeCompositionId,
+    sessionId: live.state.sessionId,
+    sessionRevision: live.state.expectedRevision,
+    projectRevision: live.projectRevision,
+  });
+  const distributeArtworkGaps = createLiveArtworkGapDistribution({
+    readTarget,
+    getOwner: () => live,
+    isEditBlocked: () => false,
+    commit: (owner, command) => owner.dispatch(command),
+  });
+  const handle = createLiveEditorProtocol({ readTarget, distributeArtworkGaps });
+  const payload = { layerIds: [first.id, last.id], action: 'gap-x', spacing: 25 };
+  const request = (overrides) => ({
+    version: 1,
+    operation: 'artwork.distributeGaps',
+    arguments: { target: readTarget(), ...payload, ...overrides },
+  });
+  const before = snapshot(live);
+  assert.equal(createLiveEditorProtocol({ readTarget })(request()).status, 'unsupported-operation');
+  for (const invalid of [
+    { spacing: null },
+    { spacing: undefined },
+    { spacing: Infinity },
+    { spacing: 100001 },
+    { spacing: '25' },
+    { action: 'center-x' },
+  ])
+    assert.equal(handle(request(invalid)).status, 'invalid-arguments');
+  assert.equal(handle(request({ layerIds: [first.id, locked.id] })).status, 'rejected');
+  assert.equal(snapshot(live), before);
+  const old = request();
+  gui.dispatch({ ...gui.state, type: 'distribute-artwork-gaps', payload });
+  assert.equal(handle(old).status, 'changed');
+  assert.equal(snapshot(live), snapshot(gui));
+  assert.equal(exportSVG(live.snapshot()), exportSVG(gui.snapshot()));
+  assert.deepEqual(live.snapshot().layers[0], first);
+  assert.equal(live.snapshot().layers[2].nodes[0].params.center.value[0], 445);
+  assert.equal(handle(old).status, 'stale-target');
+  assert.equal(handle(request()).status, 'unchanged');
+  live.dispatch({ ...live.state, type: 'undo' });
+  assert.equal(snapshot(live), before);
+  live.dispatch({ ...live.state, type: 'redo' });
+  assert.equal(snapshot(live), snapshot(gui));
+  const ids = [first.id, locked.id, last.id];
+  for (const owner of [live, gui])
+    owner.dispatch({
+      ...owner.state,
+      type: 'set-layer-state',
+      payload: { layerId: locked.id, key: 'locked', value: false },
+    });
+  gui.dispatch({
+    ...gui.state,
+    type: 'distribute-artwork-gaps',
+    payload: { layerIds: ids, action: 'gap-x' },
+  });
+  assert.equal(handle(request({ layerIds: ids, spacing: null })).status, 'changed');
+  assert.equal(snapshot(live), snapshot(gui));
+  assert.equal(live.snapshot().layers[2].nodes[0].params.center.value[0], 445);
 });

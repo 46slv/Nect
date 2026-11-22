@@ -8,6 +8,7 @@ import {
 import {
   validArtworkAlignment,
   validArtworkDistribution,
+  validArtworkGapDistribution,
   validArtworkTranslation,
 } from './live-artwork-translation.js';
 import { validBlankLayerName } from './live-layer-create.js';
@@ -61,6 +62,7 @@ export function createLiveEditorProtocol({
   translateArtwork,
   alignArtwork,
   distributeArtwork,
+  distributeArtworkGaps,
   setTextContent,
   writeSvg,
   writePng,
@@ -380,6 +382,22 @@ export function createLiveEditorProtocol({
         if (status === 'changed' || status === 'unchanged')
           return { status, target: captureEditorTarget(readTarget()) };
         return { status };
+      } catch {
+        return { status: 'outcome-unknown' };
+      }
+    }
+    if (distributeArtworkGaps && request.operation === 'artwork.distributeGaps') {
+      if (
+        !closed(args, ['target', 'layerIds', 'action', 'spacing']) ||
+        !validTarget(args.target) ||
+        !validArtworkGapDistribution(args.layerIds, args.action, args.spacing)
+      )
+        return { status: 'invalid-arguments' };
+      try {
+        const { status } = distributeArtworkGaps(args);
+        return status === 'changed' || status === 'unchanged'
+          ? { status, target: captureEditorTarget(readTarget()) }
+          : { status };
       } catch {
         return { status: 'outcome-unknown' };
       }

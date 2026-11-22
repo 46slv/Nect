@@ -1,4 +1,8 @@
-import { artworkAlignments, artworkDistributions } from './artwork-alignment-actions.js';
+import {
+  artworkAlignments,
+  artworkDistributions,
+  artworkGapDistributions,
+} from './artwork-alignment-actions.js';
 import { editorTargetMatches } from './live-editor-target.js';
 
 function validArtworkLayerIds(layerIds, minimum = 1) {
@@ -31,6 +35,14 @@ export function validArtworkAlignment(layerIds, action, reference) {
 
 export function validArtworkDistribution(layerIds, action) {
   return validArtworkLayerIds(layerIds, 3) && artworkDistributions.some(([id]) => id === action);
+}
+
+export function validArtworkGapDistribution(layerIds, action, spacing) {
+  return (
+    (spacing === null || (Number.isFinite(spacing) && Math.abs(spacing) <= 100000)) &&
+    validArtworkLayerIds(layerIds, spacing === null ? 3 : 2) &&
+    artworkGapDistributions.some(([id]) => id === action)
+  );
 }
 
 function createArtworkEdit({ readTarget, getOwner, isEditBlocked, commit }, type, payloadFor) {
@@ -80,5 +92,13 @@ export function createLiveArtworkAlignment(host) {
 export function createLiveArtworkDistribution(host) {
   return createArtworkEdit(host, 'distribute-artworks', ({ layerIds, action }) =>
     validArtworkDistribution(layerIds, action) ? { layerIds: [...layerIds], action } : null,
+  );
+}
+
+export function createLiveArtworkGapDistribution(host) {
+  return createArtworkEdit(host, 'distribute-artwork-gaps', ({ layerIds, action, spacing }) =>
+    validArtworkGapDistribution(layerIds, action, spacing)
+      ? { layerIds: [...layerIds], action, ...(spacing === null ? {} : { spacing }) }
+      : null,
   );
 }

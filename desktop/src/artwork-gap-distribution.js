@@ -4,10 +4,9 @@ import { artworkBoundsPrecision } from './artwork-alignment.js';
 import { translateArtworkMoves } from './artwork-multi-move.js';
 import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 
-export const artworkGapDistributions = [
-  ['gap-x', '横方向', 0],
-  ['gap-y', '縦方向', 1],
-];
+import { artworkGapDistributions } from './artwork-alignment-actions.js';
+
+export { artworkGapDistributions };
 
 // Preserve the physical outside edges, even when the widest artwork is not
 // last in leading-edge order. Exact ties use document order, never click order.

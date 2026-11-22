@@ -15,3 +15,8 @@ export const artworkDistributions = [
   ['top', 'Top edges', 1, 0],
   ['bottom', 'Bottom edges', 1, 2],
 ];
+
+export const artworkGapDistributions = [
+  ['gap-x', '横方向', 0],
+  ['gap-y', '縦方向', 1],
+];
