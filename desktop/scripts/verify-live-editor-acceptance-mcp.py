@@ -24,6 +24,7 @@ layer_solo = os.environ.get("NECT_ACCEPTANCE_LAYER_SOLO") == "1"
 layer_lock = os.environ.get("NECT_ACCEPTANCE_LAYER_LOCK") == "1"
 layer_rename = os.environ.get("NECT_ACCEPTANCE_LAYER_RENAME") == "1"
 layer_reorder = os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1"
+layer_create_blank = os.environ.get("NECT_ACCEPTANCE_LAYER_CREATE_BLANK") == "1"
 layer_duplicate = os.environ.get("NECT_ACCEPTANCE_LAYER_DUPLICATE") == "1"
 layer_folders = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDERS") == "1"
 layer_folder_plan = os.environ.get("NECT_ACCEPTANCE_LAYER_FOLDER_PLAN") == "1"
@@ -59,6 +60,10 @@ assert not layer_solo or (artwork and layer_visibility and not (
     layer_folder_plan or layer_folders or layer_reorder or layer_duplicate or embedded_jp or mixed_text_probe
 ))
 assert not layer_lock or list_objects
+assert not layer_create_blank or (
+    list_objects and not (layer_duplicate or layer_reorder or artwork or layer_folders or
+    renamed_roundtrip or locked_roundtrip or hidden_roundtrip or layer_folder_plan)
+)
 assert not layer_duplicate or (
     list_objects and not (layer_reorder or layer_rename or layer_lock or layer_visibility or
     artwork or embedded_jp or mixed_text_probe or renamed_roundtrip or locked_roundtrip or hidden_roundtrip)
@@ -130,6 +135,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_rename_layer")
         if layer_reorder:
             extra.append("nect_test_reorder_layer")
+        if layer_create_blank:
+            extra.append("nect_test_create_blank_layer")
         if layer_duplicate:
             extra.append("nect_test_duplicate_layer")
         if layer_folders:
@@ -499,6 +506,34 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             assert layer_order(1503, undone) == ordered
             current = invoke("redo", {"target": undone}, "changed")["target"]
             assert layer_order(1504, current) == next_order
+        if layer_create_blank:
+            def blank_listing(id_, revision, layer_index=None):
+                reply = list_page(id_, layer_index, revision)
+                assert not reply["isError"], reply
+                data = reply["structuredContent"]
+                assert data["target"] == revision and data["nextOffset"] is None, data
+                return data["items"]
+            blank_name = "Synthetic Empty Layer"
+            request = dict(target=current, name=blank_name)
+            invoke("create_blank_layer", {**request, "name":" "}, "invalid-arguments", True)
+            invoke("create_blank_layer", {**request, "path":"not-an-argument"}, "invalid-arguments", True)
+            assert [x["layerId"] for x in blank_listing(1701, current)] == [source_layer]
+            next_id += 1
+            send(dict(id=next_id, method="tools/call", params={"name":"nect_test_create_blank_layer","arguments":request}))
+            assert replies.get(timeout=12) is not None  # Discard this reply and reconcile by reading.
+            observed = invoke("inspect", {}, "ok")["target"]
+            assert observed["projectRevision"] == current["projectRevision"] + 1
+            [prior, blank] = blank_listing(1702, observed)
+            assert prior["layerId"] == source_layer and blank["layerId"] != source_layer
+            empty_id = blank["layerId"]
+            [out] = blank_listing(1703, observed, 1)
+            assert out["type"] == "Output"
+            out_id = out["nodeId"]
+            invoke("create_blank_layer", request, "stale-target", True)
+            undone = invoke("undo", {"target":observed}, "changed")["target"]
+            assert [x["layerId"] for x in blank_listing(1704, undone)] == [source_layer]
+            current = invoke("redo", {"target":undone}, "changed")["target"]
+            assert [x["layerId"] for x in blank_listing(1705, current)] == [source_layer, empty_id]
         if layer_duplicate:
             def layer_ids(id_, revision):
                 reply = list_page(id_, None, revision)
@@ -655,6 +690,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             invoke("reorder_layer", {**move, "target": current}, "stale-target", True)
             assert invoke("reorder_layer", {**move, "target": reopened}, "unchanged")["target"] == reopened
             assert layer_order(1505, reopened) == next_order
+        if layer_create_blank:
+            invoke("create_blank_layer", {**request, "target":current}, "stale-target", True)
+            assert [x["layerId"] for x in blank_listing(1706, reopened)] == [source_layer, empty_id]
+            assert blank_listing(1707, reopened, 1) == [dict(nodeId=out_id, type="Output")]
         if layer_duplicate:
             invoke("duplicate_layer", {**duplicate, "target": current}, "stale-target", True)
             assert layer_ids(1606, reopened) == after_ids
@@ -751,6 +790,13 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                     del expected_folders[1]
                 assert comp["editor"]["layerFolders"] == expected_folders
                 assert [layer["id"] for layer in comp["layers"]] == [source_layer]
+            elif layer_create_blank and role == "copy":
+                snapshot = json.loads(data)
+                [comp] = [c for c in snapshot["compositions"] if c["id"] == reopened["compositionId"]]
+                assert [layer["id"] for layer in comp["layers"]] == [source_layer, empty_id]
+                empty_layer = comp["layers"][1]
+                assert empty_layer["name"] == blank_name and empty_layer["output"] == out_id
+                assert [(n["id"], n["type"]) for n in empty_layer["nodes"]] == [(out_id, "Output")]
             elif layer_duplicate:
                 if role != "png":
                     assert digests[role] != expected[role+"SHA256"].lower(), role
@@ -906,6 +952,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             evidence["layerGuide"] = "guide conversion and restoration reuse the same layer; lock and stale rejection; Undo/Redo and persisted Guide excluded from SVG; PNG export"
         if layer_state:
             evidence["layerState"] = "exact stored flags before edit, after edit and reopen; stale and unsupported IDs rejected; revision unchanged by reads"
+        if layer_create_blank:
+            evidence["blankLayer"] = "one empty Output created; dropped reply reconciled by listing; stale replay refused; Undo/Redo, reopened IDs and byte-identical baseline SVG/PNG"
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))

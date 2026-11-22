@@ -117,6 +117,14 @@ baseline. All four variables are optional; on means exactly `1`.
 | Japanese text, missing glyph | on                        | on                     | on                                      | off                              | 13         |
 | Japanese text, embedded font | on                        | on                     | off                                     | on                               | 13         |
 
+### Blank layer scenario
+
+In a separate run, set `NECT_ACCEPTANCE_OBJECTS=1` and
+`NECT_ACCEPTANCE_LAYER_CREATE_BLANK=1` on the matching fixture executable.
+The client discards the create reply and rediscovers the single new layer and
+its empty Output. Replaying the old request must fail. Undo/Redo and reopen
+preserve the expected identities; baseline SVG and PNG must remain identical.
+
 ### Layer state readback
 
 Add `NECT_ACCEPTANCE_LAYER_STATE=1` to a Guide or Solo scenario on the same

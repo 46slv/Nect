@@ -209,6 +209,16 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "layer.reorder"
+if os.environ.get("NECT_ACCEPTANCE_LAYER_CREATE_BLANK") == "1":
+    name = "nect_test_create_blank_layer"
+    TOOLS.append({
+        "name": name,
+        "description": "Add one empty layer in the isolated fixture",
+        "inputSchema": schema(dict(target=target, name={"type": ["string", "null"], "maxLength": 120})),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False,
+                        "openWorldHint": False},
+    })
+    OPERATIONS[name] = "layer.createBlank"
 if os.environ.get("NECT_ACCEPTANCE_LAYER_DUPLICATE") == "1":
     name = "nect_test_duplicate_layer"
     TOOLS.append({
