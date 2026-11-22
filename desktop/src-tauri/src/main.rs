@@ -18,6 +18,8 @@ mod live_api_read_admission;
 mod live_editor_acceptance;
 mod live_editor_frames;
 mod live_editor_mailbox;
+#[cfg(all(windows, feature = "live-editor-acceptance-test"))]
+mod live_inspect_lane;
 mod os_font_outlines;
 mod private_fonts;
 #[cfg(feature = "recovery-acceptance-test")]
@@ -226,7 +228,24 @@ fn run() -> Result<(), String> {
             read_recovery,
             acknowledge_recovery
         ])
+        .on_page_load(|webview, payload| {
+            if webview.label() != "main" {
+                return;
+            }
+            let state = webview.state::<live_editor_acceptance::LiveAcceptance>();
+            match payload.event() {
+                tauri::webview::PageLoadEvent::Started => state.revoke_inspection(),
+                // Only the isolated fixture automatically arms. The normal app
+                // will require an explicit user decision, not a page callback.
+                tauri::webview::PageLoadEvent::Finished => {
+                    state.arm_inspection_for_fixture();
+                }
+            }
+        })
         .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                window.state::<live_editor_acceptance::LiveAcceptance>().revoke_inspection();
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if let Ok(guard) = window.state::<CloseGuard>().0.lock() {
                     if let Some(channel) = guard.as_ref() {
