@@ -8,6 +8,7 @@ import {
   serializeCompositionProject,
 } from '../src/composition-project-model.js';
 import {
+  createLiveBlendInputOperation,
   createLiveBlendModeOperation,
   createLiveBlendStepsOperation,
   createReadLiveBlendSettings,
@@ -236,4 +237,74 @@ test('Blend mode is a closed, target-bound shared edit that retains authored inp
   assert.equal(snapshot(live), before);
   live.dispatch({ ...live.state, type: 'redo', payload: {} });
   assert.equal(snapshot(live), after);
+});
+
+test('Blend input rewire and disconnect use the shared GUI command with one undo each', () => {
+  const live = ownerFor('live-blend'),
+    gui = ownerFor('live-blend'),
+    addr = addressed(live);
+  const target = () => targetFor(live);
+  const start = live.snapshot().layers[0],
+    node = start.nodes.find((n) => n.id === addr.nodeId);
+  const origA = node.params.a.source,
+    origB = node.params.b.source;
+  const source = start.nodes.find((n) => n.type === 'Rectangle').id;
+  const before = snapshot(live);
+  let commits = 0,
+    rejected = 0;
+  const setBlendInput = createLiveBlendInputOperation({
+    readTarget: target,
+    getOwner: () => live,
+    isEditBlocked: () => false,
+    commit(owner, command) {
+      try {
+        const result = owner.dispatch(command);
+        commits++;
+        return result;
+      } catch {
+        rejected++;
+        return null;
+      }
+    },
+  });
+  const run = createLiveEditorProtocol({ readTarget: target, setBlendInput });
+  const first = target();
+  const call = (patch = {}) =>
+    run({
+      version: 1,
+      operation: 'blend.setInput',
+      arguments: {
+        target: target(),
+        ...addr,
+        input: 'b',
+        sourceId: origA,
+        sourcePort: null,
+        ...patch,
+      },
+    });
+  assert.equal(call({ input: 'c' }).status, 'unsupported-target');
+  assert.equal(call({ input: 'steps' }).status, 'invalid-arguments');
+  assert.equal(call({ sourceId: null, sourcePort: 'default' }).status, 'invalid-arguments');
+  assert.equal(call({ sourceId: origB }).status, 'unchanged');
+  assert.equal(call({ sourceId: 'missing' }).status, 'unsupported-target');
+  assert.equal(call({ sourceId: addr.nodeId }).status, 'rejected');
+  assert.equal(call({ sourceId: source, sourcePort: 'no-such-output' }).status, 'rejected');
+  assert.equal(commits, 0);
+  assert.equal(rejected, 2);
+  assert.equal(snapshot(live), before);
+  assert.equal(call().status, 'changed');
+  assert.equal(call({ target: first, sourceId: null }).status, 'stale-target');
+  gui.dispatch({ ...gui.state, type: 'connect', payload: { ...addr, key: 'b', sourceId: origA } });
+  const after = snapshot(live);
+  assert.equal(after, snapshot(gui));
+  assert.equal(exportSVG(live.snapshot()), exportSVG(gui.snapshot()));
+  assert.equal(call({ sourceId: null }).status, 'changed');
+  gui.dispatch({ ...gui.state, type: 'disconnect', payload: { ...addr, key: 'b' } });
+  assert.equal(snapshot(live), snapshot(gui));
+  assert.equal(call({ sourceId: null }).status, 'unchanged');
+  assert.equal(commits, 2);
+  live.dispatch({ ...live.state, type: 'undo', payload: {} });
+  assert.equal(snapshot(live), after);
+  live.dispatch({ ...live.state, type: 'undo', payload: {} });
+  assert.equal(snapshot(live), before);
 });

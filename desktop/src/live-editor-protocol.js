@@ -44,6 +44,7 @@ export function createLiveEditorProtocol({
   setBlendDistance,
   setBlendSteps,
   setBlendMode,
+  setBlendInput,
   readBlendSettings,
   stepHistory,
   createArtwork,
@@ -206,6 +207,26 @@ export function createLiveEditorProtocol({
         return { status: 'invalid-arguments' };
       try {
         const { status } = setBlendMode(args);
+        return status === 'changed' || status === 'unchanged'
+          ? { status, target: captureEditorTarget(readTarget()) }
+          : { status };
+      } catch {
+        return { status: 'outcome-unknown' };
+      }
+    }
+    if (setBlendInput && request.operation === 'blend.setInput') {
+      if (
+        !closed(args, ['target', 'layerId', 'nodeId', 'input', 'sourceId', 'sourcePort']) ||
+        !validTarget(args.target) ||
+        !id(args.layerId) ||
+        !id(args.nodeId) ||
+        !id(args.input) ||
+        !(args.sourceId === null || id(args.sourceId)) ||
+        !(args.sourcePort === null || id(args.sourcePort))
+      )
+        return { status: 'invalid-arguments' };
+      try {
+        const { status } = setBlendInput(args);
         return status === 'changed' || status === 'unchanged'
           ? { status, target: captureEditorTarget(readTarget()) }
           : { status };

@@ -113,3 +113,41 @@ export function createLiveBlendModeOperation({ readTarget, getOwner, isEditBlock
     return { status: receipt.changed ? 'changed' : 'unchanged' };
   };
 }
+
+export function createLiveBlendInputOperation({ readTarget, getOwner, isEditBlocked, commit }) {
+  return function setInput({ target, layerId, nodeId, input, sourceId, sourcePort }) {
+    if (!editorTargetMatches(readTarget(), target)) return { status: 'stale-target' };
+    if (isEditBlocked()) return { status: 'edit-in-progress' };
+    if (!['a', 'b', 'c', 'spine'].includes(input) || (sourceId === null && sourcePort !== null))
+      return { status: 'invalid-arguments' };
+    const owner = getOwner();
+    const { layer, node } = addressedBlend(owner, layerId, nodeId);
+    const q = node?.params?.[input];
+    if (
+      !q ||
+      !blendOperation(node)?.active.includes(input) ||
+      layer.locked ||
+      node.locked ||
+      node.bypassed ||
+      q.locked
+    )
+      return { status: 'unsupported-target' };
+    if (sourceId !== null && !layer.nodes.some((candidate) => candidate.id === sourceId))
+      return { status: 'unsupported-target' };
+    if ((q.source ?? null) === sourceId && (q.sourcePort ?? null) === sourcePort)
+      return { status: 'unchanged' };
+    const payload = { layerId, nodeId, key: input };
+    if (sourceId !== null) {
+      payload.sourceId = sourceId;
+      if (sourcePort !== null) payload.sourcePort = sourcePort;
+    }
+    const receipt = commit(owner, {
+      sessionId: target.sessionId,
+      expectedRevision: target.sessionRevision,
+      type: sourceId === null ? 'disconnect' : 'connect',
+      payload,
+    });
+    if (!receipt) return { status: 'rejected' };
+    return { status: receipt.changed ? 'changed' : 'unchanged' };
+  };
+}

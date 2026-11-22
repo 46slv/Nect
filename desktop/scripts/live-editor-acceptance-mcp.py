@@ -117,6 +117,17 @@ if os.environ.get("NECT_ACCEPTANCE_BLEND_STEPS") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[mode_name] = "blend.setMode"
+    input_name = "nect_test_set_blend_input"
+    TOOLS.append({
+        "name": input_name,
+        "description": "Connect or disconnect one active input in the addressed isolated Blend",
+        "inputSchema": schema(dict(target=target, layerId=ident, nodeId=ident,
+                                   input={"enum": ["a", "b", "c", "spine"]},
+                                   sourceId={"anyOf": [ident, {"type": "null"}]},
+                                   sourcePort={"anyOf": [ident, {"type": "null"}]})),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[input_name] = "blend.setInput"
 if os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1":
     name = "nect_test_list_artwork"
     TOOLS.append({
