@@ -63,3 +63,44 @@ test('unavailable is emitted in publish phase only when the editor is not ready'
   assert.deepEqual(replies, [[1, { status: 'unavailable' }]]);
   close();
 });
+
+test('pinned document follows revisions but never retargets on a tab transition', () => {
+  let current = initial;
+  const channel = {};
+  const replies = [];
+  const route = createLiveInspectChannel({ readTarget: () => current, pinDocument: true });
+  const close = route.attach(channel, (...args) => replies.push(args));
+  const frame = (phase, requestId) => channel.onmessage({ phase, requestId });
+  function read(id) {
+    frame('prepare', id);
+    frame('publish', id);
+  }
+  current = { ...initial, sessionRevision: 2, projectRevision: 4 };
+  read(1);
+  assert.deepEqual(replies[0], [1, { status: 'ok', target: current }]);
+  current = { ...initial, documentGeneration: 2, compositionId: 'two', sessionId: 'two' };
+  frame('prepare', 2);
+  frame('discard', 2);
+  read(3);
+  current = initial;
+  read(4);
+  assert.deepEqual(replies.slice(1), [
+    [3, { status: 'unavailable' }],
+    [4, { status: 'unavailable' }],
+  ]);
+  close();
+  const closeNext = route.attach(channel, (...args) => replies.push(args));
+  read(1);
+  assert.deepEqual(replies.at(-1), [1, { status: 'ok', target: initial }]);
+  closeNext();
+});
+
+test('an explicit document binding cannot start with no active target', () => {
+  const route = createLiveInspectChannel({ readTarget: () => null, pinDocument: true });
+  const channel = {};
+  assert.equal(
+    route.attach(channel, () => {}),
+    null,
+  );
+  assert.equal(channel.onmessage, undefined);
+});

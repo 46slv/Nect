@@ -135,6 +135,15 @@ arguments, and a repeat call. The adapter checks the closed inspect reply
 shape, but does not authenticate the server process. This is a trusted
 local fixture contract, not client registration or normal editor integration.
 
+The preview retains the document generation, Composition and Session
+selected when Enable was clicked. Revision changes within that scope are
+allowed, but a mismatched document or Session is refused and stays refused
+until explicit reattachment. A discarded request does not renew the scope.
+In the Windows proof, replacing the open project with identical authored
+bytes changed its identity and the independent MCP client got no target.
+The prior proof for Disable closed the pipe; document mismatch currently
+refuses publication, not an immediate OS disconnect.
+
 Before enabling attachment to a running editor, the native owner must bind
 client selection to an explicit user decision, preserve per-client grant
 expiry, and serialize final publication with revocation. Do not promote

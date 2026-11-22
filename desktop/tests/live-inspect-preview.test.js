@@ -28,7 +28,13 @@ function fixture(call) {
     host,
     call,
     makeChannel: () => ({}),
-    readTarget: () => null,
+    readTarget: () => ({
+      documentGeneration: 1,
+      compositionId: 'composition',
+      sessionId: 'session',
+      sessionRevision: 0,
+      projectRevision: 0,
+    }),
     canInspect: () => true,
   });
   const [, enable, check, disable, status] = dom.body.children[0].children;

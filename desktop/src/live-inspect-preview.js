@@ -15,7 +15,7 @@ export function mountLiveInspectPreview({
   call = invoke,
   makeChannel = () => new Channel(),
 }) {
-  const pipe = createLiveInspectChannel({ readTarget, canInspect });
+  const pipe = createLiveInspectChannel({ readTarget, canInspect, pinDocument: true });
   const panel = dom.createElement('details');
   panel.dataset.liveInspectPreview = '';
   panel.style.cssText =
@@ -66,7 +66,7 @@ export function mountLiveInspectPreview({
         })
         .catch(() => {});
     });
-    if (!detach) throw new Error('Already bound');
+    if (!detach) throw new Error('No active document or inspection already bound');
     const current = call('live_preview_attach', { channel });
     binding = current;
     refresh();
