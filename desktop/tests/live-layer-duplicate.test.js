@@ -96,3 +96,64 @@ test('opt-in duplicate targets an authored layer and returns its fresh identity 
     copy,
   );
 });
+
+test('lost duplicate acknowledgement cannot create a second copy on exact replay', () => {
+  const owner = createCompositionSessionOwner(
+    deserializeCompositionProject(serialize(orderingDocument()), deserialize),
+  );
+  let generation = 1;
+  const readTarget = () => ({
+    documentGeneration: generation,
+    compositionId: owner.activeCompositionId,
+    sessionId: owner.state.sessionId,
+    sessionRevision: owner.state.expectedRevision,
+    projectRevision: owner.projectRevision,
+  });
+  let writes = 0;
+  const duplicateLayer = createLiveLayerDuplicate({
+    readTarget,
+    getOwner: () => owner,
+    isEditBlocked: () => false,
+    commit(active, command) {
+      writes++;
+      active.dispatch(command);
+      throw Error('simulated acknowledgement loss after committing');
+    },
+  });
+  const handle = createLiveEditorProtocol({ readTarget, duplicateLayer });
+  const initial = owner.snapshot().layers;
+  const source = initial[0].id;
+  const originalTarget = readTarget();
+  const inspectRequest = { version: 1, operation: 'editor.inspect', arguments: {} };
+  const request = {
+    version: 1,
+    operation: 'layer.duplicate',
+    arguments: { target: originalTarget, layerId: source },
+  };
+
+  generation++;
+  assert.deepEqual(handle(request), { status: 'stale-target' });
+  assert.equal(writes, 0);
+  const exactRequest = {
+    ...request,
+    arguments: { target: handle(inspectRequest).target, layerId: source },
+  };
+  assert.deepEqual(handle(exactRequest), { status: 'outcome-unknown' });
+  assert.deepEqual(handle(exactRequest), { status: 'stale-target' });
+  assert.equal(writes, 1);
+
+  const fresh = handle(inspectRequest).target;
+  assert.equal(fresh.projectRevision, originalTarget.projectRevision + 1);
+  const beforeIds = new Set(initial.map((l) => l.id));
+  const layers = owner.snapshot().layers;
+  const [copy] = layers.filter((l) => !beforeIds.has(l.id));
+  assert.ok(copy);
+  assert.equal(layers.length, initial.length + 1);
+  assert.deepEqual(
+    layers.filter((l) => beforeIds.has(l.id)),
+    initial,
+  );
+  assert.notEqual(copy.id, source);
+  owner.dispatch({ ...owner.state, type: 'undo' });
+  assert.deepEqual(owner.snapshot().layers, initial);
+});
