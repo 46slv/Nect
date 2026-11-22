@@ -299,6 +299,25 @@ Defer List until its bounded return schema is verified on the same route.
 Do not add edits, arbitrary paths, installed-profile registration, or
 persistent permission before the ordinary read-only grant works.
 
+## Installed Inspect pilot: release handoff
+
+The fixture is not a distribution source. Before a normal-editor trial,
+identify the exact intended release, installer digest, and the identities of
+both installed executables from the project's approved release process.
+Verify the running peer against that release and its role. The editor and
+helper are distinct roles even if both have the same publisher. A missing
+release identity, a stale package, or a publisher/role mismatch is not a
+reason to use the fixture or accept the peer.
+
+Test an installed editor and its helper on a synthetic document only. First
+prove that the helper starts unpaired without launching an editor or serving
+document data. Then prove that selecting this one request in the editor
+allows exactly one Inspect. Confirm independently that disable, expiry,
+editor/peer exit, and switching away and back do not restore the prior grant.
+A successful fixture or ordinary frontend build does not meet these tests.
+Keep ordinary production and Hermes profile settings unchanged until this
+read-only evidence exists. Do not extend this gate to edits or file access.
+
 ## Acceptance before broader exposure
 
 1. A connection with no grant, a disabled connection, another instance, and a
