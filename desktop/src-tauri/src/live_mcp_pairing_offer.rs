@@ -215,3 +215,39 @@ fn windows_token_supplies_a_logon_sid_and_fresh_system_entropy() {
         "The rendezvous draw was repeated"
     );
 }
+
+#[cfg(all(
+    test,
+    windows,
+    feature = "live-inspect-preview",
+    feature = "live-mcp-pairing"
+))]
+#[test]
+fn isolated_nect_review_parses_only_its_own_selected_file() {
+    use crate::acceptance_storage::RunStorage;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("nect-svg-acceptance-pairing-review");
+    let storage = RunStorage::prepare(Some(root.clone().into_os_string()), || {
+        Ok(dir.path().to_path_buf())
+    })
+    .unwrap();
+    let docs = root.join("documents");
+    let (sid, offer) = windows_seed().unwrap();
+    let lease = write_selected_offer(&docs, &sid, &offer).unwrap();
+    let path = docs.join("pending.nect-pair");
+    assert!(storage.validate_selected_pairing_offer(&path).is_ok());
+    assert!(RunStorage::default()
+        .validate_selected_pairing_offer(&path)
+        .is_err());
+    let outside = write_selected_offer(dir.path(), &sid, &offer).unwrap();
+    assert!(storage
+        .validate_selected_pairing_offer(&dir.path().join("pending.nect-pair"))
+        .is_err());
+    drop(outside);
+    drop(lease);
+    assert!(storage.validate_selected_pairing_offer(&path).is_err());
+    let invalid = docs.join("invalid.nect-pair");
+    std::fs::write(&invalid, vec![b'x'; 513]).unwrap();
+    assert!(storage.validate_selected_pairing_offer(&invalid).is_err());
+}

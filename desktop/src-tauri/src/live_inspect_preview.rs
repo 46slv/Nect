@@ -125,14 +125,54 @@ fn read_once_at(
 pub(crate) fn live_preview_available(
     window: WebviewWindow,
     state: State<'_, Preview>,
+    storage: State<'_, crate::acceptance_storage::RunStorage>,
 ) -> Option<Value> {
     Preview::admit(&window).ok()?;
     #[cfg(all(windows, feature = "live-inspect-preview"))]
-    return Some(serde_json::json!({ "fixturePeer": state.pipe.candidate() }));
+    return Some(serde_json::json!({
+        "fixturePeer": state.pipe.candidate(),
+        "offerReview": cfg!(feature = "live-mcp-pairing") && storage.0.is_some()
+    }));
     #[cfg(not(all(windows, feature = "live-inspect-preview")))]
     {
-        let _ = state;
+        let _ = (state, storage);
         None
+    }
+}
+
+#[tauri::command]
+pub(crate) fn live_preview_review_offer(
+    window: WebviewWindow,
+    storage: State<'_, crate::acceptance_storage::RunStorage>,
+) -> Result<bool, &'static str> {
+    Preview::admit(&window)?;
+    #[cfg(all(
+        windows,
+        feature = "live-inspect-preview",
+        feature = "live-mcp-pairing"
+    ))]
+    {
+        if storage.0.is_none() {
+            return Err("Disposable pairing preview required");
+        }
+        let Some(path) = storage
+            .dialog(&window)
+            .add_filter("Nect pairing offer", &["nect-pair"])
+            .pick_file()
+        else {
+            return Ok(false);
+        };
+        storage.validate_selected_pairing_offer(&path)?;
+        return Ok(true);
+    }
+    #[cfg(not(all(
+        windows,
+        feature = "live-inspect-preview",
+        feature = "live-mcp-pairing"
+    )))]
+    {
+        let _ = storage;
+        Err("Pairing review unavailable")
     }
 }
 

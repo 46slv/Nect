@@ -5,7 +5,7 @@ import {
   mountLiveInspectPreviewIfAvailable,
 } from '../src/live-inspect-preview.js';
 
-function fixture(call, fixturePeer) {
+function fixture(call, fixturePeer, offerReview = false) {
   const el = () => ({
     style: {},
     dataset: {},
@@ -28,6 +28,7 @@ function fixture(call, fixturePeer) {
     host,
     call,
     fixturePeer,
+    offerReview,
     makeChannel: () => ({}),
     readTarget: () => ({
       documentGeneration: 1,
@@ -39,7 +40,10 @@ function fixture(call, fixturePeer) {
     canInspect: () => true,
   });
   const [, enable, check, disable, status, chooser] = dom.body.children[0].children;
-  return { enable, check, disable, status, selector: chooser?.children[0] };
+  const review = dom.body.children[0].children.find(
+    (el) => el.textContent === 'Review pairing offer',
+  );
+  return { enable, check, disable, status, selector: chooser?.children[0], review };
 }
 
 test('a missing native feature does not mount the preview', async () => {
@@ -158,4 +162,23 @@ test('an offered test client is opt-in and its selection cannot be reused', asyn
   assert.equal(view.selector.children[1].disabled, true);
   await view.enable.click();
   assert.deepEqual(selected, [null, 123, null]);
+});
+
+test('pairing offer review is explicit and never enables document access', async () => {
+  const commands = [];
+  const call = async (name) => {
+    commands.push(name);
+    return commands.length === 1;
+  };
+  assert.equal(fixture(call).review, undefined);
+  const view = fixture(call, null, true);
+  await view.review.click(false);
+  assert.deepEqual(commands, []);
+  await view.review.click();
+  assert.equal(view.status.textContent, 'Offer format verified. No connection granted.');
+  assert.equal(view.check.disabled, true);
+  assert.equal(view.disable.disabled, true);
+  await view.review.click();
+  assert.equal(view.status.textContent, 'Off. Document inspection disabled.');
+  assert.deepEqual(commands, ['live_preview_review_offer', 'live_preview_review_offer']);
 });

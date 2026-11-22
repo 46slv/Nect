@@ -38,7 +38,14 @@ mod live_inspect_lane;
 mod live_inspect_preview;
 #[cfg(all(windows, any(test, feature = "live-inspect-preview")))]
 mod live_inspect_windows_pipe;
-#[cfg(test)]
+#[cfg(any(
+    test,
+    all(
+        windows,
+        feature = "live-inspect-preview",
+        feature = "live-mcp-pairing"
+    )
+))]
 mod live_mcp_pairing_offer;
 mod os_font_outlines;
 mod private_fonts;
@@ -219,6 +226,7 @@ fn run() -> Result<(), String> {
         .manage(Recovery::default())
         .invoke_handler(tauri::generate_handler![
             live_inspect_preview::live_preview_available,
+            live_inspect_preview::live_preview_review_offer,
             live_inspect_preview::live_preview_attach,
             live_inspect_preview::live_preview_reply,
             live_inspect_preview::live_preview_read,

@@ -194,6 +194,45 @@ impl RunStorage {
         Ok(target)
     }
 
+    #[cfg(all(
+        windows,
+        feature = "live-inspect-preview",
+        feature = "live-mcp-pairing"
+    ))]
+    pub(crate) fn validate_selected_pairing_offer(&self, path: &Path) -> Result<(), &'static str> {
+        use std::os::windows::fs::OpenOptionsExt;
+        const LIMIT: u64 = 512;
+        const INVALID: &str = "Selected pairing offer is unavailable or invalid";
+        // This validation seam is for the disposable chooser only. It does
+        // not follow an endpoint or expose a ticket/path to the renderer.
+        if self.0.is_none() || path.extension().and_then(|n| n.to_str()) != Some("nect-pair") {
+            return Err(INVALID);
+        }
+        let target = self.document_path(path, true).map_err(|_| INVALID)?;
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(7) // Compatible with the owner's write/delete-on-close.
+            .custom_flags(0x00200000) // FILE_FLAG_OPEN_REPARSE_POINT
+            .open(&target)
+            .map_err(|_| INVALID)?;
+        let info = file.metadata().map_err(|_| INVALID)?;
+        if !info.is_file() || is_reparse(&info) || !(1..=LIMIT).contains(&info.len()) {
+            return Err(INVALID);
+        }
+        self.verify_private_font_handle(&file, &target)
+            .map_err(|_| INVALID)?;
+        let mut data = Vec::new();
+        (&file)
+            .take(LIMIT + 1)
+            .read_to_end(&mut data)
+            .map_err(|_| INVALID)?;
+        self.verify_private_font_handle(&file, &target)
+            .map_err(|_| INVALID)?;
+        crate::live_mcp_pairing_offer::LocalPairingOffer::decode(&data)
+            .map(|_| ())
+            .map_err(|_| INVALID)
+    }
+
     pub fn read_project(&self, path: &Path) -> Result<String, String> {
         let path = self.document_path(path, true)?;
         let file = fs::File::open(path).map_err(|e| e.to_string())?;

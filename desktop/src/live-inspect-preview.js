@@ -4,7 +4,12 @@ import { createLiveInspectChannel } from './live-inspect-channel.js';
 export async function mountLiveInspectPreviewIfAvailable(options) {
   const call = options.call ?? invoke;
   const available = await call('live_preview_available', {});
-  if (available) mountLiveInspectPreview({ ...options, fixturePeer: available.fixturePeer });
+  if (available)
+    mountLiveInspectPreview({
+      ...options,
+      fixturePeer: available.fixturePeer,
+      offerReview: available.offerReview === true,
+    });
 }
 
 // Optional read-only diagnostic. A disposable host can bind one test client.
@@ -16,6 +21,7 @@ export function mountLiveInspectPreview({
   call = invoke,
   makeChannel = () => new Channel(),
   fixturePeer,
+  offerReview = false,
 }) {
   const pipe = createLiveInspectChannel({ readTarget, canInspect, pinDocument: true });
   const panel = dom.createElement('details');
@@ -136,14 +142,24 @@ export function mountLiveInspectPreview({
     },
     true,
   );
+  const review = offerReview
+    ? button('Review pairing offer', async () => {
+        const valid = await call('live_preview_review_offer', {});
+        status.textContent = valid
+          ? 'Offer format verified. No connection granted.'
+          : 'Off. Document inspection disabled.';
+      })
+    : null;
   function refresh() {
     enable.disabled = pending > 0 || !!binding;
     check.disabled = pending > 0 || !binding;
     disable.disabled = !binding;
     if (selector) selector.disabled = pending > 0 || !!binding || !candidate;
+    if (review) review.disabled = pending > 0 || !!binding;
   }
   panel.append(title, enable, check, disable, status);
   if (chooser) panel.append(chooser);
+  if (review) panel.append(review);
   dom.body.append(panel);
   refresh();
   host.addEventListener(

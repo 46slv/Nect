@@ -198,6 +198,16 @@ It does not test a different logon or the production file chooser.
 These are fixture results only: the ordinary helper still does not issue
 offers, create an endpoint, read credentials, or touch user profiles.
 
+The disposable Windows editor can now display a separate Review pairing
+offer action when both inspection and pairing development features are
+enabled. The chooser and bounded reader are restricted to that run's
+documents directory; the reader handles the writer's sharing flags and
+checks the opened path before and after reading. The renderer receives a
+format pass/cancel/error, never the ticket or file path. This action does
+not enable inspection, open the named pipe, or create a grant. Test
+coverage here does not establish the ordinary OS chooser or actual helper
+rendezvous end to end.
+
 Use the existing duplex connection for both pairing and the authorized
 read, with no document traffic before consent. On each end validate the
 kernel-reported process, live handle, and trusted installed package or
