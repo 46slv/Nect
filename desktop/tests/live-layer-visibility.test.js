@@ -7,7 +7,8 @@ import {
   deserializeCompositionProject,
   serializeCompositionProject,
 } from '../src/composition-project-model.js';
-import { createLiveLayerVisibility } from '../src/live-layer-visibility.js';
+import { createLiveLayerLock, createLiveLayerVisibility } from '../src/live-layer-visibility.js';
+import { createLiveEditorProtocol } from '../src/live-editor-protocol.js';
 import { readLiveEditorObjects } from '../src/live-editor-objects.js';
 
 const seed = readFileSync(new URL('../examples/blend-distance.json', import.meta.url), 'utf8');
@@ -141,4 +142,77 @@ test('hiding a locked layer preserves its lock, other layers and stored visibili
   assert.equal(svg(live), svg(gui));
   live.dispatch({ ...live.state, type: 'undo' });
   assert.equal(snapshot(live), before);
+});
+test('explicit opt-in layer lock matches GUI history and never unlocks a stale target', () => {
+  const live = makeOwner();
+  const gui = makeOwner();
+  const readTarget = () => ({
+    documentGeneration: 1,
+    compositionId: live.activeCompositionId,
+    sessionId: live.state.sessionId,
+    sessionRevision: live.state.expectedRevision,
+    projectRevision: live.projectRevision,
+  });
+  let blocked = false;
+  let writes = 0;
+  const setLayerLock = createLiveLayerLock({
+    readTarget,
+    getOwner: () => live,
+    isEditBlocked: () => blocked,
+    commit(owner, command) {
+      writes++;
+      return owner.dispatch(command);
+    },
+  });
+  const handle = createLiveEditorProtocol({ readTarget, setLayerLock });
+  const first = live.snapshot().layers[0];
+  assert.equal(first.locked, false);
+  const before = snapshot(live);
+  const beforeSvg = svg(live);
+  const request = {
+    version: 1,
+    operation: 'layer.setLock',
+    arguments: { target: readTarget(), layerId: first.id, locked: true },
+  };
+  assert.deepEqual(createLiveEditorProtocol({ readTarget })(request), {
+    status: 'unsupported-operation',
+  });
+  const edit = (overrides) =>
+    handle({ ...request, arguments: { ...request.arguments, ...overrides } });
+  assert.deepEqual(edit({ key: 'solo' }), { status: 'invalid-arguments' });
+  assert.deepEqual(edit({ locked: 0 }), { status: 'invalid-arguments' });
+  assert.deepEqual(edit({ layerId: 'missing' }), { status: 'unsupported-target' });
+  blocked = true;
+  assert.deepEqual(handle(request), { status: 'edit-in-progress' });
+  blocked = false;
+  assert.deepEqual(edit({ locked: false }), { status: 'unchanged', target: readTarget() });
+  assert.equal(writes, 0);
+  assert.equal(snapshot(live), before);
+
+  gui.dispatch({
+    ...gui.state,
+    type: 'set-layer-state',
+    payload: { layerId: first.id, key: 'locked', value: true },
+  });
+  assert.deepEqual(handle(request), { status: 'changed', target: readTarget() });
+  const after = snapshot(live);
+  assert.equal(after, snapshot(gui));
+  assert.equal(svg(live), beforeSvg);
+  assert.deepEqual(edit({ locked: false }), { status: 'stale-target' });
+  assert.deepEqual(edit({ target: readTarget() }), { status: 'unchanged', target: readTarget() });
+  assert.equal(writes, 1);
+  assert.equal(snapshot(live), after);
+
+  live.dispatch({ ...live.state, type: 'undo' });
+  assert.equal(snapshot(live), before);
+  live.dispatch({ ...live.state, type: 'redo' });
+  assert.equal(snapshot(live), after);
+  const reopened = createCompositionSessionOwner(deserializeCompositionProject(after, deserialize));
+  assert.equal(reopened.snapshot().layers[0].locked, true);
+  assert.deepEqual(edit({ target: readTarget(), locked: false }), {
+    status: 'changed',
+    target: readTarget(),
+  });
+  assert.equal(snapshot(live), before);
+  assert.equal(writes, 2);
 });

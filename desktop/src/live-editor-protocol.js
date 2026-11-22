@@ -43,6 +43,7 @@ export function createLiveEditorProtocol({
   listArtwork,
   readNodeInputWires,
   setLayerVisibility,
+  setLayerLock,
   setBlendDistance,
   setBlendSteps,
   setBlendMode,
@@ -102,16 +103,22 @@ export function createLiveEditorProtocol({
         return { status: 'unavailable' };
       }
     }
-    if (setLayerVisibility && request.operation === 'layer.setVisibility') {
+    const layerFlag =
+      request.operation === 'layer.setVisibility' && setLayerVisibility
+        ? { set: setLayerVisibility, key: 'visible' }
+        : request.operation === 'layer.setLock' && setLayerLock
+          ? { set: setLayerLock, key: 'locked' }
+          : null;
+    if (layerFlag) {
       if (
-        !closed(args, ['target', 'layerId', 'visible']) ||
+        !closed(args, ['target', 'layerId', layerFlag.key]) ||
         !validTarget(args.target) ||
         !id(args.layerId) ||
-        typeof args.visible !== 'boolean'
+        typeof args[layerFlag.key] !== 'boolean'
       )
         return { status: 'invalid-arguments' };
       try {
-        const { status } = setLayerVisibility(args);
+        const { status } = layerFlag.set(args);
         return status === 'changed' || status === 'unchanged'
           ? { status, target: captureEditorTarget(readTarget()) }
           : { status };
