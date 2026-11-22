@@ -76,7 +76,10 @@ import {
 } from './live-layer-visibility.js';
 import { createLiveLayerReorder } from './live-layer-reorder.js';
 import { createLiveBlankLayer } from './live-layer-create.js';
-import { createLiveArtworkTranslation } from './live-artwork-translation.js';
+import {
+  createLiveArtworkAlignment,
+  createLiveArtworkTranslation,
+} from './live-artwork-translation.js';
 import { createLiveLayerDeletion } from './live-layer-delete.js';
 import { createLiveLayerDuplicate } from './live-layer-duplicate.js';
 import { createLiveLayerFolder } from './live-layer-folder-create.js';
@@ -19644,6 +19647,14 @@ if (
       createBlankLayer: createLiveBlankLayer({
         ...liveBlendHost,
         isEditBlocked: () => compositionActionBusy() || closeInputBlocked() || Boolean(nameEdit),
+      }),
+      alignArtwork: createLiveArtworkAlignment({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() ||
+          compositionActionBusy() ||
+          closeInputBlocked() ||
+          Boolean(nameEdit),
       }),
       translateArtwork: createLiveArtworkTranslation({
         ...liveBlendHost,

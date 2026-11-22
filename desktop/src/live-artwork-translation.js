@@ -1,12 +1,19 @@
+import { artworkAlignments } from './artwork-alignment-actions.js';
 import { editorTargetMatches } from './live-editor-target.js';
+
+function validArtworkLayerIds(layerIds, minimum = 1) {
+  return (
+    Array.isArray(layerIds) &&
+    layerIds.length >= minimum &&
+    layerIds.length <= 100 &&
+    [...layerIds].every((id) => typeof id === 'string' && id.length > 0 && id.length <= 256) &&
+    new Set(layerIds).size === layerIds.length
+  );
+}
 
 export function validArtworkTranslation(layerIds, delta) {
   return (
-    Array.isArray(layerIds) &&
-    layerIds.length > 0 &&
-    layerIds.length <= 100 &&
-    [...layerIds].every((id) => typeof id === 'string' && id.length > 0 && id.length <= 256) &&
-    new Set(layerIds).size === layerIds.length &&
+    validArtworkLayerIds(layerIds) &&
     Array.isArray(delta) &&
     delta.length === 2 &&
     Number.isFinite(delta[0]) &&
@@ -14,11 +21,21 @@ export function validArtworkTranslation(layerIds, delta) {
   );
 }
 
-export function createLiveArtworkTranslation({ readTarget, getOwner, isEditBlocked, commit }) {
-  return function translateArtwork({ target, layerIds, delta }) {
+export function validArtworkAlignment(layerIds, action, reference) {
+  return (
+    (reference === 'selection' || reference === 'artboard') &&
+    validArtworkLayerIds(layerIds, reference === 'artboard' ? 1 : 2) &&
+    artworkAlignments.some(([id]) => id === action)
+  );
+}
+
+function createArtworkEdit({ readTarget, getOwner, isEditBlocked, commit }, type, payloadFor) {
+  return function editArtwork(args) {
+    const { target, layerIds } = args;
     const matches = () => editorTargetMatches(readTarget(), target);
     if (!matches()) return { status: 'stale-target' };
-    if (!validArtworkTranslation(layerIds, delta)) return { status: 'invalid-arguments' };
+    const payload = payloadFor(args);
+    if (!payload) return { status: 'invalid-arguments' };
     if (isEditBlocked()) return { status: 'edit-in-progress' };
     const owner = getOwner();
     const layers = owner?.snapshot()?.layers;
@@ -32,10 +49,26 @@ export function createLiveArtworkTranslation({ readTarget, getOwner, isEditBlock
     const receipt = commit(owner, {
       sessionId: target.sessionId,
       expectedRevision: target.sessionRevision,
-      type: 'translate-artworks',
-      payload: { layerIds: [...layerIds], delta: [...delta] },
+      type,
+      payload,
     });
     if (!receipt) return { status: matches() ? 'rejected' : 'outcome-unknown' };
     return { status: receipt.changed ? 'changed' : 'unchanged' };
   };
+}
+
+export function createLiveArtworkTranslation(host) {
+  return createArtworkEdit(host, 'translate-artworks', ({ layerIds, delta }) =>
+    validArtworkTranslation(layerIds, delta)
+      ? { layerIds: [...layerIds], delta: [...delta] }
+      : null,
+  );
+}
+
+export function createLiveArtworkAlignment(host) {
+  return createArtworkEdit(host, 'align-artworks', ({ layerIds, action, reference }) =>
+    validArtworkAlignment(layerIds, action, reference)
+      ? { layerIds: [...layerIds], action, reference }
+      : null,
+  );
 }

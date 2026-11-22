@@ -7,7 +7,10 @@ import {
   serializeCompositionProject,
 } from '../src/composition-project-model.js';
 import { createLiveEditorProtocol } from '../src/live-editor-protocol.js';
-import { createLiveArtworkTranslation } from '../src/live-artwork-translation.js';
+import {
+  createLiveArtworkAlignment,
+  createLiveArtworkTranslation,
+} from '../src/live-artwork-translation.js';
 import { orderingDocument } from './fixtures/artwork-ordering.js';
 
 const doc = orderingDocument();
@@ -88,4 +91,63 @@ test('explicit artwork translation is one GUI-equivalent edit and an old request
   assert.equal(snapshot(live), after);
   const reopened = createCompositionSessionOwner(deserializeCompositionProject(after, deserialize));
   assert.equal(snapshot(reopened), after);
+});
+
+test('artwork alignment uses explicit reference and matches the GUI history and authored output', () => {
+  const live = makeOwner();
+  const gui = makeOwner();
+  const [first, locked, third] = live.snapshot().layers;
+  const readTarget = () => ({
+    documentGeneration: 1,
+    compositionId: live.activeCompositionId,
+    sessionId: live.state.sessionId,
+    sessionRevision: live.state.expectedRevision,
+    projectRevision: live.projectRevision,
+  });
+  let busy = false;
+  const alignArtwork = createLiveArtworkAlignment({
+    readTarget,
+    getOwner: () => live,
+    isEditBlocked: () => busy,
+    commit: (owner, command) => owner.dispatch(command),
+  });
+  const handle = createLiveEditorProtocol({ readTarget, alignArtwork });
+  const original = snapshot(live);
+  const target = readTarget();
+  const payload = { layerIds: [first.id, third.id], action: 'left', reference: 'selection' };
+  const request = { version: 1, operation: 'artwork.align', arguments: { target, ...payload } };
+  const edit = (override) =>
+    handle({ ...request, arguments: { ...request.arguments, ...override } });
+  assert.equal(createLiveEditorProtocol({ readTarget })(request).status, 'unsupported-operation');
+  assert.equal(edit({ action: 'middle' }).status, 'invalid-arguments');
+  assert.equal(edit({ reference: 'viewport' }).status, 'invalid-arguments');
+  assert.equal(edit({ layerIds: [first.id] }).status, 'invalid-arguments');
+  assert.equal(edit({ layerIds: [first.id, first.id] }).status, 'invalid-arguments');
+  assert.equal(edit({ layerIds: [first.id, locked.id] }).status, 'rejected');
+  assert.equal(edit({ layerIds: [first.id, 'absent'] }).status, 'unsupported-target');
+  busy = true;
+  assert.equal(handle(request).status, 'edit-in-progress');
+  busy = false;
+  assert.deepEqual(readTarget(), target);
+  assert.equal(snapshot(live), original);
+
+  gui.dispatch({ ...gui.state, type: 'align-artworks', payload });
+  assert.equal(handle(request).status, 'changed');
+  assert.equal(snapshot(live), snapshot(gui));
+  assert.equal(exportSVG(live.snapshot()), exportSVG(gui.snapshot()));
+  assert.deepEqual(live.snapshot().layers[1], locked);
+  assert.equal(handle(request).status, 'stale-target');
+  assert.equal(edit({ target: readTarget() }).status, 'unchanged');
+  const after = snapshot(live);
+  live.dispatch({ ...live.state, type: 'undo' });
+  assert.equal(snapshot(live), original);
+  live.dispatch({ ...live.state, type: 'redo' });
+  assert.equal(snapshot(live), after);
+  const reopened = createCompositionSessionOwner(deserializeCompositionProject(after, deserialize));
+  assert.equal(snapshot(reopened), after);
+
+  const toArtboard = { action: 'top', reference: 'artboard', layerIds: [third.id] };
+  gui.dispatch({ ...gui.state, type: 'align-artworks', payload: toArtboard });
+  assert.equal(edit({ target: readTarget(), ...toArtboard }).status, 'changed');
+  assert.equal(snapshot(live), snapshot(gui));
 });
