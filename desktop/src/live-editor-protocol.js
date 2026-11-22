@@ -36,6 +36,7 @@ export function createLiveEditorProtocol({
   applyLayerFolderPlan,
   readNodeInputWires,
   setLayerVisibility,
+  setLayerSolo,
   setLayerLock,
   renameLayer,
   reorderLayer,
@@ -285,7 +286,9 @@ export function createLiveEditorProtocol({
         ? { set: setLayerVisibility, key: 'visible' }
         : request.operation === 'layer.setLock' && setLayerLock
           ? { set: setLayerLock, key: 'locked' }
-          : null;
+          : request.operation === 'layer.setSolo' && setLayerSolo
+            ? { set: setLayerSolo, key: 'solo' }
+            : null;
     if (layerFlag) {
       if (
         !closed(args, ['target', 'layerId', layerFlag.key]) ||

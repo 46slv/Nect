@@ -10,10 +10,14 @@ import {
 import {
   createLiveLayerLock,
   createLiveLayerRename,
+  createLiveLayerSolo,
   createLiveLayerVisibility,
 } from '../src/live-layer-visibility.js';
 import { createLiveEditorProtocol } from '../src/live-editor-protocol.js';
 import { readLiveEditorObjects } from '../src/live-editor-objects.js';
+
+import { orderingDocument } from './fixtures/artwork-ordering.js';
+import { serialize } from '../src/core.js';
 
 const seed = readFileSync(new URL('../examples/blend-distance.json', import.meta.url), 'utf8');
 const makeOwner = () =>
@@ -294,4 +298,65 @@ test('opt-in layer rename is the same atomic rename as the GUI', () => {
   assert.equal(edit({ target: readTarget(), name: 'Do not rename' }).status, 'rejected');
   assert.equal(snapshot(live), locked);
   assert.equal(commits, 1);
+});
+
+test('explicit layer Solo follows GUI semantics, including hidden layers and undo', () => {
+  const doc = orderingDocument();
+  const [red, green, blue] = doc.layers;
+  doc.layers[2].visible = false;
+  const make = () =>
+    createCompositionSessionOwner(deserializeCompositionProject(serialize(doc), deserialize));
+  const live = make();
+  const gui = make();
+  const readTarget = () => ({
+    documentGeneration: 1,
+    compositionId: live.activeCompositionId,
+    sessionId: live.state.sessionId,
+    sessionRevision: live.state.expectedRevision,
+    projectRevision: live.projectRevision,
+  });
+  let blocked = false;
+  const protocol = createLiveEditorProtocol({
+    readTarget,
+    setLayerSolo: createLiveLayerSolo({
+      readTarget,
+      getOwner: () => live,
+      isEditBlocked: () => blocked,
+      commit: (owner, command) => owner.dispatch(command),
+    }),
+  });
+  const invoke = (layerId, solo, target = readTarget(), extra = {}) =>
+    protocol({
+      version: 1,
+      operation: 'layer.setSolo',
+      arguments: { target, layerId, solo, ...extra },
+    });
+  const labels = (owner) => [...svg(owner).matchAll(/data-layer="([^"]+)"/g)].map((m) => m[1]);
+  const revision = readTarget();
+  assert.deepEqual(labels(live), [red.name, green.name]);
+  assert.equal(invoke(green.id, false).status, 'unchanged');
+  assert.equal(invoke(green.id, 1).status, 'invalid-arguments');
+  assert.equal(invoke(green.id, true, revision, { toggle: true }).status, 'invalid-arguments');
+  blocked = true;
+  assert.equal(invoke(green.id, true).status, 'edit-in-progress');
+  assert.deepEqual(readTarget(), revision);
+  blocked = false;
+  for (const layerId of [green.id, blue.id, red.id]) {
+    assert.equal(invoke(layerId, true).status, 'changed');
+    gui.dispatch({
+      ...gui.state,
+      type: 'set-layer-state',
+      payload: { layerId, key: 'solo', value: true },
+    });
+    assert.equal(snapshot(live), snapshot(gui));
+    assert.equal(svg(live), svg(gui));
+    assert.equal(labels(live).includes(blue.name), false);
+  }
+  assert.equal(invoke(green.id, false, revision).status, 'stale-target');
+  assert.deepEqual(labels(live), [red.name, green.name]);
+  const saved = snapshot(live);
+  live.dispatch({ ...live.state, type: 'undo' });
+  assert.deepEqual(labels(live), [green.name]);
+  live.dispatch({ ...live.state, type: 'redo' });
+  assert.equal(snapshot(live), saved);
 });
