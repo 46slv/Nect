@@ -22,7 +22,7 @@ const target = {
   projectRevision: 3,
 };
 
-test('object pages only expose addresses, type and locked state, with stable paging', () => {
+test('object pages only expose addresses, type and layer state, with stable paging', () => {
   const nodes = Object.freeze(
     Array.from({ length: 34 }, (_, index) =>
       Object.freeze({ id: 'n' + index, type: 'Text', text: 'private text', path: '/private' }),
@@ -30,7 +30,9 @@ test('object pages only expose addresses, type and locked state, with stable pag
   );
   const document = Object.freeze({
     path: '/private-file',
-    layers: Object.freeze([Object.freeze({ id: 'l1', name: 'private name', locked: true, nodes })]),
+    layers: Object.freeze([
+      Object.freeze({ id: 'l1', name: 'private name', locked: true, visible: false, nodes }),
+    ]),
   });
   const host = {
     readTarget: () => ({ ...target, path: '/private' }),
@@ -41,7 +43,7 @@ test('object pages only expose addresses, type and locked state, with stable pag
     status: 'ok',
     target,
     layerId: null,
-    items: [{ layerIndex: 0, layerId: 'l1', locked: true }],
+    items: [{ layerIndex: 0, layerId: 'l1', locked: true, visible: false }],
     nextOffset: null,
   });
   const first = get(0, 0);

@@ -43,7 +43,12 @@ export function readLiveEditorObjects(
     items.push(
       layer
         ? { nodeId: entry.id, type: entry.type }
-        : { layerId: entry.id, layerIndex: index, locked: entry.locked === true },
+        : {
+            layerId: entry.id,
+            layerIndex: index,
+            locked: entry.locked === true,
+            visible: entry.visible !== false,
+          },
     );
     if (!fitsFrame(reply(index + 1))) {
       items.pop();

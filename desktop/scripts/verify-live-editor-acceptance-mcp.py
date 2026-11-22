@@ -86,8 +86,9 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             layer_page = layers["structuredContent"]
             assert set(layer_page) == {"status","target","layerId","items","nextOffset"}
             assert layer_page["target"] == target and layer_page["layerId"] is None
-            assert all(set(item) == {"layerId","layerIndex","locked"} for item in layer_page["items"])
+            assert all(set(item) == {"layerId","layerIndex","locked","visible"} for item in layer_page["items"])
             [address] = [item for item in layer_page["items"] if item["layerId"] == layer["id"]]
+            assert address["visible"] is True
             nodes = list_page(1002, address["layerIndex"], target)
             assert not nodes["isError"], nodes
             page = nodes["structuredContent"]
@@ -113,6 +114,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             assert hidden["projectRevision"] == target["projectRevision"] + 1
             expect_visibility(set_visible(1205, target, True), "stale-target", True)
             assert expect_visibility(set_visible(1206, hidden, False), "unchanged")["target"] == hidden
+            if list_objects:
+                layers_after = list_page(1209, None, hidden)
+                [hidden_layer] = [x for x in layers_after["structuredContent"]["items"] if x["layerId"]==source_layer]
+                assert not layers_after["isError"] and hidden_layer["visible"] is False, layers_after
             restore = call(1207, "tools/call", name="nect_test_undo", arguments=dict(target=hidden))
             target = expect_visibility(restore, "changed")["target"]
             assert expect_visibility(set_visible(1208, target, True), "unchanged")["target"] == target
@@ -235,6 +240,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         if hidden_roundtrip:
             unchanged=invoke("set_layer_visibility",dict(target=reopened,layerId=source_layer,visible=False),"unchanged")
             assert unchanged["target"]==reopened
+            if list_objects:
+                layers_reopened = list_page(1210, None, reopened)
+                [hidden_layer] = [x for x in layers_reopened["structuredContent"]["items"] if x["layerId"]==source_layer]
+                assert not layers_reopened["isError"] and hidden_layer["visible"] is False, layers_reopened
         if mixed_text_probe:
             for kind in ("svg", "png"):
                 invoke("export_"+kind,{"target":reopened},"unsupported-glyph",True)

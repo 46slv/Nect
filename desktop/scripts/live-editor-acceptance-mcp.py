@@ -131,7 +131,7 @@ if os.environ.get("NECT_ACCEPTANCE_BLEND_STEPS") == "1":
 if os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1":
     name = "nect_test_list_artwork"
     TOOLS.append({
-        "name": name, "description": "List addresses and types of authored objects in the isolated fixture",
+        "name": name, "description": "List layer addresses and state, or addresses and types of authored nodes, in the isolated fixture",
         "inputSchema": schema(dict(target=target, offset=revision,
                                    layerIndex={"anyOf":[revision,{"type":"null"}]})),
         "annotations":{"readOnlyHint":True,"openWorldHint":False},

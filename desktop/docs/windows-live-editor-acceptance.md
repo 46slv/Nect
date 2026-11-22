@@ -45,7 +45,8 @@ For a normal renderer build, explicitly unset the acceptance flag or set it to
 
 Optionally set `NECT_ACCEPTANCE_OBJECTS=1` to discover one additional
 read-only tool. This checks that the same target can list layers, discover
-the Blend node address, and use that address for the edit. Old list requests
+the Blend node address, and use that address for the edit. Layer entries include
+the stored visibility flag, not evaluated visibility under Solo. Old list requests
 are rejected after the edit. Keep the flag off with older executables.
 
 Set `NECT_ACCEPTANCE_GRAPH_WIRES=1` to additionally read the Blend fixture's
