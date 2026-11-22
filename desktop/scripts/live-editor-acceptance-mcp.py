@@ -10,6 +10,7 @@ import sys
 import uuid
 
 REV = "2025-06-18"
+PREVIEW_ONLY = os.environ.get("NECT_MCP_PREVIEW_READ_ONLY") == "1"
 BASE = Path(__file__).resolve().parent
 EXE = Path(os.environ["NECT_ACCEPTANCE_EXE"]).resolve(strict=True)
 HASH = os.environ["NECT_ACCEPTANCE_SHA256"].lower()
@@ -88,6 +89,14 @@ if os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1":
         "annotations":{"readOnlyHint":True,"openWorldHint":False},
     })
     OPERATIONS[name] = "artwork.list"
+if PREVIEW_ONLY:
+    TOOLS = [{
+        "name": "nect_test_inspect",
+        "description": "Read target identity of a locally enabled, disposable Nect preview",
+        "inputSchema": schema({}),
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
+    }]
+    OPERATIONS = {"nect_test_inspect": "editor.inspect"}
 SUCCEEDED = {"ok", "changed", "unchanged", "accepted-by-writer", "reopened"}
 
 def make_child():
@@ -97,7 +106,8 @@ def make_child():
     return subprocess.Popen([str(EXE)], cwd=str(EXE.parent), stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE, stderr=sys.stderr, env={
                                 **os.environ, "NECT_SVG_ACCEPTANCE_ROOT": str(root),
-                                "NECT_LIVE_EDITOR_ACCEPTANCE_STDIO": "1",
+                                "NECT_LIVE_EDITOR_ACCEPTANCE_STDIO": "0" if PREVIEW_ONLY else "1",
+                                "NECT_LIVE_INSPECT_PREVIEW_STDIO": "1" if PREVIEW_ONLY else "0",
                                 "TEMP": str(EXE.parent), "TMP": str(EXE.parent), "TMPDIR": str(EXE.parent),
                             }, creationflags=subprocess.CREATE_NO_WINDOW)
 
@@ -147,6 +157,7 @@ def serve(child):
             native_replies.put(None)
     Thread(target=read_native, daemon=True).start()
     handshake = "start"
+    preview_used = False
     def response(id_, **payload):
         sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": id_, **payload}) + "\n")
         sys.stdout.flush()
@@ -178,7 +189,7 @@ def serve(child):
                 continue
             handshake = "initialized"
             response(id_, result={"protocolVersion": REV, "serverInfo": {
-                "name": "nect-live-acceptance", "version": "0.1.0"},
+                "name": "nect-live-preview-proof" if PREVIEW_ONLY else "nect-live-acceptance", "version": "0.1.0"},
                 "capabilities": {"tools": {"listChanged": False}}})
         elif method == "ping":
             response(id_, result={})
@@ -191,7 +202,17 @@ def serve(child):
             if not isinstance(name, str) or name not in OPERATIONS or not isinstance(args, dict):
                 error(id_, -32602, "Unknown tool or invalid arguments")
                 continue
-            result = app_call(child, native_replies, name, args)
+            if PREVIEW_ONLY:
+                if args:
+                    error(id_, -32602, "Preview inspection takes no arguments")
+                    continue
+                if preview_used:
+                    result = {"status": "proof-consumed"}
+                else:
+                    preview_used = True
+                    result = app_call(child, native_replies, name, args)
+            else:
+                result = app_call(child, native_replies, name, args)
             response(id_, result={"content": [{"type": "text", "text": json.dumps(result)}],
                                   "structuredContent": result,
                                   "isError": result["status"] not in SUCCEEDED})

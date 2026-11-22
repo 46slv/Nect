@@ -13,12 +13,27 @@ mod build_identity_config;
 mod build_identity_sources;
 mod desktop_font_layout;
 mod document_storage;
-#[cfg(any(test, all(windows, any(feature = "live-editor-acceptance-test", feature = "live-inspect-preview"))))]
+#[cfg(any(
+    test,
+    all(
+        windows,
+        any(
+            feature = "live-editor-acceptance-test",
+            feature = "live-inspect-preview"
+        )
+    )
+))]
 mod live_api_read_admission;
 mod live_editor_acceptance;
 mod live_editor_frames;
 mod live_editor_mailbox;
-#[cfg(all(windows, any(feature = "live-editor-acceptance-test", feature = "live-inspect-preview")))]
+#[cfg(all(
+    windows,
+    any(
+        feature = "live-editor-acceptance-test",
+        feature = "live-inspect-preview"
+    )
+))]
 mod live_inspect_lane;
 mod live_inspect_preview;
 mod os_font_outlines;
@@ -170,7 +185,11 @@ fn run() -> Result<(), String> {
     let live_test_enabled = live_acceptance.0.is_some();
     let preview_stdio = std::env::var_os("NECT_LIVE_INSPECT_PREVIEW_STDIO").as_deref()
         == Some(std::ffi::OsStr::new("1"));
-    live_inspect_preview::Preview::require_disposable_stdio(preview_stdio, storage.0.is_some(), live_test_enabled)?;
+    live_inspect_preview::Preview::require_disposable_stdio(
+        preview_stdio,
+        storage.0.is_some(),
+        live_test_enabled,
+    )?;
     let window_storage = storage.clone();
     let identity = build_identity::BuildIdentity::compiled(
         &context.config().identifier,

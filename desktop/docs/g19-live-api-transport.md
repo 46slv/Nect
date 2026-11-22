@@ -93,7 +93,13 @@ The host processes one bounded `editor.inspect` frame only, while the local
 preview is enabled for the current WebView. Disable or reload invalidates
 that binding, including results waiting for publication. Test this with
 synthetic data only. This is not a daemon, a general MCP server, or attach
-authority for an already running installation.
+authority for an already running installation. For a local, independent
+MCP client check, run the existing acceptance adapter with
+`NECT_MCP_PREVIEW_READ_ONLY=1`, the reviewed preview executable and its SHA-256.
+The adapter lists only the inspection tool, refuses edits and nonempty
+inspection arguments without consuming the proof, and reports a consumed
+proof after the first valid request. Enable/disable still happens in the app.
+The adapter owns and closes only the disposable process it starts.
 
 ## Acceptance before broader exposure
 
