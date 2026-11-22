@@ -237,6 +237,15 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         reopened=invoke("inspect",{},"ok")["target"]
         assert reopened["documentGeneration"]>current["documentGeneration"] and reopened["sessionId"]!=current["sessionId"]
         invoke("reopen_copy",{"target":current},"stale-target",True)
+        if layer_visibility:
+            # Identical layer IDs in the reopened copy must not revive edit authority.
+            invoke("set_layer_visibility",dict(target=current,layerId=source_layer,visible=hidden_roundtrip),
+                   "stale-target",True)
+        if graph_wires:
+            invoke("read_node_input_wires",dict(target=current,layerId=source_layer,nodeId=source_node,offset=0),
+                   "stale-target",True)
+        if layer_visibility or graph_wires:
+            assert invoke("inspect",{},"ok")["target"]==reopened
         if hidden_roundtrip:
             unchanged=invoke("set_layer_visibility",dict(target=reopened,layerId=source_layer,visible=False),"unchanged")
             assert unchanged["target"]==reopened
