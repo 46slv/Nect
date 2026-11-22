@@ -43,6 +43,7 @@ locked_roundtrip = os.environ.get("NECT_ACCEPTANCE_LOCKED_ROUNDTRIP") == "1"
 hidden_roundtrip = os.environ.get("NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP") == "1"
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
+artwork_gaps = os.environ.get("NECT_ACCEPTANCE_ARTWORK_GAPS") == "1"
 artwork_distribute = os.environ.get("NECT_ACCEPTANCE_ARTWORK_DISTRIBUTE") == "1"
 artwork_align = os.environ.get("NECT_ACCEPTANCE_ARTWORK_ALIGN") == "1"
 artwork_translate = os.environ.get("NECT_ACCEPTANCE_ARTWORK_TRANSLATE") == "1"
@@ -65,8 +66,8 @@ assert not layer_guide or (artwork and layer_lock and not (
 assert not layer_solo or (artwork and layer_visibility and not (
     layer_folder_plan or layer_folders or layer_reorder or layer_duplicate or embedded_jp or mixed_text_probe
 ))
-assert sum((artwork_align, artwork_translate, artwork_distribute)) <= 1
-assert not (artwork_align or artwork_translate or artwork_distribute) or (artwork and layer_lock and list_objects and not (
+assert sum((artwork_align, artwork_translate, artwork_distribute, artwork_gaps)) <= 1
+assert not (artwork_align or artwork_translate or artwork_distribute or artwork_gaps) or (artwork and layer_lock and list_objects and not (
     layer_delete or layer_solo or layer_guide or layer_folders or layer_folder_plan or
     hidden_roundtrip or locked_roundtrip or renamed_roundtrip or text_edit or embedded_jp or mixed_text_probe
 ))
@@ -154,6 +155,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_set_layer_lock")
         if layer_rename:
             extra.append("nect_test_rename_layer")
+        if artwork_gaps:
+            extra.append("nect_test_distribute_artwork_gaps")
         if artwork_distribute:
             extra.append("nect_test_distribute_artwork")
         if artwork_align:
@@ -364,7 +367,9 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         created = []
         if artwork:
             create_cases = [("Rectangle",[430,180])]
-            if artwork_distribute:
+            if artwork_gaps:
+                create_cases = [("Rectangle",[260,180]), ("Circle",[505,210]), ("Rectangle",[770,180])]
+            elif artwork_distribute:
                 create_cases.extend([("Rectangle",[505,230]), ("Rectangle",[770,180])])
             elif not embedded_jp and not layer_reorder:
                 create_cases.append(("Text",[610,230]))
@@ -397,6 +402,32 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             invoke("redo",{"target":before_undo},"stale-target",True)
             current=invoke("redo",{"target":current},"changed")["target"]
             assert current["projectRevision"]==before_undo["projectRevision"]+2
+        if artwork_gaps:
+            gap_ids = [item[2] for item in made]
+            current = invoke("set_layer_lock", dict(target=current, layerId=gap_ids[1], locked=True),
+                             "changed")["target"]
+            arrange = dict(target=current, layerIds=gap_ids, action="gap-x", spacing=None)
+            invoke("distribute_artwork_gaps", arrange, "rejected", True)
+            assert invoke("inspect", {}, "ok")["target"] == current
+            current = invoke("set_layer_lock", dict(target=current, layerId=gap_ids[1], locked=False),
+                             "changed")["target"]
+            arrange["target"] = current
+            invoke("distribute_artwork_gaps", {**arrange, "layerIds":gap_ids[:2]}, "invalid-arguments", True)
+            auto = invoke("distribute_artwork_gaps", arrange, "changed")["target"]
+            assert auto["projectRevision"] == current["projectRevision"] + 1
+            invoke("distribute_artwork_gaps", arrange, "stale-target", True)
+            assert invoke("distribute_artwork_gaps", {**arrange, "target":auto},
+                          "unchanged")["target"] == auto
+            fixed = dict(target=auto, layerIds=gap_ids[:2], action="gap-x", spacing=25)
+            fixed_result = invoke("distribute_artwork_gaps", fixed, "changed")["target"]
+            undone = invoke("undo", {"target":fixed_result}, "changed")["target"]
+            assert invoke("distribute_artwork_gaps", {**arrange, "target":undone},
+                          "unchanged")["target"] == undone
+            current = invoke("redo", {"target":undone}, "changed")["target"]
+            assert invoke("distribute_artwork_gaps", {**fixed, "target":current},
+                          "unchanged")["target"] == current
+            kind, point, layer, node = made[1]
+            made[1] = (kind, [495, point[1]], layer, node)
         if artwork_distribute:
             ordered = [item[2] for item in made]
             middle_id = ordered[1]
@@ -987,7 +1018,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 [shape_layer]=[x for x in composition["layers"] if x["id"]==layer_id]
                 [shape]=[n for n in shape_layer["nodes"] if n["id"]==node_id]
                 assert shape["type"]==kind, shape["type"]
-                if kind=="Rectangle":
+                if kind in ("Rectangle", "Circle"):
                     assert shape["params"]["center"]["value"]==point, shape["params"]["center"]
                 else:
                     assert shape["params"]["position"]["value"]==point, shape["params"]["position"]
@@ -1138,6 +1169,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             evidence["layerState"] = "exact stored flags before edit, after edit and reopen; stale and unsupported IDs rejected; revision unchanged by reads"
         if layer_create_blank:
             evidence["blankLayer"] = "one empty Output created; dropped reply reconciled by listing; stale replay refused; Undo/Redo, reopened IDs and byte-identical baseline SVG/PNG"
+        if artwork_gaps:
+            evidence["artworkGaps"] = dict(action="gap-x", endpointCenters=[260, 770],
+                fixedSpacing=25, savedMiddleCenter=495, restoredAutomaticOnUndo=True,
+                lockedAndStaleRejected=True, fixedSpacingRedoAndReopenVerified=True)
         if artwork_distribute:
             evidence["artworkDistribution"] = dict(action="center-x", endpoints=[430, 770],
                 savedMiddleX=600, originalMiddleX=505, lockedAndStaleRejected=True,

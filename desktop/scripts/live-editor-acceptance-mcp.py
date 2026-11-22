@@ -209,6 +209,18 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "layer.reorder"
+if os.environ.get("NECT_ACCEPTANCE_ARTWORK_GAPS") == "1":
+    name = "nect_test_distribute_artwork_gaps"
+    TOOLS.append({
+        "name": name,
+        "description": "Distribute artwork edge gaps automatically or to an explicit distance in the isolated fixture",
+        "inputSchema": schema(dict(target=target,
+            layerIds={"type":"array","items":ident,"minItems":2,"maxItems":100,"uniqueItems":True},
+            action={"enum":["gap-x","gap-y"]},
+            spacing={"type":["number","null"],"minimum":-100000,"maximum":100000})),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "artwork.distributeGaps"
 if os.environ.get("NECT_ACCEPTANCE_ARTWORK_DISTRIBUTE") == "1":
     name = "nect_test_distribute_artwork"
     TOOLS.append({
