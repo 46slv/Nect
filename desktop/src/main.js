@@ -1,3 +1,4 @@
+import { isInstalledOsText, prepareInstalledTextContent } from './installed-text-content.js';
 import { workspaceIcon } from './ui-icons.js';
 import { chooseNewProjectSize } from './new-project-dialog.js';
 import { createLayerClipboardOwner } from './layer-clipboard-owner.js';
@@ -6665,16 +6666,37 @@ function acceptanceTextNode(layerId, nodeId) {
       (node) =>
         node.id === nodeId &&
         node.type === 'Text' &&
-        (node.font === 'default' ||
-          (node.font === 'font-integrity-fixture' &&
-            history.doc.fontAssets?.[node.font]?.fileName === 'NectJPFixture-Regular.otf')),
+        !node.locked &&
+        !node.bypassed &&
+        (node.osFont
+          ? isInstalledOsText(node)
+          : node.font === 'default' ||
+            (node.font === 'font-integrity-fixture' &&
+              history.doc.fontAssets?.[node.font]?.fileName === 'NectJPFixture-Regular.otf')),
     );
 }
 const liveTextContent = createLiveTextContent({
   readTarget: readLiveEditorTarget,
   isEditBlocked: () => documents.transitioning || documents.saving || documents.hasPendingEdits(),
   readText: (layerId, nodeId) => acceptanceTextNode(layerId, nodeId)?.text,
-  commit: (command, isCurrent) => {
+  commit: async (command, isCurrent) => {
+    const { layerId, nodeId, text } = command.payload;
+    const source = acceptanceTextNode(layerId, nodeId);
+    if (!source) return { status: 'unsupported-target' };
+    if (isInstalledOsText(source)) {
+      let prepared;
+      try {
+        prepared = await prepareInstalledTextContent(source, text, prepareDesktopText);
+      } catch {
+        return { status: isCurrent() ? 'unsupported-target' : 'edit-in-progress' };
+      }
+      if (!prepared) return { status: 'unsupported-target' };
+      command = {
+        ...command,
+        type: 'set-os-font-text',
+        payload: { layerId, nodeId, ...prepared },
+      };
+    }
     if (!isCurrent()) return { status: 'edit-in-progress' };
     const prior = selectionSnapshot();
     const oldDocument = history.doc;
