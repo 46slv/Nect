@@ -3,9 +3,42 @@
 This test transport never starts an app, discovers endpoints, or loads a user profile.
 """
 import _winapi as win
+import ctypes
+from ctypes import wintypes
 import json
+import os
 import re
 from time import monotonic
+
+kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+pipe_server_pid = kernel.GetNamedPipeServerProcessId
+pipe_server_pid.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.ULONG)]
+pipe_server_pid.restype = wintypes.BOOL
+process_image = kernel.QueryFullProcessImageNameW
+process_image.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
+                          ctypes.POINTER(wintypes.DWORD)]
+process_image.restype = wintypes.BOOL
+
+
+def retain_expected_server(pipe, expected_exe):
+    pid = wintypes.ULONG()
+    if not pipe_server_pid(pipe, ctypes.byref(pid)) or pid.value == 0:
+        return None
+    # Retain the OS process for this operation. Synchronize + query-limited only.
+    handle = win.OpenProcess(0x00101000, False, pid.value)
+    matched = False
+    try:
+        path = ctypes.create_unicode_buffer(32768)
+        chars = wintypes.DWORD(len(path))
+        if not process_image(handle, 0, path, ctypes.byref(chars)):
+            return None
+        if os.path.normcase(path.value) != os.path.normcase(os.fspath(expected_exe)):
+            return None
+        matched = win.WaitForSingleObject(handle, 0) == win.WAIT_TIMEOUT
+        return handle if matched else None
+    finally:
+        if not matched:
+            win.CloseHandle(handle)
 
 
 def inspect_endpoint(identifier):
@@ -33,7 +66,7 @@ def parse_reply(frame):
     return reply
 
 
-def inspect_once(endpoint):
+def inspect_once(endpoint, expected_exe):
     try:
         # No FILE_APPEND_DATA (which also grants pipe instance creation).
         # SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION denies impersonation.
@@ -69,7 +102,14 @@ def inspect_once(endpoint):
                     # wait or cancel raises. This may outlast the deadline.
                     overlapped.GetOverlappedResult(True)
 
+    server = None
     try:
+        try:
+            server = retain_expected_server(handle, expected_exe)
+        except OSError:
+            return {"status": "server-unverified"}
+        if server is None:
+            return {"status": "server-unverified"}
         request = b'{"version":1,"operation":"editor.inspect","arguments":{}}\n'
         if complete(*win.WriteFile(handle, request, overlapped=True)) != len(request):
             return {"status": "outcome-unknown"}
@@ -91,4 +131,6 @@ def inspect_once(endpoint):
         return {"status": "outcome-unknown"}
     finally:
         win.CloseHandle(handle)
+        if server is not None:
+            win.CloseHandle(server)
 

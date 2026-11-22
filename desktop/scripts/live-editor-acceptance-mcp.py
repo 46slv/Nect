@@ -15,16 +15,15 @@ BASE = Path(__file__).resolve().parent
 PIPE_IDENTIFIER = os.environ.get("NECT_MCP_LOCAL_PIPE_PROOF")
 if os.name != "nt":
     raise RuntimeError("A Windows acceptance host is required")
+EXE = Path(os.environ["NECT_ACCEPTANCE_EXE"]).resolve(strict=True)
+HASH = os.environ["NECT_ACCEPTANCE_SHA256"].lower()
+if EXE.suffix.lower() != ".exe" or len(HASH) != 64:
+    raise RuntimeError("A Windows acceptance build and its expected SHA-256 are required")
 if PIPE_IDENTIFIER is not None:
     if not PREVIEW_ONLY:
         raise RuntimeError("The local pipe proof requires read-only preview mode")
     from live_inspect_pipe_proof_client import inspect_endpoint, inspect_once
     PIPE_ENDPOINT = inspect_endpoint(PIPE_IDENTIFIER)
-else:
-    EXE = Path(os.environ["NECT_ACCEPTANCE_EXE"]).resolve(strict=True)
-    HASH = os.environ["NECT_ACCEPTANCE_SHA256"].lower()
-    if EXE.suffix.lower() != ".exe" or len(HASH) != 64:
-        raise RuntimeError("A Windows acceptance build and its expected SHA-256 are required")
 
 def schema(props):
     return {"type": "object", "properties": props, "required": list(props), "additionalProperties": False}
@@ -108,9 +107,13 @@ if PREVIEW_ONLY:
     OPERATIONS = {"nect_test_inspect": "editor.inspect"}
 SUCCEEDED = {"ok", "changed", "unchanged", "accepted-by-writer", "reopened"}
 
-def make_child():
+def verify_exe():
     if not EXE.is_file() or hashlib.sha256(EXE.read_bytes()).hexdigest() != HASH:
         raise RuntimeError("acceptance build identity mismatch")
+
+
+def make_child():
+    verify_exe()
     root = EXE.parent / ("nect-svg-acceptance-" + uuid.uuid4().hex)
     return subprocess.Popen([str(EXE)], cwd=str(EXE.parent), stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE, stderr=sys.stderr, env={
@@ -221,7 +224,7 @@ def serve(child):
                 else:
                     preview_used = True
                     if PIPE_IDENTIFIER is not None:
-                        result = inspect_once(PIPE_ENDPOINT)
+                        result = inspect_once(PIPE_ENDPOINT, EXE)
                     else:
                         result = app_call(child, native_replies, name, args)
             else:
@@ -234,6 +237,7 @@ def serve(child):
 
 if __name__ == "__main__":
     if PIPE_IDENTIFIER is not None:
+        verify_exe()
         serve(None)
     else:
         child = make_child()

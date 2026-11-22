@@ -132,8 +132,12 @@ acceptance checked an opened synthetic Blend document: the permitted call
 returned the active revision without changing editor state, and a separate
 run returned app-unavailable after Disable. It also rejected edit, extra
 arguments, and a repeat call. The adapter checks the closed inspect reply
-shape, but does not authenticate the server process. This is a trusted
-local fixture contract, not client registration or normal editor integration.
+shape and the fixture executable's SHA-256 before serving. On connection it
+retains the process identified by Windows and compares the process image
+path to the exact fixture path before sending inspection data. The Windows
+proof correctly refused a different path, even when its bytes were equal.
+This assumes a trusted, dedicated fixture location; it is not a signed
+product identity, client registration, or normal-editor integration.
 
 The preview retains the document generation, Composition and Session
 selected when Enable was clicked. Revision changes within that scope are
