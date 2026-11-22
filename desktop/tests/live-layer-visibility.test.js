@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { deserialize, exportSVG } from '../src/core.js';
+import { deserialize, exportSVG, serialize } from '../src/core.js';
 import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
 import {
   deserializeCompositionProject,
@@ -15,9 +15,7 @@ import {
 } from '../src/live-layer-visibility.js';
 import { createLiveEditorProtocol } from '../src/live-editor-protocol.js';
 import { readLiveEditorObjects } from '../src/live-editor-objects.js';
-
 import { orderingDocument } from './fixtures/artwork-ordering.js';
-import { serialize } from '../src/core.js';
 
 const seed = readFileSync(new URL('../examples/blend-distance.json', import.meta.url), 'utf8');
 const makeOwner = () =>

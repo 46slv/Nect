@@ -18,6 +18,7 @@ assert result_file.parent == root
 list_objects = os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1"
 graph_wires = os.environ.get("NECT_ACCEPTANCE_GRAPH_WIRES") == "1"
 layer_visibility = os.environ.get("NECT_ACCEPTANCE_LAYER_VISIBILITY") == "1"
+layer_solo = os.environ.get("NECT_ACCEPTANCE_LAYER_SOLO") == "1"
 layer_lock = os.environ.get("NECT_ACCEPTANCE_LAYER_LOCK") == "1"
 layer_rename = os.environ.get("NECT_ACCEPTANCE_LAYER_RENAME") == "1"
 layer_reorder = os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1"
@@ -47,6 +48,9 @@ assert not change_folder_membership or (layer_folders and not (artwork or hidden
 assert not rename_layer_folder or (layer_folders and not (artwork or hidden_roundtrip or locked_roundtrip or renamed_roundtrip))
 assert not create_layer_folder or (layer_folders and not (artwork or hidden_roundtrip or locked_roundtrip or renamed_roundtrip))
 assert not layer_folders or not (embedded_jp or mixed_text_probe or layer_reorder or layer_duplicate)
+assert not layer_solo or (artwork and layer_visibility and not (
+    layer_folder_plan or layer_folders or layer_reorder or layer_duplicate or embedded_jp or mixed_text_probe
+))
 assert not layer_lock or list_objects
 assert not layer_duplicate or (
     list_objects and not (layer_reorder or layer_rename or layer_lock or layer_visibility or
@@ -107,6 +111,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_read_node_input_wires")
         if layer_visibility:
             extra.append("nect_test_set_layer_visibility")
+        if layer_solo:
+            extra.append("nect_test_set_layer_solo")
         if layer_lock:
             extra.append("nect_test_set_layer_lock")
         if layer_rename:
@@ -342,6 +348,26 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             invoke("redo",{"target":before_undo},"stale-target",True)
             current=invoke("redo",{"target":current},"changed")["target"]
             assert current["projectRevision"]==before_undo["projectRevision"]+2
+        if layer_solo:
+            [rect_id, text_id] = [item[2] for item in made]
+            original = current
+            first = dict(target=current, layerId=rect_id, solo=True)
+            invoke("set_layer_solo", {**first, "solo": 1}, "invalid-arguments", True)
+            invoke("set_layer_solo", {**first, "toggle":True}, "invalid-arguments", True)
+            invoke("set_layer_solo", {**first, "layerId":"absent"}, "unsupported-target", True)
+            assert invoke("set_layer_solo", {**first, "solo":False}, "unchanged")["target"] == current
+            current = invoke("set_layer_solo", first, "changed")["target"]
+            assert current["projectRevision"] == original["projectRevision"] + 1
+            invoke("set_layer_solo", first, "stale-target", True)
+            current = invoke("set_layer_solo", dict(target=current, layerId=text_id, solo=True), "changed")["target"]
+            undone = invoke("undo", {"target":current}, "changed")["target"]
+            assert invoke("set_layer_solo", dict(target=undone, layerId=text_id, solo=False),
+                          "unchanged")["target"] == undone
+            current = invoke("redo", {"target":undone}, "changed")["target"]
+            assert invoke("set_layer_solo", dict(target=current, layerId=text_id, solo=True),
+                          "unchanged")["target"] == current
+            current = invoke("set_layer_visibility", dict(target=current, layerId=text_id, visible=False),
+                             "changed")["target"]
         if layer_folder_plan:
             original_plan_order = [source_layer, made[0][2], made[1][2]]
             planned_order = [source_layer, made[1][2], made[0][2]]
@@ -582,6 +608,11 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             assert layer_ids(1606, reopened) == after_ids
         if layer_visibility or graph_wires or layer_lock or renamed_roundtrip or layer_reorder or layer_duplicate:
             assert invoke("inspect",{},"ok")["target"]==reopened
+        if layer_solo:
+            invoke("set_layer_solo", dict(target=current, layerId=rect_id, solo=False), "stale-target", True)
+            for lid, flag in [(rect_id, True), (text_id, True), (source_layer, False)]:
+                assert invoke("set_layer_solo", dict(target=reopened, layerId=lid, solo=flag),
+                              "unchanged")["target"] == reopened
         if layer_folders:
             readback = folders(1177, reopened)
             assert not readback["isError"] and readback["structuredContent"] == dict(
@@ -683,6 +714,14 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 from xml.etree import ElementTree
                 tree = ElementTree.fromstring(svg)
                 assert tree.tag.endswith("}svg")
+                if layer_solo:
+                    assert [l["id"] for l in composition["layers"]] == [source_layer, rect_id, text_id]
+                    source, rect, text_layer = composition["layers"]
+                    assert not source.get("solo") and source["visible"]
+                    assert rect["solo"] is True and rect["visible"]
+                    assert text_layer["solo"] is True and not text_layer["visible"]
+                    labels = {n.attrib["data-layer"] for n in tree.iter() if "data-layer" in n.attrib}
+                    assert labels == {rect["name"]}, labels
                 if layer_folder_plan:
                     assert [l["id"] for l in composition["layers"]] == planned_order
                     assert composition["editor"]["layerFolders"] == [
@@ -787,6 +826,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             )
             if folder_plan_move_order:
                 evidence[key]["edgeNoopVerified"] = True
+        if layer_solo:
+            evidence["layerSolo"] = "two persisted Solo flags; hidden Solo and non-Solo excluded from SVG; one-revision changes, stale rejection, Undo/Redo, and PNG export"
         with result_file.open("x", encoding="utf-8") as f:
             json.dump(evidence, f)
         print(json.dumps(evidence))

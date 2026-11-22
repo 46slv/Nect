@@ -155,6 +155,15 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_VISIBILITY") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "layer.setVisibility"
+if os.environ.get("NECT_ACCEPTANCE_LAYER_SOLO") == "1":
+    name = "nect_test_set_layer_solo"
+    TOOLS.append({
+        "name": name,
+        "description": "Explicitly set the Solo state of one layer in the isolated fixture",
+        "inputSchema": schema(dict(target=target, layerId=ident, solo={"type": "boolean"})),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "layer.setSolo"
 if os.environ.get("NECT_ACCEPTANCE_LAYER_LOCK") == "1":
     name = "nect_test_set_layer_lock"
     TOOLS.append({

@@ -117,6 +117,15 @@ baseline. All four variables are optional; on means exactly `1`.
 | Japanese text, missing glyph | on                        | on                     | on                                      | off                              | 13         |
 | Japanese text, embedded font | on                        | on                     | off                                     | on                               | 13         |
 
+### Layer Solo scenario
+
+In a separate run, use the matching fixture executable with
+\`NECT_ACCEPTANCE_ARTWORK=1\`, \`NECT_ACCEPTANCE_LAYER_VISIBILITY=1\`, and
+\`NECT_ACCEPTANCE_LAYER_SOLO=1\`. The 14-tool test sets Solo explicitly on a
+Rectangle and a Text layer, hides the Text, and checks Undo/Redo and saved
+flags. After reopen, SVG contains only the visible soloed Rectangle; PNG
+must export successfully. Keep the other optional cases off for this run.
+
 ### Artwork creation scenario
 
 Keep the baseline run with no artwork flag; it still checks the same 11 tools and
