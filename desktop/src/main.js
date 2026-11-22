@@ -75,6 +75,7 @@ import {
   createLiveLayerGuide,
 } from './live-layer-visibility.js';
 import { createLiveLayerReorder } from './live-layer-reorder.js';
+import { createLiveBlankLayer } from './live-layer-create.js';
 import { createLiveLayerDuplicate } from './live-layer-duplicate.js';
 import { createLiveLayerFolder } from './live-layer-folder-create.js';
 import { createLiveFolderPlanSession } from './live-folder-plan-session.js';
@@ -19633,6 +19634,10 @@ if (
         ...liveBlendHost,
         isEditBlocked: () =>
           liveBlendHost.isEditBlocked() || closeInputBlocked() || Boolean(nameEdit),
+      }),
+      createBlankLayer: createLiveBlankLayer({
+        ...liveBlendHost,
+        isEditBlocked: () => compositionActionBusy() || closeInputBlocked() || Boolean(nameEdit),
       }),
       duplicateLayer: createLiveLayerDuplicate({
         ...liveBlendHost,

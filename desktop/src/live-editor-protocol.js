@@ -5,6 +5,7 @@ import {
   readEditorInspection,
   validEditorTarget as validTarget,
 } from './live-editor-target.js';
+import { validBlankLayerName } from './live-layer-create.js';
 
 const object = (value) =>
   value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype;
@@ -43,6 +44,7 @@ export function createLiveEditorProtocol({
   renameLayer,
   reorderLayer,
   duplicateLayer,
+  createBlankLayer,
   setBlendDistance,
   setBlendSteps,
   setBlendMode,
@@ -242,6 +244,22 @@ export function createLiveEditorProtocol({
         return readNodeInputWires(args);
       } catch {
         return { status: 'unavailable' };
+      }
+    }
+    if (createBlankLayer && request.operation === 'layer.createBlank') {
+      if (
+        !closed(args, ['target', 'name']) ||
+        !validTarget(args.target) ||
+        !validBlankLayerName(args.name)
+      )
+        return { status: 'invalid-arguments' };
+      try {
+        const { status, layerId, nodeId } = createBlankLayer(args);
+        return status === 'changed'
+          ? { status, layerId, nodeId, target: captureEditorTarget(readTarget()) }
+          : { status };
+      } catch {
+        return { status: 'outcome-unknown' };
       }
     }
     if (duplicateLayer && request.operation === 'layer.duplicate') {
