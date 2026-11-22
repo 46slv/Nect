@@ -5,6 +5,8 @@ Production Desktop development is in [desktop/](desktop/README.md), based on Nec
 > **Fresh implementation agent:** start with [START_HERE.md](START_HERE.md).  
 > A repo link plus that file is intended to be enough to resume current work without old chat history.
 
+**Agent Skills:** [Live editor API/MCP](.agents/skills/nect-live-editor/SKILL.md) and [file export (SVG/PNG)](.agents/skills/nect-file-export/SKILL.md).
+
 Nect is an experimental 2D graphics authoring engine/editor focused on:
 
 - fully addressable Bézier points and handles
