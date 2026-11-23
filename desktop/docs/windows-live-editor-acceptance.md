@@ -95,6 +95,14 @@ two Text nodes. It detaches and reconnects the named Position output, checks
 the revision and stored wire across Undo/Redo and reopen, and verifies the
 literal fallback and final SVG/PNG. It does not enable production editing.
 
+For same-layer Scalar wiring, set the three graph socket flags and
+`NECT_ACCEPTANCE_SCALAR_WIRE=1` on a fresh root, leaving
+`NECT_ACCEPTANCE_VECTOR_WIRE` off. The synthetic Separate Vector node's
+named `x` socket feeds the Text node's `size`. The 15-tool verifier
+checks port type, detach and reconnect, revision guards, Undo/Redo,
+persistence including the original literal Size of 100, and preservation
+of the unrelated Position wire. It validates final SVG and PNG export.
+
 For a separate primitive shape run, use a fresh isolated root and set
 `NECT_ACCEPTANCE_OBJECTS=1`, `NECT_ACCEPTANCE_ARTWORK=1`, and
 `NECT_ACCEPTANCE_SHAPE_ROUNDTRIP=1`. Leave unrelated scenarios off.

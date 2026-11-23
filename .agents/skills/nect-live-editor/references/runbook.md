@@ -65,6 +65,29 @@ Reproduce with the Vector2 wiring run in
 The documented proof is one same-layer Text Position flow with Undo/Redo
 and persistence. Do not use this as an ordinary Tauri or Hermes connection.
 
+## Edit a Scalar wire in the Windows development fixture
+
+Choose `nect_test_set_scalar_wire` only if it is advertised in the current
+test run. Inspect for a fresh target and confirm that the destination input
+and the exact source output are both Scalar and in the same layer. Check
+the stored edge before writing; a port can exist without a connection.
+
+In the Scalar fixture, use the current `target` plus these arguments:
+
+| Edit    | `layerId`              | `nodeId`                | `input` | `sourceId`              | `sourcePort` |
+| ------- | ---------------------- | ----------------------- | ------- | ----------------------- | ------------ |
+| Connect | `fixture-vector-layer` | `fixture-vector-target` | `size`  | `fixture-scalar-source` | `x`          |
+| Detach  | `fixture-vector-layer` | `fixture-vector-target` | `size`  | `null`                  | `null`       |
+
+The Separate Vector node's `x` output is named; passing a null port for it
+does not select `x`. Detaching preserves the stored literal Size of 100
+and does not change the separate Position wire. After a lost reply or
+stale response, inspect again and read the actual wire before deciding
+whether any write is still needed. Reinspect after Undo/Redo or reopen.
+
+Use the [Windows fixture setup](../../../../desktop/docs/windows-live-editor-acceptance.md)
+to reproduce this proof. It does not establish normal Tauri or Hermes access.
+
 ## Arrange artwork in the Windows development fixture
 
 Use only tools advertised by this run. The `nect_test_*` tools below are
