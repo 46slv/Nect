@@ -150,6 +150,19 @@ test('Vector UI: opt-in position handle, exact source values, shared snap/drag/h
     flush();
   };
   const toggle = () => document.querySelector('.inspector-body [data-vector-position-handle]');
+  for (const surface of [
+    document.querySelector(`.node[data-id="${a.id}"]`),
+    toggle()?.closest('.inspector-body'),
+  ]) {
+    assert.ok(surface);
+    const row = surface.querySelector('.vector-position-setting');
+    const label = row?.querySelector('label');
+    const checkbox = label?.querySelector('input[type="checkbox"]');
+    assert.equal(label?.querySelector('span')?.textContent, 'Canvas position handle');
+    assert.equal(checkbox?.dataset.vectorPositionHandle, a.id);
+    assert.match(label?.title ?? '', /Alt bypasses snapping/);
+    assert.notEqual(row.nextElementSibling?.className, 'font-note');
+  }
   const setMode = async (enabled) => {
     toggle().checked = enabled;
     toggle().dispatchEvent(new win.Event('change', { bubbles: true }));

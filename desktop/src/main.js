@@ -7541,7 +7541,7 @@ function transformControls(n) {
 
 function positionControllerControls(n) {
   if (n.type === 'Vector')
-    return `<div class="field"><label>Canvas position handle <input type="checkbox" data-vector-position-handle="${n.id}" aria-label="Canvas position handle" ${n.canvasPositionHandle === true ? 'checked' : ''} ${current().locked ? 'disabled' : ''}></label></div><p class="font-note">Optional: interpret Value XY as an artwork position for canvas editing. Off by default for direction, size or offset vectors. When on, select this node and drag its diamond; Alt bypasses snapping. The handle changes Value directly, before downstream Transform, and never exports. Output stays Vector2. Connected, expression-driven or locked Value is read-only on canvas.</p>`;
+    return `<div class="field vector-position-setting"><label title="Select the node and drag its diamond to edit Value XY. Alt bypasses snapping. Connected, expression-driven or locked values are read-only; the handle never exports."><span>Canvas position handle</span><input type="checkbox" data-vector-position-handle="${n.id}" ${n.canvasPositionHandle === true ? 'checked' : ''} ${current().locked ? 'disabled' : ''}></label></div>`;
   return n.type === 'Null'
     ? '<p class="font-note">Position-only controller. Select this node and drag its crosshair; Alt bypasses snapping. Only the selected Null is shown, and the marker never exports. Connect Position OUT to Text, shape Position, or Vector Math. Coordinates are before downstream Transform. Connected, expression-driven or locked Position is read-only on canvas.</p>'
     : '';

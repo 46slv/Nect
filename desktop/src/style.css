@@ -684,6 +684,22 @@ header {
   min-width: 0;
   padding: 4px;
 }
+.field.vector-position-setting > label,
+.inspector-body .field.vector-position-setting > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.field.vector-position-setting input[type='checkbox'] {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+}
 .field .expression {
   width: 130px;
 }
