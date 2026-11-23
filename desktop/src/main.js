@@ -91,7 +91,7 @@ import { createLiveLayerFolderDissolve } from './live-layer-folder-dissolve.js';
 import { createLiveLayerFolderRename } from './live-layer-folder-rename.js';
 import { createLiveLayerFolderMembership } from './live-layer-folder-membership.js';
 import { createLiveArtworkCreation } from './live-artwork-creation.js';
-import { createLiveTextContent } from './live-text-content.js';
+import { createLiveTextContent, createReadLiveTextContent } from './live-text-content.js';
 import { editorTargetMatches } from './live-editor-target.js';
 import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
@@ -19721,6 +19721,10 @@ if (
       stepHistory: stepAcceptanceHistory,
       createArtwork: liveArtworkCreation,
       setTextContent: liveTextContent,
+      readTextContent: createReadLiveTextContent({
+        readTarget: readLiveEditorTarget,
+        readText: (layerId, nodeId) => acceptanceTextNode(layerId, nodeId)?.text,
+      }),
       saveCopy,
       reopenCopy,
       saveAsBoundary: createLiveSaveAsBoundary({ readTarget: readLiveEditorTarget, documents }),

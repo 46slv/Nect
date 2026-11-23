@@ -43,6 +43,8 @@ locked_roundtrip = os.environ.get("NECT_ACCEPTANCE_LOCKED_ROUNDTRIP") == "1"
 hidden_roundtrip = os.environ.get("NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP") == "1"
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
+text_read = os.environ.get("NECT_ACCEPTANCE_TEXT_READ") == "1"
+assert not text_read or (text_edit and list_objects)
 solid_fill = os.environ.get("NECT_ACCEPTANCE_SOLID_FILL") == "1"
 solid_fill_read = os.environ.get("NECT_ACCEPTANCE_SOLID_FILL_READ") == "1"
 assert not solid_fill_read or solid_fill
@@ -149,6 +151,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         extra = ["nect_test_create_artwork"] if artwork else []
         if text_edit:
             extra.append("nect_test_set_text_content")
+        if text_read:
+            extra.append("nect_test_read_text_content")
         if list_objects:
             extra.append("nect_test_list_artwork")
         if graph_wires:
@@ -200,7 +204,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         assert [t["name"] for t in listed["tools"]] == ["nect_test_inspect", "nect_test_set_blend_distance", "nect_test_export_svg", "nect_test_export_png", "nect_test_save_copy", "nect_test_reopen_copy", "nect_test_undo", "nect_test_redo","nect_test_save_state","nect_test_save_receipt","nect_test_save_as"] + extra
         read_only_names = {"nect_test_inspect", "nect_test_save_state", "nect_test_save_receipt",
                            "nect_test_list_artwork", "nect_test_read_node_input_wires",
-                           "nect_test_list_layer_folders", "nect_test_plan_layer_folder", "nect_test_read_layer_state", "nect_test_read_solid_fill_color"}
+                           "nect_test_list_layer_folders", "nect_test_plan_layer_folder", "nect_test_read_layer_state", "nect_test_read_solid_fill_color",
+                           "nect_test_read_text_content"}
         assert all(t["annotations"]["readOnlyHint"] == (t["name"] in read_only_names) for t in listed["tools"])
         start = call(3, "tools/call", name="nect_test_inspect", arguments={})
         assert not start["isError"], start
@@ -405,12 +410,24 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             if text_edit:
                 _,_,target_layer,target_node=made[-1]
                 request=dict(target=current,layerId=target_layer,nodeId=target_node,text=replacement)
+                def read_text(revision, expected="ok", **override):
+                    args = dict(target=revision, layerId=target_layer, nodeId=target_node)
+                    return invoke("read_text_content", {**args, **override}, expected, expected != "ok")
+                if text_read:
+                    read_text(current, "unsupported-target", nodeId="missing")
+                    read_text(current, "invalid-arguments", text="not allowed")
+                    initial_text = read_text(current)
+                    assert initial_text["target"] == current and initial_text["text"] != replacement
+                    assert invoke("inspect", {}, "ok")["target"] == current
                 invoke("set_text_content",{**request,"nodeId":"missing"},"unsupported-target",True)
                 updated=invoke("set_text_content",request,"changed")["target"]
                 assert updated["projectRevision"]==current["projectRevision"]+1
                 invoke("set_text_content",request,"stale-target",True)
                 unchanged=invoke("set_text_content",{**request,"target":updated},"unchanged")["target"]
                 assert unchanged==updated
+                if text_read:
+                    read_text(current, "stale-target")
+                    assert read_text(updated) == dict(status="ok", target=updated, text=replacement)
                 current=updated
             before_undo=current
             current=invoke("undo",{"target":current},"changed")["target"]
@@ -916,6 +933,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         reopened=invoke("inspect",{},"ok")["target"]
         assert reopened["documentGeneration"]>current["documentGeneration"] and reopened["sessionId"]!=current["sessionId"]
         invoke("reopen_copy",{"target":current},"stale-target",True)
+        if text_read:
+            read_text(current, "stale-target")
+            assert read_text(reopened) == dict(status="ok", target=reopened, text=replacement)
+            assert invoke("inspect", {}, "ok")["target"] == reopened
         if layer_visibility:
             # Identical layer IDs in the reopened copy must not revive edit authority.
             invoke("set_layer_visibility",dict(target=current,layerId=source_layer,visible=hidden_roundtrip),
@@ -1266,6 +1287,9 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         if solid_fill:
             evidence["solidFill"] = dict(layerId=fill_layer, nodeId=fill_node, hex=fill_hex,
                 lockedAndStaleRejected=True, undoRedoReopenAndSVGVerified=True)
+        if text_read:
+            evidence["authoredTextReadback"] = dict(readOnly=True, unchangedRevision=True,
+                staleRejected=True, reopenedText=replacement)
         if solid_fill_read:
             evidence["solidFillReadback"] = dict(readOnly=True, staleRejected=True,
                 lockedLiteralReadable=True, reopenedColor=saved_fill["rgb"], reopenedAlpha=saved_fill["alpha"])

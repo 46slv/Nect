@@ -8,7 +8,7 @@ import {
   deserializeCompositionProject,
   serializeCompositionProject,
 } from '../src/composition-project-model.js';
-import { createLiveTextContent } from '../src/live-text-content.js';
+import { createLiveTextContent, createReadLiveTextContent } from '../src/live-text-content.js';
 import { createLiveEditorProtocol } from '../src/live-editor-protocol.js';
 
 test('live text writes the exact addressed node and shares the existing undo history', async () => {
@@ -143,4 +143,55 @@ test('Japanese static fixture writes and reopens as text with equal GUI and live
   const fonts = { [fontId]: selectedFont };
   assert.equal(exportSVG(reopened.snapshot(), fonts), exportSVG(gui.snapshot(), fonts));
   assert.notEqual(exportSVG(reopened.snapshot(), fonts), exportSVG(doc.snapshot(), fonts));
+});
+
+test('text read is exact, independently opt-in, and bounded without truncation', () => {
+  const target = {
+    documentGeneration: 2,
+    compositionId: 'c',
+    sessionId: 's',
+    sessionRevision: 5,
+    projectRevision: 7,
+  };
+  let current = target;
+  let mode = 'exact';
+  let reads = 0;
+  const phrase = 'Nect 日本語';
+  const readTarget = () => current;
+  const readTextContent = createReadLiveTextContent({
+    readTarget,
+    readText: (layer, node) => {
+      reads++;
+      if (layer !== 'l' || node !== 'n') return undefined;
+      if (mode === 'race')
+        current = { ...current, documentGeneration: current.documentGeneration + 1 };
+      if (mode === 'oversize') return 'x'.repeat(1025);
+      if (mode === 'escaped') return String.fromCharCode(0).repeat(1024);
+      return phrase;
+    },
+  });
+  const req = {
+    version: 1,
+    operation: 'text.readContent',
+    arguments: { target, layerId: 'l', nodeId: 'n' },
+  };
+  assert.equal(createLiveEditorProtocol({ readTarget })(req).status, 'unsupported-operation');
+  const handle = createLiveEditorProtocol({ readTarget, readTextContent });
+  assert.deepEqual(handle(req), { status: 'ok', target, text: phrase });
+  assert.equal(
+    handle({ ...req, arguments: { ...req.arguments, nodeId: 'wrong' } }).status,
+    'unsupported-target',
+  );
+  assert.equal(
+    handle({ ...req, arguments: { ...req.arguments, text: 'wrong' } }).status,
+    'invalid-arguments',
+  );
+  mode = 'oversize';
+  assert.deepEqual(handle(req), { status: 'unavailable' });
+  mode = 'escaped';
+  assert.deepEqual(handle(req), { status: 'unavailable' });
+  mode = 'race';
+  assert.deepEqual(handle(req), { status: 'stale-target' });
+  assert.deepEqual(handle(req), { status: 'stale-target' });
+  assert.equal(reads, 5);
 });

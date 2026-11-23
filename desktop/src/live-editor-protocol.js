@@ -67,6 +67,7 @@ export function createLiveEditorProtocol({
   distributeArtwork,
   distributeArtworkGaps,
   setTextContent,
+  readTextContent,
   writeSvg,
   writePng,
   saveCopy,
@@ -494,6 +495,20 @@ export function createLiveEditorProtocol({
         return { status, layerId, nodeId, target: captureEditorTarget(readTarget()) };
       } catch {
         return { status: 'outcome-unknown' };
+      }
+    }
+    if (readTextContent && request.operation === 'text.readContent') {
+      if (
+        !closed(args, ['target', 'layerId', 'nodeId']) ||
+        !validTarget(args.target) ||
+        !id(args.layerId) ||
+        !id(args.nodeId)
+      )
+        return { status: 'invalid-arguments' };
+      try {
+        return readTextContent(args);
+      } catch {
+        return { status: 'unavailable' };
       }
     }
     if (setTextContent && request.operation === 'text.setContent') {

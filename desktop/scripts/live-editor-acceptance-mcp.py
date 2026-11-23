@@ -88,6 +88,14 @@ if os.environ.get("NECT_ACCEPTANCE_ARTWORK") == os.environ.get("NECT_ACCEPTANCE_
         "annotations":{"readOnlyHint":False,"destructiveHint":False,"openWorldHint":False},
     })
     OPERATIONS[name] = "text.setContent"
+if os.environ.get("NECT_ACCEPTANCE_TEXT_READ") == "1":
+    name = "nect_test_read_text_content"
+    TOOLS.append({
+        "name": name, "description": "Read exact authored text from one addressed fixture object",
+        "inputSchema": schema(dict(target=target, layerId=ident, nodeId=ident)),
+        "annotations":{"readOnlyHint":True,"destructiveHint":False,"openWorldHint":False},
+    })
+    OPERATIONS[name] = "text.readContent"
 if os.environ.get("NECT_ACCEPTANCE_BLEND_STEPS") == "1":
     name = "nect_test_set_blend_steps"
     TOOLS.append({

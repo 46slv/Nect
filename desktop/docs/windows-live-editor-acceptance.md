@@ -250,3 +250,10 @@ With the same flags and a separate fresh root, add NECT_ACCEPTANCE_TEXT=1 to
 edit the Text content as part of that workflow. The verifier checks the
 authored phrase after reopening and a nonempty outline for the Text layer in
 the SVG. This ASCII fixture does not cover IME or Japanese font fallback.
+
+Add `NECT_ACCEPTANCE_TEXT_READ=1` to also test the opt-in read-only
+`nect_test_read_text_content`. It returns the exact authored string for one
+supported Text node, not font metadata or another node's content. A reply
+that exceeds the fixture frame budget is rejected instead of truncated.
+The verifier reads before and after the edit, rejects the old target, and
+reads again after reopening without changing the revision.
