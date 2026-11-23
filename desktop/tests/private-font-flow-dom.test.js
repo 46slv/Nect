@@ -27,10 +27,25 @@ const file = {
     { faceIndex: 1, face },
   ],
 };
+const hiddenAxis = {
+  tag: 'wght',
+  name: 'Weight',
+  min: 100,
+  max: 900,
+  defaultValue: 400,
+  baseValue: 400,
+  value: 400,
+  hidden: true,
+};
 const outline = (request) => ({
   ...request,
   engine: request.axes === undefined ? 'directwrite-v1' : 'directwrite-v2',
-  ...(request.axes === undefined ? {} : { axes: [], advanceHeight: request.size * 4 }),
+  ...(request.axes === undefined
+    ? {}
+    : {
+        axes: [{ ...hiddenAxis, value: request.axes.wght ?? hiddenAxis.baseValue }],
+        advanceHeight: request.size * 4,
+      }),
   ascent: request.size * 0.8,
   advanceWidth: request.size * 2,
   lineCount: request.text.split('\n').length,
@@ -94,6 +109,7 @@ test('private file picker preserves identity, atomic history, missing state and 
   let chooser = null,
     shape = async (token, index, request) => ({ source: source(index), outline: outline(request) });
   const calls = [];
+  globalThis.privateAxisFixture = async () => [hiddenAxis];
   globalThis.privateOpenFixture = () => Promise.resolve(chooser);
   globalThis.privateShapeFixture = (token, index, request) => {
     calls.push({ token, index, request: structuredClone(request) });
@@ -114,7 +130,7 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
   listDesktopFontAxes = async () => [], shapeDesktopText = async () => { throw Error('Installed fallback must not run'); },
   outlineOsText = async () => { throw Error('Legacy fallback must not run'); },
   openPrivateFontFile = () => globalThis.privateOpenFixture(), listPrivateFontFiles = async () => [],
-  listPrivateFontAxes = async () => [], shapePrivateFontText = (...args) => globalThis.privateShapeFixture(...args);`,
+  listPrivateFontAxes = () => globalThis.privateAxisFixture(), shapePrivateFontText = (...args) => globalThis.privateShapeFixture(...args);`,
   );
   main = resolveMainRelativeImports(main);
   main +=
@@ -185,9 +201,18 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
   assert.equal(win.privateFontDebug().past, 1);
   const saved = snapshot();
   assert.ok(!saved.includes(file.token), 'project does not contain process capability');
+  const moreAxes = () => q('.inspector-body [data-layout-disclosure="desktop-more-axes"]');
+  assert.equal(moreAxes().open, false);
+  moreAxes().querySelector('summary').click();
+  assert.equal(moreAxes().open, true);
+  assert.equal(snapshot(), saved, 'opening hidden axes does not change the document');
   q('[data-action="undo"]').click();
   assert.equal(snapshot(), before);
   q('[data-action="redo"]').click();
+  assert.equal(snapshot(), saved);
+  assert.equal(moreAxes().open, true, 'history preserves the open section');
+  moreAxes().querySelector('summary').click();
+  assert.equal(moreAxes().open, false);
   assert.equal(snapshot(), saved);
 
   win.nect.load(serialize(win.nect.document));

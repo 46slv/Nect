@@ -6282,7 +6282,7 @@ function desktopAxisControls(n) {
     .map(field)
     .join('')}${
     axes.some((a) => a.hidden)
-      ? `<details><summary>More axes</summary>${axes
+      ? `<details data-layout-disclosure="desktop-more-axes"><summary>More axes</summary>${axes
           .filter((a) => a.hidden)
           .map(field)
           .join('')}</details>`
