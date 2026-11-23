@@ -341,5 +341,24 @@ test('Type on Path controls attach/edit/detach atomically with schema, locks, so
   pointer(document, 'pointercancel', 114);
   assert.equal(saved(), baselineSelectionDoc, 'new current gesture remains cancellable');
   assert.deepEqual(win.pathTestHistory(), baselineSelectionHistory);
+  // A saved attachment may refer to a contour unavailable in this document.
+  // Ordinary UI edits that would break the contour are still rejected.
+  const unavailable = JSON.parse(saved());
+  unavailable.layers[0].nodes[0].pathAttachment.contourId = 'missing-fixture-contour';
+  win.nect.load(serialize(unavailable));
+  await tick();
+  const foldedPath = () =>
+    document.querySelector('.graph details[data-layout-disclosure="text-path"]');
+  assert.ok(foldedPath().open);
+  const unread = saved();
+  foldedPath().querySelector('summary').click();
+  assert.equal(foldedPath().open, false);
+  assert.equal(saved(), unread);
+  assert.match(foldedPath().querySelector('summary').textContent, /unavailable/i);
+  for (const place of ['.graph', '.inspector-body']) {
+    const warning = document.querySelector(place + ' [data-text-path-warning]');
+    assert.match(warning?.textContent, /Path contour unavailable: missing-fixture-contour/);
+    assert.equal(warning.closest('details'), null);
+  }
   await win.happyDOM.close();
 });
