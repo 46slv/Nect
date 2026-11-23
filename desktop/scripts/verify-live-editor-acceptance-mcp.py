@@ -19,6 +19,9 @@ list_objects = os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1"
 graph_wires = os.environ.get("NECT_ACCEPTANCE_GRAPH_WIRES") == "1"
 graph_ports = os.environ.get("NECT_ACCEPTANCE_GRAPH_PORTS") == "1"
 vector_wire = os.environ.get("NECT_ACCEPTANCE_VECTOR_WIRE") == "1"
+scalar_wire = os.environ.get("NECT_ACCEPTANCE_SCALAR_WIRE") == "1"
+assert not (vector_wire and scalar_wire)
+graph_wire_edit = vector_wire or scalar_wire
 layer_visibility = os.environ.get("NECT_ACCEPTANCE_LAYER_VISIBILITY") == "1"
 layer_state = os.environ.get("NECT_ACCEPTANCE_LAYER_STATE") == "1"
 layer_guide = os.environ.get("NECT_ACCEPTANCE_LAYER_GUIDE") == "1"
@@ -63,7 +66,7 @@ artwork_align = os.environ.get("NECT_ACCEPTANCE_ARTWORK_ALIGN") == "1"
 artwork_translate = os.environ.get("NECT_ACCEPTANCE_ARTWORK_TRANSLATE") == "1"
 mixed_text_probe = os.environ.get("NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE") == "1"
 embedded_jp = os.environ.get("NECT_SVG_ACCEPTANCE_JP_FIXTURE") == "1"
-assert not vector_wire or (graph_wires and graph_ports and list_objects and not (
+assert not graph_wire_edit or (graph_wires and graph_ports and list_objects and not (
     artwork or layer_folders or layer_duplicate or layer_delete or layer_create_blank or
     layer_visibility or layer_lock or layer_rename or layer_reorder or embedded_jp or mixed_text_probe
 ))
@@ -177,6 +180,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_read_node_ports")
         if vector_wire:
             extra.append("nect_test_set_vector_wire")
+        if scalar_wire:
+            extra.append("nect_test_set_scalar_wire")
         if layer_state:
             extra.append("nect_test_read_layer_state")
         if layer_visibility:
@@ -974,36 +979,53 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             current = invoke("redo",{"target":undone},"changed")["target"]
             assert invoke("list_layer_folders",{"target":current,"offset":0},"ok")["items"] == promoted
             folder_items = promoted
-        if vector_wire:
-            vector_address = dict(layerId="fixture-vector-layer", nodeId="fixture-vector-target")
-            reference = dict(sourceId="fixture-vector-source", sourcePort="position")
-            vector_edge = [dict(input="position", **reference)]
+        if graph_wire_edit:
+            if scalar_wire:
+                wire_tool, wire_input = "set_scalar_wire", "size"
+                wire_address = dict(layerId="fixture-vector-layer", nodeId="fixture-vector-target")
+                reference = dict(sourceId="fixture-scalar-source", sourcePort="x")
+                wire_fallback, wire_layer_name = 100, "Fixture Vector Wiring"
+                ports = invoke("read_node_ports", dict(
+                    target=current, layerId=wire_address["layerId"], nodeId=reference["sourceId"],
+                    offset=0), "ok")["items"]
+                assert dict(direction="output", id="x", type="Scalar") in ports
+            else:
+                wire_tool, wire_input = "set_vector_wire", "position"
+                wire_address = dict(layerId="fixture-vector-layer", nodeId="fixture-vector-target")
+                reference = dict(sourceId="fixture-vector-source", sourcePort="position")
+                wire_fallback, wire_layer_name = [540, 350], "Fixture Vector Wiring"
+            wire_edge = [dict(input=wire_input, **reference)]
 
-            def vector_read(revision):
-                return invoke("read_node_input_wires", dict(target=revision, offset=0, **vector_address), "ok")["items"]
+            def wire_read(revision):
+                items = invoke("read_node_input_wires", dict(target=revision, offset=0, **wire_address), "ok")["items"]
+                if not scalar_wire:
+                    return items
+                assert [item for item in items if item["input"] != wire_input] == [
+                    dict(input="position", sourceId="fixture-vector-source", sourcePort="position")]
+                return [item for item in items if item["input"] == wire_input]
 
-            def vector_write(revision, source):
-                return dict(target=revision, input="position", **vector_address, **source)
+            def wire_write(revision, source):
+                return dict(target=revision, input=wire_input, **wire_address, **source)
 
-            assert vector_read(current) == vector_edge
-            detach = vector_write(current, dict(sourceId=None, sourcePort=None))
-            invoke("set_vector_wire", {**detach, **reference, "sourcePort": None}, "rejected", True)
-            invoke("set_vector_wire", {**detach, **reference, "nodeId": "missing"}, "unsupported-target", True)
+            assert wire_read(current) == wire_edge
+            detach = wire_write(current, dict(sourceId=None, sourcePort=None))
+            invoke(wire_tool, {**detach, **reference, "sourcePort": None}, "rejected", True)
+            invoke(wire_tool, {**detach, **reference, "nodeId": "missing"}, "unsupported-target", True)
             assert invoke("inspect", {}, "ok")["target"] == current
-            detached = invoke("set_vector_wire", detach, "changed")["target"]
+            detached = invoke(wire_tool, detach, "changed")["target"]
             assert detached["projectRevision"] == current["projectRevision"] + 1
-            invoke("set_vector_wire", detach, "stale-target", True)
-            assert vector_read(detached) == []
-            reconnect = vector_write(detached, reference)
-            restored = invoke("set_vector_wire", reconnect, "changed")["target"]
+            invoke(wire_tool, detach, "stale-target", True)
+            assert wire_read(detached) == []
+            reconnect = wire_write(detached, reference)
+            restored = invoke(wire_tool, reconnect, "changed")["target"]
             assert restored["projectRevision"] == detached["projectRevision"] + 1
-            assert vector_read(restored) == vector_edge
-            assert invoke("set_vector_wire", {**reconnect, "target": restored},
+            assert wire_read(restored) == wire_edge
+            assert invoke(wire_tool, {**reconnect, "target": restored},
                           "unchanged")["target"] == restored
             undo_wire = invoke("undo", {"target": restored}, "changed")["target"]
-            assert vector_read(undo_wire) == []
+            assert wire_read(undo_wire) == []
             current = invoke("redo", {"target": undo_wire}, "changed")["target"]
-            assert vector_read(current) == vector_edge
+            assert wire_read(current) == wire_edge
         if solid_fill_zero_copy:
             current = invoke("set_solid_fill_opacity", {
                 **opacity, "target":current, "alpha":final_fill_alpha,
@@ -1036,9 +1058,9 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         reopened=invoke("inspect",{},"ok")["target"]
         assert reopened["documentGeneration"]>current["documentGeneration"] and reopened["sessionId"]!=current["sessionId"]
         invoke("reopen_copy",{"target":current},"stale-target",True)
-        if vector_wire:
-            invoke("set_vector_wire", vector_write(current, reference), "stale-target", True)
-            assert vector_read(reopened) == vector_edge
+        if graph_wire_edit:
+            invoke(wire_tool, wire_write(current, reference), "stale-target", True)
+            assert wire_read(reopened) == wire_edge
         if graph_ports:
             expected_ports = [
                 dict(direction="input", id="a", type="PaintedPath"),
@@ -1230,21 +1252,21 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             elif layer_duplicate:
                 if role != "png":
                     assert digests[role] != expected[role+"SHA256"].lower(), role
-            elif vector_wire:
+            elif graph_wire_edit:
                 assert digests[role] != expected[role+"SHA256"].lower(), role
                 if role == "copy":
                     snapshot = json.loads(data)
                     [comp] = [c for c in snapshot["compositions"] if c["id"] == reopened["compositionId"]]
-                    [vector_layer] = [x for x in comp["layers"] if x["id"] == vector_address["layerId"]]
-                    [vector_node] = [x for x in vector_layer["nodes"] if x["id"] == vector_address["nodeId"]]
-                    position = vector_node["params"]["position"]
-                    assert position["value"] == [540, 350]
-                    assert (position["source"], position["sourcePort"]) == (
+                    [vector_layer] = [x for x in comp["layers"] if x["id"] == wire_address["layerId"]]
+                    [vector_node] = [x for x in vector_layer["nodes"] if x["id"] == wire_address["nodeId"]]
+                    saved_input = vector_node["params"][wire_input]
+                    assert saved_input["value"] == wire_fallback
+                    assert (saved_input["source"], saved_input["sourcePort"]) == (
                         reference["sourceId"], reference["sourcePort"],
                     )
                 elif role == "svg":
                     from xml.etree import ElementTree
-                    assert any(x.get("data-layer") == "Fixture Vector Wiring" and x.get("d")
+                    assert any(x.get("data-layer") == wire_layer_name and x.get("d")
                                for x in ElementTree.fromstring(data).iter())
                 else:
                     assert data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR"
@@ -1411,8 +1433,9 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "exportSvg":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer",
                   "exportPng":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer","caseGuards":"pass",
                   "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "layerLock":layer_lock, "layerRename":layer_rename, "layerReorder":layer_reorder, "layerDuplicate":layer_duplicate, "layerFolderTopology":layer_folders, "renamedLayerRoundtrip":renamed_roundtrip, "lockedLayerRoundtrip":locked_roundtrip, "hiddenLayerRoundtrip":hidden_roundtrip, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
-        if vector_wire:
-            evidence["vectorWireRoundtrip"] = dict(edge=vector_edge[0], fallback=[540, 350],
+        if graph_wire_edit:
+            evidence["scalarWireRoundtrip" if scalar_wire else "vectorWireRoundtrip"] = dict(
+                edge=wire_edge[0], fallback=wire_fallback,
                 staleRejected=True, undoRedoAndReopenVerified=True, svgAndPngExported=True)
         if graph_ports:
             evidence["graphPortDiscovery"] = dict(

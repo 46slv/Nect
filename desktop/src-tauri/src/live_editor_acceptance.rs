@@ -190,18 +190,39 @@ pub(crate) fn live_acceptance_fixture(
     #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
     {
         let blend = include_str!("../../examples/blend-distance.json");
-        if std::env::var("NECT_ACCEPTANCE_VECTOR_WIRE").as_deref() == Ok("1") {
+        let vector_wire = std::env::var("NECT_ACCEPTANCE_VECTOR_WIRE").as_deref() == Ok("1");
+        let scalar_wire = std::env::var("NECT_ACCEPTANCE_SCALAR_WIRE").as_deref() == Ok("1");
+        if vector_wire && scalar_wire {
+            return Err("Select one graph wire fixture");
+        }
+        if vector_wire || scalar_wire {
             let mut project: serde_json::Value =
                 serde_json::from_str(blend).map_err(|_| "Invalid embedded Blend fixture")?;
-            let layer: serde_json::Value = serde_json::from_str(include_str!(
+            let mut layer: serde_json::Value = serde_json::from_str(include_str!(
                 "../../tests/fixtures/live-vector-wire-layer.json"
             ))
-            .map_err(|_| "Invalid embedded Vector2 fixture")?;
+            .map_err(|_| "Invalid embedded graph wire fixture")?;
+            if scalar_wire {
+                let nodes = layer["nodes"].as_array_mut().ok_or("Missing graph nodes")?;
+                let target = nodes
+                    .iter_mut()
+                    .find(|node| node["id"] == "fixture-vector-target")
+                    .ok_or("Missing graph wire target")?;
+                target["params"]["size"]["source"] = serde_json::json!("fixture-scalar-source");
+                target["params"]["size"]["sourcePort"] = serde_json::json!("x");
+                nodes.push(serde_json::json!({
+                    "id":"fixture-scalar-source", "type":"Separate Vector", "name":"Separate Vector",
+                    "position":[200,200], "width":264, "collapsed":false,
+                    "params":{"vector":{"type":"Vector2","value":[72,30],"expression":"","locked":false}},
+                    "points":[], "operation":"subtract", "edits":[], "text":"Nect", "font":"default"
+                }));
+            }
             project["layers"]
                 .as_array_mut()
                 .ok_or("Missing embedded Blend layers")?
                 .push(layer);
-            return serde_json::to_string(&project).map_err(|_| "Invalid Vector2 fixture project");
+            return serde_json::to_string(&project)
+                .map_err(|_| "Invalid graph wire fixture project");
         }
         if std::env::var("NECT_ACCEPTANCE_LAYER_FOLDERS").as_deref() == Ok("1") {
             let mut project: serde_json::Value =

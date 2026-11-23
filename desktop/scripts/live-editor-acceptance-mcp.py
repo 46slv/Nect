@@ -163,17 +163,19 @@ if os.environ.get("NECT_ACCEPTANCE_GRAPH_PORTS") == "1":
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     })
     OPERATIONS[name] = "graph.ports"
-if os.environ.get("NECT_ACCEPTANCE_VECTOR_WIRE") == "1":
-    name = "nect_test_set_vector_wire"
+for flag, value_type in (("VECTOR", "Vector2"), ("SCALAR", "Scalar")):
+    if os.environ.get(f"NECT_ACCEPTANCE_{flag}_WIRE") != "1":
+        continue
+    name = f"nect_test_set_{flag.lower()}_wire"
     nullable_id = {"anyOf": [ident, {"type": "null"}]}
     TOOLS.append({
         "name": name,
-        "description": "Connect or disconnect an active Vector2 input within the addressed fixture layer",
+        "description": f"Connect or disconnect an active {value_type} input within the addressed fixture layer",
         "inputSchema": schema(dict(target=target, layerId=ident, nodeId=ident, input=ident,
                                    sourceId=nullable_id, sourcePort=nullable_id)),
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
-    OPERATIONS[name] = "graph.setVectorWire"
+    OPERATIONS[name] = f"graph.set{flag.title()}Wire"
 if os.environ.get("NECT_ACCEPTANCE_LAYER_STATE") == "1":
     name = "nect_test_read_layer_state"
     TOOLS.append({
