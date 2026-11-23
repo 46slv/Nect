@@ -52,3 +52,24 @@ editable literal. It preserves alpha. Read again at the returned revision
 before recording success; after an uncertain reply, re-inspect and read
 instead of issuing a new write. For persistence, reopen the fixture copy,
 use its new target and verify RGB and alpha again.
+
+## Reconcile a text edit in the Windows development fixture
+
+These are fixtures, not an ordinary live editor or a reason to change its
+pairing settings. Use them only when discovered for the current run.
+
+1. Inspect and enumerate the target document and layer. Use the exact Text
+   node ID, not the selected object or its label.
+2. When available, call `nect_test_read_text_content` at the inspected
+   revision. Keep the original Unicode string, including whitespace. This
+   reads authored text, not IME composition, rendered glyphs, or font data.
+3. Call `nect_test_set_text_content` for that same target. Read at the
+   returned revision. If the result is uncertain, inspect and read the
+   exact node before considering another write. If the revision changed
+   unexpectedly, reconcile the new state; do not overwrite it silently.
+4. After save and reopen, inspect the new target and compare the entire
+   authored string again. An accepted edit or matching read does **not**
+   establish exportability: the font may lack a glyph. Verify SVG and PNG
+   separately; on `unsupported-glyph`, keep the saved text and report the
+   missing export. Follow the fixture documentation for the positive
+   embedded-font and negative missing-glyph tests, not an ad hoc font swap.
