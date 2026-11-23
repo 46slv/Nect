@@ -53,9 +53,9 @@ The first non-Blend write candidate is limited to a stored, active
 GUI's Session connect/disconnect operations, without an alternate graph
 writer. Locked and expression-driven inputs are refused. Tests compare
 the authored document to the GUI command and verify that cycles leave the
-document unchanged. The opt-in Windows fixture adapter registers this
-operation, pending native end-to-end verification. It is not available in
-the ordinary app.
+document unchanged. The opt-in Windows fixture verifies a named Text
+Position connection, detach, Undo/Redo, and save/reopen with the stored
+fallback unchanged. It is not available in the ordinary app.
 
 The layer checks distinguish authored and rendered changes: lock and rename
 can preserve pixels, whereas reorder changes paint order without changing

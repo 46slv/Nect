@@ -190,6 +190,19 @@ pub(crate) fn live_acceptance_fixture(
     #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
     {
         let blend = include_str!("../../examples/blend-distance.json");
+        if std::env::var("NECT_ACCEPTANCE_VECTOR_WIRE").as_deref() == Ok("1") {
+            let mut project: serde_json::Value =
+                serde_json::from_str(blend).map_err(|_| "Invalid embedded Blend fixture")?;
+            let layer: serde_json::Value = serde_json::from_str(include_str!(
+                "../../tests/fixtures/live-vector-wire-layer.json"
+            ))
+            .map_err(|_| "Invalid embedded Vector2 fixture")?;
+            project["layers"]
+                .as_array_mut()
+                .ok_or("Missing embedded Blend layers")?
+                .push(layer);
+            return serde_json::to_string(&project).map_err(|_| "Invalid Vector2 fixture project");
+        }
         if std::env::var("NECT_ACCEPTANCE_LAYER_FOLDERS").as_deref() == Ok("1") {
             let mut project: serde_json::Value =
                 serde_json::from_str(blend).map_err(|_| "Invalid embedded Blend fixture")?;

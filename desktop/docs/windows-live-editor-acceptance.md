@@ -89,6 +89,12 @@ surrounding verifier still edits its own disposable Blend and exports it.
 The socket check does not read values or change wiring; no ordinary-app
 transport is enabled.
 
+For same-layer Vector2 wiring, use those three graph socket flags plus
+`NECT_ACCEPTANCE_VECTOR_WIRE=1`. The 15-tool run adds a synthetic layer with
+two Text nodes. It detaches and reconnects the named Position output, checks
+the revision and stored wire across Undo/Redo and reopen, and verifies the
+literal fallback and final SVG/PNG. It does not enable production editing.
+
 For a separate primitive shape run, use a fresh isolated root and set
 `NECT_ACCEPTANCE_OBJECTS=1`, `NECT_ACCEPTANCE_ARTWORK=1`, and
 `NECT_ACCEPTANCE_SHAPE_ROUNDTRIP=1`. Leave unrelated scenarios off.
