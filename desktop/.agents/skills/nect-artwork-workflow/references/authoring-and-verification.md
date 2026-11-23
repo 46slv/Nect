@@ -32,7 +32,7 @@ configured entries. For example (replace the path):
 ```yaml
 skills:
   external_dirs:
-    - "D:/work/Nect/desktop/.agents/skills"
+    - 'D:/work/Nect/desktop/.agents/skills'
 ```
 
 Use the profile's skill list to confirm that `nect-artwork-workflow` appears.
