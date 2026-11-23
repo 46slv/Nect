@@ -7,11 +7,11 @@ import {
   serializeCompositionProject,
 } from '../src/composition-project-model.js';
 import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
-import { createLiveVectorWireEdit } from '../src/live-vector-wire.js';
+import { createLiveScalarWireEdit, createLiveVectorWireEdit } from '../src/live-vector-wire.js';
 import { createLiveEditorProtocol } from '../src/live-editor-protocol.js';
 
 const seed = readFileSync(new URL('../examples/text-position-reuse.json', import.meta.url), 'utf8');
-function fixture() {
+function fixture(createEdit = createLiveVectorWireEdit) {
   const owner = createCompositionSessionOwner(deserializeCompositionProject(seed, deserialize));
   const readTarget = () => ({
     documentGeneration: 1,
@@ -23,7 +23,7 @@ function fixture() {
   const scope = { layerId: owner.snapshot().layers[0].id, nodeId: 'text-xy', input: 'position' };
   let blocked = false;
   let commits = 0;
-  const edit = createLiveVectorWireEdit({
+  const edit = createEdit({
     readTarget,
     getOwner: () => owner,
     isEditBlocked: () => blocked,
@@ -154,4 +154,52 @@ test('fixture protocol projects only status and fresh target for a wiring comman
   assert.deepEqual(handler(packet), { status: 'changed', target: f.readTarget() });
   assert.deepEqual(handler(packet), { status: 'stale-target' });
   assert.equal(f.commits(), 1);
+});
+
+test('named Scalar wiring shares the GUI command, keeps its literal fallback and survives reopen', () => {
+  const f = fixture(createLiveScalarWireEdit);
+  const gui = fixture();
+  const original = f.serialize();
+  const read = (owner) =>
+    owner.snapshot().layers[0].nodes.find((n) => n.id === 'combine-x').params.x;
+  const scope = { layerId: f.scope.layerId, nodeId: 'combine-x', input: 'x' };
+  const target = f.readTarget();
+  const handler = createLiveEditorProtocol({ readTarget: f.readTarget, setScalarWire: f.edit });
+  const call = (args) =>
+    handler({ version: 1, operation: 'graph.setScalarWire', arguments: { ...scope, ...args } });
+  const detach = { target, sourceId: null, sourcePort: null };
+  const connect = { sourceId: 'separate-position', sourcePort: 'x' };
+  assert.equal(call({ target, ...connect }).status, 'unchanged');
+  assert.equal(call({ target, ...connect, sourcePort: null }).status, 'rejected');
+  assert.equal(
+    call({ target, sourceId: 'text-master', sourcePort: 'position' }).status,
+    'rejected',
+  );
+  assert.equal(
+    call({ ...detach, nodeId: 'text-xy', input: 'position' }).status,
+    'unsupported-target',
+  );
+  assert.equal(f.commits(), 0);
+  assert.equal(call(detach).status, 'changed');
+  assert.equal(call(detach).status, 'stale-target');
+  gui.owner.dispatch({
+    ...gui.owner.state,
+    type: 'disconnect',
+    payload: { layerId: scope.layerId, nodeId: scope.nodeId, key: 'x' },
+  });
+  assert.equal(f.serialize(), gui.serialize());
+  assert.equal(read(f.owner).value, 0);
+  assert.equal(read(f.owner).source ?? null, null);
+  assert.equal(call({ target: f.readTarget(), ...connect }).status, 'changed');
+  assert.equal(f.serialize(), original);
+  f.owner.dispatch({ ...f.owner.state, type: 'undo' });
+  assert.equal(f.serialize(), gui.serialize());
+  f.owner.dispatch({ ...f.owner.state, type: 'redo' });
+  assert.equal(f.serialize(), original);
+  const reopened = createCompositionSessionOwner(
+    deserializeCompositionProject(f.serialize(), deserialize),
+  );
+  assert.equal(read(reopened).value, 0);
+  assert.equal(read(reopened).source, connect.sourceId);
+  assert.equal(read(reopened).sourcePort, connect.sourcePort);
 });

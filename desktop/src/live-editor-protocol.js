@@ -59,6 +59,7 @@ export function createLiveEditorProtocol({
   setBlendMode,
   setBlendInput,
   setVectorWire,
+  setScalarWire,
   readBlendSettings,
   stepHistory,
   createArtwork,
@@ -646,7 +647,9 @@ export function createLiveEditorProtocol({
         ? setBlendInput
         : request.operation === 'graph.setVectorWire'
           ? setVectorWire
-          : null;
+          : request.operation === 'graph.setScalarWire'
+            ? setScalarWire
+            : null;
     if (setInput) {
       if (
         !closed(args, ['target', 'layerId', 'nodeId', 'input', 'sourceId', 'sourcePort']) ||

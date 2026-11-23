@@ -3,9 +3,9 @@ import { editorTargetMatches } from './live-editor-target.js';
 
 const id = (v) => typeof v === 'string' && v.length > 0 && v.length <= 256;
 
-// First non-Blend wiring slice: literal Vector2 inputs and same-layer outputs.
-// Keep expression-driven inputs and non-Vector2 paths out of this operation.
-export function createLiveVectorWireEdit({ readTarget, getOwner, isEditBlocked, commit }) {
+// Only the named operation's literal type is allowed. Keep expression-driven
+// inputs and cross-layer references out of this path, even if GUI supports them.
+function createLiveTypedWireEdit({ readTarget, getOwner, isEditBlocked, commit }, valueType) {
   return ({ target, layerId, nodeId, input, sourceId, sourcePort }) => {
     const matches = () => editorTargetMatches(readTarget(), target);
     if (!matches()) return { status: 'stale-target' };
@@ -28,7 +28,7 @@ export function createLiveVectorWireEdit({ readTarget, getOwner, isEditBlocked, 
     if (duplicateNode) return { status: 'unavailable' };
     const stored = Object.hasOwn(node.params ?? {}, input) && node.params[input];
     const entry = activeParameters(node).find(([key]) => key === input);
-    if (!stored || entry?.[1] !== stored || stored.type !== 'Vector2')
+    if (!stored || entry?.[1] !== stored || stored.type !== valueType)
       return { status: 'unsupported-target' };
     if (layer.locked || node.locked || node.bypassed || stored.locked || stored.expression)
       return { status: 'rejected' };
@@ -39,7 +39,7 @@ export function createLiveVectorWireEdit({ readTarget, getOwner, isEditBlocked, 
       const port = sourcePort ?? undefined;
       if (
         source.id === nodeId ||
-        !outputPorts(source).some(({ id, type }) => id === port && type === 'Vector2') ||
+        !outputPorts(source).some(({ id, type }) => id === port && type === valueType) ||
         !socketCompatibleFor(source, node, input, port)
       )
         return { status: 'rejected' };
@@ -62,3 +62,6 @@ export function createLiveVectorWireEdit({ readTarget, getOwner, isEditBlocked, 
     return { status: receipt.changed ? 'changed' : 'unchanged' };
   };
 }
+
+export const createLiveVectorWireEdit = (host) => createLiveTypedWireEdit(host, 'Vector2');
+export const createLiveScalarWireEdit = (host) => createLiveTypedWireEdit(host, 'Scalar');

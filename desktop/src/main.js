@@ -96,7 +96,7 @@ import { createLiveLayerFolderDissolve } from './live-layer-folder-dissolve.js';
 import { createLiveLayerFolderRename } from './live-layer-folder-rename.js';
 import { createLiveLayerFolderMembership } from './live-layer-folder-membership.js';
 import { createLiveArtworkCreation } from './live-artwork-creation.js';
-import { createLiveVectorWireEdit } from './live-vector-wire.js';
+import { createLiveScalarWireEdit, createLiveVectorWireEdit } from './live-vector-wire.js';
 import { createLiveTextContent, createReadLiveTextContent } from './live-text-content.js';
 import { editorTargetMatches } from './live-editor-target.js';
 import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
@@ -19570,6 +19570,10 @@ if (
       isEditBlocked: () =>
         liveBlendHost.isEditBlocked() || compositionActionBusy() || Boolean(nameEdit),
     });
+    const liveWireHost = {
+      ...liveBlendHost,
+      isEditBlocked: () => liveBlendHost.isEditBlocked() || closeInputBlocked() || Boolean(wiring),
+    };
     const handle = createLiveEditorProtocol({
       readTarget: readLiveEditorTarget,
       readLayerFolderPlan: folderPlans.preview,
@@ -19595,11 +19599,8 @@ if (
       setBlendSteps: liveBlendSteps,
       setBlendMode: liveBlendMode,
       setBlendInput: liveBlendInput,
-      setVectorWire: createLiveVectorWireEdit({
-        ...liveBlendHost,
-        isEditBlocked: () =>
-          liveBlendHost.isEditBlocked() || closeInputBlocked() || Boolean(wiring),
-      }),
+      setVectorWire: createLiveVectorWireEdit(liveWireHost),
+      setScalarWire: createLiveScalarWireEdit(liveWireHost),
       readLayerState: (args) =>
         readLiveLayerState(
           {
