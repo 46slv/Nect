@@ -27,6 +27,24 @@ Use an authorized, available Windows test environment and a new temporary test d
 
 9. Load a licensed Japanese static TTF/OTF through the Text picker, set Vertical, edit punctuation/long marks/Latin and line spacing. Save JSON, restart the native app, reopen and enter previously unused characters. Confirm its embedded font is available without the original file. Cancel font selection, load a malformed/oversized font, and edit while a font read is pending; confirm preservation. Repeat at normal and high DPI. The Chrome equivalent has passed, but this native step is NOT RUN.
 
+## Physical Japanese IME
+
+Use the actual Windows WebView2 app, a disposable project, and Microsoft
+Japanese IME (Hiragana input). Record the Windows/WebView2 versions, app
+commit, IME mode and key template. Do not change the user's IME preferences
+or use private project content. A pasted phrase, MCP edit, synthetic
+composition event, or fonts-only test does not satisfy these cases.
+
+| Surface            | Physical input and observable pass condition                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canvas Text editor | Start editing a Text node. Type phonetic input, start conversion, and press Escape once while the IME is converting. The candidate is canceled, but the Text editor stays active and no app history entry is added. Convert again, accept the candidate, commit with the editor's normal action, and verify one app Undo restores the prior text. Redo, save, reopen, and compare the entire committed string. |
+| OS Text editor     | Repeat in the separate installed-font editor if offered. Check that Escape while the IME is converting does not dismiss the editor and that conversion Enter accepts the candidate without committing the outer editor. After conversion ends, use the normal app commit action and verify one-step Undo/Redo and reopen.                                                                                      |
+| Assets search      | Use a disposable assets folder. Put a known prefix in search, start Japanese conversion, and press Escape once. Verify that the panel stays open, search keeps focus and the pre-existing query is not cleared. Once the IME has ended, a normal separate Escape closes only the Assets panel; the document stays intact.                                                                                      |
+
+Record each surface independently as PASS / FAIL / NOT RUN. The older Assets
+Escape regression is covered by `tests/workspace-assets-ime.e2e.js` using
+synthetic composition events; the physical IME cases above remain NOT RUN.
+
 ## Report format
 
 For each step record PASS / FAIL / NOT RUN, exact commit/run, observable result, screenshot/file evidence and any recovery action. Distinguish app startup, native interaction, packaging, install/uninstall and signing. Do not mark unexecuted checks passed based on Chrome or unit tests.
