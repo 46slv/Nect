@@ -163,6 +163,25 @@ test('node wire discovery projects only the explicitly addressed input names and
   });
 });
 
+test('wire discovery refuses ambiguous or malformed addresses without exposing wires', () => {
+  const addressedNode = { id: 'node', params: { input: { source: 'private-source' } } };
+  const layer = { id: 'layer', nodes: [addressedNode] };
+  const read = (layers) =>
+    readLiveNodeInputWires(
+      { readTarget: () => target, readDocument: () => ({ layers }) },
+      { target, layerId: 'layer', nodeId: 'node', offset: 0 },
+    );
+
+  assert.deepEqual(read([layer, { ...layer }]), { status: 'unavailable' });
+  assert.deepEqual(read([{ ...layer, nodes: [addressedNode, { ...addressedNode }] }]), {
+    status: 'unavailable',
+  });
+  assert.deepEqual(read([{ ...layer, nodes: {} }]), { status: 'unavailable' });
+  assert.deepEqual(read([{ ...layer, nodes: [{ ...addressedNode, params: [] }] }]), {
+    status: 'unavailable',
+  });
+});
+
 test('node wire discovery has bounded pages and rechecks the target before publishing', () => {
   const params = Object.fromEntries(
     Array.from({ length: 45 }, (_, index) => [

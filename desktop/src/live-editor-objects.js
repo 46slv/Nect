@@ -98,10 +98,17 @@ export function readLiveNodeInputWires(
   if (!editorTargetMatches(current, target)) return { status: 'stale-target' };
   const layers = readDocument()?.layers;
   if (!Array.isArray(layers)) return { status: 'unavailable' };
-  const layer = layers.find((entry) => entry.id === layerId);
-  const node = layer?.nodes?.find((entry) => entry.id === nodeId);
+  const [layer, duplicateLayer] = layers.filter((entry) => entry?.id === layerId);
+  if (!editorTargetMatches(readTarget(), current)) return { status: 'stale-target' };
+  if (!layer) return { status: 'unsupported-target' };
+  if (duplicateLayer || !Array.isArray(layer.nodes)) return { status: 'unavailable' };
+  const [node, duplicateNode] = layer.nodes.filter((entry) => entry?.id === nodeId);
   if (!node) return { status: 'unsupported-target' };
-  const entries = Object.entries(node.params ?? {}).filter(([, param]) => param?.source != null);
+  if (duplicateNode) return { status: 'unavailable' };
+  const params = node.params;
+  if (params != null && (typeof params !== 'object' || Array.isArray(params)))
+    return { status: 'unavailable' };
+  const entries = Object.entries(params ?? {}).filter(([, param]) => param?.source != null);
   if (offset > entries.length) return { status: 'invalid-arguments' };
   const items = [];
   const reply = (next) => ({

@@ -36,7 +36,8 @@ The fixture now pages the stored input wires of one addressed node in a
 captured revision. It returns input and source identifiers, distinguishing
 the default output from a named output. It omits expressions, values,
 computed dependencies and file paths. Switching the document or editing it
-invalidates the old target. Read-only discovery cannot change selection,
+invalidates the old target. Ambiguous layer or node IDs return no wires.
+Read-only discovery cannot change selection,
 history or authored state. Blend input edits are not general graph editing:
 the same GUI commands may normalize paint routes in the undoable edit.
 
