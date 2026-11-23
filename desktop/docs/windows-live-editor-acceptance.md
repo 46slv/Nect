@@ -257,3 +257,12 @@ supported Text node, not font metadata or another node's content. A reply
 that exceeds the fixture frame budget is rejected instead of truncated.
 The verifier reads before and after the edit, rejects the old target, and
 reads again after reopening without changing the revision.
+
+For Japanese readback, enable `NECT_ACCEPTANCE_OBJECTS=1`,
+`NECT_ACCEPTANCE_ARTWORK=1`, `NECT_ACCEPTANCE_TEXT=1`, and
+`NECT_ACCEPTANCE_TEXT_READ=1` in a separate fresh root. Choose only one of
+`NECT_SVG_ACCEPTANCE_JP_FIXTURE=1` (embedded fixture font; both exports
+succeed) or `NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE=1` (missing glyph;
+both exports refuse without creating a file). Both check that reading after
+reopen returns the exact mixed Japanese/Latin Unicode string. These cases
+do not exercise manual Japanese IME input.
