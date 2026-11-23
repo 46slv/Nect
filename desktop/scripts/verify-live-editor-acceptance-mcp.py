@@ -48,6 +48,8 @@ assert not text_read or (text_edit and list_objects)
 solid_fill = os.environ.get("NECT_ACCEPTANCE_SOLID_FILL") == "1"
 solid_fill_read = os.environ.get("NECT_ACCEPTANCE_SOLID_FILL_READ") == "1"
 assert not solid_fill_read or solid_fill
+solid_fill_opacity = os.environ.get("NECT_ACCEPTANCE_SOLID_FILL_OPACITY") == "1"
+assert not solid_fill_opacity or solid_fill_read
 artwork_gaps = os.environ.get("NECT_ACCEPTANCE_ARTWORK_GAPS") == "1"
 artwork_gaps_auto = os.environ.get("NECT_ACCEPTANCE_ARTWORK_GAPS_AUTO") == "1"
 assert not artwork_gaps_auto or artwork_gaps
@@ -173,6 +175,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_read_solid_fill_color")
         if solid_fill:
             extra.append("nect_test_set_solid_fill_color")
+        if solid_fill_opacity:
+            extra.append("nect_test_set_solid_fill_opacity")
         if artwork_gaps:
             extra.append("nect_test_distribute_artwork_gaps")
         if artwork_distribute:
@@ -445,6 +449,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 return fill["nodeId"]
             fill_node = fill_identity(current)
             fill_hex = "#1177aa"
+            fill_alpha = 0.75 if solid_fill_opacity else 1
             paint = dict(target=current, layerId=fill_layer, nodeId=fill_node, hex=fill_hex)
             def read_fill(revision, expected, is_error=False, node=fill_node):
                 return invoke("read_solid_fill_color",
@@ -460,6 +465,9 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             invoke("set_solid_fill_color", {**paint, "hex":"#fff"}, "invalid-arguments", True)
             current = invoke("set_layer_lock", dict(target=current, layerId=fill_layer, locked=True), "changed")["target"]
             invoke("set_solid_fill_color", {**paint, "target":current}, "rejected", True)
+            if solid_fill_opacity:
+                opacity = dict(target=current, layerId=fill_layer, nodeId=fill_node, alpha=fill_alpha)
+                invoke("set_solid_fill_opacity", opacity, "rejected", True)
             if solid_fill_read:
                 locked_fill = read_fill(current, "ok")
                 assert locked_fill["locked"] and not locked_fill["editable"]
@@ -477,6 +485,20 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             undone = invoke("undo", {"target":changed}, "changed")["target"]
             current = invoke("redo", {"target":undone}, "changed")["target"]
             assert invoke("set_solid_fill_color", {**paint, "target":current}, "unchanged")["target"] == current
+            if solid_fill_opacity:
+                opacity["target"] = current
+                invoke("set_solid_fill_opacity", {**opacity, "alpha":1.01}, "invalid-arguments", True)
+                invoke("set_solid_fill_opacity", {**opacity, "hex":"#ffffff"}, "invalid-arguments", True)
+                tinted = invoke("set_solid_fill_opacity", opacity, "changed")["target"]
+                assert tinted["projectRevision"] == current["projectRevision"] + 1
+                invoke("set_solid_fill_opacity", opacity, "stale-target", True)
+                readback = read_fill(tinted, "ok")
+                assert (readback["rgb"], readback["alpha"]) == (fill_hex, fill_alpha)
+                undone = invoke("undo", {"target":tinted}, "changed")["target"]
+                assert read_fill(undone, "ok")["alpha"] == initial_fill["alpha"]
+                current = invoke("redo", {"target":undone}, "changed")["target"]
+                assert invoke("set_solid_fill_opacity", {**opacity, "target":current},
+                              "unchanged")["target"] == current
         if artwork_gaps:
             gap_ids = [item[2] for item in made]
             current = invoke("set_layer_lock", dict(target=current, layerId=gap_ids[1], locked=True),
@@ -570,7 +592,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             if artwork_authoring_roundtrip:
                 read_fill(translate["target"], "stale-target", True)
                 after_motion = read_fill(current, "ok")
-                assert (after_motion["rgb"], after_motion["alpha"]) == (fill_hex, initial_fill["alpha"])
+                assert (after_motion["rgb"], after_motion["alpha"]) == (fill_hex, fill_alpha)
                 assert after_motion["target"] == current
         if layer_state:
             def read_layer_state(revision, lid, *, visible=True, locked=False, guide=False, solo=False):
@@ -965,7 +987,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             if solid_fill_read:
                 read_fill(current, "stale-target", True)
                 saved_fill = read_fill(reopened, "ok")
-                assert saved_fill["rgb"] == fill_hex and saved_fill["alpha"] == initial_fill["alpha"]
+                assert saved_fill["rgb"] == fill_hex and saved_fill["alpha"] == fill_alpha
                 assert saved_fill["target"] == reopened and saved_fill["editable"]
             invoke("set_solid_fill_color", {**paint, "target":current}, "stale-target", True)
             assert invoke("set_solid_fill_color", {**paint, "target":reopened},
@@ -1137,12 +1159,12 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 if solid_fill:
                     [painted] = [layer for layer in composition["layers"] if layer["id"] == fill_layer]
                     [fill] = [node for node in painted["nodes"] if node["id"] == fill_node]
-                    assert fill["params"]["color"]["value"] == dict(hex=fill_hex, alpha=1)
+                    assert fill["params"]["color"]["value"] == dict(hex=fill_hex, alpha=fill_alpha)
                     [rectangle_paint] = [element for element in tree.iter()
                                          if element.get("fill", "").lower() == fill_hex]
                     assert rectangle_paint.get("data-layer") == painted["name"]
                     if solid_fill_read:
-                        assert float(rectangle_paint.get("fill-opacity")) == initial_fill["alpha"]
+                        assert float(rectangle_paint.get("fill-opacity")) == fill_alpha
                 if artwork_authoring_roundtrip and text_edit:
                     [text_layer] = [layer for layer in composition["layers"] if layer["id"] == target_layer]
                     assert any(element.tag.endswith("}path") and
@@ -1290,6 +1312,9 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         if text_read:
             evidence["authoredTextReadback"] = dict(readOnly=True, unchangedRevision=True,
                 staleRejected=True, reopenedText=replacement)
+        if solid_fill_opacity:
+            evidence["solidFillOpacity"] = dict(alpha=fill_alpha, rgbPreserved=True,
+                lockedAndStaleRejected=True, undoRedoReopenAndSVGVerified=True)
         if solid_fill_read:
             evidence["solidFillReadback"] = dict(readOnly=True, staleRejected=True,
                 lockedLiteralReadable=True, reopenedColor=saved_fill["rgb"], reopenedAlpha=saved_fill["alpha"])

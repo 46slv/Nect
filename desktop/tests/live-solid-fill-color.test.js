@@ -7,7 +7,11 @@ import {
   serializeCompositionProject,
 } from '../src/composition-project-model.js';
 import { createLiveEditorProtocol } from '../src/live-editor-protocol.js';
-import { createLiveSolidFillColor, readLiveSolidFillColor } from '../src/live-solid-fill-color.js';
+import {
+  createLiveSolidFillColor,
+  createLiveSolidFillOpacity,
+  readLiveSolidFillColor,
+} from '../src/live-solid-fill-color.js';
 import { orderingDocument } from './fixtures/artwork-ordering.js';
 
 test('solid Fill matches the GUI, preserves alpha and history, and never edits another node', () => {
@@ -214,4 +218,63 @@ test('read exact Fill exposes only its authored color and leaves revision and hi
     request.arguments,
   );
   assert.deepEqual(stale, { status: 'stale-target' });
+});
+
+test('literal opacity edits share GUI history, preserve RGB and reject out-of-range values', () => {
+  const doc = orderingDocument();
+  const [layer] = doc.layers;
+  const [, fill] = layer.nodes;
+  fill.params.color.value = { hex: '#1177AA', alpha: 0.4 };
+  const seed = serialize(doc);
+  const make = () =>
+    createCompositionSessionOwner(deserializeCompositionProject(seed, deserialize));
+  const live = make(),
+    gui = make();
+  const readTarget = () => ({
+    documentGeneration: 1,
+    compositionId: live.activeCompositionId,
+    sessionId: live.state.sessionId,
+    sessionRevision: live.state.expectedRevision,
+    projectRevision: live.projectRevision,
+  });
+  const getOwner = () => live;
+  let blocked = false;
+  const setSolidFillOpacity = createLiveSolidFillOpacity({
+    readTarget,
+    getOwner,
+    isEditBlocked: () => blocked,
+    commit: (owner, cmd) => owner.dispatch(cmd),
+  });
+  const handle = createLiveEditorProtocol({ readTarget, setSolidFillOpacity });
+  const args = { target: readTarget(), layerId: layer.id, nodeId: fill.id, alpha: 0.75 };
+  const call = (changes = {}) =>
+    handle({ version: 1, operation: 'fill.setOpacity', arguments: { ...args, ...changes } });
+  const state = (owner) => serializeCompositionProject(owner.projectSnapshot());
+  const before = state(live);
+  for (const alpha of [-0.01, 1.01, NaN, Infinity, '0.5', null]) {
+    assert.equal(call({ alpha }).status, 'invalid-arguments');
+  }
+  assert.equal(call({ hex: '#000000' }).status, 'invalid-arguments');
+  blocked = true;
+  assert.equal(call().status, 'edit-in-progress');
+  blocked = false;
+  assert.equal(state(live), before);
+  gui.dispatch({
+    ...gui.state,
+    type: 'set-parameter',
+    payload: {
+      layerId: layer.id,
+      nodeId: fill.id,
+      key: 'color',
+      value: { hex: '#1177AA', alpha: 0.75 },
+    },
+  });
+  assert.equal(call().status, 'changed');
+  assert.equal(state(live), state(gui));
+  assert.equal(exportSVG(live.snapshot()), exportSVG(gui.snapshot()));
+  assert.match(exportSVG(live.snapshot()), /fill-opacity="0[.]75"/);
+  assert.equal(call().status, 'stale-target');
+  assert.equal(call({ target: readTarget() }).status, 'unchanged');
+  live.dispatch({ ...live.state, type: 'undo' });
+  assert.equal(state(live), before);
 });

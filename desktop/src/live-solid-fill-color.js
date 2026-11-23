@@ -2,6 +2,8 @@ import { captureEditorTarget, editorTargetMatches } from './live-editor-target.j
 
 export const isSolidFillHex = (value) => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
 
+export const isSolidFillAlpha = (value) => Number.isFinite(value) && value >= 0 && value <= 1;
+
 function exactFill(layers, layerId, nodeId) {
   if (!Array.isArray(layers)) return { status: 'unavailable' };
   const [layer, duplicateLayer] = layers.filter((entry) => entry.id === layerId);
@@ -43,11 +45,21 @@ export function readLiveSolidFillColor({ readTarget, readDocument }, { target, l
   };
 }
 
-export function createLiveSolidFillColor({ readTarget, getOwner, isEditBlocked, commit }) {
-  return ({ target, layerId, nodeId, hex }) => {
+export const createLiveSolidFillColor = (host) =>
+  createLiveSolidFillEdit(host, 'hex', isSolidFillHex, (v) => v.toLowerCase());
+export const createLiveSolidFillOpacity = (host) =>
+  createLiveSolidFillEdit(host, 'alpha', isSolidFillAlpha, (v) => v);
+
+function createLiveSolidFillEdit(
+  { readTarget, getOwner, isEditBlocked, commit },
+  field,
+  valid,
+  compare,
+) {
+  return ({ target, layerId, nodeId, [field]: value }) => {
     const matches = () => editorTargetMatches(readTarget(), target);
     if (!matches()) return { status: 'stale-target' };
-    if (!isSolidFillHex(hex)) return { status: 'invalid-arguments' };
+    if (!valid(value)) return { status: 'invalid-arguments' };
     if (isEditBlocked()) return { status: 'edit-in-progress' };
     const owner = getOwner();
     const fill = exactFill(owner?.snapshot()?.layers, layerId, nodeId);
@@ -56,12 +68,12 @@ export function createLiveSolidFillColor({ readTarget, getOwner, isEditBlocked, 
     if (isLocked(fill) || node.bypassed || isControlled(color) || !hasLiteral(color))
       return { status: 'rejected' };
     if (!matches()) return { status: 'stale-target' };
-    if (color.value.hex.toLowerCase() === hex.toLowerCase()) return { status: 'unchanged' };
+    if (compare(color.value[field]) === compare(value)) return { status: 'unchanged' };
     const receipt = commit(owner, {
       sessionId: target.sessionId,
       expectedRevision: target.sessionRevision,
       type: 'set-parameter',
-      payload: { layerId, nodeId, key: 'color', value: { ...color.value, hex } },
+      payload: { layerId, nodeId, key: 'color', value: { ...color.value, [field]: value } },
     });
     if (!receipt) return { status: matches() ? 'rejected' : 'outcome-unknown' };
     return { status: receipt.changed ? 'changed' : 'unchanged' };

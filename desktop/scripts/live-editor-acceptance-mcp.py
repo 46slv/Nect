@@ -236,6 +236,16 @@ if os.environ.get("NECT_ACCEPTANCE_SOLID_FILL") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "fill.setSolidColor"
+if os.environ.get("NECT_ACCEPTANCE_SOLID_FILL_OPACITY") == "1":
+    name = "nect_test_set_solid_fill_opacity"
+    TOOLS.append({
+        "name": name,
+        "description": "Set only the authored opacity of one exact Fill node in the isolated fixture",
+        "inputSchema": schema(dict(target=target, layerId=ident, nodeId=ident,
+            alpha={"type":"number","minimum":0,"maximum":1})),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "fill.setOpacity"
 if os.environ.get("NECT_ACCEPTANCE_ARTWORK_GAPS") == "1":
     name = "nect_test_distribute_artwork_gaps"
     TOOLS.append({

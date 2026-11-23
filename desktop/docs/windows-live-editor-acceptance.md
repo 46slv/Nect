@@ -266,3 +266,11 @@ succeed) or `NECT_ACCEPTANCE_TEXT_JP_DEFAULT_PROBE=1` (missing glyph;
 both exports refuse without creating a file). Both check that reading after
 reopen returns the exact mixed Japanese/Latin Unicode string. These cases
 do not exercise manual Japanese IME input.
+
+### Literal Fill opacity
+
+Add `NECT_ACCEPTANCE_SOLID_FILL_OPACITY=1` to the literal Fill readback
+fixture. The read-back contract keeps RGB and alpha separate. The command
+changes only an authored scalar from 0 to 1, preserving RGB and the existing
+edit restrictions. The verifier checks a 0.75 opacity, including lock and
+stale rejection, Undo/Redo, reopened state and the SVG fill-opacity attribute.

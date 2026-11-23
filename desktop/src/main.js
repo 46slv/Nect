@@ -82,7 +82,11 @@ import {
   createLiveArtworkGapDistribution,
   createLiveArtworkTranslation,
 } from './live-artwork-translation.js';
-import { createLiveSolidFillColor, readLiveSolidFillColor } from './live-solid-fill-color.js';
+import {
+  createLiveSolidFillColor,
+  createLiveSolidFillOpacity,
+  readLiveSolidFillColor,
+} from './live-solid-fill-color.js';
 import { createLiveLayerDeletion } from './live-layer-delete.js';
 import { createLiveLayerDuplicate } from './live-layer-duplicate.js';
 import { createLiveLayerFolder } from './live-layer-folder-create.js';
@@ -19659,6 +19663,14 @@ if (
           },
           args,
         ),
+      setSolidFillOpacity: createLiveSolidFillOpacity({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() ||
+          deletionBusy() ||
+          closeInputBlocked() ||
+          Boolean(variableAction),
+      }),
       setSolidFillColor: createLiveSolidFillColor({
         ...liveBlendHost,
         isEditBlocked: () =>

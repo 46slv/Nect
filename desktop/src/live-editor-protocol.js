@@ -11,7 +11,7 @@ import {
   validArtworkGapDistribution,
   validArtworkTranslation,
 } from './live-artwork-translation.js';
-import { isSolidFillHex } from './live-solid-fill-color.js';
+import { isSolidFillAlpha, isSolidFillHex } from './live-solid-fill-color.js';
 import { validBlankLayerName } from './live-layer-create.js';
 
 const object = (value) =>
@@ -61,6 +61,7 @@ export function createLiveEditorProtocol({
   stepHistory,
   createArtwork,
   setSolidFillColor,
+  setSolidFillOpacity,
   readSolidFillColor,
   translateArtwork,
   alignArtwork,
@@ -479,6 +480,24 @@ export function createLiveEditorProtocol({
         return { status: 'invalid-arguments' };
       try {
         const { status } = setSolidFillColor(args);
+        return status === 'changed' || status === 'unchanged'
+          ? { status, target: captureEditorTarget(readTarget()) }
+          : { status };
+      } catch {
+        return { status: 'outcome-unknown' };
+      }
+    }
+    if (setSolidFillOpacity && request.operation === 'fill.setOpacity') {
+      if (
+        !closed(args, ['target', 'layerId', 'nodeId', 'alpha']) ||
+        !validTarget(args.target) ||
+        !id(args.layerId) ||
+        !id(args.nodeId) ||
+        !isSolidFillAlpha(args.alpha)
+      )
+        return { status: 'invalid-arguments' };
+      try {
+        const { status } = setSolidFillOpacity(args);
         return status === 'changed' || status === 'unchanged'
           ? { status, target: captureEditorTarget(readTarget()) }
           : { status };
