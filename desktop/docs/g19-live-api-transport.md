@@ -48,6 +48,13 @@ The Windows fixture exposes it only when opted in, and verifies the Distance
 mode Blend sockets after reopen. It is not registered in the ordinary app and
 does not establish compatibility or permission to connect any sockets.
 
+The first non-Blend write candidate is limited to a stored, active
+`Vector2` input and compatible output in the same layer. It invokes the
+GUI's Session connect/disconnect operations, without an alternate graph
+writer. Locked and expression-driven inputs are refused. Tests compare
+the authored document to the GUI command and verify that cycles leave the
+document unchanged. This candidate is not registered with either bridge.
+
 The layer checks distinguish authored and rendered changes: lock and rename
 can preserve pixels, whereas reorder changes paint order without changing
 the authored records or IDs. The reorder fixture confirms two-layer
