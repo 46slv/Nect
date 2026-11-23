@@ -32,6 +32,29 @@ Verify SVG and PNG separately from project persistence. Use the primitive
 shape run in [Windows fixture setup](../../../../desktop/docs/windows-live-editor-acceptance.md)
 to reproduce all five shapes; this is not a normal-app pairing test.
 
+## Inspect and edit Vector2 wiring in the Windows development fixture
+
+With the fixture tools advertised, inspect for a fresh target, then use
+`nect_test_list_artwork` to find exact layer and node IDs. Use
+`nect_test_read_node_ports` for the available input/output IDs and types
+and `nect_test_read_node_input_wires` to confirm the existing input wire.
+These are different reads. A `null` output ID means the default output;
+for Text Position use the named output `position`, not the default Path.
+
+Use `nect_test_set_vector_wire` only for an active Vector2 input in the
+same layer. Send the target, layerId, nodeId, input, sourceId and sourcePort.
+For a detach, set both source fields to `null`. The adapter refuses locked,
+expression-driven or incompatible sockets; Session rejects cycles. After the reply,
+read the wire at the returned target. If the reply was lost or the target
+is stale, inspect and compare the actual wire first rather than replaying
+the request. After save/reopen, read the edge again at the new target;
+verify the stored fallback separately when it matters.
+
+Reproduce with the Vector2 wiring run in
+[Windows fixture setup](../../../../desktop/docs/windows-live-editor-acceptance.md).
+The documented proof is one same-layer Text Position flow with Undo/Redo
+and persistence. Do not use this as an ordinary Tauri or Hermes connection.
+
 ## Arrange artwork in the Windows development fixture
 
 Use only tools advertised by this run. The `nect_test_*` tools below are
