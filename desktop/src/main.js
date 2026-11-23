@@ -5039,7 +5039,7 @@ function transformUniformScale(n) {
     return true;
   }
 }
-const compactLuminanceRows = new Set([
+const compactLiteralRows = new Set([
   'Luminance Instances',
   'Luminance to Points',
   'Halftone',
@@ -5048,10 +5048,12 @@ const compactLuminanceRows = new Set([
   'Ordered Dither Image',
   'Error Diffusion Dither Image',
   'Line Screen',
+  'Angular Gradient Fill',
+  'Vector Transform',
 ]);
 function field(n, key, q, inspector = false) {
   const compactLiteral =
-    compactLuminanceRows.has(n.type) &&
+    compactLiteralRows.has(n.type) &&
     !q.source &&
     !q.expression &&
     ['Scalar', 'Boolean'].includes(q.type);
@@ -6809,6 +6811,21 @@ function inspectorMarkup(n, l, result, results, move, duplication) {
 }
 
 function prepareEditingRegion(region) {
+  const notes = [...region.querySelectorAll('.font-note')].filter(
+    (note) =>
+      !note.closest('details') &&
+      !note.hasAttribute('role') &&
+      !note.textContent.startsWith('At a wrap break'),
+  );
+  if (notes.length) {
+    const help = document.createElement('details');
+    help.className = 'control-help';
+    help.dataset.layoutDisclosure = 'help';
+    const summary = document.createElement('summary');
+    summary.textContent = 'Help';
+    help.append(summary, ...notes);
+    region.append(help);
+  }
   for (const details of region.querySelectorAll('details[data-layout-disclosure]')) {
     if (boundLayoutDisclosures.has(details)) continue;
     const summary = details.querySelector(':scope > summary');
@@ -6834,16 +6851,6 @@ function prepareEditingRegion(region) {
     });
     boundLayoutDisclosures.add(details);
   }
-  const notes = [...region.querySelectorAll('.font-note')].filter(
-    (note) => !note.hasAttribute('role') && !note.textContent.startsWith('At a wrap break'),
-  );
-  if (!notes.length) return;
-  const help = document.createElement('details');
-  help.className = 'control-help';
-  const summary = document.createElement('summary');
-  summary.textContent = 'Help';
-  help.append(summary, ...notes);
-  region.append(help);
 }
 
 function prepareFontSearchControls(root) {

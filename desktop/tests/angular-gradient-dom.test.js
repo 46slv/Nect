@@ -46,6 +46,19 @@ test('Angular Gradient Fill is searchable, creates by Enter and keeps settings t
   assert.ok($('.field[data-key="position1"] [data-value]'));
   assert.match(document.body.textContent, /720 vector sectors/);
   const saved = JSON.stringify(win.nect.document);
+  const card = $('.node[data-id="' + created.id + '"]');
+  const guide = card.querySelector('[data-layout-disclosure="help"]');
+  assert.equal(guide.open, false);
+  for (const key of ['angle', 'clockwise', 'position1', 'position2'])
+    assert.ok(card.querySelector('.node-compact-literal[data-key="' + key + '"]'), key);
+  for (const key of ['center', 'startColor', 'endColor', 'color1', 'color2']) {
+    const field = card.querySelector('.field[data-key="' + key + '"]');
+    assert.ok(field && !field.closest('details'), key);
+    assert.ok(!field.classList.contains('node-compact-literal'), key);
+  }
+  guide.querySelector('summary').click();
+  assert.equal(guide.open, true);
+  assert.equal(JSON.stringify(win.nect.document), saved);
   $('[data-action="undo"]').click();
   assert.equal(JSON.stringify(win.nect.document), before);
   $('[data-action="redo"]').click();

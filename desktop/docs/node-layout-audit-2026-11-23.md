@@ -40,6 +40,25 @@ row. Path and Vector2 controls keep their original space.
 | Ordered Dither               |                832 → 736 |                     937 → 731 |
 | Ordered Dither Image         |                793 → 697 |                     928 → 722 |
 
+## Angular Gradient Fill and Vector Transform
+
+Keep color stops, alpha, vector axes, and driven fields in their existing
+editors. Put literal scalars and checkboxes on one row with their controls.
+
+| Node                  | Expanded card | Inspector content |
+| --------------------- | ------------: | ----------------: |
+| Angular Gradient Fill |  817 → 695 px |      966 → 844 px |
+| Vector Transform      |  777 → 603 px |     1027 → 841 px |
+
+Same 220 px card fixture in Windows Chrome. The visible compact number inputs
+had 60 px and checkboxes 16 px without crossing their field bounds. Linear and
+Radial Gradient Fill retain their prior 478 / 627 px layout. The existing
+Help panel now keeps its open/closed state while the node re-renders, separately
+for graph and Inspector. Notes already inside a disclosure stay there.
+Chrome verified Enter toggling with no document change and no effect on the
+other surface. Focused Angular Gradient, Vector Transform, Text spacing,
+Stroke and Transform tests passed.
+
 ## Stroke details
 
 Stroke preset, Width, Color and graph inputs stay visible. The line cap, join
