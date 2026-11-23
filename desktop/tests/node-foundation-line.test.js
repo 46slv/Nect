@@ -79,3 +79,40 @@ test('Line created by the shared command renders through Stroke, survives undo a
     );
   }
 });
+
+test('Transform rotates a Line; invalid length edits retain geometry, revision and history', () => {
+  const doc = blankDocument(),
+    layer = doc.layers[0];
+  const line = node('Line'),
+    transform = node('Transform'),
+    stroke = node('Stroke');
+  line.params.position.value = [40, 60];
+  line.params.length.value = 120;
+  transform.params.rotation.value = 90;
+  layer.nodes.unshift(line, transform, stroke);
+  connect(layer, line.id, transform.id, 'path');
+  connect(layer, transform.id, stroke.id, 'path');
+  connect(layer, stroke.id, layer.output, 'path');
+  const session = new CommandSession(doc),
+    initial = session.snapshot();
+  const revision = session.state.expectedRevision;
+  for (const value of [0, -20, Number.MIN_VALUE]) {
+    assert.throws(
+      () =>
+        session.dispatch({
+          ...session.state,
+          type: 'set-parameter',
+          payload: { layerId: layer.id, nodeId: line.id, key: 'length', value },
+        }),
+      /positive, finite/,
+    );
+  }
+  assert.equal(session.state.expectedRevision, revision);
+  assert.equal(session.historyView.past.length, 0);
+  assert.deepEqual(session.snapshot(), initial);
+  const contour = evaluate(layer, {}, doc.imageAssets, doc).run(transform.id).contours[0];
+  const [start, end] = contour.points.map((p) => p.position);
+  assert.ok(Math.abs(start[0] - end[0]) < 1e-9);
+  assert.ok(Math.abs(end[1] - start[1] - 120) < 1e-9);
+  assert.equal(exportSVG(deserialize(serialize(doc))), exportSVG(doc));
+});

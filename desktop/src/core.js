@@ -274,6 +274,7 @@ export {
   anchorFromOutputDelta,
 } from './transform-affine.js';
 import { radialSettings } from './radial-geometry.js';
+import { lineEndpoints } from './line-node-binding.js';
 export { radialSettings } from './radial-geometry.js';
 export * from './character-identity.js';
 export * from './character-geometry.js';
@@ -4406,6 +4407,7 @@ export function validate(doc) {
         luminanceInstanceSettings((key) => n.params[key].value);
       }
       if (n.type === 'Closed Path Offset') closedOffsetSettings((key) => n.params[key].value);
+      if (n.type === 'Line') lineEndpoints((key) => n.params[key].value);
       if (['Polygon', 'Star'].includes(n.type))
         radialSettings(n.type, (key) => n.params[key].value);
       if (
