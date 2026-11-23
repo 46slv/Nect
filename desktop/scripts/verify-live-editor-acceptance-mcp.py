@@ -78,7 +78,8 @@ assert sum((artwork_align, artwork_translate,
     artwork_distribute, artwork_gaps, solid_fill and not artwork_authoring_roundtrip)) <= 1
 assert not (artwork_align or artwork_translate or artwork_distribute or artwork_gaps or solid_fill) or (artwork and layer_lock and list_objects and not (
     layer_delete or layer_solo or layer_guide or layer_folders or layer_folder_plan or
-    hidden_roundtrip or locked_roundtrip or renamed_roundtrip or text_edit or embedded_jp or mixed_text_probe
+    hidden_roundtrip or locked_roundtrip or renamed_roundtrip or
+    (text_edit and not artwork_authoring_roundtrip) or embedded_jp or mixed_text_probe
 ))
 assert not layer_lock or list_objects
 assert not layer_delete_member or (
@@ -1121,6 +1122,11 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                     assert rectangle_paint.get("data-layer") == painted["name"]
                     if solid_fill_read:
                         assert float(rectangle_paint.get("fill-opacity")) == initial_fill["alpha"]
+                if artwork_authoring_roundtrip and text_edit:
+                    [text_layer] = [layer for layer in composition["layers"] if layer["id"] == target_layer]
+                    assert any(element.tag.endswith("}path") and
+                               element.get("data-layer") == text_layer["name"] and element.get("d")
+                               for element in tree.iter())
                 if layer_guide:
                     assert [l["id"] for l in composition["layers"]] == [source_layer, guide_id, retained_id]
                     source, guide_layer, text_layer = composition["layers"]
@@ -1265,9 +1271,11 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 lockedLiteralReadable=True, reopenedColor=saved_fill["rgb"], reopenedAlpha=saved_fill["alpha"])
         if artwork_authoring_roundtrip:
             evidence["artworkAuthoringRoundtrip"] = dict(
-                sequence=["create", "recolor", "translate", "save", "reopen", "exportSvg", "exportPng"],
+                sequence=["create"] + (["editText"] if text_edit else []) +
+                    ["recolor", "translate", "save", "reopen", "exportSvg", "exportPng"],
                 rectangleCenter=made[0][1], textPosition=made[1][1],
                 rectangleFill=fill_hex, sameLayerAndFillIdsAfterReopen=True,
+                textContentAfterReopen=replacement if text_edit else None,
                 outputScope="SVG named layer and fill, PNG signature and canvas dimensions")
         if artwork_gaps:
             evidence["artworkGaps"] = dict(action="gap-x", endpointCenters=[260, 770],

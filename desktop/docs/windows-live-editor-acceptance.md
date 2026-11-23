@@ -245,3 +245,8 @@ moves both, saves, reopens and exports both formats. It checks exact authored
 positions and Fill identity and value; SVG is checked for the named layer and
 the chosen fill, and PNG for its signature and canvas dimensions. It does not
 cover the normal app pairing, native dialogs or manual input.
+
+With the same flags and a separate fresh root, add NECT_ACCEPTANCE_TEXT=1 to
+edit the Text content as part of that workflow. The verifier checks the
+authored phrase after reopening and a nonempty outline for the Text layer in
+the SVG. This ASCII fixture does not cover IME or Japanese font fallback.
