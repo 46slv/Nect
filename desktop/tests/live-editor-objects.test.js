@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
-import { deserialize } from '../src/core.js';
+import { deserialize, node, parameter } from '../src/core.js';
 import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
 import {
   deserializeCompositionProject,
@@ -12,6 +12,7 @@ import {
   LIVE_OBJECT_PAGE_SIZE,
   readLiveEditorObjects,
   readLiveNodeInputWires,
+  readLiveNodePorts,
 } from '../src/live-editor-objects.js';
 
 const target = {
@@ -264,4 +265,78 @@ test('authored wire discovery follows GUI history for a real named Text output',
   assert.equal(live.dispatch({ ...live.state, type: 'undo' }).changed, true);
   assert.deepEqual(inspect().items, edges);
   assert.equal(serialize(), original);
+});
+
+test('port discovery uses active GUI sockets and distinguishes default and named outputs', () => {
+  const text = node('Text', 0, 0);
+  text.text = 'private text';
+  text.params.position.value = [28, 39];
+  const transform = node('Transform', 0, 0);
+  const document = { layers: [{ id: 'layer', nodes: [text, transform] }] };
+  const host = { readTarget: () => target, readDocument: () => document };
+  const read = (nodeId, offset = 0) =>
+    readLiveNodePorts(host, { target, layerId: 'layer', nodeId, offset });
+  const before = structuredClone(document);
+  assert.deepEqual(read(text.id), {
+    status: 'ok',
+    target,
+    layerId: 'layer',
+    nodeId: text.id,
+    items: [
+      { direction: 'input', id: 'position', type: 'Vector2' },
+      { direction: 'input', id: 'size', type: 'Scalar' },
+      { direction: 'input', id: 'letterSpacing', type: 'Scalar' },
+      { direction: 'input', id: 'lineSpacing', type: 'Scalar' },
+      { direction: 'output', id: null, type: 'Path' },
+      { direction: 'output', id: 'position', type: 'Vector2' },
+    ],
+    nextOffset: null,
+  });
+  assert.deepEqual(document, before);
+  assert.equal(
+    read(transform.id).items.some((x) => x.id === 'scaleWidth'),
+    false,
+  );
+  transform.params.uniformScale = { ...parameter(transform, 'uniformScale'), value: false };
+  transform.params.scaleWidth = { ...parameter(transform, 'scaleWidth'), value: 2 };
+  assert.equal(
+    read(transform.id).items.some((x) => x.id === 'scaleWidth'),
+    true,
+  );
+  assert.deepEqual(read(text.id, 7), { status: 'invalid-arguments' });
+  assert.deepEqual(read('missing'), { status: 'unsupported-target' });
+  document.layers[0].nodes.push({ ...text });
+  assert.deepEqual(read(text.id), { status: 'unavailable' });
+});
+
+test('graph.ports is opt-in and rejects extra fields before reading a document', () => {
+  const document = { layers: [{ id: 'layer', nodes: [node('Text', 0, 0)] }] };
+  let revision = target.projectRevision;
+  const readTarget = () => ({ ...target, projectRevision: revision });
+  let reads = 0;
+  const host = {
+    readTarget,
+    readDocument: () => {
+      reads++;
+      if (reads === 2) revision++;
+      return document;
+    },
+  };
+  const args = { target, layerId: 'layer', nodeId: document.layers[0].nodes[0].id, offset: 0 };
+  const packet = { version: 1, operation: 'graph.ports', arguments: args };
+  const handler = createLiveEditorProtocol({
+    readTarget,
+    readNodePorts: (input) => readLiveNodePorts(host, input),
+  });
+  assert.deepEqual(createLiveEditorProtocol({ readTarget })(packet), {
+    status: 'unsupported-operation',
+  });
+  assert.deepEqual(handler({ ...packet, arguments: { ...args, includeValues: true } }), {
+    status: 'invalid-arguments',
+  });
+  assert.equal(reads, 0);
+  assert.equal(handler(packet).status, 'ok');
+  assert.deepEqual(handler(packet), { status: 'stale-target' });
+  assert.deepEqual(handler(packet), { status: 'stale-target' });
+  assert.equal(reads, 2);
 });

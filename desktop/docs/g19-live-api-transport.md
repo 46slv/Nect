@@ -41,6 +41,12 @@ Read-only discovery cannot change selection,
 history or authored state. Blend input edits are not general graph editing:
 the same GUI commands may normalize paint routes in the undoable edit.
 
+An opt-in, in-process `graph.ports` projection reuses the graph GUI's active
+input and output definitions. It returns direction, socket ID and type only
+(`null` identifies the default output), with revision-bound bounded pages.
+It is not yet registered in the Windows fixture bridge or ordinary app and
+does not establish compatibility or permission to connect any sockets.
+
 The layer checks distinguish authored and rendered changes: lock and rename
 can preserve pixels, whereas reorder changes paint order without changing
 the authored records or IDs. The reorder fixture confirms two-layer

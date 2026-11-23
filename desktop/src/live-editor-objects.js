@@ -1,5 +1,6 @@
 import { captureEditorTarget, editorTargetMatches } from './live-editor-target.js';
 import { validateLayerFolders } from './layer-folders.js';
+import { activeParameters, definitions, outputPorts } from './core.js';
 
 const validIndex = (value) => Number.isSafeInteger(value) && value >= 0;
 const validId = (value) => typeof value === 'string' && value.length > 0 && value.length <= 256;
@@ -133,6 +134,70 @@ export function readLiveNodeInputWires(
     }
   }
   if (!editorTargetMatches(readTarget(), current)) return { status: 'stale-target' };
+  const page = reply(index);
+  return fitsFrame(page) ? page : { status: 'unavailable' };
+}
+
+// Graph sockets as shown by the editor, not authored parameter values. A
+// schema read does not imply that connections can be written or are valid.
+export function readLiveNodePorts(
+  { readTarget, readDocument },
+  { target, layerId, nodeId, offset },
+) {
+  if (!validId(layerId) || !validId(nodeId) || !validIndex(offset))
+    return { status: 'invalid-arguments' };
+  const current = captureEditorTarget(readTarget());
+  if (!editorTargetMatches(current, target)) return { status: 'stale-target' };
+  const layers = readDocument()?.layers;
+  if (!editorTargetMatches(readTarget(), current)) return { status: 'stale-target' };
+  if (!Array.isArray(layers)) return { status: 'unavailable' };
+  const [layer, duplicateLayer] = layers.filter((entry) => entry?.id === layerId);
+  if (!layer) return { status: 'unsupported-target' };
+  if (duplicateLayer || !Array.isArray(layer.nodes)) return { status: 'unavailable' };
+  const [node, duplicateNode] = layer.nodes.filter((entry) => entry?.id === nodeId);
+  if (!node) return { status: 'unsupported-target' };
+  if (duplicateNode || !Object.hasOwn(definitions, node.type)) return { status: 'unavailable' };
+
+  let ports;
+  try {
+    ports = [
+      ...activeParameters(node).map(([id, param]) => ({
+        direction: 'input',
+        id,
+        type: param.type,
+      })),
+      ...outputPorts(node).map(({ id, type }) => ({
+        direction: 'output',
+        id: id ?? null,
+        type,
+      })),
+    ];
+  } catch {
+    return { status: 'unavailable' };
+  }
+  if (!editorTargetMatches(readTarget(), current)) return { status: 'stale-target' };
+  if (offset > ports.length) return { status: 'invalid-arguments' };
+  const items = [];
+  const reply = (next) => ({
+    status: 'ok',
+    target: current,
+    layerId,
+    nodeId,
+    items,
+    nextOffset: next < ports.length ? next : null,
+  });
+  let index = offset;
+  for (; index < Math.min(ports.length, offset + LIVE_OBJECT_PAGE_SIZE); index++) {
+    const port = ports[index];
+    if ((port.id !== null && !validId(port.id)) || !validId(port.type))
+      return { status: 'unavailable' };
+    items.push(port);
+    if (!fitsFrame(reply(index + 1))) {
+      items.pop();
+      if (!items.length) return { status: 'unavailable' };
+      break;
+    }
+  }
   const page = reply(index);
   return fitsFrame(page) ? page : { status: 'unavailable' };
 }

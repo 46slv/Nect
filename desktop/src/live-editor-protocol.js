@@ -44,6 +44,7 @@ export function createLiveEditorProtocol({
   readLayerFolderPlan,
   applyLayerFolderPlan,
   readNodeInputWires,
+  readNodePorts,
   setLayerVisibility,
   setLayerSolo,
   setLayerGuide,
@@ -247,7 +248,13 @@ export function createLiveEditorProtocol({
         return { status: 'outcome-unknown' };
       }
     }
-    if (readNodeInputWires && request.operation === 'graph.inputWires') {
+    const readGraph =
+      request.operation === 'graph.inputWires'
+        ? readNodeInputWires
+        : request.operation === 'graph.ports'
+          ? readNodePorts
+          : null;
+    if (readGraph) {
       if (
         !closed(args, ['target', 'layerId', 'nodeId', 'offset']) ||
         !validTarget(args.target) ||
@@ -257,7 +264,7 @@ export function createLiveEditorProtocol({
       )
         return { status: 'invalid-arguments' };
       try {
-        return readNodeInputWires(args);
+        return readGraph(args);
       } catch {
         return { status: 'unavailable' };
       }
