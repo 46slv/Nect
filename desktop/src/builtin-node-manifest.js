@@ -101,6 +101,8 @@ import { maskDeclaration } from './mask-node-declaration.js';
 import { evaluateMask } from './mask-node-binding.js';
 import { curveDeclaration } from './curve-node-declaration.js';
 import { evaluateCurve } from './curve-node-binding.js';
+import { lineDeclaration } from './line-node-declaration.js';
+import { evaluateLine } from './line-node-binding.js';
 import { multiPathDeclaration } from './multi-path-node-declaration.js';
 import { evaluateMultiPath } from './multi-path-node-binding.js';
 import { importedPathDeclaration } from './imported-path-node-declaration.js';
@@ -296,11 +298,12 @@ export const builtinManifest = Object.freeze([
     Object.freeze({ before: 'Multi Path' }),
     'Star',
   ),
+  entry(lineDeclaration, { evaluate: evaluateLine }, 'Curve', 'Curve'),
   entry(
     multiPathDeclaration,
     { evaluate: evaluateMultiPath },
     Object.freeze({ before: 'Boolean' }),
-    'Curve',
+    'Line',
   ),
   entry(importedPathDeclaration, { evaluate: evaluateImportedPath }, 'Text to Path', 'Multi Path'),
   entry(

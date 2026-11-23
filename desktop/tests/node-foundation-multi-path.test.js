@@ -79,9 +79,9 @@ test('Multi Path registers as a source without declared parameters and retains p
   assert.equal(outputType(current), 'Path');
   assert.deepEqual(outputPorts(current), [{ id: undefined, label: '', type: 'Path' }]);
   assert.equal(bypassContract(current).supported, false);
-  assert.equal(types[types.indexOf('Multi Path') - 1], 'Curve');
+  assert.equal(types[types.indexOf('Multi Path') - 1], 'Line');
   assert.equal(types[types.indexOf('Multi Path') + 1], 'Boolean');
-  assert.equal(catalog[catalog.indexOf('Multi Path') - 1], 'Curve');
+  assert.equal(catalog[catalog.indexOf('Multi Path') - 1], 'Line');
   assert.equal(catalog[catalog.indexOf('Multi Path') + 1], 'Imported Path');
   const { typeId, ...metadata } = nodeCatalog.find((entry) => entry.typeId === 'Multi Path');
   assert.equal(typeId, 'Multi Path');

@@ -5050,6 +5050,7 @@ const compactLiteralRows = new Set([
   'Line Screen',
   'Angular Gradient Fill',
   'Vector Transform',
+  'Line',
 ]);
 function field(n, key, q, inspector = false) {
   const compactLiteral =
@@ -5230,6 +5231,7 @@ function field(n, key, q, inspector = false) {
           ? String.fromCharCode(65 + index)
           : `Input ${index + 1}`;
   }
+  if (n.type === 'Line') name = key === 'position' ? 'Position' : 'Length';
   const angleDial = inspector && n.type === 'Geometry Repeater' && key === 'rotation';
   let control;
   const connectLabel =
