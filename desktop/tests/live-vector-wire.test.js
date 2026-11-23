@@ -94,6 +94,48 @@ test('unavailable, mismatched, and cyclic sources do not alter the document or r
   assert.equal(f.serialize(), before);
 });
 
+test('wire editing preserves locked and expression-driven targets without calling Session', () => {
+  const f = fixture();
+  const args = {
+    ...f.scope,
+    target: f.readTarget(),
+    sourceId: null,
+    sourcePort: null,
+  };
+  for (const protect of [
+    (layer) => {
+      layer.locked = true;
+    },
+    (_, node) => {
+      node.locked = true;
+    },
+    (_, node) => {
+      node.bypassed = true;
+    },
+    (_, __, input) => {
+      input.locked = true;
+    },
+    (_, __, input) => {
+      input.expression = 'vec(80, 100)';
+    },
+  ]) {
+    const document = structuredClone(f.owner.snapshot());
+    const [layer] = document.layers;
+    const node = layer.nodes.find((entry) => entry.id === f.scope.nodeId);
+    protect(layer, node, node.params.position);
+    const original = structuredClone(document);
+    const edit = createLiveVectorWireEdit({
+      readTarget: f.readTarget,
+      getOwner: () => ({ snapshot: () => document }),
+      isEditBlocked: () => false,
+      commit: () => assert.fail('protected target must not reach Session'),
+    });
+    assert.deepEqual(edit(args), { status: 'rejected' });
+    assert.deepEqual(document, original);
+    assert.deepEqual(f.readTarget(), args.target);
+  }
+});
+
 test('fixture protocol projects only status and fresh target for a wiring command', () => {
   const f = fixture();
   const handler = createLiveEditorProtocol({ readTarget: f.readTarget, setVectorWire: f.edit });
