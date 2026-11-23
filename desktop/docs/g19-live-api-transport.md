@@ -44,7 +44,8 @@ the same GUI commands may normalize paint routes in the undoable edit.
 An opt-in, in-process `graph.ports` projection reuses the graph GUI's active
 input and output definitions. It returns direction, socket ID and type only
 (`null` identifies the default output), with revision-bound bounded pages.
-It is not yet registered in the Windows fixture bridge or ordinary app and
+The Windows fixture exposes it only when opted in, and verifies the Distance
+mode Blend sockets after reopen. It is not registered in the ordinary app and
 does not establish compatibility or permission to connect any sockets.
 
 The layer checks distinguish authored and rendered changes: lock and rename

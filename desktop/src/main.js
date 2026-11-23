@@ -65,6 +65,7 @@ import {
   readLiveEditorObjects,
   readLiveLayerFolders,
   readLiveNodeInputWires,
+  readLiveNodePorts,
   readLiveLayerState,
 } from './live-editor-objects.js';
 import {
@@ -19603,6 +19604,14 @@ if (
         ),
       readNodeInputWires: (args) =>
         readLiveNodeInputWires(
+          {
+            readTarget: readLiveEditorTarget,
+            readDocument: () => (documents.transitioning ? null : history.doc),
+          },
+          args,
+        ),
+      readNodePorts: (args) =>
+        readLiveNodePorts(
           {
             readTarget: readLiveEditorTarget,
             readDocument: () => (documents.transitioning ? null : history.doc),

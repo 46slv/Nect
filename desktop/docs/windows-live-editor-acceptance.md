@@ -79,6 +79,16 @@ order. The standard PNG header and canvas size checks still run. The tool
 is visible only when opted into this acceptance adapter, not in read-only
 preview or the ordinary app.
 
+For a separate read-only graph socket check, set `NECT_ACCEPTANCE_OBJECTS=1`,
+`NECT_ACCEPTANCE_GRAPH_WIRES=1` and `NECT_ACCEPTANCE_GRAPH_PORTS=1` on a fresh
+fixture root. The 14-tool verifier distinguishes stored input wires from
+available GUI sockets. On the reopened Blend in Distance mode it checks
+`a`, `b`, `distance` and the default output, cursor offsets, the stale
+pre-reopen target, invalid fields, and the unchanged read revision. The
+surrounding verifier still edits its own disposable Blend and exports it.
+The socket check does not read values or change wiring; no ordinary-app
+transport is enabled.
+
 For a separate primitive shape run, use a fresh isolated root and set
 `NECT_ACCEPTANCE_OBJECTS=1`, `NECT_ACCEPTANCE_ARTWORK=1`, and
 `NECT_ACCEPTANCE_SHAPE_ROUNDTRIP=1`. Leave unrelated scenarios off.

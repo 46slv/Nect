@@ -154,6 +154,15 @@ if os.environ.get("NECT_ACCEPTANCE_GRAPH_WIRES") == "1":
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     })
     OPERATIONS[name] = "graph.inputWires"
+if os.environ.get("NECT_ACCEPTANCE_GRAPH_PORTS") == "1":
+    name = "nect_test_read_node_ports"
+    TOOLS.append({
+        "name": name,
+        "description": "Read active GUI input and output socket identifiers and types in the isolated fixture",
+        "inputSchema": schema(dict(target=target, layerId=ident, nodeId=ident, offset=revision)),
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "graph.ports"
 if os.environ.get("NECT_ACCEPTANCE_LAYER_STATE") == "1":
     name = "nect_test_read_layer_state"
     TOOLS.append({

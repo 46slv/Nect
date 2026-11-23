@@ -17,6 +17,7 @@ root = exe.parent
 assert result_file.parent == root
 list_objects = os.environ.get("NECT_ACCEPTANCE_OBJECTS") == "1"
 graph_wires = os.environ.get("NECT_ACCEPTANCE_GRAPH_WIRES") == "1"
+graph_ports = os.environ.get("NECT_ACCEPTANCE_GRAPH_PORTS") == "1"
 layer_visibility = os.environ.get("NECT_ACCEPTANCE_LAYER_VISIBILITY") == "1"
 layer_state = os.environ.get("NECT_ACCEPTANCE_LAYER_STATE") == "1"
 layer_guide = os.environ.get("NECT_ACCEPTANCE_LAYER_GUIDE") == "1"
@@ -167,6 +168,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_list_artwork")
         if graph_wires:
             extra.append("nect_test_read_node_input_wires")
+        if graph_ports:
+            extra.append("nect_test_read_node_ports")
         if layer_state:
             extra.append("nect_test_read_layer_state")
         if layer_visibility:
@@ -215,7 +218,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.extend(["nect_test_plan_layer_folder", "nect_test_apply_layer_folder_plan"])
         assert [t["name"] for t in listed["tools"]] == ["nect_test_inspect", "nect_test_set_blend_distance", "nect_test_export_svg", "nect_test_export_png", "nect_test_save_copy", "nect_test_reopen_copy", "nect_test_undo", "nect_test_redo","nect_test_save_state","nect_test_save_receipt","nect_test_save_as"] + extra
         read_only_names = {"nect_test_inspect", "nect_test_save_state", "nect_test_save_receipt",
-                           "nect_test_list_artwork", "nect_test_read_node_input_wires",
+                           "nect_test_list_artwork", "nect_test_read_node_input_wires", "nect_test_read_node_ports",
                            "nect_test_list_layer_folders", "nect_test_plan_layer_folder", "nect_test_read_layer_state", "nect_test_read_solid_fill_color",
                            "nect_test_read_text_content"}
         assert all(t["annotations"]["readOnlyHint"] == (t["name"] in read_only_names) for t in listed["tools"])
@@ -996,6 +999,23 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         reopened=invoke("inspect",{},"ok")["target"]
         assert reopened["documentGeneration"]>current["documentGeneration"] and reopened["sessionId"]!=current["sessionId"]
         invoke("reopen_copy",{"target":current},"stale-target",True)
+        if graph_ports:
+            expected_ports = [
+                dict(direction="input", id="a", type="PaintedPath"),
+                dict(direction="input", id="b", type="PaintedPath"),
+                dict(direction="input", id="distance", type="Scalar"),
+                dict(direction="output", id=None, type="PaintedPath"),
+            ]
+            port_args = dict(target=reopened, layerId=source_layer, nodeId=source_node, offset=0)
+            invoke("read_node_ports", {**port_args, "target": current}, "stale-target", True)
+            invoke("read_node_ports", {**port_args, "includeValues": True}, "invalid-arguments", True)
+            invoke("read_node_ports", {**port_args, "nodeId": "missing"}, "unsupported-target", True)
+            for offset in (0, 3, 4):
+                assert invoke("read_node_ports", {**port_args, "offset": offset}, "ok") == dict(
+                    status="ok", target=reopened, layerId=source_layer, nodeId=source_node,
+                    items=expected_ports[offset:], nextOffset=None,
+                )
+            assert invoke("inspect", {}, "ok")["target"] == reopened
         if text_read:
             read_text(current, "stale-target")
             assert read_text(reopened) == dict(status="ok", target=reopened, text=replacement)
@@ -1333,6 +1353,10 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                   "exportSvg":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer",
                   "exportPng":"unsupported-glyph" if mixed_text_probe else "accepted-by-writer","caseGuards":"pass",
                   "artwork":created, "authoredObjectDiscovery":list_objects, "authoredNodeWireDiscovery":graph_wires, "layerVisibility":layer_visibility, "layerLock":layer_lock, "layerRename":layer_rename, "layerReorder":layer_reorder, "layerDuplicate":layer_duplicate, "layerFolderTopology":layer_folders, "renamedLayerRoundtrip":renamed_roundtrip, "lockedLayerRoundtrip":locked_roundtrip, "hiddenLayerRoundtrip":hidden_roundtrip, "embeddedJapaneseFixture":embedded_jp, "textEdit":text_edit,"japaneseDefaultFontNegativeProbe":mixed_text_probe, "digest":digests}
+        if graph_ports:
+            evidence["graphPortDiscovery"] = dict(
+                blendPorts=expected_ports, staleRejected=True, unchangedRevision=True,
+            )
         if layer_duplicate:
             evidence["duplicateReplyRecovery"] = "discarded reply; one copy discovered; exact old target rejected"
             evidence["copiedInternalWires"] = verified_wires
