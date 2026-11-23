@@ -43,9 +43,19 @@ for Text Position use the named output `position`, not the default Path.
 
 Use `nect_test_set_vector_wire` only for an active Vector2 input in the
 same layer. Send the target, layerId, nodeId, input, sourceId and sourcePort.
-For a detach, set both source fields to `null`. The adapter refuses locked,
-expression-driven or incompatible sockets; Session rejects cycles. After the reply,
-read the wire at the returned target. If the reply was lost or the target
+For the bundled two-Text fixture, reuse the latest inspected `target` and
+these exact arguments (discover actual IDs rather than copying them for
+any other document):
+
+| Edit    | `layerId`              | `nodeId`                | `input`    | `sourceId`              | `sourcePort` |
+| ------- | ---------------------- | ----------------------- | ---------- | ----------------------- | ------------ |
+| Connect | `fixture-vector-layer` | `fixture-vector-target` | `position` | `fixture-vector-source` | `position`   |
+| Detach  | `fixture-vector-layer` | `fixture-vector-target` | `position` | `null`                  | `null`       |
+
+The Connect row with `sourcePort: null` is rejected: the default output
+is Path, not Vector2. The adapter refuses locked, expression-driven or
+incompatible sockets; Session rejects cycles. After the reply, read the
+wire at the returned target. If the reply was lost or the target
 is stale, inspect and compare the actual wire first rather than replaying
 the request. After save/reopen, read the edge again at the new target;
 verify the stored fallback separately when it matters.
