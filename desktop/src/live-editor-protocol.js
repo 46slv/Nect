@@ -61,6 +61,7 @@ export function createLiveEditorProtocol({
   stepHistory,
   createArtwork,
   setSolidFillColor,
+  readSolidFillColor,
   translateArtwork,
   alignArtwork,
   distributeArtwork,
@@ -450,6 +451,20 @@ export function createLiveEditorProtocol({
           : { status };
       } catch {
         return { status: 'outcome-unknown' };
+      }
+    }
+    if (readSolidFillColor && request.operation === 'fill.readSolidColor') {
+      if (
+        !closed(args, ['target', 'layerId', 'nodeId']) ||
+        !validTarget(args.target) ||
+        !id(args.layerId) ||
+        !id(args.nodeId)
+      )
+        return { status: 'invalid-arguments' };
+      try {
+        return readSolidFillColor(args);
+      } catch {
+        return { status: 'unavailable' };
       }
     }
     if (setSolidFillColor && request.operation === 'fill.setSolidColor') {

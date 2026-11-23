@@ -209,6 +209,15 @@ if os.environ.get("NECT_ACCEPTANCE_LAYER_REORDER") == "1":
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     })
     OPERATIONS[name] = "layer.reorder"
+if os.environ.get("NECT_ACCEPTANCE_SOLID_FILL_READ") == "1":
+    name = "nect_test_read_solid_fill_color"
+    TOOLS.append({
+        "name": name,
+        "description": "Read the authored literal RGB and alpha of one exact Fill node, not its evaluated color",
+        "inputSchema": schema(dict(target=target, layerId=ident, nodeId=ident)),
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
+    })
+    OPERATIONS[name] = "fill.readSolidColor"
 if os.environ.get("NECT_ACCEPTANCE_SOLID_FILL") == "1":
     name = "nect_test_set_solid_fill_color"
     TOOLS.append({

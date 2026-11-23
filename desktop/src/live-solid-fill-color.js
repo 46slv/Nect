@@ -1,6 +1,47 @@
-import { editorTargetMatches } from './live-editor-target.js';
+import { captureEditorTarget, editorTargetMatches } from './live-editor-target.js';
 
 export const isSolidFillHex = (value) => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
+
+function exactFill(layers, layerId, nodeId) {
+  if (!Array.isArray(layers)) return { status: 'unavailable' };
+  const [layer, duplicateLayer] = layers.filter((entry) => entry.id === layerId);
+  if (!layer || duplicateLayer || !Array.isArray(layer.nodes))
+    return { status: 'unsupported-target' };
+  const [node, duplicateNode] = layer.nodes.filter((entry) => entry.id === nodeId);
+  const color = node?.params?.color;
+  if (!node || duplicateNode || node.type !== 'Fill' || color?.type !== 'Color')
+    return { status: 'unsupported-target' };
+  return { layer, node, color };
+}
+
+const isControlled = (color) =>
+  Boolean(color.expression || color.colorSlotId !== undefined || color.source);
+const hasLiteral = (color) =>
+  isSolidFillHex(color.value?.hex) && Number.isFinite(color.value?.alpha);
+const isLocked = ({ layer, node, color }) => Boolean(layer.locked || node.locked || color.locked);
+
+// Authored literal only; never expose an expression, source, or resolved color.
+export function readLiveSolidFillColor({ readTarget, readDocument }, { target, layerId, nodeId }) {
+  const current = captureEditorTarget(readTarget());
+  if (!editorTargetMatches(current, target)) return { status: 'stale-target' };
+  const fill = exactFill(readDocument()?.layers, layerId, nodeId);
+  if (!editorTargetMatches(readTarget(), current)) return { status: 'stale-target' };
+  if (fill.status) return { status: fill.status };
+  const { node, color } = fill;
+  const mode = isControlled(color) ? 'controlled' : hasLiteral(color) ? 'literal' : 'unavailable';
+  const locked = isLocked(fill),
+    bypassed = node.bypassed === true;
+  return {
+    status: 'ok',
+    target: current,
+    mode,
+    rgb: mode === 'literal' ? color.value.hex.toLowerCase() : null,
+    alpha: mode === 'literal' ? color.value.alpha : null,
+    locked,
+    bypassed,
+    editable: mode === 'literal' && !locked && !bypassed,
+  };
+}
 
 export function createLiveSolidFillColor({ readTarget, getOwner, isEditBlocked, commit }) {
   return ({ target, layerId, nodeId, hex }) => {
@@ -9,28 +50,10 @@ export function createLiveSolidFillColor({ readTarget, getOwner, isEditBlocked, 
     if (!isSolidFillHex(hex)) return { status: 'invalid-arguments' };
     if (isEditBlocked()) return { status: 'edit-in-progress' };
     const owner = getOwner();
-    const layers = owner?.snapshot()?.layers;
-    if (!Array.isArray(layers)) return { status: 'unavailable' };
-    const foundLayers = layers.filter((layer) => layer.id === layerId);
-    if (foundLayers.length !== 1) return { status: 'unsupported-target' };
-    const [layer] = foundLayers;
-    const foundNodes = layer.nodes.filter((node) => node.id === nodeId);
-    if (foundNodes.length !== 1 || foundNodes[0].type !== 'Fill')
-      return { status: 'unsupported-target' };
-    const [node] = foundNodes;
-    const color = node.params.color;
-    if (!color || color.type !== 'Color') return { status: 'unsupported-target' };
-    if (
-      layer.locked ||
-      node.locked ||
-      node.bypassed ||
-      color.locked ||
-      color.expression ||
-      color.colorSlotId !== undefined ||
-      color.source ||
-      !isSolidFillHex(color.value?.hex) ||
-      !Number.isFinite(color.value?.alpha)
-    )
+    const fill = exactFill(owner?.snapshot()?.layers, layerId, nodeId);
+    if (fill.status) return { status: fill.status };
+    const { node, color } = fill;
+    if (isLocked(fill) || node.bypassed || isControlled(color) || !hasLiteral(color))
       return { status: 'rejected' };
     if (!matches()) return { status: 'stale-target' };
     if (color.value.hex.toLowerCase() === hex.toLowerCase()) return { status: 'unchanged' };

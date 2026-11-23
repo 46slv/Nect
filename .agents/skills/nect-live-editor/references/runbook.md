@@ -38,3 +38,17 @@ test-only and are not an ordinary Windows or Hermes MCP capability.
 4. Verify the specific difference your edit should make: preserve the pinned
    artwork, check the moved coordinates or edge gaps, and save a copy. Reopen
    and verify authored positions. A successful export alone is not proof.
+
+## Read and change a literal Fill in the Windows development fixture
+
+When the fixture advertises both tools, inspect and list the layer and its
+nodes at the same revision. Give the exact layer ID and Fill node ID to
+`nect_test_read_solid_fill_color`. The result is authored RGB and alpha,
+not evaluated appearance. A controlled Fill exposes neither its configured
+fallback nor its source. Locked or bypassed literals are readable, not editable.
+
+Change RGB with `nect_test_set_solid_fill_color` only for the intended
+editable literal. It preserves alpha. Read again at the returned revision
+before recording success; after an uncertain reply, re-inspect and read
+instead of issuing a new write. For persistence, reopen the fixture copy,
+use its new target and verify RGB and alpha again.

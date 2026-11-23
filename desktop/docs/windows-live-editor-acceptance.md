@@ -223,3 +223,14 @@ their digests. The fixture profile and WebView debugger are disposable and
 loopback-only. This is not a test of IME, the export file picker, Hermes,
 or the product's external pairing and permissions. Do not commit the local
 outline JSON, project copies, or exported artwork.
+
+### Literal Fill readback
+
+For a separate disposable fixture run, enable `NECT_ACCEPTANCE_OBJECTS=1`,
+`NECT_ACCEPTANCE_ARTWORK=1`, `NECT_ACCEPTANCE_LAYER_LOCK=1`,
+`NECT_ACCEPTANCE_SOLID_FILL=1`, and `NECT_ACCEPTANCE_SOLID_FILL_READ=1`.
+Use a new receipt path. The verifier checks separate opt-in discovery of the
+read tool, exact Fill selection, locked literal readback, stale-target refusal
+and unchanged revision on read. It verifies the edited RGB and preserved
+alpha after reopening the saved fixture. This does not exercise or expand
+ordinary Windows pairing.

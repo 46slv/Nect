@@ -7,7 +7,7 @@ import {
   serializeCompositionProject,
 } from '../src/composition-project-model.js';
 import { createLiveEditorProtocol } from '../src/live-editor-protocol.js';
-import { createLiveSolidFillColor } from '../src/live-solid-fill-color.js';
+import { createLiveSolidFillColor, readLiveSolidFillColor } from '../src/live-solid-fill-color.js';
 import { orderingDocument } from './fixtures/artwork-ordering.js';
 
 test('solid Fill matches the GUI, preserves alpha and history, and never edits another node', () => {
@@ -131,4 +131,87 @@ test('rejects driven, shared, locked, and bypassed Fill without dispatch', () =>
       'rejected',
     );
   }
+});
+
+test('read exact Fill exposes only its authored color and leaves revision and history intact', () => {
+  const doc = orderingDocument();
+  const [layer, other] = doc.layers;
+  const [shape, fill] = layer.nodes;
+  fill.params.color.value = { hex: '#1177AA', alpha: 0.4 };
+  other.locked = true;
+  const owner = createCompositionSessionOwner(
+    deserializeCompositionProject(serialize(doc), deserialize),
+  );
+  const target = {
+    documentGeneration: 1,
+    compositionId: owner.activeCompositionId,
+    sessionId: owner.state.sessionId,
+    sessionRevision: owner.state.expectedRevision,
+    projectRevision: owner.projectRevision,
+  };
+  const readTarget = () => target;
+  const read = (args) =>
+    readLiveSolidFillColor({ readTarget, readDocument: () => owner.snapshot() }, args);
+  const handle = createLiveEditorProtocol({ readTarget, readSolidFillColor: read });
+  const request = {
+    version: 1,
+    operation: 'fill.readSolidColor',
+    arguments: { target, layerId: layer.id, nodeId: fill.id },
+  };
+  const snap = serializeCompositionProject(owner.projectSnapshot());
+  assert.equal(createLiveEditorProtocol({ readTarget })(request).status, 'unsupported-operation');
+  assert.deepEqual(handle(request), {
+    status: 'ok',
+    target,
+    mode: 'literal',
+    rgb: '#1177aa',
+    alpha: 0.4,
+    locked: false,
+    bypassed: false,
+    editable: true,
+  });
+  const override = (extra) => handle({ ...request, arguments: { ...request.arguments, ...extra } });
+  const locked = override({ layerId: other.id, nodeId: other.nodes[1].id });
+  assert.equal(locked.mode, 'literal');
+  assert.equal(locked.locked, true);
+  assert.equal(locked.editable, false);
+  assert.equal(override({ nodeId: shape.id }).status, 'unsupported-target');
+  assert.equal(override({ hex: '#1177aa' }).status, 'invalid-arguments');
+  assert.equal(override({ target: { ...target, documentGeneration: 2 } }).status, 'stale-target');
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), snap);
+  assert.equal(owner.state.expectedRevision, target.sessionRevision);
+  assert.equal(owner.projectRevision, target.projectRevision);
+
+  for (const control of [
+    { expression: 'private-expression' },
+    { source: 'private-id' },
+    { colorSlotId: 'private-slot' },
+  ]) {
+    const color = fill.params.color;
+    fill.params.color = { ...color, ...control };
+    const actual = readLiveSolidFillColor(
+      { readTarget, readDocument: () => doc },
+      request.arguments,
+    );
+    assert.deepEqual(actual, {
+      status: 'ok',
+      target,
+      mode: 'controlled',
+      rgb: null,
+      alpha: null,
+      locked: false,
+      bypassed: false,
+      editable: false,
+    });
+    fill.params.color = color;
+  }
+  let reads = 0;
+  const stale = readLiveSolidFillColor(
+    {
+      readTarget: () => (reads++ ? { ...target, documentGeneration: 2 } : target),
+      readDocument: () => doc,
+    },
+    request.arguments,
+  );
+  assert.deepEqual(stale, { status: 'stale-target' });
 });

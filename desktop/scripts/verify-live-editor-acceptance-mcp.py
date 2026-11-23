@@ -44,6 +44,8 @@ hidden_roundtrip = os.environ.get("NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP") == "1"
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
 solid_fill = os.environ.get("NECT_ACCEPTANCE_SOLID_FILL") == "1"
+solid_fill_read = os.environ.get("NECT_ACCEPTANCE_SOLID_FILL_READ") == "1"
+assert not solid_fill_read or solid_fill
 artwork_gaps = os.environ.get("NECT_ACCEPTANCE_ARTWORK_GAPS") == "1"
 artwork_gaps_auto = os.environ.get("NECT_ACCEPTANCE_ARTWORK_GAPS_AUTO") == "1"
 assert not artwork_gaps_auto or artwork_gaps
@@ -158,6 +160,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             extra.append("nect_test_set_layer_lock")
         if layer_rename:
             extra.append("nect_test_rename_layer")
+        if solid_fill_read:
+            extra.append("nect_test_read_solid_fill_color")
         if solid_fill:
             extra.append("nect_test_set_solid_fill_color")
         if artwork_gaps:
@@ -191,7 +195,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         assert [t["name"] for t in listed["tools"]] == ["nect_test_inspect", "nect_test_set_blend_distance", "nect_test_export_svg", "nect_test_export_png", "nect_test_save_copy", "nect_test_reopen_copy", "nect_test_undo", "nect_test_redo","nect_test_save_state","nect_test_save_receipt","nect_test_save_as"] + extra
         read_only_names = {"nect_test_inspect", "nect_test_save_state", "nect_test_save_receipt",
                            "nect_test_list_artwork", "nect_test_read_node_input_wires",
-                           "nect_test_list_layer_folders", "nect_test_plan_layer_folder", "nect_test_read_layer_state"}
+                           "nect_test_list_layer_folders", "nect_test_plan_layer_folder", "nect_test_read_layer_state", "nect_test_read_solid_fill_color"}
         assert all(t["annotations"]["readOnlyHint"] == (t["name"] in read_only_names) for t in listed["tools"])
         start = call(3, "tools/call", name="nect_test_inspect", arguments={})
         assert not start["isError"], start
@@ -420,15 +424,34 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             fill_node = fill_identity(current)
             fill_hex = "#1177aa"
             paint = dict(target=current, layerId=fill_layer, nodeId=fill_node, hex=fill_hex)
+            def read_fill(revision, expected, is_error=False, node=fill_node):
+                return invoke("read_solid_fill_color",
+                              dict(target=revision, layerId=fill_layer, nodeId=node),
+                              expected, is_error)
+            if solid_fill_read:
+                read_fill(current, "unsupported-target", True, shape_id)
+                initial_fill = read_fill(current, "ok")
+                assert initial_fill["mode"] == "literal" and initial_fill["editable"]
+                assert initial_fill["rgb"] != fill_hex and initial_fill["alpha"] == 1
+                assert invoke("inspect", {}, "ok")["target"] == current
             invoke("set_solid_fill_color", {**paint, "nodeId":shape_id}, "unsupported-target", True)
             invoke("set_solid_fill_color", {**paint, "hex":"#fff"}, "invalid-arguments", True)
             current = invoke("set_layer_lock", dict(target=current, layerId=fill_layer, locked=True), "changed")["target"]
             invoke("set_solid_fill_color", {**paint, "target":current}, "rejected", True)
+            if solid_fill_read:
+                locked_fill = read_fill(current, "ok")
+                assert locked_fill["locked"] and not locked_fill["editable"]
+                assert locked_fill["rgb"] == initial_fill["rgb"]
             current = invoke("set_layer_lock", dict(target=current, layerId=fill_layer, locked=False), "changed")["target"]
             paint["target"] = current
             changed = invoke("set_solid_fill_color", paint, "changed")["target"]
             assert changed["projectRevision"] == current["projectRevision"] + 1
             invoke("set_solid_fill_color", paint, "stale-target", True)
+            if solid_fill_read:
+                read_fill(current, "stale-target", True)
+                applied = read_fill(changed, "ok")
+                assert applied["rgb"] == fill_hex and applied["alpha"] == 1
+                assert invoke("inspect", {}, "ok")["target"] == changed
             undone = invoke("undo", {"target":changed}, "changed")["target"]
             current = invoke("redo", {"target":undone}, "changed")["target"]
             assert invoke("set_solid_fill_color", {**paint, "target":current}, "unchanged")["target"] == current
@@ -908,6 +931,11 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             assert layer_order(1505, reopened) == next_order
         if solid_fill:
             assert fill_identity(reopened) == fill_node
+            if solid_fill_read:
+                read_fill(current, "stale-target", True)
+                saved_fill = read_fill(reopened, "ok")
+                assert saved_fill["rgb"] == fill_hex and saved_fill["alpha"] == initial_fill["alpha"]
+                assert saved_fill["target"] == reopened and saved_fill["editable"]
             invoke("set_solid_fill_color", {**paint, "target":current}, "stale-target", True)
             assert invoke("set_solid_fill_color", {**paint, "target":reopened},
                           "unchanged")["target"] == reopened
