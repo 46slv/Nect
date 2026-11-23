@@ -274,3 +274,4 @@ fixture. The read-back contract keeps RGB and alpha separate. The command
 changes only an authored scalar from 0 to 1, preserving RGB and the existing
 edit restrictions. The verifier checks a 0.75 opacity, including lock and
 stale rejection, Undo/Redo, reopened state and the SVG fill-opacity attribute.
+It also checks transparent and fully opaque literals without losing RGB.

@@ -499,6 +499,16 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 current = invoke("redo", {"target":undone}, "changed")["target"]
                 assert invoke("set_solid_fill_opacity", {**opacity, "target":current},
                               "unchanged")["target"] == current
+                # Zero stores a transparent literal; it does not delete the Fill or its RGB.
+                for extreme in (0, 1):
+                    prior = current
+                    current = invoke("set_solid_fill_opacity", {**opacity, "target":current, "alpha":extreme},
+                                     "changed")["target"]
+                    edge = read_fill(current, "ok")
+                    assert (edge["mode"], edge["rgb"], edge["alpha"]) == ("literal", fill_hex, extreme)
+                    assert current["projectRevision"] == prior["projectRevision"] + 1
+                current = invoke("set_solid_fill_opacity", {**opacity, "target":current},
+                                 "changed")["target"]
         if artwork_gaps:
             gap_ids = [item[2] for item in made]
             current = invoke("set_layer_lock", dict(target=current, layerId=gap_ids[1], locked=True),
@@ -1313,7 +1323,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             evidence["authoredTextReadback"] = dict(readOnly=True, unchangedRevision=True,
                 staleRejected=True, reopenedText=replacement)
         if solid_fill_opacity:
-            evidence["solidFillOpacity"] = dict(alpha=fill_alpha, rgbPreserved=True,
+            evidence["solidFillOpacity"] = dict(alpha=fill_alpha, rgbPreserved=True, endpoints=[0, 1],
                 lockedAndStaleRejected=True, undoRedoReopenAndSVGVerified=True)
         if solid_fill_read:
             evidence["solidFillReadback"] = dict(readOnly=True, staleRejected=True,
