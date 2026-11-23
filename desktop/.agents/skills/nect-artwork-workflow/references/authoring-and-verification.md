@@ -21,3 +21,21 @@ Use a valid, distinct output path with an existing parent. Inspect the generated
 - **Browser verified**: editing was exercised in the browser harness, not the native app.
 - **Native verified**: editing, reopen, or export was actually executed in the Windows app.
 - **MCP verified**: the supported server and client were used end to end for the named command. Neither a direct import of a test helper nor a CLI pass suffices.
+
+## Hermes discovery (opt-in)
+
+Hermes does not need this entire repository in its skill directory. Point its
+`skills.external_dirs` configuration at the absolute path to this checkout's
+`desktop/.agents/skills` directory in the intended profile, keeping the other
+configured entries. For example (replace the path):
+
+```yaml
+skills:
+  external_dirs:
+    - "D:/work/Nect/desktop/.agents/skills"
+```
+
+Use the profile's skill list to confirm that `nect-artwork-workflow` appears.
+Then open the skill by name, and ask its skill reader for
+`references/authoring-and-verification.md` only when the command is needed.
+Loading the skill is not proof that a model selected it in a real request.
