@@ -275,3 +275,10 @@ changes only an authored scalar from 0 to 1, preserving RGB and the existing
 edit restrictions. The verifier checks a 0.75 opacity, including lock and
 stale rejection, Undo/Redo, reopened state and the SVG fill-opacity attribute.
 It also checks transparent and fully opaque literals without losing RGB.
+
+For a separate fresh run, add `NECT_ACCEPTANCE_SOLID_FILL_ZERO_COPY=1`
+to keep alpha zero in the saved copy. Arrange while the rectangle is
+visible, then set alpha to zero before save. The stable Fill ID and
+authored RGB survive reopen even though the rectangle is not painted.
+Other artwork is still exported. This case does not change which shapes
+are eligible for the existing visible-artwork placement tool.
