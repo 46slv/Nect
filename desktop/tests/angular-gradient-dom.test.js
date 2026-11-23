@@ -63,7 +63,10 @@ test('Angular Gradient Fill is searchable, creates by Enter and keeps settings t
   assert.equal(JSON.stringify(win.nect.document), before);
   $('[data-action="redo"]').click();
   assert.equal(JSON.stringify(win.nect.document), saved);
+  const help = () => $('.node[data-id="' + created.id + '"] [data-layout-disclosure="help"]');
+  assert.equal(help().open, true, 'undo and redo recreate the card without closing Help');
   win.nect.load(saved);
+  assert.equal(help().open, false, 'opening a document resets temporary view state');
   assert.deepEqual(
     win.nect.document.layers[0].nodes.find((n) => n.type === 'Angular Gradient Fill').params,
     created.params,
