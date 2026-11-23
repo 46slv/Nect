@@ -5039,7 +5039,22 @@ function transformUniformScale(n) {
     return true;
   }
 }
+const compactLuminanceRows = new Set([
+  'Luminance Instances',
+  'Luminance to Points',
+  'Halftone',
+  'Ordered Dither',
+  'Error Diffusion Dither',
+  'Ordered Dither Image',
+  'Error Diffusion Dither Image',
+  'Line Screen',
+]);
 function field(n, key, q, inspector = false) {
+  const compactLiteral =
+    compactLuminanceRows.has(n.type) &&
+    !q.source &&
+    !q.expression &&
+    ['Scalar', 'Boolean'].includes(q.type);
   let source = current().nodes.find((x) => x.id === q.source),
     locked =
       q.locked ||
@@ -5318,7 +5333,7 @@ function field(n, key, q, inspector = false) {
       )
       .join('');
   if (angleDial && !q.source && !q.expression) control += repeaterAngleControl(n, q);
-  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2', 'Color'].includes(q.type) ? `<button class="mini" data-fx aria-label="Expression and parameter references: ${esc(n.name + ' ' + name)}" title="Expression and parameter references: Vector2 uses X; Y">${workspaceIcon('expression')}</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name + (q.sourcePort ? ' ' + (outputPorts(source).find((p) => p.id === q.sourcePort)?.label || q.sourcePort) : ''))} · connected value</span>` : ''}</div>`;
+  return `<div class="field ${q.source ? 'connected' : ''}${compactLiteral ? ' node-compact-literal' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2', 'Color'].includes(q.type) ? `<button class="mini" data-fx aria-label="Expression and parameter references: ${esc(n.name + ' ' + name)}" title="Expression and parameter references: Vector2 uses X; Y">${workspaceIcon('expression')}</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name + (q.sourcePort ? ' ' + (outputPorts(source).find((p) => p.id === q.sourcePort)?.label || q.sourcePort) : ''))} · connected value</span>` : ''}</div>`;
 }
 // Presentation-only state; Canvas selection remains the single point selection owner.
 const pointPanelViews = new Map();

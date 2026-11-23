@@ -22,6 +22,24 @@ Inspector content height includes the normal Inspector frame.
 - Opening, closing and restoring disclosures is view-only; it never edits the
   document or creates an Undo operation. Graph and Inspector state is separate.
 
+## Compact value rows in the luminance family
+
+Common literal numbers and checkboxes are on the label's row. Input/Output
+types, attached sources, lock and expression controls, and diagnostics are
+unchanged. Connected and expression-driven values keep the full Base/Result
+row. Path and Vector2 controls keep their original space.
+
+| Node                         | Card before / after (px) | Inspector before / after (px) |
+| ---------------------------- | -----------------------: | ----------------------------: |
+| Error Diffusion Dither       |                832 → 736 |                     937 → 731 |
+| Error Diffusion Dither Image |                793 → 697 |                     928 → 722 |
+| Halftone                     |                832 → 753 |                     937 → 731 |
+| Line Screen                  |                530 → 475 |                     657 → 573 |
+| Luminance Instances          |                840 → 681 |                     896 → 684 |
+| Luminance to Points          |                780 → 661 |                     896 → 690 |
+| Ordered Dither               |                832 → 736 |                     937 → 731 |
+| Ordered Dither Image         |                793 → 697 |                     928 → 722 |
+
 ## Next cases to inspect and improve
 
 1. Text: remaining typography, reference and wrap controls. Cover Windows

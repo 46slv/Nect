@@ -116,5 +116,26 @@ test('Halftone and Ordered Dither are discoverable, wired as PaintedPath control
     win.nect.document.layers[0].nodes.find((item) => item.id === effect.id).bypassed,
     undefined,
   );
+  const row = (key) => query(`.node[data-id="${effect.id}"] .field[data-key="${key}"]`);
+  for (const key of ['pitch', 'tonePower', 'invert'])
+    assert.ok(row(key).classList.contains('node-compact-literal'), key);
+  assert.ok(!row('gridOrigin').classList.contains('node-compact-literal'));
+  assert.ok(row('path').querySelector('.socket.input'));
+  const driven = JSON.parse(serialize(win.nect.document));
+  const updated = driven.layers[0].nodes.find((n) => n.id === effect.id);
+  const value = node('Value');
+  value.params.value.value = 12;
+  driven.layers[0].nodes.push(value);
+  updated.params.pitch.source = value.id;
+  updated.params.tonePower.expression = '2';
+  win.nect.load(serialize(driven));
+  await tick();
+  for (const key of ['pitch', 'tonePower']) {
+    assert.ok(!row(key).classList.contains('node-compact-literal'), key);
+    assert.ok(row(key).querySelector('[data-base]'), key);
+    assert.ok(row(key).querySelector('.parameter-result'), key);
+  }
+  assert.ok(row('pitch').querySelector('.socket.input'));
+  assert.ok(row('tonePower').querySelector('[data-expression]'));
   await win.happyDOM.close();
 });
