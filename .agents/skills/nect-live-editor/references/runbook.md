@@ -13,6 +13,25 @@ Initialize the MCP session and use `tools/list`. Read the advertised Inspect sch
 
 Record app/build, tool and grant, before/after identity, produced file and verification limits. For an edit check exactly the intended fields and Undo. For persistence reopen and check authored state, not just pixels. A fixture save is not evidence of the Windows file chooser or ordinary Hermes pairing.
 
+## Create a primitive in the Windows development fixture
+
+Use only a disposable document with the fixture tool advertised. For a
+Rectangle, Circle, Ellipse, Polygon, or Star, inspect the document and
+record its initial layer IDs. Call `nect_test_create_artwork` with that
+`target`, the exact `artworkType`, and `at: [x, y]` in artboard coordinates
+(the shape center, not screen coordinates). This appends a new artwork
+layer without replacing an existing output. For the next write, use the
+returned target, not the one from before creation.
+
+Check the new stable layer and node IDs by listing at the new revision.
+If the reply was lost, inspect and list again; reconcile against the
+initial IDs and authored state instead of blindly creating a second copy.
+After Undo/Redo, confirm the restored IDs before editing. Save to
+the fixture copy, reopen and check the authored center, type and ID order.
+Verify SVG and PNG separately from project persistence. Use the primitive
+shape run in [Windows fixture setup](../../../../desktop/docs/windows-live-editor-acceptance.md)
+to reproduce all five shapes; this is not a normal-app pairing test.
+
 ## Arrange artwork in the Windows development fixture
 
 Use only tools advertised by this run. The `nect_test_*` tools below are
