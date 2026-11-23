@@ -56,8 +56,6 @@ if (spare) {
   join.joinInputOrder[2] = 'input_spare';
 }
 const sample = serialize(doc);
-await writeFile('examples/composition-parts-alpha.json', sample);
-await writeFile('examples/composition-parts-alpha.svg', exportSVG(doc));
 const root = resolve('dist'),
   config = JSON.parse(await readFile('src-tauri/tauri.conf.json', 'utf8'));
 const server = createServer(async (req, res) => {
@@ -262,6 +260,8 @@ try {
     [0, 128, 0, 128, 192],
   );
   await mkdir('test-results/composition-reference', { recursive: true });
+  await writeFile('test-results/composition-reference/composition-parts-alpha.json', sample);
+  await writeFile('test-results/composition-reference/composition-parts-alpha.svg', exportSVG(doc));
   await writeFile(
     'test-results/composition-reference/alpha.png',
     Buffer.from(raster.png, 'base64'),

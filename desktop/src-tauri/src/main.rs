@@ -13,6 +13,40 @@ mod build_identity_config;
 mod build_identity_sources;
 mod desktop_font_layout;
 mod document_storage;
+#[cfg(any(
+    test,
+    all(
+        windows,
+        any(
+            feature = "live-editor-acceptance-test",
+            feature = "live-inspect-preview"
+        )
+    )
+))]
+mod live_api_read_admission;
+mod live_editor_acceptance;
+mod live_editor_frames;
+mod live_editor_mailbox;
+#[cfg(all(
+    windows,
+    any(
+        feature = "live-editor-acceptance-test",
+        feature = "live-inspect-preview"
+    )
+))]
+mod live_inspect_lane;
+mod live_inspect_preview;
+#[cfg(all(windows, any(test, feature = "live-inspect-preview")))]
+mod live_inspect_windows_pipe;
+#[cfg(any(
+    test,
+    all(
+        windows,
+        feature = "live-inspect-preview",
+        feature = "live-mcp-pairing"
+    )
+))]
+mod live_mcp_pairing_offer;
 mod os_font_outlines;
 mod private_fonts;
 #[cfg(feature = "recovery-acceptance-test")]
@@ -154,6 +188,25 @@ fn run() -> Result<(), String> {
         // prevents Tauri itself from creating its ordinary profile first.
         std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", &paths.webview);
     }
+    let live_acceptance = live_editor_acceptance::enabled(
+        storage.0.is_some(),
+        std::env::var_os("NECT_LIVE_EDITOR_ACCEPTANCE_STDIO").as_deref()
+            == Some(std::ffi::OsStr::new("1")),
+    )?;
+    let live_test_enabled = live_acceptance.0.is_some();
+    let preview_stdio = std::env::var_os("NECT_LIVE_INSPECT_PREVIEW_STDIO").as_deref()
+        == Some(std::ffi::OsStr::new("1"));
+    live_inspect_preview::Preview::require_disposable_stdio(
+        preview_stdio,
+        storage.0.is_some(),
+        live_test_enabled,
+    )?;
+    let pipe_request = std::env::var_os("NECT_LIVE_INSPECT_PIPE_PROOF");
+    let inspect_preview = live_inspect_preview::Preview::configured(
+        pipe_request,
+        storage.0.is_some(),
+        live_test_enabled || preview_stdio,
+    )?;
     let window_storage = storage.clone();
     let identity = build_identity::BuildIdentity::compiled(
         &context.config().identifier,
@@ -161,6 +214,8 @@ fn run() -> Result<(), String> {
         storage.0.is_some(),
     );
     tauri::Builder::default()
+        .manage(live_acceptance)
+        .manage(inspect_preview)
         .manage(identity)
         .manage(storage)
         .manage(asset_library::AssetLibrary::default())
@@ -170,6 +225,23 @@ fn run() -> Result<(), String> {
         .manage(private_fonts::PrivateFonts::default())
         .manage(Recovery::default())
         .invoke_handler(tauri::generate_handler![
+            live_inspect_preview::live_preview_available,
+            live_inspect_preview::live_preview_review_offer,
+            live_inspect_preview::live_preview_attach,
+            live_inspect_preview::live_preview_reply,
+            live_inspect_preview::live_preview_read,
+            live_inspect_preview::live_preview_detach,
+            live_editor_acceptance::live_acceptance_inspect_attach,
+            live_editor_acceptance::live_acceptance_inspect_reply,
+            live_editor_acceptance::live_acceptance_inspect_detach,
+            live_editor_acceptance::live_acceptance_claim,
+            live_editor_acceptance::live_acceptance_finish,
+            live_editor_acceptance::live_acceptance_fixture,
+            live_editor_acceptance::live_acceptance_write_svg,
+            live_editor_acceptance::live_acceptance_write_png,
+            live_editor_acceptance::live_acceptance_save_copy,
+            live_editor_acceptance::live_acceptance_read_copy,
+            live_editor_acceptance::live_acceptance_save_as,
             build_identity::query_build_identity,
             open_document,
             open_svg_source,
@@ -203,7 +275,28 @@ fn run() -> Result<(), String> {
             read_recovery,
             acknowledge_recovery
         ])
+        .on_page_load(|webview, payload| {
+            if webview.label() != "main" {
+                return;
+            }
+            let state = webview.state::<live_editor_acceptance::LiveAcceptance>();
+            match payload.event() {
+                tauri::webview::PageLoadEvent::Started => {
+                    state.revoke_inspection();
+                    webview.state::<live_inspect_preview::Preview>().revoke();
+                }
+                // Only the isolated fixture automatically arms. The normal app
+                // will require an explicit user decision, not a page callback.
+                tauri::webview::PageLoadEvent::Finished => {
+                    state.arm_inspection_for_fixture();
+                }
+            }
+        })
         .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                window.state::<live_editor_acceptance::LiveAcceptance>().revoke_inspection();
+                window.state::<live_inspect_preview::Preview>().revoke();
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if let Ok(guard) = window.state::<CloseGuard>().0.lock() {
                     if let Some(channel) = guard.as_ref() {
@@ -233,7 +326,16 @@ fn run() -> Result<(), String> {
                     .data_directory(paths.webview.clone());
                 #[cfg(feature = "recovery-acceptance-test")]
                 let builder = builder.initialization_script("Object.defineProperty(window, '__NECT_RECOVERY_TEST_INSTANCE__', { value: true });");
+                let builder = if live_test_enabled {
+                    builder.visible(false).initialization_script("Object.defineProperty(window, '__NECT_LIVE_EDITOR_TEST_INSTANCE__', { value: true });")
+                } else {
+                    builder
+                };
                 builder.build()?;
+                live_editor_acceptance::run(&app.state::<live_editor_acceptance::LiveAcceptance>())?;
+                if preview_stdio {
+                    app.state::<live_inspect_preview::Preview>().run_disposable_stdio()?;
+                }
             }
             Ok(())
         })

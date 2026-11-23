@@ -50,6 +50,14 @@ fn main() {
         .expect("Frontend assets do not match the native version");
     }
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        if std::env::var_os("CARGO_FEATURE_LIVE_MCP_PAIRING").is_some() {
+            cc::Build::new()
+                .file("src/windows_pairing_seed.c")
+                .compile("nect_windows_pairing_seed");
+            println!("cargo:rustc-link-lib=advapi32");
+            println!("cargo:rustc-link-lib=bcrypt");
+            println!("cargo:rerun-if-changed=src/windows_pairing_seed.c");
+        }
         cc::Build::new()
             .cpp(true)
             .file("src/os_font_outlines.cpp")

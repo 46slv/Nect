@@ -1,10 +1,5 @@
-const targetKeys = [
-  'documentGeneration',
-  'compositionId',
-  'sessionId',
-  'sessionRevision',
-  'projectRevision',
-];
+import { captureEditorTarget, editorTargetMatches } from './live-editor-target.js';
+import { MISSING_GLYPH_CODE } from './text-layout.js';
 
 // In-process, application-owned operation. A caller supplies intent and the
 // target version, never the document or a replacement destination writer.
@@ -13,13 +8,12 @@ export function createLiveArtworkOutput({ readTarget, readSnapshot, exportArtwor
 
   function currentTarget() {
     const values = readTarget();
-    return Object.freeze(Object.fromEntries(targetKeys.map((key) => [key, values[key]])));
+    return captureEditorTarget(values);
   }
 
   async function run({ target, format, svgOptions, pngOptions }) {
     const current = currentTarget();
-    if (!target || targetKeys.some((key) => current[key] !== target[key]))
-      return { status: 'stale-target' };
+    if (!editorTargetMatches(current, target)) return { status: 'stale-target' };
     if (pending) return { status: 'busy' };
 
     pending = true;
@@ -27,6 +21,9 @@ export function createLiveArtworkOutput({ readTarget, readSnapshot, exportArtwor
       const snapshot = readSnapshot();
       const result = await exportArtwork({ ...snapshot, format, svgOptions, pngOptions }, write);
       return { ...result, status: result.written ? 'accepted-by-writer' : 'canceled' };
+    } catch (error) {
+      if (error?.code === MISSING_GLYPH_CODE) return { status: 'unsupported-glyph' };
+      throw error;
     } finally {
       pending = false;
     }

@@ -194,6 +194,45 @@ impl RunStorage {
         Ok(target)
     }
 
+    #[cfg(all(
+        windows,
+        feature = "live-inspect-preview",
+        feature = "live-mcp-pairing"
+    ))]
+    pub(crate) fn validate_selected_pairing_offer(&self, path: &Path) -> Result<(), &'static str> {
+        use std::os::windows::fs::OpenOptionsExt;
+        const LIMIT: u64 = 512;
+        const INVALID: &str = "Selected pairing offer is unavailable or invalid";
+        // This validation seam is for the disposable chooser only. It does
+        // not follow an endpoint or expose a ticket/path to the renderer.
+        if self.0.is_none() || path.extension().and_then(|n| n.to_str()) != Some("nect-pair") {
+            return Err(INVALID);
+        }
+        let target = self.document_path(path, true).map_err(|_| INVALID)?;
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(7) // Compatible with the owner's write/delete-on-close.
+            .custom_flags(0x00200000) // FILE_FLAG_OPEN_REPARSE_POINT
+            .open(&target)
+            .map_err(|_| INVALID)?;
+        let info = file.metadata().map_err(|_| INVALID)?;
+        if !info.is_file() || is_reparse(&info) || !(1..=LIMIT).contains(&info.len()) {
+            return Err(INVALID);
+        }
+        self.verify_private_font_handle(&file, &target)
+            .map_err(|_| INVALID)?;
+        let mut data = Vec::new();
+        (&file)
+            .take(LIMIT + 1)
+            .read_to_end(&mut data)
+            .map_err(|_| INVALID)?;
+        self.verify_private_font_handle(&file, &target)
+            .map_err(|_| INVALID)?;
+        crate::live_mcp_pairing_offer::LocalPairingOffer::decode(&data)
+            .map(|_| ())
+            .map_err(|_| INVALID)
+    }
+
     pub fn read_project(&self, path: &Path) -> Result<String, String> {
         let path = self.document_path(path, true)?;
         let file = fs::File::open(path).map_err(|e| e.to_string())?;
@@ -302,6 +341,77 @@ impl RunStorage {
         }
         #[cfg(not(windows))]
         let _ = (file, expected);
+        Ok(())
+    }
+
+    // The native acceptance adapter owns this destination. It is not a
+    // filename received from an automation client and cannot overwrite a file.
+    pub(crate) fn write_acceptance_svg(&self, contents: &[u8]) -> Result<(), String> {
+        let paths = self
+            .0
+            .as_ref()
+            .ok_or("Isolated acceptance storage required")?;
+        self.write_acceptance_output(&paths.documents.join("live-api-export.svg"), contents)
+    }
+
+    pub(crate) fn write_acceptance_project_copy(&self, contents: &[u8]) -> Result<(), String> {
+        let paths = self
+            .0
+            .as_ref()
+            .ok_or("Isolated acceptance storage required")?;
+        self.write_acceptance_output(&paths.documents.join("live-api-project.json"), contents)
+    }
+
+    #[cfg(all(windows, feature = "live-editor-acceptance-test"))]
+    pub(crate) fn acceptance_bound_project_path(&self) -> Result<PathBuf, String> {
+        let paths = self
+            .0
+            .as_ref()
+            .ok_or("Isolated acceptance storage required")?;
+        Ok(paths.documents.join("live-api-save-as.json"))
+    }
+
+    pub(crate) fn read_acceptance_project_copy(&self) -> Result<Option<String>, String> {
+        let paths = self
+            .0
+            .as_ref()
+            .ok_or("Isolated acceptance storage required")?;
+        let path = self.document_path(&paths.documents.join("live-api-project.json"), false)?;
+        let file = match fs::File::open(&path) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.to_string()),
+        };
+        self.verify_private_font_handle(&file, &path)
+            .map_err(|_| "Cannot verify acceptance project storage boundary")?;
+        let mut bytes = Vec::new();
+        file.take(4_000_001)
+            .read_to_end(&mut bytes)
+            .map_err(|e| e.to_string())?;
+        if bytes.len() > 4_000_000 {
+            return Err("Invalid acceptance project".into());
+        }
+        String::from_utf8(bytes)
+            .map(Some)
+            .map_err(|e| e.to_string())
+    }
+
+    pub(crate) fn write_acceptance_png(&self, contents: &[u8]) -> Result<(), String> {
+        let paths = self
+            .0
+            .as_ref()
+            .ok_or("Isolated acceptance storage required")?;
+        self.write_acceptance_output(&paths.documents.join("live-api-export.png"), contents)
+    }
+
+    fn write_acceptance_output(&self, path: &Path, contents: &[u8]) -> Result<(), String> {
+        let path = self.document_path(path, false)?;
+        let parent = path.parent().ok_or("Invalid destination")?;
+        let mut staged = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+        staged.write_all(contents).map_err(|e| e.to_string())?;
+        staged.as_file().sync_all().map_err(|e| e.to_string())?;
+        self.document_path(&path, false)?;
+        staged.persist_noclobber(&path).map_err(|e| e.to_string())?;
         Ok(())
     }
 

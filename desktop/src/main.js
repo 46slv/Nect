@@ -1,3 +1,4 @@
+import { isInstalledOsText, prepareInstalledTextContent } from './installed-text-content.js';
 import { workspaceIcon } from './ui-icons.js';
 import { chooseNewProjectSize } from './new-project-dialog.js';
 import { createLayerClipboardOwner } from './layer-clipboard-owner.js';
@@ -49,6 +50,55 @@ import { SVG_EXPORT_PRECISIONS } from './svg-number-format.js';
 import { formatParameterResult } from './parameter-result-format.js';
 import { createArtworkExporter } from './artwork-export.js';
 import { createLiveArtworkOutput } from './live-artwork-output.js';
+import { createLiveDocumentSave, createLiveSaveAsBoundary } from './live-document-save.js';
+import {
+  createLiveBlendDistanceOperation,
+  createLiveBlendStepsOperation,
+  createLiveBlendModeOperation,
+  createLiveBlendInputOperation,
+  createReadLiveBlendSettings,
+} from './live-blend-distance.js';
+import { createLiveDocumentCopy } from './live-document-copy.js';
+import { createLiveDocumentReopen } from './live-document-reopen.js';
+import { createLiveEditorProtocol } from './live-editor-protocol.js';
+import {
+  readLiveEditorObjects,
+  readLiveLayerFolders,
+  readLiveNodeInputWires,
+  readLiveNodePorts,
+  readLiveLayerState,
+} from './live-editor-objects.js';
+import {
+  createLiveLayerLock,
+  createLiveLayerRename,
+  createLiveLayerVisibility,
+  createLiveLayerSolo,
+  createLiveLayerGuide,
+} from './live-layer-visibility.js';
+import { createLiveLayerReorder } from './live-layer-reorder.js';
+import { createLiveBlankLayer } from './live-layer-create.js';
+import {
+  createLiveArtworkAlignment,
+  createLiveArtworkDistribution,
+  createLiveArtworkGapDistribution,
+  createLiveArtworkTranslation,
+} from './live-artwork-translation.js';
+import {
+  createLiveSolidFillColor,
+  createLiveSolidFillOpacity,
+  readLiveSolidFillColor,
+} from './live-solid-fill-color.js';
+import { createLiveLayerDeletion } from './live-layer-delete.js';
+import { createLiveLayerDuplicate } from './live-layer-duplicate.js';
+import { createLiveLayerFolder } from './live-layer-folder-create.js';
+import { createLiveFolderPlanSession } from './live-folder-plan-session.js';
+import { createLiveLayerFolderDissolve } from './live-layer-folder-dissolve.js';
+import { createLiveLayerFolderRename } from './live-layer-folder-rename.js';
+import { createLiveLayerFolderMembership } from './live-layer-folder-membership.js';
+import { createLiveArtworkCreation } from './live-artwork-creation.js';
+import { createLiveScalarWireEdit, createLiveVectorWireEdit } from './live-vector-wire.js';
+import { createLiveTextContent, createReadLiveTextContent } from './live-text-content.js';
+import { editorTargetMatches } from './live-editor-target.js';
 import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
 import { initialLayerId } from './initial-layer.js';
@@ -1610,7 +1660,27 @@ function readDocument() {
 }
 const documents = new DocumentLifecycle({
   read: readDocument,
-  write: writeProject,
+  write: async (packet) => {
+    if (
+      typeof import.meta.env !== 'undefined' &&
+      import.meta.env.VITE_NECT_LIVE_EDITOR_ACCEPTANCE === '1' &&
+      desktop &&
+      window.__NECT_LIVE_EDITOR_TEST_INSTANCE__ === true &&
+      !packet.binding
+    ) {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const [token, path, operation] = await invoke('live_acceptance_save_as', {
+        contents: packet.contents,
+        operation: packet.operation,
+      });
+      if (operation !== packet.operation) {
+        await releaseProject({ token });
+        throw Error('Unmatched acceptance save response');
+      }
+      return { token, path };
+    }
+    return writeProject(packet);
+  },
   release: releaseProject,
   choose: chooseUnsaved,
   hasLifecycleDraft: () => !!variableAction,
@@ -6583,17 +6653,108 @@ function updateArtboardUnitDisplay() {
   }
 }
 const exportArtwork = createArtworkExporter({ exportSVG, pngDimensions, rasterizeSVG });
-const liveArtworkOutput = createLiveArtworkOutput({
-  readTarget: () => {
-    const { sessionId, expectedRevision } = session.state;
-    return {
-      documentGeneration: documents.generation,
-      compositionId: session.activeCompositionId,
-      sessionId,
-      sessionRevision: expectedRevision,
-      projectRevision: session.projectRevision,
-    };
+function readLiveEditorTarget() {
+  const { sessionId, expectedRevision } = session.state;
+  return {
+    documentGeneration: documents.generation,
+    compositionId: session.activeCompositionId,
+    sessionId,
+    sessionRevision: expectedRevision,
+    projectRevision: session.projectRevision,
+  };
+}
+const liveDocumentSave = createLiveDocumentSave({ readTarget: readLiveEditorTarget, documents });
+const liveBlendHost = {
+  readTarget: readLiveEditorTarget,
+  getOwner: () => session,
+  isEditBlocked: () => documents.transitioning || documents.saving || documents.hasPendingEdits(),
+  commit: (owner, { type, payload, sessionId, expectedRevision }) =>
+    owner === session
+      ? commandChange(type, payload, undefined, true, { sessionId, expectedRevision })
+      : null,
+};
+const liveBlendDistance = createLiveBlendDistanceOperation(liveBlendHost);
+const liveBlendSteps = createLiveBlendStepsOperation(liveBlendHost);
+const liveBlendMode = createLiveBlendModeOperation(liveBlendHost);
+const liveBlendInput = createLiveBlendInputOperation(liveBlendHost);
+const readLiveBlendSettings = createReadLiveBlendSettings(liveBlendHost);
+// The acceptance adapter calls the same history and view restoration as the
+// menu and keyboard. Do not launch asynchronous font preparation from it.
+function stepAcceptanceHistory(target, redo) {
+  if (!editorTargetMatches(readLiveEditorTarget(), target)) return { status: 'stale-target' };
+  if (closeInputBlocked() || documents.transitioning || documents.hasPendingEdits() || nameEdit)
+    return { status: 'edit-in-progress' };
+  const entry = (redo ? history.future : history.past).at(-1);
+  if (!entry) return { status: 'unchanged' };
+  if (hasVariableFonts(history.doc) || hasVariableFonts(entry))
+    return { status: 'unsupported-target' };
+  const graphScroll = stepHistory(redo);
+  render(false, null, graphScroll);
+  return { status: editorTargetMatches(readLiveEditorTarget(), target) ? 'unchanged' : 'changed' };
+}
+const liveArtworkCreation = createLiveArtworkCreation({
+  readTarget: readLiveEditorTarget,
+  isEditBlocked: () => documents.transitioning || documents.hasPendingEdits() || !!nameEdit,
+  commit: (command) => {
+    const prior = selectionSnapshot();
+    const receipt = session.dispatch(command);
+    selectionHistory.set(history.past.at(-1), prior);
+    selectionHistory.set(history.doc, selectionSnapshot());
+    render();
+    return receipt;
   },
+});
+function acceptanceTextNode(layerId, nodeId) {
+  return history.doc.layers
+    .find((layer) => layer.id === layerId && !layer.locked)
+    ?.nodes.find(
+      (node) =>
+        node.id === nodeId &&
+        node.type === 'Text' &&
+        !node.locked &&
+        !node.bypassed &&
+        (node.osFont
+          ? isInstalledOsText(node)
+          : node.font === 'default' ||
+            (node.font === 'font-integrity-fixture' &&
+              history.doc.fontAssets?.[node.font]?.fileName === 'NectJPFixture-Regular.otf')),
+    );
+}
+const liveTextContent = createLiveTextContent({
+  readTarget: readLiveEditorTarget,
+  isEditBlocked: () => documents.transitioning || documents.saving || documents.hasPendingEdits(),
+  readText: (layerId, nodeId) => acceptanceTextNode(layerId, nodeId)?.text,
+  commit: async (command, isCurrent) => {
+    const { layerId, nodeId, text } = command.payload;
+    const source = acceptanceTextNode(layerId, nodeId);
+    if (!source) return { status: 'unsupported-target' };
+    if (isInstalledOsText(source)) {
+      let prepared;
+      try {
+        prepared = await prepareInstalledTextContent(source, text, prepareDesktopText);
+      } catch {
+        return { status: isCurrent() ? 'unsupported-target' : 'edit-in-progress' };
+      }
+      if (!prepared) return { status: 'unsupported-target' };
+      command = {
+        ...command,
+        type: 'set-os-font-text',
+        payload: { layerId, nodeId, ...prepared },
+      };
+    }
+    if (!isCurrent()) return { status: 'edit-in-progress' };
+    const prior = selectionSnapshot();
+    const oldDocument = history.doc;
+    session.dispatch(command);
+    if (history.doc === oldDocument) return { status: 'unchanged' };
+    selectionHistory.set(history.past.at(-1), prior);
+    selectionHistory.set(history.doc, selectionSnapshot());
+    render();
+    return { status: 'changed' };
+  },
+});
+const liveArtworkOutput = createLiveArtworkOutput({
+  readTarget: readLiveEditorTarget,
   readSnapshot: () => ({ document: history.doc, fonts }),
   exportArtwork,
   write: saveFile,
@@ -9646,29 +9807,33 @@ function deleteArtwork(layerId) {
     const target = history.doc.layers.find((layer) => layer.id === layerId);
     if (!target) throw Error('Layer is unavailable; select it again');
     if (target.locked) throw Error('Composition is locked');
-    const priorUI = selectionSnapshot(true);
-    const deleted = session.dispatch({
-      ...session.state,
-      type: 'delete-layer',
-      payload: { layerId },
-    });
-    resetTransient();
-    activeLayer = deleted.nextLayerId;
-    selected = null;
-    artworkTarget = null;
-    artworkSelection = new Set();
-    selection = new Set();
-    tool = 'select';
-    selectionHistory.set(history.past.at(-1), priorUI);
-    selectionHistory.set(history.doc, selectionSnapshot(true));
-    notify(
-      deleted.replacedLastLayer ? 'Layer deleted · empty composition retained' : 'Layer deleted',
-    );
-    render();
-    document.querySelector('.canvas-stage').focus({ preventScroll: true });
+    commitLayerDeletion(layerId, session.state, true);
   } catch (error) {
     notify(error.message, true);
   }
+}
+function commitLayerDeletion(layerId, envelope, focusCanvas = false) {
+  const priorUI = selectionSnapshot(true);
+  const deleted = session.dispatch({
+    ...envelope,
+    type: 'delete-layer',
+    payload: { layerId },
+  });
+  resetTransient();
+  activeLayer = deleted.nextLayerId;
+  selected = null;
+  artworkTarget = null;
+  artworkSelection = new Set();
+  selection = new Set();
+  tool = 'select';
+  selectionHistory.set(history.past.at(-1), priorUI);
+  selectionHistory.set(history.doc, selectionSnapshot(true));
+  notify(
+    deleted.replacedLastLayer ? 'Layer deleted · empty composition retained' : 'Layer deleted',
+  );
+  render();
+  if (focusCanvas) document.querySelector('.canvas-stage').focus({ preventScroll: true });
+  return deleted;
 }
 function duplicateArtwork(layerId, selectionKey) {
   // A stale/forced click must not finish a draft, cancel a gesture, or duplicate
@@ -11926,9 +12091,16 @@ app.addEventListener('click', async (e) => {
         case 'save':
         case 'save-as': {
           try {
-            const pending = documents.save(d.action === 'save-as');
+            const pending = liveDocumentSave({
+              target: liveArtworkOutput.inspect(),
+              saveAs: d.action === 'save-as',
+            });
             updateDocumentStatus();
-            if (await pending) notify(desktop ? 'Project saved' : 'Project download started');
+            const result = await pending;
+            if (result.status === 'edit-in-progress')
+              throw Error('Finish or cancel the active edit before saving.');
+            if (result.status === 'accepted-by-writer')
+              notify(desktop ? 'Project saved' : 'Project download started');
           } finally {
             updateDocumentStatus();
           }
@@ -14572,6 +14744,26 @@ app.addEventListener('change', async (e) => {
           await commitOsText(n.id, n.text, {
             [field.dataset.key === 'letterSpacing' ? 'tracking' : field.dataset.key]: value,
           });
+          return;
+        }
+        if (
+          n.type === 'Blend' &&
+          payload.key === 'distance' &&
+          q.type === 'Scalar' &&
+          d.base === undefined &&
+          d.colorBase === undefined &&
+          d.color === undefined &&
+          Number.isFinite(value) &&
+          !documents.transitioning &&
+          !documents.hasPendingEdits()
+        ) {
+          const { receipt } = liveBlendDistance({
+            target: readLiveEditorTarget(),
+            layerId: current().id,
+            nodeId: n.id,
+            value,
+          });
+          settleNumericControl(el, receipt ?? null);
           return;
         }
         const result = commandChange(
@@ -19085,8 +19277,25 @@ app.addEventListener('pointerdown', updateLayerDeletionControls);
 app.addEventListener('compositionend', updateLayerDeletionControls);
 document.addEventListener('pointerup', updateLayerDeletionControls);
 document.addEventListener('pointercancel', updateLayerDeletionControls);
+// Development contract probe only. Production builds must not expose it.
+const testLiveEditorProtocol =
+  typeof import.meta.env !== 'undefined' && import.meta.env.DEV
+    ? createLiveEditorProtocol({
+        readTarget: readLiveEditorTarget,
+        canInspect: () => !documents.transitioning,
+        setBlendDistance: liveBlendDistance,
+        setBlendSteps: liveBlendSteps,
+        setBlendMode: liveBlendMode,
+        setBlendInput: liveBlendInput,
+        readBlendSettings: readLiveBlendSettings,
+        stepHistory: stepAcceptanceHistory,
+        createArtwork: liveArtworkCreation,
+        setTextContent: liveTextContent,
+      })
+    : null;
 // Explicit test/debug API; same model and mutations as the UI.
 window.nect = {
+  ...(testLiveEditorProtocol ? { testLiveEditorProtocol } : {}),
   get recoveryState() {
     return recovery && { ...recovery.state, failedDocuments: recovery.failedDocuments };
   },
@@ -19314,5 +19523,313 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
+// Compiled out unless the frontend is explicitly built for the matching
+// native acceptance executable. No release build starts a request pump.
+if (
+  typeof import.meta.env !== 'undefined' &&
+  import.meta.env.VITE_NECT_LIVE_EDITOR_ACCEPTANCE === '1' &&
+  desktop &&
+  window.__NECT_LIVE_EDITOR_TEST_INSTANCE__ === true
+) {
+  void (async () => {
+    const { invoke, Channel } = await import('@tauri-apps/api/core');
+    const acceptanceArtwork = createLiveArtworkOutput({
+      readTarget: readLiveEditorTarget,
+      readSnapshot: () => ({ document: history.doc, fonts }),
+      exportArtwork,
+      write: async (contents, _name, kind) => {
+        if (kind === 'svg') return invoke('live_acceptance_write_svg', { contents });
+        if (kind !== 'png' || contents.size > 4_000_000) throw Error('Invalid acceptance PNG');
+        const bytes = Array.from(new Uint8Array(await contents.arrayBuffer()));
+        return invoke('live_acceptance_write_png', { bytes });
+      },
+    });
+    const saveCopy = createLiveDocumentCopy({
+      readTarget: readLiveEditorTarget,
+      readDocument,
+      isBlocked: () => documents.transitioning || documents.hasPendingEdits(),
+      writeCopy: (contents) => invoke('live_acceptance_save_copy', { contents }),
+    });
+    const reopenCopy = createLiveDocumentReopen({
+      readTarget: readLiveEditorTarget,
+      readDocument,
+      isBlocked: () => documents.transitioning || documents.hasPendingEdits(),
+      readCopy: () => invoke('live_acceptance_read_copy'),
+      loadCopy: (contents) => {
+        const project = deserializeProject(contents);
+        const activeCompositionId = session.activeCompositionId;
+        if (hasVariableFonts(activeCompositionDocument(project, activeCompositionId)))
+          throw Error('Variable-font document is outside this acceptance scope');
+        replaceDocument(project, { activeCompositionId });
+        render(true);
+      },
+    });
+    const folderPlans = createLiveFolderPlanSession({
+      ...liveBlendHost,
+      readDocument: () => (documents.transitioning ? null : history.doc),
+      isEditBlocked: () =>
+        liveBlendHost.isEditBlocked() || compositionActionBusy() || Boolean(nameEdit),
+    });
+    const liveWireHost = {
+      ...liveBlendHost,
+      isEditBlocked: () => liveBlendHost.isEditBlocked() || closeInputBlocked() || Boolean(wiring),
+    };
+    const handle = createLiveEditorProtocol({
+      readTarget: readLiveEditorTarget,
+      readLayerFolderPlan: folderPlans.preview,
+      applyLayerFolderPlan: folderPlans.apply,
+      canInspect: () => !documents.transitioning,
+      listArtwork: (args) =>
+        readLiveEditorObjects(
+          {
+            readTarget: readLiveEditorTarget,
+            readDocument: () => (documents.transitioning ? null : history.doc),
+          },
+          args,
+        ),
+      listLayerFolders: (args) =>
+        readLiveLayerFolders(
+          {
+            readTarget: readLiveEditorTarget,
+            readDocument: () => (documents.transitioning ? null : history.doc),
+          },
+          args,
+        ),
+      setBlendDistance: liveBlendDistance,
+      setBlendSteps: liveBlendSteps,
+      setBlendMode: liveBlendMode,
+      setBlendInput: liveBlendInput,
+      setVectorWire: createLiveVectorWireEdit(liveWireHost),
+      setScalarWire: createLiveScalarWireEdit(liveWireHost),
+      readLayerState: (args) =>
+        readLiveLayerState(
+          {
+            readTarget: readLiveEditorTarget,
+            readDocument: () => (documents.transitioning ? null : history.doc),
+          },
+          args,
+        ),
+      readNodeInputWires: (args) =>
+        readLiveNodeInputWires(
+          {
+            readTarget: readLiveEditorTarget,
+            readDocument: () => (documents.transitioning ? null : history.doc),
+          },
+          args,
+        ),
+      readNodePorts: (args) =>
+        readLiveNodePorts(
+          {
+            readTarget: readLiveEditorTarget,
+            readDocument: () => (documents.transitioning ? null : history.doc),
+          },
+          args,
+        ),
+      setLayerVisibility: createLiveLayerVisibility({
+        ...liveBlendHost,
+        isEditBlocked: () => liveBlendHost.isEditBlocked() || Boolean(nameEdit),
+      }),
+      setLayerSolo: createLiveLayerSolo({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() || closeInputBlocked() || Boolean(nameEdit),
+      }),
+      setLayerGuide: createLiveLayerGuide({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() || closeInputBlocked() || Boolean(nameEdit),
+      }),
+      setLayerLock: createLiveLayerLock({
+        ...liveBlendHost,
+        isEditBlocked: () => liveBlendHost.isEditBlocked() || Boolean(nameEdit),
+      }),
+      renameLayer: createLiveLayerRename({
+        ...liveBlendHost,
+        isEditBlocked: () => liveBlendHost.isEditBlocked() || Boolean(nameEdit),
+      }),
+      createLayerFolder: createLiveLayerFolder({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() || closeInputBlocked() || Boolean(nameEdit),
+      }),
+      renameLayerFolder: createLiveLayerFolderRename({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() || closeInputBlocked() || Boolean(nameEdit),
+      }),
+      setLayerFolderMembership: createLiveLayerFolderMembership({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() || closeInputBlocked() || Boolean(nameEdit),
+      }),
+      dissolveLayerFolder: createLiveLayerFolderDissolve({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() || closeInputBlocked() || Boolean(nameEdit),
+      }),
+      createBlankLayer: createLiveBlankLayer({
+        ...liveBlendHost,
+        isEditBlocked: () => compositionActionBusy() || closeInputBlocked() || Boolean(nameEdit),
+      }),
+      readSolidFillColor: (args) =>
+        readLiveSolidFillColor(
+          {
+            readTarget: liveBlendHost.readTarget,
+            readDocument: () => liveBlendHost.getOwner()?.snapshot(),
+          },
+          args,
+        ),
+      setSolidFillOpacity: createLiveSolidFillOpacity({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() ||
+          deletionBusy() ||
+          closeInputBlocked() ||
+          Boolean(variableAction),
+      }),
+      setSolidFillColor: createLiveSolidFillColor({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() ||
+          deletionBusy() ||
+          closeInputBlocked() ||
+          Boolean(variableAction),
+      }),
+      distributeArtworkGaps: createLiveArtworkGapDistribution({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() ||
+          compositionActionBusy() ||
+          closeInputBlocked() ||
+          Boolean(nameEdit),
+      }),
+      distributeArtwork: createLiveArtworkDistribution({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() ||
+          compositionActionBusy() ||
+          closeInputBlocked() ||
+          Boolean(nameEdit),
+      }),
+      alignArtwork: createLiveArtworkAlignment({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() ||
+          compositionActionBusy() ||
+          closeInputBlocked() ||
+          Boolean(nameEdit),
+      }),
+      translateArtwork: createLiveArtworkTranslation({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() ||
+          compositionActionBusy() ||
+          closeInputBlocked() ||
+          Boolean(nameEdit),
+      }),
+      deleteLayer: createLiveLayerDeletion({
+        ...liveBlendHost,
+        isEditBlocked: () =>
+          liveBlendHost.isEditBlocked() ||
+          deletionBusy() ||
+          closeInputBlocked() ||
+          Boolean(variableAction),
+        commit: (owner, envelope, layerId) =>
+          owner === session ? commitLayerDeletion(layerId, envelope) : null,
+      }),
+      duplicateLayer: createLiveLayerDuplicate({
+        ...liveBlendHost,
+        isEditBlocked: () => liveBlendHost.isEditBlocked() || Boolean(nameEdit),
+      }),
+      reorderLayer: createLiveLayerReorder({
+        ...liveBlendHost,
+        isEditBlocked: () => liveBlendHost.isEditBlocked() || Boolean(nameEdit),
+      }),
+      readBlendSettings: readLiveBlendSettings,
+      stepHistory: stepAcceptanceHistory,
+      createArtwork: liveArtworkCreation,
+      setTextContent: liveTextContent,
+      readTextContent: createReadLiveTextContent({
+        readTarget: readLiveEditorTarget,
+        readText: (layerId, nodeId) => acceptanceTextNode(layerId, nodeId)?.text,
+      }),
+      saveCopy,
+      reopenCopy,
+      saveAsBoundary: createLiveSaveAsBoundary({ readTarget: readLiveEditorTarget, documents }),
+      writeSvg: (target) => acceptanceArtwork.run({ target, format: 'svg' }),
+      writePng: (target) =>
+        acceptanceArtwork.run({ target, format: 'png', pngOptions: { mode: 'scale', scale: 1 } }),
+    });
+    const { createLiveInspectChannel } = await import('./live-inspect-channel.js');
+    const inspection = createLiveInspectChannel({
+      readTarget: readLiveEditorTarget,
+      canInspect: () => !documents.transitioning,
+    });
+    const wait = () => new Promise((resolve) => setTimeout(resolve, 50));
+    const deadline = Date.now() + 120_000;
+    while (closeInputBlocked() && Date.now() < deadline) await wait();
+    if (closeInputBlocked()) return;
+    await window.nect.load(await invoke('live_acceptance_fixture'));
+    const channel = new Channel();
+    // A request may arrive during the attach round trip. The reply waits for the
+    // exact native binding epoch, rather than guessing from the WebView label.
+    const binding = invoke('live_acceptance_inspect_attach', { channel });
+    let inspectionOpen = true;
+    const detach = inspection.attach(channel, (id, reply) => {
+      void binding
+        .then(
+          (epoch) =>
+            inspectionOpen &&
+            epoch &&
+            invoke('live_acceptance_inspect_reply', { epoch, id, receipt: JSON.stringify(reply) }),
+        )
+        .catch((error) => console.error('Isolated inspection reply stopped', error));
+    });
+    const closeInspection = () => {
+      inspectionOpen = false;
+      folderPlans.revoke();
+      detach?.();
+      void binding
+        .then((epoch) => epoch && invoke('live_acceptance_inspect_detach', { epoch }))
+        .catch(() => {});
+    };
+    window.addEventListener('pagehide', closeInspection, { once: true });
+    if (!detach || !(await binding)) {
+      closeInspection();
+      throw new Error('Isolated inspection channel unavailable');
+    }
+    while (Date.now() < deadline) {
+      const request = await invoke('live_acceptance_claim');
+      if (!request) {
+        await wait();
+        continue;
+      }
+      const [id, packet] = request;
+      let reply;
+      try {
+        reply = await handle(JSON.parse(packet));
+      } catch {
+        reply = { status: 'outcome-unknown' };
+      }
+      await invoke('live_acceptance_finish', { id, receipt: JSON.stringify(reply) });
+    }
+  })().catch((error) => console.error('Isolated live-editor acceptance stopped', error));
+}
+
 // Compile-time only. Vite removes this branch and module from ordinary builds.
 startRecoveryAcceptanceWhenReady();
+
+if (
+  typeof import.meta.env !== 'undefined' &&
+  import.meta.env.VITE_NECT_LIVE_INSPECT_PREVIEW === '1' &&
+  window.__TAURI_INTERNALS__
+) {
+  void import('./live-inspect-preview.js')
+    .then(({ mountLiveInspectPreviewIfAvailable }) => {
+      return mountLiveInspectPreviewIfAvailable({
+        readTarget: readLiveEditorTarget,
+        canInspect: () => !documents.transitioning,
+      });
+    })
+    .catch(() => {});
+}

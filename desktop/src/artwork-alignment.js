@@ -2,14 +2,9 @@ import { cloneDocument, validate } from './core.js';
 import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 import { translateArtworkMoves } from './artwork-multi-move.js';
 
-export const artworkAlignments = [
-  ['left', 'Left', 0, 0],
-  ['center-x', 'Horizontal center', 0, 1],
-  ['right', 'Right', 0, 2],
-  ['top', 'Top', 1, 0],
-  ['center-y', 'Vertical center', 1, 1],
-  ['bottom', 'Bottom', 1, 2],
-];
+import { artworkAlignments } from './artwork-alignment-actions.js';
+
+export { artworkAlignments };
 
 // Final Text outlines are serialized with toPathData(5) in core. Share the
 // existing rendering/no-op precision with other bounds-based layout commands.

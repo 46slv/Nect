@@ -88,7 +88,48 @@ pub fn save_project(
         let expected = storage.project_bytes_if_exists(&path)?;
         (path, expected)
     };
-    storage.write_project_checked(&path, contents.as_bytes(), expected.as_deref())?;
+    commit_bound_project(
+        &storage,
+        &mut bindings,
+        path,
+        contents,
+        token,
+        expected.as_deref(),
+        operation,
+    )
+    .map(Some)
+}
+
+#[cfg(all(windows, feature = "live-editor-acceptance-test"))]
+pub(crate) fn save_acceptance_bound_project(
+    storage: &RunStorage,
+    docs: &Documents,
+    contents: String,
+    operation: u32,
+) -> Result<(String, String, u32), String> {
+    let path = storage.acceptance_bound_project_path()?;
+    let mut bindings = docs.0.lock().map_err(|_| "File binding unavailable")?;
+    commit_bound_project(
+        storage,
+        &mut bindings,
+        path,
+        contents,
+        None,
+        None,
+        operation,
+    )
+}
+
+fn commit_bound_project(
+    storage: &RunStorage,
+    bindings: &mut Bindings,
+    path: PathBuf,
+    contents: String,
+    token: Option<String>,
+    expected: Option<&[u8]>,
+    operation: u32,
+) -> Result<(String, String, u32), String> {
+    storage.write_project_checked(&path, contents.as_bytes(), expected)?;
     let display = path.to_string_lossy().into_owned();
     let token = match token {
         Some(token) => {
@@ -99,7 +140,7 @@ pub fn save_project(
         }
         None => bindings.bind(path, contents.into_bytes()),
     };
-    Ok(Some((token, display, operation)))
+    Ok((token, display, operation))
 }
 
 #[tauri::command]

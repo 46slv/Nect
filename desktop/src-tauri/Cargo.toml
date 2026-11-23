@@ -2,6 +2,7 @@
 name = "nect-svg-desktop"
 version = "0.1.0"
 edition = "2021"
+default-run = "nect-svg-desktop"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 cc = "1"
@@ -15,4 +16,13 @@ tempfile = "3"
 [features]
 custom-protocol = ["tauri/custom-protocol"]
 recovery-acceptance-test = []
+live-editor-acceptance-test = []
+live-inspect-preview = []
 
+
+live-mcp-pairing = []
+
+[[bin]]
+name = "nect-mcp-local"
+path = "src/bin/nect_mcp_local.rs"
+required-features = ["live-mcp-pairing"]

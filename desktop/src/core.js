@@ -235,7 +235,7 @@ import {
   MAX_PROJECT_BYTES,
   utf8ByteLength,
 } from './fonts.js';
-import { validateLeading } from './text-layout.js';
+import { MISSING_GLYPH_CODE, validateLeading } from './text-layout.js';
 import { validateTextWrap, withWrapExtent } from './text-wrap.js';
 import { validateTextPathAttachment, validateTextPathMode } from './text-path.js';
 import { OffsetError } from './closed-offset.js';
@@ -4820,7 +4820,11 @@ function exportValidatedScene(doc, fonts) {
     .filter((l) => layerIsVisible(doc, l) && !l.guide)
     .map((l) => {
       const result = evaluate(l, fonts, doc.imageAssets, doc);
-      if (result.error) throw Error(`${l.name}: ${result.error}`);
+      if (result.error) {
+        const error = Error(`${l.name}: ${result.error}`);
+        if (result.errorCode === MISSING_GLYPH_CODE) error.code = MISSING_GLYPH_CODE;
+        throw error;
+      }
       if (result.path?.exportBlockers?.length)
         throw Error(`${l.name}: ${result.path.exportBlockers.join('; ')}`);
       const arrangedSuspension = result.path?.characterOccurrences?.find(
