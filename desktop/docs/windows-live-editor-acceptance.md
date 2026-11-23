@@ -79,6 +79,16 @@ order. The standard PNG header and canvas size checks still run. The tool
 is visible only when opted into this acceptance adapter, not in read-only
 preview or the ordinary app.
 
+For a separate primitive shape run, use a fresh isolated root and set
+`NECT_ACCEPTANCE_OBJECTS=1`, `NECT_ACCEPTANCE_ARTWORK=1`, and
+`NECT_ACCEPTANCE_SHAPE_ROUNDTRIP=1`. Leave unrelated scenarios off.
+The 13-tool verifier adds Rectangle, Circle, Ellipse, Polygon, and Star at
+known centers; verifies that Undo removes only Star and Redo restores the
+same IDs and order; then checks the ID order and centers after Save As and
+reopen. It verifies a nonempty labeled SVG path for each shape type and a valid
+PNG export with the fixture dimensions, not individual shape pixels.
+No ordinary installed connection is involved.
+
 For a separate duplicate run, set `NECT_ACCEPTANCE_LAYER_DUPLICATE=1` and
 `NECT_ACCEPTANCE_OBJECTS=1`. Use a fresh receipt and leave other edit
 scenarios off. The client discards the first duplicate reply, discovers one

@@ -42,6 +42,7 @@ renamed_roundtrip = os.environ.get("NECT_ACCEPTANCE_RENAMED_ROUNDTRIP") == "1"
 locked_roundtrip = os.environ.get("NECT_ACCEPTANCE_LOCKED_ROUNDTRIP") == "1"
 hidden_roundtrip = os.environ.get("NECT_ACCEPTANCE_HIDDEN_ROUNDTRIP") == "1"
 artwork = os.environ.get("NECT_ACCEPTANCE_ARTWORK") == "1"
+shape_roundtrip = os.environ.get("NECT_ACCEPTANCE_SHAPE_ROUNDTRIP") == "1"
 text_edit = artwork and os.environ.get("NECT_ACCEPTANCE_TEXT") == "1"
 text_read = os.environ.get("NECT_ACCEPTANCE_TEXT_READ") == "1"
 assert not text_read or (text_edit and list_objects)
@@ -78,7 +79,12 @@ assert not layer_solo or (artwork and layer_visibility and not (
     layer_folder_plan or layer_folders or layer_reorder or layer_duplicate or embedded_jp or mixed_text_probe
 ))
 artwork_authoring_roundtrip = artwork_translate and solid_fill_read
-if artwork_authoring_roundtrip:
+assert not shape_roundtrip or (artwork and list_objects and not (
+    text_edit or embedded_jp or mixed_text_probe or artwork_align or artwork_translate or
+    artwork_distribute or artwork_gaps or solid_fill or layer_reorder or layer_solo or
+    layer_guide or layer_delete or layer_folder_plan or layer_folders or layer_duplicate
+))
+if artwork_authoring_roundtrip or shape_roundtrip:
     assert not any(root.glob("nect-svg-acceptance-*")), "Use a fresh fixture root, not prior recovery state"
 assert sum((artwork_align, artwork_translate,
     artwork_distribute, artwork_gaps, solid_fill and not artwork_authoring_roundtrip)) <= 1
@@ -392,7 +398,12 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         created = []
         if artwork:
             create_cases = [("Rectangle",[430,180])]
-            if artwork_gaps:
+            if shape_roundtrip:
+                create_cases = [
+                    ("Rectangle", [160, 75]), ("Circle", [325, 75]), ("Ellipse", [490, 75]),
+                    ("Polygon", [655, 75]), ("Star", [820, 75]),
+                ]
+            elif artwork_gaps:
                 right_type = "Ellipse" if artwork_gaps_auto else "Rectangle"
                 create_cases = [("Rectangle",[260,180]), ("Circle",[505,210]), (right_type,[770,180])]
             elif artwork_distribute:
@@ -437,9 +448,17 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 current=updated
             before_undo=current
             current=invoke("undo",{"target":current},"changed")["target"]
+            if shape_roundtrip:
+                def layer_ids(revision):
+                    listed_layers = invoke("list_artwork", dict(target=revision, layerIndex=None, offset=0), "ok")
+                    assert listed_layers["nextOffset"] is None
+                    return [item["layerId"] for item in listed_layers["items"]]
+                assert layer_ids(current) == [layer["id"]] + [x[2] for x in made[:-1]]
             invoke("redo",{"target":before_undo},"stale-target",True)
             current=invoke("redo",{"target":current},"changed")["target"]
             assert current["projectRevision"]==before_undo["projectRevision"]+2
+            if shape_roundtrip:
+                assert layer_ids(current) == [layer["id"]] + [x[2] for x in made]
         if solid_fill:
             _, _, fill_layer, shape_id = made[0]
             def fill_identity(revision):
@@ -1076,6 +1095,8 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             invoke("export_png",{"target":reopened},"accepted-by-writer")
             invoke("export_png",{"target":reopened},"outcome-unknown",True)
         assert invoke("inspect",{},"ok")["target"] == reopened
+        if shape_roundtrip:
+            reopened_shape_layers = layer_ids(reopened)
         bridge.stdin.close()
         assert bridge.wait(timeout=10) == 0
         [run]=fixture_runs()-before_dirs
@@ -1163,7 +1184,7 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 [shape_layer]=[x for x in composition["layers"] if x["id"]==layer_id]
                 [shape]=[n for n in shape_layer["nodes"] if n["id"]==node_id]
                 assert shape["type"]==kind, shape["type"]
-                if kind in ("Rectangle", "Circle", "Ellipse"):
+                if kind in ("Rectangle", "Circle", "Ellipse", "Polygon", "Star"):
                     assert shape["params"]["center"]["value"]==point, shape["params"]["center"]
                 else:
                     assert shape["params"]["position"]["value"]==point, shape["params"]["position"]
@@ -1178,6 +1199,12 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                 from xml.etree import ElementTree
                 tree = ElementTree.fromstring(svg)
                 assert tree.tag.endswith("}svg")
+                if shape_roundtrip:
+                    assert [item["id"] for item in composition["layers"]] == reopened_shape_layers
+                    for kind, _, _, _ in made:
+                        assert any(element.tag.endswith("}path") and
+                                   element.get("data-layer") == kind and element.get("d")
+                                   for element in tree.iter()), kind
                 if solid_fill:
                     [painted] = [layer for layer in composition["layers"] if layer["id"] == fill_layer]
                     [fill] = [node for node in painted["nodes"] if node["id"] == fill_node]
@@ -1338,6 +1365,11 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         if solid_fill:
             evidence["solidFill"] = dict(layerId=fill_layer, nodeId=fill_node, hex=fill_hex,
                 lockedAndStaleRejected=True, undoRedoReopenAndSVGVerified=True)
+        if shape_roundtrip:
+            evidence["primitiveShapeRoundtrip"] = dict(
+                created=[dict(type=kind, center=point) for kind, point, _, _ in made],
+                exactOrderAndIdsAfterRedoAndReopen=True, svgPathsVerified=True, pngExported=True,
+            )
         if text_read:
             evidence["authoredTextReadback"] = dict(readOnly=True, unchangedRevision=True,
                 staleRejected=True, reopenedText=replacement)
