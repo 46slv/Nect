@@ -734,6 +734,15 @@ header {
   max-width: 142px;
   font-size: 11px;
 }
+.node-optional-controls > summary {
+  color: #47545f;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.node-optional-controls[open] > summary {
+  margin-bottom: 6px;
+}
 .mini {
   font-size: 10px;
   padding: 3px 5px;

@@ -347,7 +347,17 @@ test('Transform handles: source stage, scale/rotation, precise history, read-onl
   const anchorBefore = saved(),
     anchorState = win.nect.evaluate().transformState(t.id);
   assert.ok(handle('anchor'));
+  const anchorOptions = (place) =>
+    document.querySelector(place + ' details[data-layout-disclosure="transform-anchor"]');
+  const graphSelector = '.node[data-id="' + t.id + '"]';
+  assert.equal(anchorOptions(graphSelector).open, false);
+  assert.equal(anchorOptions('.inspector-body').open, false);
+  anchorOptions('.inspector-body').querySelector('summary').click();
+  assert.equal(anchorOptions('.inspector-body').open, true);
+  assert.equal(anchorOptions(graphSelector).open, false);
+  assert.equal(saved(), anchorBefore, 'opening the inspector section does not author a change');
   document.querySelector('.inspector-body [data-anchor-preset="4"]').click();
+  assert.equal(anchorOptions('.inspector-body').open, true, 'preset render retains disclosure');
   flush();
   assert.deepEqual(get().params.anchor.value, [300, 250]);
   win.nect
