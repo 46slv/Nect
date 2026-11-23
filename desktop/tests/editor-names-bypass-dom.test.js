@@ -109,6 +109,9 @@ test('inline stable-ID names, visibility and reversible typed bypass survive sel
   key(input(), 'Enter');
   assert.equal(get(effect.id).name, 'Move <日本語> & art');
   assert.equal(query('[data-rename-node="name-effect"]').textContent, 'Move <日本語> & art');
+  const renamedHeading = query('[data-rename-node="name-effect"]');
+  assert.ok(renamedHeading.title.startsWith(get(effect.id).name + String.fromCharCode(10)));
+  assert.match(renamedHeading.title, /F2 to rename/);
   assert.equal(query('[data-rename-node="name-effect"] img'), null);
   assert.equal(get(effect.id).id, effect.id);
   assert.deepEqual(get(effect.id).params, effect.params);
