@@ -10,14 +10,43 @@ export function lineEndpoints(read) {
   ];
 }
 
+export function assertLineWidth(width) {
+  if (!Number.isFinite(width) || width < 0)
+    throw Error('Line width must be finite and nonnegative');
+}
+
+export function lineGeometry(read) {
+  const [start, end] = lineEndpoints(read);
+  const width = read('useWidth') ? read('width') : 0;
+  assertLineWidth(width);
+  if (width === 0) return { closed: false, positions: [start, end] };
+  const half = width / 2,
+    top = start[1] - half,
+    bottom = start[1] + half;
+  if (!Number.isFinite(top) || !Number.isFinite(bottom) || top === bottom)
+    throw Error('Line width must produce a finite area');
+  return {
+    closed: true,
+    positions: [
+      // Match Rectangle's path origin and direction, including Stroke dash phase.
+      [start[0], bottom],
+      [start[0], top],
+      [end[0], top],
+      [end[0], bottom],
+    ],
+  };
+}
+
 export function evaluateLine(_operation, read, { nodeId }) {
+  const { closed, positions } = lineGeometry(read),
+    id = closed ? nodeId + ':area' : nodeId;
   return {
     contours: [
       {
-        id: nodeId,
-        closed: false,
-        points: lineEndpoints(read).map((position, i) => ({
-          id: `${nodeId}:${i}`,
+        id,
+        closed,
+        points: positions.map((position, i) => ({
+          id: `${id}:${i}`,
           position,
           handleA: [0, 0],
           handleB: [0, 0],

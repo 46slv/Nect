@@ -10,16 +10,17 @@ import {
   exportSVG,
   node,
   outputType,
+  pathBounds,
   serialize,
 } from '../src/core.js';
 import { nodePickerItems, searchNodeItems } from '../src/node-catalog.js';
 
-test('Line is searchable with just Position and Length, and produces open geometry', () => {
+test('Line is searchable and produces open geometry by default', () => {
   const line = node('Line');
   const items = nodePickerItems(definitions);
   for (const query of ['line segment', '\u76f4\u7dda'])
     assert.equal(searchNodeItems(items, query, 'create')[0].id, 'Line');
-  assert.deepEqual(Object.keys(line.params), ['position', 'length']);
+  assert.deepEqual(Object.keys(line.params), ['position', 'length', 'useWidth', 'width']);
   assert.equal(outputType(line), 'Path');
   const doc = blankDocument();
   const layer = doc.layers[0];
@@ -115,4 +116,112 @@ test('Transform rotates a Line; invalid length edits retain geometry, revision a
   assert.ok(Math.abs(start[0] - end[0]) < 1e-9);
   assert.ok(Math.abs(end[1] - start[1] - 120) < 1e-9);
   assert.equal(exportSVG(deserialize(serialize(doc))), exportSVG(doc));
+});
+
+test('Width toggles 2-point Path or a centered 4-point shape and preserves the stored width', () => {
+  const doc = blankDocument(),
+    layer = doc.layers[0],
+    line = node('Line');
+  line.params.position.value = [10, 20];
+  line.params.length.value = 125;
+  layer.nodes.push(line);
+  connect(layer, line.id, layer.output, 'path');
+  const session = new CommandSession(doc);
+  const set = (key, value) =>
+    session.dispatch({
+      ...session.state,
+      type: 'set-parameter',
+      payload: { layerId: layer.id, nodeId: line.id, key, value },
+    });
+  const contour = (doc) =>
+    evaluate(doc.layers[0], {}, doc.imageAssets, doc).run(line.id).contours[0];
+  const open = contour(session.snapshot());
+  set('useWidth', true);
+  set('width', 20);
+  const thick = contour(session.snapshot());
+  assert.equal(thick.closed, true);
+  assert.deepEqual(
+    thick.points.map((p) => p.position),
+    [
+      [10, 30],
+      [10, 10],
+      [135, 10],
+      [135, 30],
+    ],
+  );
+  assert.notEqual(thick.id, open.id);
+  assert.ok(thick.points.every((p) => !open.points.some((q) => q.id === p.id)));
+  set('useWidth', false);
+  assert.deepEqual(contour(session.snapshot()), open);
+  const saved = session.snapshot();
+  assert.deepEqual(contour(deserialize(serialize(saved))), open);
+  assert.equal(
+    deserialize(serialize(saved)).layers[0].nodes.find((n) => n.id === line.id).params.width.value,
+    20,
+  );
+  set('useWidth', true);
+  assert.deepEqual(contour(session.snapshot()), thick);
+  set('width', 0);
+  assert.deepEqual(contour(session.snapshot()), open);
+  assert.throws(() => set('width', -1), /nonnegative/);
+  session.dispatch({ ...session.state, type: 'undo' });
+  assert.deepEqual(contour(session.snapshot()), thick);
+  session.dispatch({ ...session.state, type: 'redo' });
+  assert.deepEqual(contour(session.snapshot()), open);
+});
+
+test('Filled Line through Join, and stroked Line area matches a Rectangle outline', () => {
+  const doc = blankDocument(),
+    layer = doc.layers[0],
+    line = node('Line'),
+    rect = node('Rectangle'),
+    join = node('Join Geometry'),
+    fill = node('Fill'),
+    stroke = node('Stroke');
+  line.params.position.value = [10, 20];
+  line.params.length.value = 125;
+  line.params.useWidth.value = true;
+  line.params.width.value = 20;
+  rect.params.center.value = [72.5, 20];
+  rect.params.size.value = [125, 20];
+  layer.nodes.push(line, rect, join, fill, stroke);
+  connect(layer, line.id, join.id, 'a');
+  connect(layer, rect.id, join.id, 'b');
+  connect(layer, join.id, fill.id, 'path');
+  connect(layer, fill.id, layer.output, 'path');
+  const result = evaluate(layer, {}, doc.imageAssets, doc);
+  assert.deepEqual(
+    result.run(join.id).contours.map((c) => c.closed),
+    [true, true],
+  );
+  assert.equal((exportSVG(doc).match(/<path[^>]*fill="#36434e"/g) ?? []).length, 2);
+  connect(layer, stroke.id, layer.output, 'path');
+  stroke.strokeDash = [12, 5];
+  const stroked = new Map();
+  for (const n of [line, rect]) {
+    connect(layer, n.id, stroke.id, 'path');
+    const v = evaluate(layer, {}, doc.imageAssets, doc).run(stroke.id);
+    assert.equal(v.contours[0].closed, true);
+    const points = v.contours[0].points.map((p) => p.position);
+    const svg = exportSVG(doc);
+    stroked.set(n.type, { points, bounds: pathBounds(v), stroke: v.stroke, svg });
+    assert.match(svg, /stroke-width="2"/);
+    assert.match(svg, /stroke-dasharray="12[ ,]+5"/);
+  }
+  assert.deepEqual(stroked.get('Line'), stroked.get('Rectangle'));
+});
+
+test('Previous two-parameter trial Line reopens with the same open geometry', () => {
+  const doc = blankDocument(),
+    layer = doc.layers[0],
+    line = node('Line');
+  layer.nodes.push(line);
+  line.params.length.value = 123;
+  const baseline = evaluate(layer, {}, doc.imageAssets, doc).run(line.id);
+  delete line.params.useWidth;
+  delete line.params.width;
+  const migrated = deserialize(JSON.stringify(doc)),
+    target = migrated.layers[0];
+  assert.equal(target.nodes.find((n) => n.id === line.id).params.useWidth.value, false);
+  assert.deepEqual(evaluate(target, {}, migrated.imageAssets, migrated).run(line.id), baseline);
 });

@@ -4980,6 +4980,8 @@ function booleanInputNote(n) {
 function editorParameters(n) {
   if (!isTransform(n)) {
     const entries = activeParameters(n);
+    if (n.type === 'Line' && !n.params.useWidth.value && !n.params.useWidth.source)
+      return entries.filter(([key]) => key !== 'width');
     if (n.type === 'Boolean' && !n.booleanInputOrder && (n.params.b.source || n.params.b.locked))
       entries.push([booleanPendingInputKey, { type: 'Path', value: null, locked: false }]);
     return entries;
@@ -5231,7 +5233,8 @@ function field(n, key, q, inspector = false) {
           ? String.fromCharCode(65 + index)
           : `Input ${index + 1}`;
   }
-  if (n.type === 'Line') name = key === 'position' ? 'Position' : 'Length';
+  if (n.type === 'Line')
+    name = { position: 'Position', length: 'Length', useWidth: 'Add width', width: 'Width' }[key];
   const angleDial = inspector && n.type === 'Geometry Repeater' && key === 'rotation';
   let control;
   const connectLabel =

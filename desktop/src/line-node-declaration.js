@@ -7,6 +7,8 @@ export const lineDeclaration = {
   parameters: [
     { id: 'position', type: 'Vector2', default: [250, 250] },
     { id: 'length', type: 'Scalar', default: 200 },
+    { id: 'useWidth', type: 'Boolean', default: false },
+    { id: 'width', type: 'Scalar', default: 10 },
   ],
   outputs: [{ id: 'default', label: '', type: 'Path', legacyDefault: true }],
   catalog: {

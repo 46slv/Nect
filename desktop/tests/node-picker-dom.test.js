@@ -310,13 +310,25 @@ test('real Add uses captured Session target, one history entry and leaves graph 
   const card = $('.node[data-id="' + line.id + '"]');
   assert.deepEqual(
     [...card.querySelectorAll('.field[data-key]')].map((row) => row.dataset.key),
-    ['position', 'length'],
+    ['position', 'length', 'useWidth'],
   );
   assert.deepEqual(
     [...card.querySelectorAll('.field[data-key] label')].map((label) => label.textContent),
-    ['Position', 'Length'],
+    ['Position', 'Length', 'Add width'],
   );
   assert.equal(win.pickerTest.state().past, JSON.parse(state).past + 1);
+  const toggle = card.querySelector('[data-key="useWidth"] input[type="checkbox"]');
+  assert.equal(toggle.checked, false);
+  toggle.checked = true;
+  toggle.dispatchEvent(new win.Event('change', { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const widthField = (root) =>
+    root.querySelector('[data-node="' + line.id + '"][data-key="width"]');
+  assert.ok(widthField($('.node[data-id="' + line.id + '"]')));
+  assert.ok(widthField($('.inspector-body')));
+  $('[data-action="undo"]').click();
+  assert.equal(widthField($('.node[data-id="' + line.id + '"]')), null);
+  assert.equal(widthField($('.inspector-body')), null);
   $('[data-action="undo"]').click();
   assert.equal(JSON.stringify(win.nect.document), before);
   // Switching the active composition without changing the document must not
