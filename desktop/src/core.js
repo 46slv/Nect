@@ -274,6 +274,7 @@ export {
   anchorFromOutputDelta,
 } from './transform-affine.js';
 import { radialSettings } from './radial-geometry.js';
+import { assertLineWidth, lineGeometry } from './line-node-binding.js';
 export { radialSettings } from './radial-geometry.js';
 export * from './character-identity.js';
 export * from './character-geometry.js';
@@ -4124,6 +4125,16 @@ export function validate(doc) {
         if (!Object.hasOwn(n.params, 'tonePower'))
           n.params.tonePower = clone(definitions[n.type].tonePower);
       }
+      // Preserve documents saved by the original two-parameter Line trial.
+      if (
+        n.type === 'Line' &&
+        Object.keys(n.params).length === 2 &&
+        Object.hasOwn(n.params, 'position') &&
+        Object.hasOwn(n.params, 'length')
+      ) {
+        n.params.useWidth = clone(definitions.Line.useWidth);
+        n.params.width = clone(definitions.Line.width);
+      }
       if (n.type === 'Expand Stroke' && sourceSchemaVersion < 16) {
         for (const key of ['startWidthMultiplier', 'endWidthMultiplier'])
           if (!Object.hasOwn(n.params, key)) n.params[key] = clone(definitions[n.type][key]);
@@ -4406,6 +4417,10 @@ export function validate(doc) {
         luminanceInstanceSettings((key) => n.params[key].value);
       }
       if (n.type === 'Closed Path Offset') closedOffsetSettings((key) => n.params[key].value);
+      if (n.type === 'Line') {
+        assertLineWidth(n.params.width.value);
+        lineGeometry((key) => n.params[key].value);
+      }
       if (['Polygon', 'Star'].includes(n.type))
         radialSettings(n.type, (key) => n.params[key].value);
       if (

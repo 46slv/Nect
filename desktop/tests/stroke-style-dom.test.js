@@ -100,7 +100,14 @@ test('stroke controls: cap, join, dash validation, numeric bounds, parity and hi
   assert.equal(strokeNode().strokeCap, 'butt');
   await change(control('preset'), 'solid');
   assert.deepEqual(strokeNode().strokeDash, []);
+  const details = () => control('cap').closest('details[data-layout-disclosure="stroke-style"]');
+  assert.equal(details().open, false);
+  const beforeDisclosure = JSON.stringify(win.nect.document);
+  details().querySelector('summary').click();
+  assert.equal(details().open, true);
+  assert.equal(JSON.stringify(win.nect.document), beforeDisclosure);
   await change(control('cap'), 'round');
+  assert.equal(details().open, true, 'rerender keeps the optional controls open');
   await change(control('join'), 'bevel');
   await change(control('dash'), '12 6 2');
   assert.equal(

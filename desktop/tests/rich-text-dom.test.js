@@ -248,8 +248,18 @@ test('selected typography UI: range capture, atomic font/size/width, mixed/inher
     rangeImport.closest('details').querySelector('summary').textContent,
     'Advanced font import',
   );
+  const advanced = () => document.querySelector('.text-character-font-advanced');
+  assert.equal(advanced().open, false);
+  advanced().querySelector('summary').click();
+  assert.equal(advanced().open, true);
   document.querySelector('[data-load-character-font]').click();
   document.querySelector('#font-file').dispatchEvent(new win.Event('cancel', { bubbles: false }));
+  choose('c4');
+  assert.equal(advanced().open, true, 'keep the font disclosure open when changing characters');
+  advanced().querySelector('summary').click();
+  assert.equal(advanced().open, false);
+  choose('c1');
+  assert.equal(advanced().open, false, 'keep the closed choice across character selection');
   choose('c4');
   assert.equal(field('font').disabled, false);
   assert.equal(document.querySelector('[data-load-character-font]').disabled, false);

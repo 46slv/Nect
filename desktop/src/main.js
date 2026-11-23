@@ -1674,6 +1674,8 @@ let selection = new Set();
 let nodeContextMenu = null;
 let contextMenuScroll = new Map();
 const detailsState = new Map();
+const layoutDisclosures = new Map();
+const boundLayoutDisclosures = new WeakSet();
 const compositionViewStates = createCompositionViewStateStore({ resolvePointIds: pointPanelIds });
 function pruneCompositionViews(compositions) {
   compositionViewStates.prune(compositions);
@@ -4978,6 +4980,8 @@ function booleanInputNote(n) {
 function editorParameters(n) {
   if (!isTransform(n)) {
     const entries = activeParameters(n);
+    if (n.type === 'Line' && !n.params.useWidth.value && !n.params.useWidth.source)
+      return entries.filter(([key]) => key !== 'width');
     if (n.type === 'Boolean' && !n.booleanInputOrder && (n.params.b.source || n.params.b.locked))
       entries.push([booleanPendingInputKey, { type: 'Path', value: null, locked: false }]);
     return entries;
@@ -5037,7 +5041,25 @@ function transformUniformScale(n) {
     return true;
   }
 }
+const compactLiteralRows = new Set([
+  'Luminance Instances',
+  'Luminance to Points',
+  'Halftone',
+  'Ordered Dither',
+  'Error Diffusion Dither',
+  'Ordered Dither Image',
+  'Error Diffusion Dither Image',
+  'Line Screen',
+  'Angular Gradient Fill',
+  'Vector Transform',
+  'Line',
+]);
 function field(n, key, q, inspector = false) {
+  const compactLiteral =
+    compactLiteralRows.has(n.type) &&
+    !q.source &&
+    !q.expression &&
+    ['Scalar', 'Boolean'].includes(q.type);
   let source = current().nodes.find((x) => x.id === q.source),
     locked =
       q.locked ||
@@ -5211,6 +5233,8 @@ function field(n, key, q, inspector = false) {
           ? String.fromCharCode(65 + index)
           : `Input ${index + 1}`;
   }
+  if (n.type === 'Line')
+    name = { position: 'Position', length: 'Length', useWidth: 'Add width', width: 'Width' }[key];
   const angleDial = inspector && n.type === 'Geometry Repeater' && key === 'rotation';
   let control;
   const connectLabel =
@@ -5316,7 +5340,7 @@ function field(n, key, q, inspector = false) {
       )
       .join('');
   if (angleDial && !q.source && !q.expression) control += repeaterAngleControl(n, q);
-  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2', 'Color'].includes(q.type) ? `<button class="mini" data-fx aria-label="Expression and parameter references: ${esc(n.name + ' ' + name)}" title="Expression and parameter references: Vector2 uses X; Y">${workspaceIcon('expression')}</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name + (q.sourcePort ? ' ' + (outputPorts(source).find((p) => p.id === q.sourcePort)?.label || q.sourcePort) : ''))} · connected value</span>` : ''}</div>`;
+  return `<div class="field ${q.source ? 'connected' : ''}${compactLiteral ? ' node-compact-literal' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2', 'Color'].includes(q.type) ? `<button class="mini" data-fx aria-label="Expression and parameter references: ${esc(n.name + ' ' + name)}" title="Expression and parameter references: Vector2 uses X; Y">${workspaceIcon('expression')}</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name + (q.sourcePort ? ' ' + (outputPorts(source).find((p) => p.id === q.sourcePort)?.label || q.sourcePort) : ''))} · connected value</span>` : ''}</div>`;
 }
 // Presentation-only state; Canvas selection remains the single point selection owner.
 const pointPanelViews = new Map();
@@ -6107,7 +6131,7 @@ function bypassControl(n, compact = false) {
   return `<button class="mini node-bypass ${n.bypassed ? 'active' : ''}" data-bypass="${n.id}" aria-label="${label}: ${esc(nodeDisplayName(n))}" aria-pressed="${!!n.bypassed}" title="${esc(contract.reason)}" ${current().locked || !contract.supported ? 'disabled' : ''}>${compact ? (n.bypassed ? 'Bypassed' : 'Bypass') : label}</button>`;
 }
 function nodeHeader(n) {
-  return `<div class="node-head"><button class="node-collapse" data-collapse="${n.id}" aria-expanded="${!n.collapsed}" aria-label="Toggle ${esc(nodeDisplayName(n))} node details" title="${n.collapsed ? 'Expand' : 'Collapse'} node">${n.collapsed ? '▸' : '▾'}</button>${nameEdit?.nodeId === n.id && nameEdit.layerId === current().id ? nameInput('node', n.id) : `<strong data-rename-node="${n.id}" tabindex="0" role="button" aria-label="Rename ${esc(nodeDisplayName(n))}" title="Double-click or F2 to rename; right-click for node actions">${esc(nodeDisplayName(n))}</strong>`}${bypassControl(n, true)}<span class="type-tag">${outputType(n) || 'Scalar X/Y'}</span>${outputPorts(
+  return `<div class="node-head"><button class="node-collapse" data-collapse="${n.id}" aria-expanded="${!n.collapsed}" aria-label="Toggle ${esc(nodeDisplayName(n))} node details" title="${n.collapsed ? 'Expand' : 'Collapse'} node">${n.collapsed ? '▸' : '▾'}</button>${nameEdit?.nodeId === n.id && nameEdit.layerId === current().id ? nameInput('node', n.id) : `<strong data-rename-node="${n.id}" tabindex="0" role="button" aria-label="Rename ${esc(nodeDisplayName(n))}" title="${esc(nodeDisplayName(n))}&#10;Double-click or F2 to rename; right-click for node actions">${esc(nodeDisplayName(n))}</strong>`}${bypassControl(n, true)}<span class="type-tag">${outputType(n) || 'Scalar X/Y'}</span>${outputPorts(
     n,
   )
     .map(
@@ -6127,7 +6151,7 @@ function compactFields(n) {
     })
     .join('');
 }
-function textPathControls(n) {
+function textPathControls(n, graph = false) {
   const attachment = n.pathAttachment,
     targets = textPathTargets(current(), n.id, fonts, history.doc.imageAssets, history.doc),
     value = attachment ? JSON.stringify([attachment.nodeId, attachment.contourId]) : '',
@@ -6135,7 +6159,23 @@ function textPathControls(n) {
       attachment &&
       !targets.some((t) => t.nodeId === attachment.nodeId && t.contourId === attachment.contourId),
     disabled = current().locked ? 'disabled' : '';
-  return `<section class="text-path-controls" aria-label="Type on Path"><h4>Type on Path</h4><label>Explicit path · contour<select data-text-path="${n.id}" aria-label="Type on Path contour" ${disabled}><option value="">Detached (ordinary text)</option>${missing ? `<option value="${esc(value)}" selected disabled>Unavailable: ${esc(attachment.contourId)}</option>` : ''}${targets.map((t) => `<option value="${esc(JSON.stringify([t.nodeId, t.contourId]))}" ${value === JSON.stringify([t.nodeId, t.contourId]) ? 'selected' : ''}>${esc(t.name)} · ${esc(t.contourId)} · ${t.closed ? 'closed' : 'open'}</option>`).join('')}</select></label>${attachment ? `<label>Start unit<select data-text-path-mode="${n.id}" aria-label="Type on Path start unit" ${disabled}>${['distance', 'normalized'].map((mode) => `<option value="${mode}" ${mode === attachment.startMode ? 'selected' : ''}>${mode === 'distance' ? 'Distance px' : 'Normalized (0–1)'}</option>`).join('')}</select></label><label>Start anchor<input type="number" step="any" data-text-path-start="${n.id}" aria-label="Type on Path start" value="${attachment.start}" ${disabled}></label><label class="text-path-reverse"><input type="checkbox" data-text-path-reversed="${n.id}" aria-label="Type on Path reverse" ${attachment.reversed ? 'checked' : ''} ${disabled}>Reverse traversal</label><p class="font-note">Alignment below anchors the full advance span at this start. Position and flat reference controls are retained for detach. Typography reflows advances; character rotation/scale and local XY are applied before tangent projection. Canvas character dragging is unavailable while attached.</p>` : ''}<p class="font-note">One horizontal line on one stable contour. Closed paths wrap once; overflow rejects the edit. Generated/unstable contours and suspended Path Remap edits are unavailable. Detach restores original flat Position, references and character adjustments.</p></section>`;
+  const panel = `<section class="text-path-controls" aria-label="Type on Path">${!graph ? '<h4>Type on Path</h4>' : ''}<label>Explicit path · contour<select data-text-path="${n.id}" aria-label="Type on Path contour" ${disabled}><option value="">Detached (ordinary text)</option>${missing ? `<option value="${esc(value)}" selected disabled>Unavailable: ${esc(attachment.contourId)}</option>` : ''}${targets.map((t) => `<option value="${esc(JSON.stringify([t.nodeId, t.contourId]))}" ${value === JSON.stringify([t.nodeId, t.contourId]) ? 'selected' : ''}>${esc(t.name)} · ${esc(t.contourId)} · ${t.closed ? 'closed' : 'open'}</option>`).join('')}</select></label>${attachment ? `<label>Start unit<select data-text-path-mode="${n.id}" aria-label="Type on Path start unit" ${disabled}>${['distance', 'normalized'].map((mode) => `<option value="${mode}" ${mode === attachment.startMode ? 'selected' : ''}>${mode === 'distance' ? 'Distance px' : 'Normalized (0–1)'}</option>`).join('')}</select></label><label>Start anchor<input type="number" step="any" data-text-path-start="${n.id}" aria-label="Type on Path start" value="${attachment.start}" ${disabled}></label><label class="text-path-reverse"><input type="checkbox" data-text-path-reversed="${n.id}" aria-label="Type on Path reverse" ${attachment.reversed ? 'checked' : ''} ${disabled}>Reverse traversal</label><p class="font-note">Alignment below anchors the full advance span at this start. Position and flat reference controls are retained for detach. Typography reflows advances; character rotation/scale and local XY are applied before tangent projection. Canvas character dragging is unavailable while attached.</p>` : ''}<p class="font-note">One horizontal line on one stable contour. Closed paths wrap once; overflow rejects the edit. Generated/unstable contours and suspended Path Remap edits are unavailable. Detach restores original flat Position, references and character adjustments.</p></section>`;
+  const warning = missing
+    ? `<p class="warning" data-text-path-warning role="status">Path contour unavailable: ${esc(attachment.contourId)}</p>`
+    : '';
+  if (!graph) return panel + warning;
+  return (
+    optionalNodeControls(
+      'text-path',
+      missing
+        ? 'Type on Path (unavailable)'
+        : attachment
+          ? 'Type on Path (attached)'
+          : 'Type on Path',
+      panel,
+      Boolean(attachment),
+    ) + warning
+  );
 }
 // This source arrangement is independent from transient canvas snap guides.
 function arrangementLayout(n) {
@@ -6154,13 +6194,29 @@ function maintainedAxis(n) {
       : 0
     : null;
 }
-function arrangementControls(n) {
+function arrangementControls(n, graph = false) {
   const layout = arrangementLayout(n),
     status = layout?.arrangementStatus,
     eligibility = layout?.arrangementEligibility,
     reason = current().locked ? 'Composition is locked' : eligibility?.reason,
     disabled = current().locked || !eligibility?.eligible;
-  return `<section class="character-arrangement" aria-label="Maintain equal ink gaps"><h4>Maintain equal ink gaps</h4><label>Gap · Text-local px<input type="number" min="0" max="100000" step="any" data-scrub-step="1" data-arrangement-gap="${n.id}" aria-label="Maintained ink gap" value="${n.characterArrangement?.gap ?? 10}" ${current().locked ? 'disabled' : ''}></label><button data-arrangement-apply="${n.id}" ${disabled ? 'disabled' : ''}>${n.characterArrangement ? 'Reapply to current text' : 'Apply'}</button>${n.characterArrangement ? `<button data-arrangement-clear="${n.id}" ${current().locked ? 'disabled' : ''}>Disable maintained gaps</button>` : ''}<output data-arrangement-status role="status">${esc(status?.suspended ? 'Suspended: ' + status.reason : status?.active ? 'Active · equal ink gaps' : reason || 'Off · Apply to the whole line or column')}</output><p class="font-note">Text-local ink gaps; downstream effects may change visible spacing. Font and size remain editable. Maintained ink gaps control spacing; disable to edit tracking, kerning or axial positions. Disable restores authored positions and may move letters.</p></section>`;
+  const panel = `<section class="character-arrangement" aria-label="Maintain equal ink gaps">${!graph ? '<h4>Maintain equal ink gaps</h4>' : ''}<label>Gap · Text-local px<input type="number" min="0" max="100000" step="any" data-scrub-step="1" data-arrangement-gap="${n.id}" aria-label="Maintained ink gap" value="${n.characterArrangement?.gap ?? 10}" ${current().locked ? 'disabled' : ''}></label><button data-arrangement-apply="${n.id}" ${disabled ? 'disabled' : ''}>${n.characterArrangement ? 'Reapply to current text' : 'Apply'}</button>${n.characterArrangement ? `<button data-arrangement-clear="${n.id}" ${current().locked ? 'disabled' : ''}>Disable maintained gaps</button>` : ''}<output data-arrangement-status role="status">${esc(status?.suspended ? 'Suspended: ' + status.reason : status?.active ? 'Active · equal ink gaps' : reason || 'Off · Apply to the whole line or column')}</output><p class="font-note">Text-local ink gaps; downstream effects may change visible spacing. Font and size remain editable. Maintained ink gaps control spacing; disable to edit tracking, kerning or axial positions. Disable restores authored positions and may move letters.</p></section>`;
+  const warning = status?.suspended
+    ? `<p class="warning" data-text-gaps-warning role="status">Suspended: ${esc(status.reason)}</p>`
+    : '';
+  if (!graph) return panel + warning;
+  return (
+    optionalNodeControls(
+      'text-gaps',
+      status?.suspended
+        ? 'Maintain equal ink gaps (suspended)'
+        : n.characterArrangement
+          ? 'Maintain equal ink gaps (on)'
+          : 'Maintain equal ink gaps',
+      panel,
+      Boolean(n.characterArrangement),
+    ) + warning
+  );
 }
 function flushArrangementText(nodeId, scope) {
   const draft = textDrafts.get(nodeId);
@@ -6231,7 +6287,7 @@ function desktopAxisControls(n) {
     .map(field)
     .join('')}${
     axes.some((a) => a.hidden)
-      ? `<details><summary>More axes</summary>${axes
+      ? `<details data-layout-disclosure="desktop-more-axes"><summary>More axes</summary>${axes
           .filter((a) => a.hidden)
           .map(field)
           .join('')}</details>`
@@ -6264,7 +6320,10 @@ function desktopTypographyControls(n) {
       '',
     )}</select></label>${desktopAxisControls(n)}<label><span>Line composition</span><select data-os-wrap="${n.id}" aria-label="Windows Text wrap mode">${wrapModeOptions(n)}</select></label>${n.textWrap ? `<label><span>Wrap ${n.writingMode === 'vertical-rl' ? 'height' : 'width'} px</span><input type="number" step="any" min="0.01" max="100000" data-os-wrap-width="${n.id}" aria-label="Windows Text wrap ${n.writingMode === 'vertical-rl' ? 'height' : 'width'}" value="${wrapExtent(n.textWrap)}"></label>` : ''}<p class="font-note">Long unbreakable groups may overflow.</p>${n.osFont.outline.wrapOverflow ? '<p role="status">Wrap overflow · all artwork retained</p>' : ''}</fieldset>`;
 }
-function textControls(n) {
+function optionalNodeControls(id, label, markup, active = false) {
+  return `<details class="node-optional-controls" data-layout-disclosure="${id}" ${active ? 'open' : ''}><summary>${label}</summary>${markup}</details>`;
+}
+function textControls(n, graph = false) {
   if (n.type !== 'Text') return '';
   if (n.osFont) {
     const draft = osTextDrafts.get(n.id),
@@ -6280,7 +6339,7 @@ function textControls(n) {
           });
     return `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-os-text="${n.id}" aria-label="Text content" ${current().locked || n.locked ? 'disabled' : ''}>${esc(draft?.value ?? n.text)}</textarea></div><button class="mini" data-apply-os-text="${n.id}" ${draft?.pending ? 'disabled' : ''}>Apply text</button><button class="mini" data-cancel-os-text="${n.id}">Cancel text edit</button>${fontChoiceControls(n, { assets: history.doc.fontAssets, locked: current().locked, status: availability, desktop })}${desktopTypographyControls(n)}${fontImportControls(n, { locked: current().locked, desktop })}${textOutlineActions(n, { locked: current().locked })}</div>`;
   }
-  return `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><button class="mini" data-kern-text-cursor="${n.id}" ${maintainedAxis(n) !== null || current().locked ? 'disabled' : ''}>Kerning at cursor</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p>${fontChoiceControls(n, { assets: history.doc.fontAssets, locked: current().locked, desktop })}${variableControls(n)}${openTypeControls(n)}${fontImportControls(n, { locked: current().locked, desktop })}${textOutlineActions(n, { locked: current().locked })}${arrangementControls(n)}${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Automatic font kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${maintainedAxis(n) !== null ? 'disabled' : ''} ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`;
+  return `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><button class="mini" data-kern-text-cursor="${n.id}" ${maintainedAxis(n) !== null || current().locked ? 'disabled' : ''}>Kerning at cursor</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p>${fontChoiceControls(n, { assets: history.doc.fontAssets, locked: current().locked, desktop })}${variableControls(n)}${openTypeControls(n)}${fontImportControls(n, { locked: current().locked, desktop })}${textOutlineActions(n, { locked: current().locked })}${arrangementControls(n, graph)}${textPathControls(n, graph)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Automatic font kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${maintainedAxis(n) !== null ? 'disabled' : ''} ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`;
 }
 function unitPointIds(n, unit) {
   return n.contours.filter((c) => unit.contours.includes(c.id)).flatMap((c) => c.points);
@@ -6520,7 +6579,7 @@ function strokeControls(n) {
       : dash.length === 2 && dash[0] === 0 && dash[1] === 8 && n.strokeCap === 'round'
         ? 'dotted'
         : 'custom';
-  return `<div class="field"><label>Stroke style</label><select data-stroke-preset="${n.id}" aria-label="Stroke style preset">${[
+  const style = `<div class="field"><label>Stroke style</label><select data-stroke-preset="${n.id}" aria-label="Stroke style preset">${[
     ['solid', 'Solid'],
     ['dashed', 'Dashed'],
     ['dotted', 'Dotted'],
@@ -6530,9 +6589,9 @@ function strokeControls(n) {
       ([value, label]) =>
         `<option value="${value}" ${preset === value ? 'selected' : ''} ${value === 'custom' ? 'disabled' : ''}>${label}</option>`,
     )
-    .join(
-      '',
-    )}</select></div><div class="field"><label>Line cap</label><select data-stroke-cap="${n.id}" aria-label="Stroke line cap">${['butt', 'round', 'square'].map((v) => `<option value="${v}" ${(n.strokeCap || 'butt') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Line join</label><select data-stroke-join="${n.id}" aria-label="Stroke line join">${['miter', 'round', 'bevel'].map((v) => `<option value="${v}" ${(n.strokeJoin || 'miter') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Dash / gap (px)</label><input data-stroke-dash="${n.id}" aria-label="Stroke dash pattern" value="${esc((n.strokeDash || []).join(' '))}" placeholder="Solid, or e.g. 12 6"></div><p class="font-note">Odd patterns repeat twice. Empty/none or all zero is solid. Miter limit is a ratio; dashOffset is px.</p>`;
+    .join('')}</select></div>`;
+  const details = `<div class="field"><label>Line cap</label><select data-stroke-cap="${n.id}" aria-label="Stroke line cap">${['butt', 'round', 'square'].map((v) => `<option value="${v}" ${(n.strokeCap || 'butt') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Line join</label><select data-stroke-join="${n.id}" aria-label="Stroke line join">${['miter', 'round', 'bevel'].map((v) => `<option value="${v}" ${(n.strokeJoin || 'miter') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Dash / gap (px)</label><input data-stroke-dash="${n.id}" aria-label="Stroke dash pattern" value="${esc((n.strokeDash || []).join(' '))}" placeholder="Solid, or e.g. 12 6"></div><p class="font-note">Odd patterns repeat twice. Empty/none or all zero is solid. Miter limit is a ratio; dashOffset is px.</p>`;
+  return style + optionalNodeControls('stroke-style', 'Cap, join &amp; dash', details);
 }
 function operationControls(n) {
   const options = operationOptions[n.type];
@@ -6540,7 +6599,7 @@ function operationControls(n) {
   return `<div class="field"><label>${hasDotControls(n.type) ? 'Dot shape' : n.type === 'Closed Path Offset' ? 'Join' : 'Operation'}</label><select data-operation="${n.id}" aria-label="${esc(nodeDisplayName(n))} ${hasDotControls(n.type) ? 'dot shape' : 'operation'}">${options.map((op) => `<option value="${op}" ${n.operation === op ? 'selected' : ''}>${n.type === 'Halftone' && op === 'subtract' ? 'Legacy calibrated' : op[0].toUpperCase() + op.slice(1)}</option>`).join('')}</select></div>`;
 }
 function expandedNodeBody(n, result) {
-  return `<div class="node-body"><div class="node-actions">${['Path', 'PaintedPath', 'Image'].includes(outputType(n)) && !['Output', 'Image Output'].includes(n.type) ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${!['Output', 'Image Output'].includes(n.type) ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div>${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${blendExpansionControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${polarControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${textControls(n)}${multiPathControls(n)}${editorParameters(
+  return `<div class="node-body"><div class="node-actions">${['Path', 'PaintedPath', 'Image'].includes(outputType(n)) && !['Output', 'Image Output'].includes(n.type) ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${!['Output', 'Image Output'].includes(n.type) ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div>${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${blendExpansionControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${polarControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${textControls(n, true)}${multiPathControls(n)}${editorParameters(
     n,
   )
     .filter(
@@ -6758,15 +6817,45 @@ function inspectorMarkup(n, l, result, results, move, duplication) {
 
 function prepareEditingRegion(region) {
   const notes = [...region.querySelectorAll('.font-note')].filter(
-    (note) => !note.hasAttribute('role') && !note.textContent.startsWith('At a wrap break'),
+    (note) =>
+      !note.closest('details') &&
+      !note.hasAttribute('role') &&
+      !note.textContent.startsWith('At a wrap break'),
   );
-  if (!notes.length) return;
-  const help = document.createElement('details');
-  help.className = 'control-help';
-  const summary = document.createElement('summary');
-  summary.textContent = 'Help';
-  help.append(summary, ...notes);
-  region.append(help);
+  if (notes.length) {
+    const help = document.createElement('details');
+    help.className = 'control-help';
+    help.dataset.layoutDisclosure = 'help';
+    const summary = document.createElement('summary');
+    summary.textContent = 'Help';
+    help.append(summary, ...notes);
+    region.append(help);
+  }
+  for (const details of region.querySelectorAll('details[data-layout-disclosure]')) {
+    if (boundLayoutDisclosures.has(details)) continue;
+    const summary = details.querySelector(':scope > summary');
+    const graphNode = details.closest('.node[data-id]');
+    const inspector = details.closest('.inspector-body');
+    const nodeId = graphNode?.dataset.id ?? inspector?.dataset.inspectorNode;
+    if (!summary || !nodeId) continue;
+    const key = JSON.stringify([
+      session.activeCompositionId,
+      nodeId,
+      graphNode ? 'graph' : 'inspector',
+      details.dataset.layoutDisclosure,
+    ]);
+    details.open = layoutDisclosures.get(key) ?? details.open;
+    // Save view state before any app-wide click handler can replace this region.
+    summary.addEventListener('click', (event) => {
+      event.preventDefault();
+      details.open = !details.open;
+      layoutDisclosures.set(key, details.open);
+    });
+    details.addEventListener('toggle', () => {
+      if (details.isConnected) layoutDisclosures.set(key, details.open);
+    });
+    boundLayoutDisclosures.add(details);
+  }
 }
 
 function prepareFontSearchControls(root) {
@@ -7536,7 +7625,7 @@ function transformControls(n) {
       const q = n.params[key];
       return q && (q.locked || q.source || q.expression);
     });
-  return `<section aria-label="Reposition anchor"><h4>Reposition anchor</h4><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px">${['Top left', 'Top center', 'Top right', 'Middle left', 'Center', 'Middle right', 'Bottom left', 'Bottom center', 'Bottom right'].map((label, index) => `<button class="mini" data-anchor-preset="${index}" data-anchor-node="${n.id}" ${disabled ? 'disabled' : ''}>${label}</button>`).join('')}</div><p class="font-note">Keep artwork in place while moving its rotation/scale pivot. Presets use input path bounds. Drag the canvas Anchor marker for a custom pivot. Controls show selected Transform output before downstream nodes. Anchor and Position must be unlocked and undriven. Collapsed scales support presets only.</p></section>`;
+  return `<details class="node-optional-controls" data-layout-disclosure="transform-anchor"><summary>Reposition anchor</summary><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px">${['Top left', 'Top center', 'Top right', 'Middle left', 'Center', 'Middle right', 'Bottom left', 'Bottom center', 'Bottom right'].map((label, index) => `<button class="mini" data-anchor-preset="${index}" data-anchor-node="${n.id}" ${disabled ? 'disabled' : ''}>${label}</button>`).join('')}</div><p class="font-note">Keep artwork in place while moving its rotation/scale pivot. Presets use input path bounds. Drag the canvas Anchor marker for a custom pivot. Controls show selected Transform output before downstream nodes. Anchor and Position must be unlocked and undriven. Collapsed scales support presets only.</p></details>`;
 }
 
 function positionControllerControls(n) {
@@ -10478,6 +10567,7 @@ function replaceDocument(
   compositionViewStates.clear();
   collapsedLayerFolders.clear();
   detailsState.clear();
+  layoutDisclosures.clear();
   contextMenuScroll.clear();
   viewerState = createViewerState();
   session = replacement;

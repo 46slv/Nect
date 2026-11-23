@@ -297,6 +297,40 @@ test('real Add uses captured Session target, one history entry and leaves graph 
   assert.equal(JSON.stringify(win.nect.document), withBlend);
   $('[data-action="undo"]').click();
   assert.equal(JSON.stringify(win.nect.document), before);
+  win.pickerTest.open();
+  await new Promise(queueMicrotask);
+  const lineSearch = $('.search-panel input');
+  lineSearch.value = '\u76f4\u7dda';
+  lineSearch.dispatchEvent(new win.Event('input'));
+  lineSearch.dispatchEvent(
+    new win.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter' }),
+  );
+  const line = win.nect.document.layers[0].nodes.find((n) => n.type === 'Line');
+  assert.ok(line, 'Japanese search and Enter create the Line node');
+  const card = $('.node[data-id="' + line.id + '"]');
+  assert.deepEqual(
+    [...card.querySelectorAll('.field[data-key]')].map((row) => row.dataset.key),
+    ['position', 'length', 'useWidth'],
+  );
+  assert.deepEqual(
+    [...card.querySelectorAll('.field[data-key] label')].map((label) => label.textContent),
+    ['Position', 'Length', 'Add width'],
+  );
+  assert.equal(win.pickerTest.state().past, JSON.parse(state).past + 1);
+  const toggle = card.querySelector('[data-key="useWidth"] input[type="checkbox"]');
+  assert.equal(toggle.checked, false);
+  toggle.checked = true;
+  toggle.dispatchEvent(new win.Event('change', { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const widthField = (root) =>
+    root.querySelector('[data-node="' + line.id + '"][data-key="width"]');
+  assert.ok(widthField($('.node[data-id="' + line.id + '"]')));
+  assert.ok(widthField($('.inspector-body')));
+  $('[data-action="undo"]').click();
+  assert.equal(widthField($('.node[data-id="' + line.id + '"]')), null);
+  assert.equal(widthField($('.inspector-body')), null);
+  $('[data-action="undo"]').click();
+  assert.equal(JSON.stringify(win.nect.document), before);
   // Switching the active composition without changing the document must not
   // create in either the old or new target.
   const second = layer('Second');

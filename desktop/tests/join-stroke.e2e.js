@@ -64,6 +64,13 @@ try {
   await page.locator(`.node[data-id="${ids.s}"] .node-head strong`).click();
   await ensureWorkspacePanel(page, 'inspector');
   const ctl = (key) => page.locator(`.inspector-body [data-stroke-${key}="${ids.s}"]`);
+  const style = page.locator('.inspector-body details[data-layout-disclosure="stroke-style"]');
+  assert.equal(await style.evaluate((el) => el.open), false);
+  assert.equal(await ctl('preset').isVisible(), true);
+  const beforeDisclosure = await page.evaluate(() => JSON.stringify(window.nect.document));
+  await style.locator('summary').click();
+  assert.equal(await style.evaluate((el) => el.open), true);
+  assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), beforeDisclosure);
   await ctl('cap').selectOption('round');
   await ctl('join').selectOption('bevel');
   await ctl('dash').fill('10 20');

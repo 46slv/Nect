@@ -59,9 +59,9 @@ test('Curve registration retains its current interface, factory and placement', 
   assert.equal(current.points.length, 3);
   assert.equal(new Set(current.points.map((point) => point.id)).size, 3);
   assert.equal(types[types.indexOf('Curve') - 1], 'Star');
-  assert.equal(types[types.indexOf('Curve') + 1], 'Multi Path');
+  assert.equal(types[types.indexOf('Curve') + 1], 'Line');
   assert.equal(catalog[catalog.indexOf('Curve') - 1], 'Star');
-  assert.equal(catalog[catalog.indexOf('Curve') + 1], 'Multi Path');
+  assert.equal(catalog[catalog.indexOf('Curve') + 1], 'Line');
   const { typeId, ...metadata } = nodeCatalog.find((entry) => entry.typeId === 'Curve');
   assert.equal(typeId, 'Curve');
   assert.deepEqual(metadata, curveDeclaration.catalog);

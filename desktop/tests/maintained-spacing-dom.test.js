@@ -198,13 +198,25 @@ test('maintained ink gap inspector applies, preserves typography editability, sc
   assert.equal(q('[data-character-axis="0"]').disabled, false);
   undo();
   assert.equal(saved(), updated);
+  const graphGap = () => q('.graph details[data-layout-disclosure="text-gaps"]');
+  if (graphGap().open) graphGap().querySelector('summary').click();
+  assert.equal(graphGap().open, false);
+  assert.equal(saved(), updated);
   change('[data-text]', 'Ag W');
   await tick();
+  assert.equal(graphGap().open, false, 'suspension retains the folded choice');
+  assert.match(graphGap().querySelector('summary').textContent, /suspended/i);
+  for (const place of ['.graph', '.inspector-body']) {
+    const warning = q(place + ' [data-text-gaps-warning]');
+    assert.match(warning.textContent, /Suspended: .+/);
+    assert.equal(warning.closest('details'), null);
+  }
   assert.match(q('[data-arrangement-status]').textContent, /Suspended:/);
   assert.equal(q('[data-arrangement-apply]').disabled, true);
   assert.ok(read().characterArrangement);
   undo();
   gaps(17);
+  assert.equal(q('[data-text-gaps-warning]'), null);
   if (!q('[data-character-axis="0"]')) mode();
   const stable = saved();
   const b = win.nect.evaluate().textLayout(t.id).characters[0].bounds,
