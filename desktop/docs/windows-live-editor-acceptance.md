@@ -234,3 +234,14 @@ read tool, exact Fill selection, locked literal readback, stale-target refusal
 and unchanged revision on read. It verifies the edited RGB and preserved
 alpha after reopening the saved fixture. This does not exercise or expand
 ordinary Windows pairing.
+
+### One-document authoring round trip
+
+To extend the literal Fill run to a single authoring workflow, also enable
+`NECT_ACCEPTANCE_ARTWORK_TRANSLATE=1` and use a fresh fixture root containing
+only the approved fixture build. Do not reuse a folder with earlier recovery
+state. The verifier creates a Rectangle and Text, sets the Rectangle Fill,
+moves both, saves, reopens and exports both formats. It checks exact authored
+positions and Fill identity and value; SVG is checked for the named layer and
+the chosen fill, and PNG for its signature and canvas dimensions. It does not
+cover the normal app pairing, native dialogs or manual input.

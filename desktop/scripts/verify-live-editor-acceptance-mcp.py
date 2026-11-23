@@ -71,7 +71,11 @@ assert not layer_guide or (artwork and layer_lock and not (
 assert not layer_solo or (artwork and layer_visibility and not (
     layer_folder_plan or layer_folders or layer_reorder or layer_duplicate or embedded_jp or mixed_text_probe
 ))
-assert sum((artwork_align, artwork_translate, artwork_distribute, artwork_gaps, solid_fill)) <= 1
+artwork_authoring_roundtrip = artwork_translate and solid_fill_read
+if artwork_authoring_roundtrip:
+    assert not any(root.glob("nect-svg-acceptance-*")), "Use a fresh fixture root, not prior recovery state"
+assert sum((artwork_align, artwork_translate,
+    artwork_distribute, artwork_gaps, solid_fill and not artwork_authoring_roundtrip)) <= 1
 assert not (artwork_align or artwork_translate or artwork_distribute or artwork_gaps or solid_fill) or (artwork and layer_lock and list_objects and not (
     layer_delete or layer_solo or layer_guide or layer_folders or layer_folder_plan or
     hidden_roundtrip or locked_roundtrip or renamed_roundtrip or text_edit or embedded_jp or mixed_text_probe
@@ -545,6 +549,11 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
             current = invoke("redo", {"target":undone}, "changed")["target"]
             made = [(kind, [p+d for p,d in zip(point, delta)], layer, node)
                     for kind,point,layer,node in made]
+            if artwork_authoring_roundtrip:
+                read_fill(translate["target"], "stale-target", True)
+                after_motion = read_fill(current, "ok")
+                assert (after_motion["rgb"], after_motion["alpha"]) == (fill_hex, initial_fill["alpha"])
+                assert after_motion["target"] == current
         if layer_state:
             def read_layer_state(revision, lid, *, visible=True, locked=False, guide=False, solo=False):
                 reply = invoke("read_layer_state", dict(target=revision, layerId=lid), "ok")
@@ -1107,7 +1116,11 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
                     [painted] = [layer for layer in composition["layers"] if layer["id"] == fill_layer]
                     [fill] = [node for node in painted["nodes"] if node["id"] == fill_node]
                     assert fill["params"]["color"]["value"] == dict(hex=fill_hex, alpha=1)
-                    assert any(element.get("fill", "").lower() == fill_hex for element in tree.iter())
+                    [rectangle_paint] = [element for element in tree.iter()
+                                         if element.get("fill", "").lower() == fill_hex]
+                    assert rectangle_paint.get("data-layer") == painted["name"]
+                    if solid_fill_read:
+                        assert float(rectangle_paint.get("fill-opacity")) == initial_fill["alpha"]
                 if layer_guide:
                     assert [l["id"] for l in composition["layers"]] == [source_layer, guide_id, retained_id]
                     source, guide_layer, text_layer = composition["layers"]
@@ -1247,6 +1260,15 @@ with subprocess.Popen([sys.executable, "-B", str(base / "live-editor-acceptance-
         if solid_fill:
             evidence["solidFill"] = dict(layerId=fill_layer, nodeId=fill_node, hex=fill_hex,
                 lockedAndStaleRejected=True, undoRedoReopenAndSVGVerified=True)
+        if solid_fill_read:
+            evidence["solidFillReadback"] = dict(readOnly=True, staleRejected=True,
+                lockedLiteralReadable=True, reopenedColor=saved_fill["rgb"], reopenedAlpha=saved_fill["alpha"])
+        if artwork_authoring_roundtrip:
+            evidence["artworkAuthoringRoundtrip"] = dict(
+                sequence=["create", "recolor", "translate", "save", "reopen", "exportSvg", "exportPng"],
+                rectangleCenter=made[0][1], textPosition=made[1][1],
+                rectangleFill=fill_hex, sameLayerAndFillIdsAfterReopen=True,
+                outputScope="SVG named layer and fill, PNG signature and canvas dimensions")
         if artwork_gaps:
             evidence["artworkGaps"] = dict(action="gap-x", endpointCenters=[260, 770],
                 fixedSpacing=25, savedMiddleCenter=saved_middle_x, restoredAutomaticOnUndo=True,
