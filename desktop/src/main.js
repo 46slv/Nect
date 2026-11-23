@@ -6572,7 +6572,7 @@ function strokeControls(n) {
       : dash.length === 2 && dash[0] === 0 && dash[1] === 8 && n.strokeCap === 'round'
         ? 'dotted'
         : 'custom';
-  return `<div class="field"><label>Stroke style</label><select data-stroke-preset="${n.id}" aria-label="Stroke style preset">${[
+  const style = `<div class="field"><label>Stroke style</label><select data-stroke-preset="${n.id}" aria-label="Stroke style preset">${[
     ['solid', 'Solid'],
     ['dashed', 'Dashed'],
     ['dotted', 'Dotted'],
@@ -6582,9 +6582,9 @@ function strokeControls(n) {
       ([value, label]) =>
         `<option value="${value}" ${preset === value ? 'selected' : ''} ${value === 'custom' ? 'disabled' : ''}>${label}</option>`,
     )
-    .join(
-      '',
-    )}</select></div><div class="field"><label>Line cap</label><select data-stroke-cap="${n.id}" aria-label="Stroke line cap">${['butt', 'round', 'square'].map((v) => `<option value="${v}" ${(n.strokeCap || 'butt') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Line join</label><select data-stroke-join="${n.id}" aria-label="Stroke line join">${['miter', 'round', 'bevel'].map((v) => `<option value="${v}" ${(n.strokeJoin || 'miter') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Dash / gap (px)</label><input data-stroke-dash="${n.id}" aria-label="Stroke dash pattern" value="${esc((n.strokeDash || []).join(' '))}" placeholder="Solid, or e.g. 12 6"></div><p class="font-note">Odd patterns repeat twice. Empty/none or all zero is solid. Miter limit is a ratio; dashOffset is px.</p>`;
+    .join('')}</select></div>`;
+  const details = `<div class="field"><label>Line cap</label><select data-stroke-cap="${n.id}" aria-label="Stroke line cap">${['butt', 'round', 'square'].map((v) => `<option value="${v}" ${(n.strokeCap || 'butt') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Line join</label><select data-stroke-join="${n.id}" aria-label="Stroke line join">${['miter', 'round', 'bevel'].map((v) => `<option value="${v}" ${(n.strokeJoin || 'miter') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Dash / gap (px)</label><input data-stroke-dash="${n.id}" aria-label="Stroke dash pattern" value="${esc((n.strokeDash || []).join(' '))}" placeholder="Solid, or e.g. 12 6"></div><p class="font-note">Odd patterns repeat twice. Empty/none or all zero is solid. Miter limit is a ratio; dashOffset is px.</p>`;
+  return style + optionalNodeControls('stroke-style', 'Cap, join &amp; dash', details);
 }
 function operationControls(n) {
   const options = operationOptions[n.type];

@@ -40,6 +40,15 @@ row. Path and Vector2 controls keep their original space.
 | Ordered Dither               |                832 → 736 |                     937 → 731 |
 | Ordered Dither Image         |                793 → 697 |                     928 → 722 |
 
+## Stroke details
+
+Stroke preset, Width, Color and graph inputs stay visible. The line cap, join
+and dash pattern are optional and fold together under Cap, join & dash on the
+card and Inspector. At minimum width the card is 645 → 547 px; Inspector content
+is 794 → 684 px. Chrome verified opening the section leaves the document
+unchanged, and the existing scenario still verifies editing, Undo/Redo,
+invalid-value rejection, JSON/SVG/PNG, and dash/cap pixels.
+
 ## Next cases to inspect and improve
 
 1. Text: remaining typography, reference and wrap controls. Cover Windows
@@ -48,7 +57,7 @@ row. Path and Vector2 controls keep their original space.
 2. Luminance, Halftone and Dither: separate output and sampling controls from
    dot geometry and infrequent controls. Keep connected sockets, source, pitch,
    primary tone, and evaluated warnings visible.
-3. Angular Gradient, Vector Transform and Stroke: check secondary presets and
+3. Angular Gradient and Vector Transform: check secondary presets and
    modes separately from authoring controls. Never hide active sockets, mode
    switches, locks, warnings, or the only way to reconnect a wire.
 4. Recheck narrow and normal widths, keyboard operation, preservation across
