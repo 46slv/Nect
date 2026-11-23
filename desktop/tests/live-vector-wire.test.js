@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { deserialize } from '../src/core.js';
+import { deserialize, exportSVG } from '../src/core.js';
+import { parseFont } from '../src/fonts.js';
 import {
   deserializeCompositionProject,
   serializeCompositionProject,
@@ -160,6 +161,11 @@ test('named Scalar wiring shares the GUI command, keeps its literal fallback and
   const f = fixture(createLiveScalarWireEdit);
   const gui = fixture();
   const original = f.serialize();
+  const bytes = readFileSync(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url));
+  const fonts = { default: parseFont(Uint8Array.from(bytes).buffer) };
+  const rendered = (owner) => exportSVG(owner.snapshot(), fonts);
+  const connectedSvg = rendered(f.owner);
+  assert.match(connectedSvg, /<path\b/);
   const read = (owner) =>
     owner.snapshot().layers[0].nodes.find((n) => n.id === 'combine-x').params.x;
   const scope = { layerId: f.scope.layerId, nodeId: 'combine-x', input: 'x' };
@@ -190,6 +196,9 @@ test('named Scalar wiring shares the GUI command, keeps its literal fallback and
   assert.equal(f.serialize(), gui.serialize());
   assert.equal(read(f.owner).value, 0);
   assert.equal(read(f.owner).source ?? null, null);
+  const detachedSvg = rendered(f.owner);
+  assert.notEqual(detachedSvg, connectedSvg);
+  assert.equal(detachedSvg, rendered(gui.owner));
   assert.equal(call({ target: f.readTarget(), ...connect }).status, 'changed');
   assert.equal(f.serialize(), original);
   f.owner.dispatch({ ...f.owner.state, type: 'undo' });
@@ -202,4 +211,5 @@ test('named Scalar wiring shares the GUI command, keeps its literal fallback and
   assert.equal(read(reopened).value, 0);
   assert.equal(read(reopened).source, connect.sourceId);
   assert.equal(read(reopened).sourcePort, connect.sourcePort);
+  assert.equal(rendered(reopened), connectedSvg);
 });
