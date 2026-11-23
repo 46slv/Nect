@@ -8,6 +8,7 @@ import {
 } from '../src/composition-project-model.js';
 import { createCompositionSessionOwner } from '../src/composition-session-owner-core.js';
 import { createLiveVectorWireEdit } from '../src/live-vector-wire.js';
+import { createLiveEditorProtocol } from '../src/live-editor-protocol.js';
 
 const seed = readFileSync(new URL('../examples/text-position-reuse.json', import.meta.url), 'utf8');
 function fixture() {
@@ -91,4 +92,24 @@ test('unavailable, mismatched, and cyclic sources do not alter the document or r
   assert.equal(f.edit(args).status, 'edit-in-progress');
   assert.deepEqual(f.readTarget(), target);
   assert.equal(f.serialize(), before);
+});
+
+test('fixture protocol projects only status and fresh target for a wiring command', () => {
+  const f = fixture();
+  const handler = createLiveEditorProtocol({ readTarget: f.readTarget, setVectorWire: f.edit });
+  const packet = {
+    version: 1,
+    operation: 'graph.setVectorWire',
+    arguments: { ...f.scope, target: f.readTarget(), sourceId: null, sourcePort: null },
+  };
+  assert.deepEqual(createLiveEditorProtocol({ readTarget: f.readTarget })(packet), {
+    status: 'unsupported-operation',
+  });
+  assert.deepEqual(handler({ ...packet, arguments: { ...packet.arguments, path: '/tmp/a' } }), {
+    status: 'invalid-arguments',
+  });
+  assert.equal(f.commits(), 0);
+  assert.deepEqual(handler(packet), { status: 'changed', target: f.readTarget() });
+  assert.deepEqual(handler(packet), { status: 'stale-target' });
+  assert.equal(f.commits(), 1);
 });

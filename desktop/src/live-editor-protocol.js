@@ -58,6 +58,7 @@ export function createLiveEditorProtocol({
   setBlendSteps,
   setBlendMode,
   setBlendInput,
+  setVectorWire,
   readBlendSettings,
   stepHistory,
   createArtwork,
@@ -640,7 +641,13 @@ export function createLiveEditorProtocol({
         return { status: 'outcome-unknown' };
       }
     }
-    if (setBlendInput && request.operation === 'blend.setInput') {
+    const setInput =
+      request.operation === 'blend.setInput'
+        ? setBlendInput
+        : request.operation === 'graph.setVectorWire'
+          ? setVectorWire
+          : null;
+    if (setInput) {
       if (
         !closed(args, ['target', 'layerId', 'nodeId', 'input', 'sourceId', 'sourcePort']) ||
         !validTarget(args.target) ||
@@ -652,7 +659,7 @@ export function createLiveEditorProtocol({
       )
         return { status: 'invalid-arguments' };
       try {
-        const { status } = setBlendInput(args);
+        const { status } = setInput(args);
         return status === 'changed' || status === 'unchanged'
           ? { status, target: captureEditorTarget(readTarget()) }
           : { status };

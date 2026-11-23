@@ -53,7 +53,9 @@ The first non-Blend write candidate is limited to a stored, active
 GUI's Session connect/disconnect operations, without an alternate graph
 writer. Locked and expression-driven inputs are refused. Tests compare
 the authored document to the GUI command and verify that cycles leave the
-document unchanged. This candidate is not registered with either bridge.
+document unchanged. The opt-in Windows fixture adapter registers this
+operation, pending native end-to-end verification. It is not available in
+the ordinary app.
 
 The layer checks distinguish authored and rendered changes: lock and rename
 can preserve pixels, whereas reorder changes paint order without changing
