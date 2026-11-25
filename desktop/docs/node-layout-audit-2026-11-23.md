@@ -133,14 +133,38 @@ browser opened a JSON saved before the change and reopened a browser-saved
 edit with matching artwork and a fresh disclosure state. No native dialogs
 or hands-on acceptance were exercised.
 
+## Luminance Instances: keep sampling and motif adjustments in view
+
+Path output and source/motif inputs keep their existing controls. Group Pitch,
+Grid origin, Invert luminance and Tone power before the white/black scale and
+angle endpoints on both surfaces, including when opening the older example
+that saves without Tone power. Shorter sampling labels reduce line wrapping;
+Help still explains the grid origin and darkness response. The default angle
+range (0°–90°) affects the result, and Grid origin can be wired, so neither
+belongs behind a disclosure. No settings or sockets were folded.
+
+| Default sampling and endpoints, graph at 100% | Card before → after | Inspector before → after |
+| --------------------------------------------- | ------------------: | -----------------------: |
+| 220 px card, 1600 × 1000 window               |        681 → 630 px |             684 → 678 px |
+| 220 px card, 1024 × 768 window                |        681 → 630 px |             684 → 678 px |
+| 264 px card, 1600 × 1000 window               |        606 → 600 px |             684 → 678 px |
+
+Installed Windows Chrome also measured a 220 px card with a Grid origin wire
+and a Tone power expression (807 → 779 px; Inspector 822 px unchanged). The
+sample's authored angle and origin stayed visible, as did the evaluated
+4096-cell warning in Inspector. Keyboard Tab and Enter, graph socket drag,
+reconnect, and editing a Tone power expression worked at both window widths.
+Opening and closing existing Help preserved JSON, evaluated SVG, dirty state,
+revisions and Undo/Redo, including a pending Redo.
+
 ## Next cases to inspect and improve
 
 1. Text: remaining typography, reference and wrap controls. Cover Windows
    fonts, attached text and maintained-gap warnings before moving any active
    status. Leave text, font, size and authored results discoverable.
-2. Luminance, Halftone and Dither: separate output and sampling controls from
-   dot geometry and infrequent controls. Keep connected sockets, source, pitch,
-   primary tone, and evaluated warnings visible.
+2. Other Luminance, Halftone and Dither nodes: separate output and sampling
+   controls from dot geometry and infrequent controls. Keep connected sockets,
+   source, pitch, primary tone, and evaluated warnings visible.
 3. Angular Gradient and Vector Transform: check secondary presets and
    modes separately from authoring controls. Never hide active sockets, mode
    switches, locks, warnings, or the only way to reconnect a wire.

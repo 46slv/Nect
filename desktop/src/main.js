@@ -4980,6 +4980,23 @@ function booleanInputNote(n) {
 function editorParameters(n) {
   if (!isTransform(n)) {
     const entries = activeParameters(n);
+    if (n.type === 'Luminance Instances') {
+      // Keep sampling together even when Tone power was appended on load.
+      const order = [
+        'path',
+        'motif',
+        'pitch',
+        'gridOrigin',
+        'invert',
+        'tonePower',
+        'minScale',
+        'maxScale',
+        'minRotation',
+        'maxRotation',
+      ];
+      const rank = (key) => (order.includes(key) ? order.indexOf(key) : order.length);
+      return entries.sort(([a], [b]) => rank(a) - rank(b));
+    }
     if (n.type === 'Line' && !n.params.useWidth.value && !n.params.useWidth.source)
       return entries.filter(([key]) => key !== 'width');
     if (n.type === 'Boolean' && !n.booleanInputOrder && (n.params.b.source || n.params.b.locked))
@@ -5192,6 +5209,8 @@ function field(n, key, q, inspector = false) {
                                                 : key.includes('.')
                                                   ? key.split('.').at(-1)
                                                   : key;
+  if (n.type === 'Luminance Instances')
+    name = { pitch: 'Pitch (px)', gridOrigin: 'Grid origin', tonePower: 'Tone power' }[key] || name;
   if (n.type === 'Keyer')
     name =
       { path: 'Image', keyColor: 'Key color', tolerance: 'Range', softness: 'Softness' }[key] ||
@@ -5340,7 +5359,9 @@ function field(n, key, q, inspector = false) {
       )
       .join('');
   if (angleDial && !q.source && !q.expression) control += repeaterAngleControl(n, q);
-  return `<div class="field ${q.source ? 'connected' : ''}${compactLiteral ? ' node-compact-literal' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2', 'Color'].includes(q.type) ? `<button class="mini" data-fx aria-label="Expression and parameter references: ${esc(n.name + ' ' + name)}" title="Expression and parameter references: Vector2 uses X; Y">${workspaceIcon('expression')}</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name + (q.sourcePort ? ' ' + (outputPorts(source).find((p) => p.id === q.sourcePort)?.label || q.sourcePort) : ''))} · connected value</span>` : ''}</div>`;
+  const startsLuminanceInstancesGroup =
+    n.type === 'Luminance Instances' && (key === 'pitch' || key === 'minScale');
+  return `<div class="field ${q.source ? 'connected' : ''}${compactLiteral ? ' node-compact-literal' : ''}${startsLuminanceInstancesGroup ? ' luminance-instances-group-start' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2', 'Color'].includes(q.type) ? `<button class="mini" data-fx aria-label="Expression and parameter references: ${esc(n.name + ' ' + name)}" title="Expression and parameter references: Vector2 uses X; Y">${workspaceIcon('expression')}</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name + (q.sourcePort ? ' ' + (outputPorts(source).find((p) => p.id === q.sourcePort)?.label || q.sourcePort) : ''))} · connected value</span>` : ''}</div>`;
 }
 // Presentation-only state; Canvas selection remains the single point selection owner.
 const pointPanelViews = new Map();
@@ -6480,7 +6501,7 @@ function luminanceControls(n) {
   if (n.type === 'Luminance to Points')
     return '<p class="font-note">Sample Source fill or an embedded PNG into disconnected points with per-point scale and rotation. Connect this Path to Instance on Points: Points, and connect any Curve, Star, Polygon or other Path to its Source. Add Fill afterward. Spacing sets grid-center distance in px independently of motif size. Scale/angle interpolate linearly from white to black after linear-light luminance, alpha over white, Invert and Tone power. Zero scale omits a point. Centers are selected inside the source mask/rectangle, including holes; complete motifs are not clipped to cells or the source, and may overlap. Fill opacity is applied afterward; overlapping groups retain independent alpha. Up to 256 active points, 4096 sampled cells and existing geometry/work limits; reduce density or motif complexity if exceeded. Point attributes are derived, saved through node parameters, and consumed by Instance on Points; other Path operations may discard them. Bypass is unavailable because source paint and point output differ.</p>';
   if (n.type === 'Luminance Instances')
-    return '<p class="font-note">Place a Path motif at grid centers inside the source mask or image rectangle. Remapped darkness linearly maps white/black scale and angle endpoints; Invert swaps darkness. Pivot is the whole motif bounds center. Zero scale omits a copy. Partial cells whose center is outside are omitted; whole motifs remain unclipped, preserving cubic handles and groups. Output is an unpainted Path: add Fill or Stroke. Bypass passes the motif unchanged. Up to 256 copies/groups and 100000 points; the shared 4096 sampled-cell cap remains. Filled vector sources must be closed and ungrouped; supported PNG images sample nearest texels in linear light over white. Tone power (0.1–10, default 1) raises darkness to that power after luminance/alpha and Invert: below 1 makes heavier marks, above 1 makes lighter marks. The source paint/image stays unchanged.</p>';
+    return '<p class="font-note">Place a Path motif at grid centers inside the source mask or image rectangle. Grid origin is the top-left corner of cell (0, 0). Remapped darkness linearly maps white/black scale and angle endpoints; Invert swaps darkness. Pivot is the whole motif bounds center. Zero scale omits a copy. Partial cells whose center is outside are omitted; whole motifs remain unclipped, preserving cubic handles and groups. Output is an unpainted Path: add Fill or Stroke. Bypass passes the motif unchanged. Up to 256 copies/groups and 100000 points; the shared 4096 sampled-cell cap remains. Filled vector sources must be closed and ungrouped; supported PNG images sample nearest texels in linear light over white. Tone power (0.1–10, default 1) raises darkness to that power after luminance/alpha and Invert: below 1 makes heavier marks, above 1 makes lighter marks. The source paint/image stays unchanged.</p>';
 
   if (n.type === 'Halftone')
     return '<p class="font-note">Dot shape: Legacy calibrated preserves existing cell-clipped circle-area screening and uses spacing for size. Choose Square, Circle, Polygon or Star for independent maximum size and rotation (polygon sides / star points 3–32; star inner radius ratio 0.05–0.95). Size is square side, circle diameter, or polygon/star outer diameter in px at full darkness; each dimension scales by square root of darkness. Dot spacing is center-to-center px: below maximum size allows overlap, clipped only to the source boundary. Overlaps make opaque black silhouettes with no alpha stacking or smoothing. Cells outside source bounds are not sampled. Limits: 4096 cells, 100000 generated vertices and existing mask work/output budgets; reduce density or shape detail if exceeded. Convert a solid or two-stop gradient fill, or an embedded Image, into black dots. Grid origin sets the top-left document-coordinate corner of cell (0, 0); move it to shift the texture phase without moving the source. Document Y increases downward. Vector luminance uses sRGB stop interpolation; image samples use nearest texels. Both convert to linear light and composite alpha over white. Partial image edge cells clamp to the nearest image texel, and generated marks are clipped to the placed image rectangle (transparent pixels do not define a contour). In Legacy calibrated mode, dot polygon area tracks darkness and each dot is clipped to its cell. Custom shapes are clipped only to the closed source mask. Curves are flattened at about 0.1 document unit. Image processing is limited to supported RGB/RGBA PNGs up to 4 megapixels and the 4096-cell grid cap. Output is not print-calibrated. Vector inputs must be ungrouped and closed; stroke-only inputs are unsupported. Tone power (0.1–10, default 1) raises darkness to that power after luminance/alpha and Invert: below 1 makes heavier marks, above 1 makes lighter marks. The source paint/image stays unchanged.</p>';
