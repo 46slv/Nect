@@ -27,10 +27,14 @@ test('Windows keeps native, frontend and Chrome lanes independent', () => {
     native,
     /Run frontend unit and DOM tests|Run actual Chrome interaction tests/,
   );
-  assert.match(frontend, /^        run: npm run test:ci:windows\r?$/m);
+  assert.match(
+    frontend,
+    /strategy:\r?\n      fail-fast: false\r?\n      matrix:\r?\n        shard: \[1, 2\]/,
+  );
   assert.doesNotMatch(frontend, /cargo test|Run actual Chrome interaction tests/);
-  assert.match(browser, /matrix:\s+shard: \[1, 2\]/);
-  assert.match(browser, /node scripts\/browser-suite-runner.mjs --shard/);
+  assert.match(browser, /matrix:\s+shard: \[1, 2, 3\]/);
+  assert.match(browser, /BROWSER_SHARD: \$\{\{ matrix.shard \}\}/);
+  assert.match(browser, /node scripts\/browser-suite-runner.mjs --shard "\$env:BROWSER_SHARD\/3"/);
   for (const body of [native, frontend, browser]) assert.doesNotMatch(body, /needs:/);
 });
 
@@ -44,6 +48,12 @@ test('Windows frontend bounds concurrency without changing the full test selecti
   for (const hook of ['pretest', 'posttest', 'pretest:ci:windows', 'posttest:ci:windows']) {
     assert.equal(scripts[hook], undefined, `Unexpected test lifecycle hook: ${hook}`);
   }
+  assert.match(frontend, /FRONTEND_SHARD: \$\{\{ matrix.shard \}\}/);
+  const shardCommand = scripts['test:ci:windows'].replace(
+    ' tests/*.test.js',
+    ` "--test-shard=$env:FRONTEND_SHARD/2" 'tests/*.test.js'`,
+  );
+  assert.ok(frontend.split(/\r?\n/).includes(`        run: ${shardCommand}`));
   assert.doesNotMatch(browser, /test:ci:windows/);
 });
 
@@ -78,7 +88,10 @@ test('lane artifact names are distinct and preserve the same evidence allowlist'
   const paths = (body) =>
     body.match(/          path: \|\r?\n([\s\S]*?)          if-no-files-found: ignore/)[1];
   assert.equal(paths(native), paths(browser));
-  assert.match(frontend, /name: nect-desktop-windows-frontend-/);
+  assert.match(
+    frontend,
+    /name: nect-desktop-windows-frontend-\$\{\{ github.sha \}\}-shard-\$\{\{ matrix.shard \}\}/,
+  );
   assert.match(browser, /-shard-\$\{\{ matrix.shard \}\}/);
   for (const body of [native, frontend, browser]) assert.match(body, /if: always\(\)/);
 });
@@ -89,6 +102,10 @@ test('Chrome preserves failure continuation, production CSP entry and owned serv
     /if: \$\{\{ !cancelled\(\) && steps.dependencies.outcome == 'success' \}\}/,
   );
   assert.match(browser, /finally \{ Stop-Process -Id \$server.Id -ErrorAction SilentlyContinue \}/);
-  assert.match(browser, /npm run test:csp[\s\S]*?else \{\s+npm run build/);
+  assert.match(
+    browser,
+    /if \(\$env:BROWSER_SHARD -eq '1'\) \{\s+npm run test:csp[\s\S]*?else \{\s+npm run build/,
+  );
+  assert.equal([...browser.matchAll(/npm run test:csp/g)].length, 1);
   assert.match(browser, /if \(\$LASTEXITCODE -ne 0\) \{ exit \$LASTEXITCODE \}/);
 });
