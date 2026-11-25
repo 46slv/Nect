@@ -143,6 +143,10 @@ jobs:
           retention-days: 1
 
   frontend:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     runs-on: windows-2022
     timeout-minutes: 60
     defaults:
@@ -170,12 +174,15 @@ jobs:
         run: ./scripts/prepare-windows-japanese-fonts.ps1 -InstallIfMissing
       - name: Run frontend unit and DOM tests
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
-        run: npm run test:ci:windows
+        shell: pwsh
+        env:
+          FRONTEND_SHARD: ${{ matrix.shard }}
+        run: node --test --test-concurrency=2 "--test-shard=$env:FRONTEND_SHARD/2" 'tests/*.test.js'
       - name: Preserve frontend test evidence
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
-          name: nect-desktop-windows-frontend-${{ github.sha }}
+          name: nect-desktop-windows-frontend-${{ github.sha }}-shard-${{ matrix.shard }}
           path: |
             desktop/test-results/*.png
             desktop/test-results/workflow-*.json
