@@ -68,6 +68,71 @@ is 794 → 684 px. Chrome verified opening the section leaves the document
 unchanged, and the existing scenario still verifies editing, Undo/Redo,
 invalid-value rejection, JSON/SVG/PNG, and dash/cap pixels.
 
+## Text graph: more position references
+
+The flat Text card measured 1,204 px at the clean Draft #347 head. Two 44 px
+rows exposed Reference bounds and the cross-axis reference even with the
+new-Text defaults (Visible outline and first baseline/column center). Group
+those two rows under **More position references** on the graph only, when
+unwrapped, detached, and all references are at their defaults. The inline
+reference, text, font, size, writing direction, wrap and leading stay visible.
+Changing any reference keeps both secondary rows visible, including the legacy
+Advance bounds. Position and Path sockets and diagnostics are not in the fold.
+
+| Fixture (graph 100%, Windows Chrome, 1×) | Card before → after | Inspector before → after |
+| ---------------------------------------- | ------------------: | -----------------------: |
+| 220 px card, 1600 × 1000 window          |      1204 → 1144 px |           1219 → 1219 px |
+| 264 px card, 1600 × 1000 window          |      1204 → 1144 px |           1219 → 1219 px |
+| 220 px card, 1024 × 768 window           |      1204 → 1144 px |           1219 → 1219 px |
+
+Alternate surfaces checked before choosing the patch:
+
+- Image and Image Output were 311 and 159 px: the asset's placement and size,
+  reference, and routing are not an extra group of inactive controls.
+- Blend's seven modes were 354–495 px. Inactive parameters are already omitted;
+  the additional C or Spine port in the taller modes is part of that mode's
+  wiring. Mode, spacing, and Expand remain accessible.
+- Wrapped vertical Text (1265 px) keeps the references available for placement
+  and resize. Attached Text (1679 px) keeps its existing path controls and
+  retained flat references. A custom cross-axis reference (1204 px) stays
+  exposed. Saved Windows Text (1174 px) has a separate editor and an existing
+  wrap overflow warning; Chrome verified the saved outline UI only, not native
+  font preparation. All these fixtures, including their Inspector heights,
+  measured the same after the patch.
+
+Chrome verified Enter and Tab, retaining the graph's view choice across
+rerenders independently of Inspector typography, the connected Position and
+reconnect menu, an exposed maintained-gap suspension warning, and reference
+edits with Undo/Redo through a downstream Transform. Toggling alone changes
+neither JSON nor evaluated SVG, dirty state, or history. The existing graph
+Space-to-pan shortcut is unchanged; use Enter to toggle a focused summary.
+
+## Multi Path: fold other path units
+
+A saved badge sheet with 12 independently editable outline/hole units (24
+contours, 144 anchors) put 12 rows of unit buttons ahead of the selected
+anchor editor. With four or more units, the graph and Inspector now fold the
+units that contain no selected anchors. The section names how many units it
+contains; units with even one selected anchor keep their select and nudge
+buttons in view. Short lists (up to three units) stay directly accessible.
+
+| One selected anchor (installed Windows Chrome, graph 100%, 1×) | Card before → after | Inspector before → after |
+| -------------------------------------------------------------- | ------------------: | -----------------------: |
+| 220 px card, 1600 × 1000 window                                |      1829 → 1603 px |           1994 → 1757 px |
+| 264 px card, 1600 × 1000 window                                |      1769 → 1543 px |           1994 → 1757 px |
+| 220 px card, 1024 × 768 window                                 |      1829 → 1603 px |           1994 → 1757 px |
+
+Point and handle editors, sockets, the connected handle's source/result, and
+the existing downstream Remap warning stay outside the fold. Enter toggles,
+Tab reaches disclosed rows, and Shift+Enter on a selected unit returns focus
+to the summary if the row moves into the closed section. Space-drag still
+pans the graph. Chrome verified independent graph/Inspector view state across
+selection changes and rerenders, numeric editing and Undo/Redo, and Canvas
+moves that preserve the outline/hole membership and connected handle. The
+browser opened a JSON saved before the change and reopened a browser-saved
+edit with matching artwork and a fresh disclosure state. No native dialogs
+or hands-on acceptance were exercised.
+
 ## Next cases to inspect and improve
 
 1. Text: remaining typography, reference and wrap controls. Cover Windows
