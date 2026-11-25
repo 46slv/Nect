@@ -1337,6 +1337,9 @@ dialog::backdrop {
   grid-row: 1;
   justify-content: flex-end;
 }
+.field.luminance-instances-group-start {
+  box-shadow: inset 0 1px var(--line);
+}
 .field[data-type] > .source-name {
   grid-column: 1 / -1;
   grid-row: 3;
