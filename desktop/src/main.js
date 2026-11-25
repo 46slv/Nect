@@ -5942,6 +5942,15 @@ function refreshPointPanels() {
     '.graph [data-point-panel], .inspector [data-point-panel]',
   ))
     prepareNumericInputs(panel, result);
+  for (const region of app.querySelectorAll('[data-path-unit-rows]')) {
+    const n = current().nodes.find((node) => node.id === region.dataset.pathUnitRows);
+    if (n?.type !== 'Multi Path') continue;
+    const markup = multiPathUnitRows(n, region.dataset.selection);
+    if (!markup) continue;
+    const section = region.parentElement;
+    region.outerHTML = markup;
+    prepareEditingRegion(section);
+  }
   revealActivePointRow();
   requestAnimationFrame(() => {
     updateGraphBounds();
@@ -6359,24 +6368,42 @@ function textControls(n, graph = false) {
 function unitPointIds(n, unit) {
   return n.contours.filter((c) => unit.contours.includes(c.id)).flatMap((c) => c.points);
 }
+function multiPathUnitRows(n, previousSelection) {
+  const selected = new Set(selectedPointIds(n)),
+    pointsByContour = new Map(n.contours.map((contour) => [contour.id, contour.points])),
+    states = n.units.map((unit) => {
+      if (!selected.size) return 0;
+      const ids = unit.contours.flatMap((id) => pointsByContour.get(id));
+      return ids.every((id) => selected.has(id)) ? 2 : ids.some((id) => selected.has(id)) ? 1 : 0;
+    }),
+    selectionKey = states.join('');
+  if (selectionKey === previousSelection) return '';
+  const inline = [],
+    folded = [],
+    locked = current().locked;
+  for (const [i, unit] of n.units.entries()) {
+    // Keep the controls for any selected anchor's unit in place above the point editor.
+    const rows = n.units.length <= 3 || states[i] ? inline : folded;
+    rows.push(
+      `<div><button class="mini" data-path-unit="${unit.id}" data-node="${n.id}" aria-pressed="${states[i] === 2}">Path ${i + 1}</button>${[
+        ['←', -1, 0],
+        ['→', 1, 0],
+        ['↑', 0, -1],
+        ['↓', 0, 1],
+      ]
+        .map(
+          ([label, x, y]) =>
+            `<button class="mini" data-move-path-unit="${unit.id}" data-node="${n.id}" data-delta="${x},${y}" aria-label="Move Path ${i + 1} ${label} 1 px" ${locked ? 'disabled' : ''}>${label}</button>`,
+        )
+        .join('')}</div>`,
+    );
+  }
+  const heading = inline.length || !folded.length ? '<h4>Path units</h4>' : '';
+  return `<div data-path-unit-rows="${n.id}" data-selection="${selectionKey}">${heading}${inline.join('')}${folded.length ? optionalNodeControls('multi-path-units', `${inline.length ? 'Other path units' : 'Path units'} (${folded.length})`, folded.join('')) : ''}</div>`;
+}
 function multiPathControls(n) {
   if (n.type !== 'Multi Path') return '';
-  return `<section aria-label="Contained path units"><h4>Path units</h4><p class="font-note">Select a unit, then drag its move marker or a selected anchor to move its outline and holes together. Shift selects additional units. Arrow buttons move one unit by 1 px. Edit individual anchors normally; Alt-click creates Bézier handles and Alt-drag pulls them out. Use Subdivide Path to add points.</p>${n.units
-    .map(
-      (unit, i) =>
-        `<div><button class="mini" data-path-unit="${unit.id}" data-node="${n.id}" aria-pressed="${unitPointIds(n, unit).every((id) => selectedPointIds(n).includes(id))}">Path ${i + 1}</button>${[
-          ['←', -1, 0],
-          ['→', 1, 0],
-          ['↑', 0, -1],
-          ['↓', 0, 1],
-        ]
-          .map(
-            ([label, x, y]) =>
-              `<button class="mini" data-move-path-unit="${unit.id}" data-node="${n.id}" data-delta="${x},${y}" aria-label="Move Path ${i + 1} ${label} 1 px" ${current().locked ? 'disabled' : ''}>${label}</button>`,
-          )
-          .join('')}</div>`,
-    )
-    .join('')}</section>`;
+  return `<section aria-label="Contained path units">${multiPathUnitRows(n)}<p class="font-note">Select a unit, then drag its move marker or a selected anchor to move its outline and holes together. Shift selects additional units. Arrow buttons move one unit by 1 px. Edit individual anchors normally; Alt-click creates Bézier handles and Alt-drag pulls them out. Use Subdivide Path to add points.</p></section>`;
 }
 function positionReferenceControls(n) {
   if (!['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star', 'Image'].includes(n.type)) return '';
@@ -6865,6 +6892,11 @@ function prepareEditingRegion(region) {
       event.preventDefault();
       details.open = !details.open;
       layoutDisclosures.set(key, details.open);
+      if (graphNode && details.dataset.layoutDisclosure === 'multi-path-units')
+        requestAnimationFrame(() => {
+          updateGraphBounds();
+          drawWires();
+        });
     });
     details.addEventListener('toggle', () => {
       if (details.isConnected) layoutDisclosures.set(key, details.open);
@@ -12879,7 +12911,9 @@ app.addEventListener('click', async (e) => {
     if (!unit) return;
     const ids = unitPointIds(n, unit),
       old = selectedPointIds(n),
-      remove = e.shiftKey && ids.every((id) => old.includes(id));
+      remove = e.shiftKey && ids.every((id) => old.includes(id)),
+      restoreUnitFocus = remove && b === document.activeElement,
+      graph = !!b.closest('.graph');
     pointPanelViews.delete(n.id);
     pointFocus = null;
     pointSelection = { nodeId: n.id, ids: new Set(e.shiftKey ? old : []) };
@@ -12889,6 +12923,14 @@ app.addEventListener('click', async (e) => {
     selected = n.id;
     selection = new Set([n.id]);
     render();
+    if (restoreUnitFocus) {
+      // Shift-deselect can move the focused unit into the closed section.
+      const surface = graph ? '.graph' : '.inspector-body';
+      const unitButton = app.querySelector(
+        `${surface} [data-path-unit-rows="${CSS.escape(n.id)}"] [data-path-unit="${CSS.escape(unit.id)}"]`,
+      );
+      unitButton?.closest('details:not([open])')?.querySelector('summary')?.focus();
+    }
     return;
   }
   if (d.movePathUnit) {

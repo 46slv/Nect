@@ -107,6 +107,32 @@ edits with Undo/Redo through a downstream Transform. Toggling alone changes
 neither JSON nor evaluated SVG, dirty state, or history. The existing graph
 Space-to-pan shortcut is unchanged; use Enter to toggle a focused summary.
 
+## Multi Path: fold other path units
+
+A saved badge sheet with 12 independently editable outline/hole units (24
+contours, 144 anchors) put 12 rows of unit buttons ahead of the selected
+anchor editor. With four or more units, the graph and Inspector now fold the
+units that contain no selected anchors. The section names how many units it
+contains; units with even one selected anchor keep their select and nudge
+buttons in view. Short lists (up to three units) stay directly accessible.
+
+| One selected anchor (installed Windows Chrome, graph 100%, 1×) | Card before → after | Inspector before → after |
+| -------------------------------------------------------------- | ------------------: | -----------------------: |
+| 220 px card, 1600 × 1000 window                                |      1829 → 1603 px |           1994 → 1757 px |
+| 264 px card, 1600 × 1000 window                                |      1769 → 1543 px |           1994 → 1757 px |
+| 220 px card, 1024 × 768 window                                 |      1829 → 1603 px |           1994 → 1757 px |
+
+Point and handle editors, sockets, the connected handle's source/result, and
+the existing downstream Remap warning stay outside the fold. Enter toggles,
+Tab reaches disclosed rows, and Shift+Enter on a selected unit returns focus
+to the summary if the row moves into the closed section. Space-drag still
+pans the graph. Chrome verified independent graph/Inspector view state across
+selection changes and rerenders, numeric editing and Undo/Redo, and Canvas
+moves that preserve the outline/hole membership and connected handle. The
+browser opened a JSON saved before the change and reopened a browser-saved
+edit with matching artwork and a fresh disclosure state. No native dialogs
+or hands-on acceptance were exercised.
+
 ## Next cases to inspect and improve
 
 1. Text: remaining typography, reference and wrap controls. Cover Windows
