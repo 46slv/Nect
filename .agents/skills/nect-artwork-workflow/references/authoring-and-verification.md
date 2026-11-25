@@ -24,15 +24,17 @@ Use a valid, distinct output path with an existing parent. Inspect the generated
 
 ## Hermes discovery (opt-in)
 
+Keep the skill at the Git root for trusted project discovery. The Nect commands above still run from desktop/.
+
 Hermes does not need this entire repository in its skill directory. Point its
 `skills.external_dirs` configuration at the absolute path to this checkout's
-`desktop/.agents/skills` directory in the intended profile, keeping the other
+`.agents/skills` directory in the intended profile, keeping the other
 configured entries. For example (replace the path):
 
 ```yaml
 skills:
   external_dirs:
-    - 'D:/work/Nect/desktop/.agents/skills'
+    - 'D:/work/Nect/.agents/skills'
 ```
 
 Use the profile's skill list to confirm that `nect-artwork-workflow` appears.
