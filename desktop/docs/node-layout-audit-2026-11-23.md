@@ -157,6 +157,32 @@ reconnect, and editing a Tone power expression worked at both window widths.
 Opening and closing existing Help preserved JSON, evaluated SVG, dirty state,
 revisions and Undo/Redo, including a pending Redo.
 
+## Luminance to Points: shorten sampling labels without clipping sockets
+
+Use Spacing, Grid origin and Tone power on both surfaces. Existing Help
+explains spacing units and density, the cell origin and the darkness response.
+No control was folded; the source, invert, scale and angle endpoints, Path
+output and evaluation warnings are unchanged.
+
+| 220 px card, Windows Chrome at 100%             | Card before → after | Inspector before → after |
+| ----------------------------------------------- | ------------------: | -----------------------: |
+| PaintedPath source, default sampling            |        661 → 559 px |             690 → 678 px |
+| Connected Grid origin and Tone power expression |        905 → 826 px |             941 → 935 px |
+
+The supplied native baseline for the first fixture was 634 px on the graph
+and 691 px in Inspector; the table compares installed Chrome before/after,
+not native runs. Chrome reproduced the 218 px client / 229 px scroll width:
+removing only the output hit pseudo-element in a diagnostic reduced scroll
+width to 225 px; removing the output button brought it to 218 px. The 11 px
+is output hit geometry, not control overflow. An actual drag from beyond the
+button and card created the Points wire; a click beyond the opposite edge
+still reached a connected input. No clipping or socket changes were made.
+
+Chrome verified the 4096-cell diagnostic, Enter/Tab, real connections and
+expressions, and graph endpoints as expression details opened and closed.
+View-only operations left JSON, evaluated SVG, revisions, dirty state, Undo
+and pending Redo unchanged. No new native acceptance was run.
+
 ## Next cases to inspect and improve
 
 1. Text: remaining typography, reference and wrap controls. Cover Windows
