@@ -51,8 +51,6 @@ test('maintained ink gap inspector applies, preserves typography editability, sc
     );
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const tick = () => new Promise((r) => setTimeout(r, 15));
-  for (let i = 0; i < 300 && (!win.nect || win.nect.evaluate().error); i++) await tick();
-  assert.equal(win.nect.evaluate().error, null);
   const fixture = makeDoc(),
     t = node('Text'),
     tr = node('Transform'),
@@ -141,6 +139,7 @@ test('maintained ink gap inspector applies, preserves typography editability, sc
       assert.ok(Math.abs(chars[i].bounds[0] - chars[i - 1].bounds[2] - expected) < 1e-7);
   };
   await load();
+  assert.equal(win.nect.evaluate().error, null);
   assert.equal(q('[data-arrangement-apply]').disabled, false);
   assert.equal(q('[data-arrangement-gap]').value, '10');
   const before = saved();

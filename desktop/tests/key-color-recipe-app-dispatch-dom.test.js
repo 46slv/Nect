@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
-import { serialize, layer, node, connect } from '../src/core.js';
+import { blankDocument, serialize, layer, node, connect } from '../src/core.js';
 import { serializeCompositionProject } from '../src/composition-project-model.js';
 import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import { openDOMPanel } from './helpers/dom-workspace-controls.js';
@@ -327,6 +327,7 @@ test('real main.js routes the experimental editor through closed Apply, not a la
   await t.test('B explicit pair compares current and valid preview without authoring', async () => {
     const s = await boot(main, 'pair-advisory');
     try {
+      s.load(blankDocument());
       s.open();
       const hex = s.query('[data-research-hex]'),
         alpha = s.query('[data-research-alpha]'),
@@ -766,6 +767,7 @@ test('real main.js routes the experimental editor through closed Apply, not a la
     async () => {
       const s = await boot(main, 'research-preview');
       try {
+        s.load(blankDocument());
         s.win.nect.dispatch({
           ...s.win.nect.commandState,
           type: 'set-document-settings',
@@ -1014,6 +1016,7 @@ test('real main.js routes the experimental editor through closed Apply, not a la
     async () => {
       const s = await boot(main, 'closed-apply');
       try {
+        s.load(blankDocument());
         const blank = s.snapshot();
         s.open();
         assert.ok(s.query('[data-key-color-empty]'));

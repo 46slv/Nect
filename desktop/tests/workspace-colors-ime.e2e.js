@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
 import { serializeCompositionProject } from '../src/composition-project-model.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
-import { preloadVariableFontDependency } from './helpers/browser-fixture-setup.js';
+import {
+  loadBlankFixture,
+  preloadVariableFontDependency,
+} from './helpers/browser-fixture-setup.js';
 
 const browser = await chromium.launch({
   executablePath:
@@ -22,7 +25,7 @@ try {
   const baseURL = process.env.BASE_URL || 'http://127.0.0.1:5173';
   await preloadVariableFontDependency(page, baseURL);
   await page.goto(baseURL);
-  await page.waitForFunction(() => window.nect);
+  await loadBlankFixture(page);
   await ensureWorkspacePanel(page, 'colors');
   await page.locator('[data-shared-color-add]').click();
   await page.locator('[data-color-advanced] summary').click();

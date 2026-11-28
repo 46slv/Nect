@@ -129,7 +129,6 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
       await tick();
     }
   };
-  await until(() => win.nect && win.privateFontDebug().bundled, 'startup');
   const doc = newDocument(),
     text = node('Text'),
     output = node('Output');
@@ -146,6 +145,7 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
     );
   };
   win.nect.load(serialize(doc));
+  await until(() => win.privateFontDebug().bundled, 'bundled font initialization');
   openDOMPanel(document, 'inspector');
   select();
   const snapshot = () => JSON.stringify(win.nect.document);

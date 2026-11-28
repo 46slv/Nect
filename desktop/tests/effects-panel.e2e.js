@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { chromium } from 'playwright-core';
 import { activateCommand } from './command-menu-actions.js';
+import { createNewFixture } from './helpers/browser-fixture-setup.js';
 
 const browser = await chromium.launch({
   executablePath:
@@ -31,7 +32,7 @@ const activeNode = (id) =>
 try {
   await fs.mkdir('test-results', { recursive: true });
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForFunction(() => window.nect);
+  await createNewFixture(page);
   await page.locator('[data-tool="Circle"]').click();
   const before = await project(),
     beforeShape = await shape();
@@ -161,7 +162,8 @@ try {
   await (await downloading).saveAs(file);
   assert.deepEqual(JSON.parse(await fs.readFile(file, 'utf8')), JSON.parse(edited));
   await page.reload();
-  await page.waitForFunction(() => window.nect);
+  // Keep the dirty replacement and its Discard prompt in the Open scenario.
+  await createNewFixture(page);
   const choosing = page.waitForEvent('filechooser');
   await activateCommand(page, 'open');
   await page.locator('dialog[open] button[value="discard"]').click();

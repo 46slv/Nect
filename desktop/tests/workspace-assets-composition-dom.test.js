@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { serialize } from '../src/core.js';
 import { openDOMPanel, revealDOMBoundary } from './helpers/dom-workspace-controls.js';
+import { loadBlankArtwork } from './helpers/load-blank-artwork.js';
 
 test('main composition keeps Assets portal on hide and disposes only on panel close', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
@@ -36,6 +37,7 @@ test('main composition keeps Assets portal on hide and disposes only on panel cl
   const tick = () => new Promise((resolve) => setTimeout(resolve, 15));
   for (let i = 0; i < 200 && !win.nect; i++) await tick();
   assert.ok(win.nect);
+  loadBlankArtwork(win);
   openDOMPanel(document, 'layers');
   const width = document.querySelector('[data-dimension="width"]');
   assert.ok(width);

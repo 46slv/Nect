@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
+import { loadBlankFixture } from './helpers/browser-fixture-setup.js';
 
 const output = resolve('test-results/workspace-tools-placement');
 await mkdir(output, { recursive: true });
@@ -77,7 +78,7 @@ async function waitForTextToolHit(textTool) {
 
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForFunction(() => window.nect);
+  await loadBlankFixture(page);
   await page.evaluate(() => {
     window.nect.dispatch({
       ...window.nect.commandState,
@@ -214,7 +215,7 @@ try {
   );
   assert.equal(await tools.evaluate((element) => element === window.toolsBeforePanelSwitch), true);
   await page.reload();
-  await page.waitForFunction(() => window.nect);
+  await loadBlankFixture(page);
   assert.equal(await placement.getAttribute('aria-pressed'), 'true');
   assert.equal(
     await tools.evaluate((element) => element.parentElement.classList.contains('inspector')),
@@ -229,7 +230,7 @@ try {
   );
   assert.equal(await inspectorRail.evaluate((element) => element === document.activeElement), true);
   await page.reload();
-  await page.waitForFunction(() => window.nect);
+  await loadBlankFixture(page);
   assert.equal(await inspectorRail.getAttribute('aria-expanded'), 'false');
   assert.equal(
     await tools.evaluate((element) => element.parentElement.classList.contains('canvas-wrap')),

@@ -2,6 +2,7 @@ import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { verifyRemapPointOutput } from './helpers/remap-point-output-e2e.js';
+import { createNewFixture } from './helpers/browser-fixture-setup.js';
 
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
@@ -150,7 +151,18 @@ try {
   await page.locator('[data-action="redo"]').click();
   assert.equal(await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot())), after);
   result.historyUndoRedo = true;
-  await verifyRemapPointOutput(page);
+  // The round-trip helper expects Open to replace unsaved artwork after reload.
+  const reload = page.reload.bind(page);
+  page.reload = async () => {
+    const response = await reload();
+    await createNewFixture(page);
+    return response;
+  };
+  try {
+    await verifyRemapPointOutput(page);
+  } finally {
+    page.reload = reload;
+  }
   result.remapOutputEditing = true;
   assert.deepEqual(result.pageErrors, []);
   await fs.mkdir('test-results', { recursive: true });

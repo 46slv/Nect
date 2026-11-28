@@ -233,7 +233,7 @@ try {
   if (await discard.isVisible()) await discard.click();
   await (await opening).setFiles(`${dir}/project.json`);
   await page.waitForFunction(() =>
-    window.nect.document.layers.some((l) => l.id === 'boolean-layer'),
+    window.nect.document?.layers.some((l) => l.id === 'boolean-layer'),
   );
   assert.deepEqual(await page.evaluate(() => window.nect.projectSnapshot()), project);
   await ensureWorkspacePanel(page, 'layers');

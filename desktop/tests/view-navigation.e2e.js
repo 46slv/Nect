@@ -80,8 +80,6 @@ async function fitVisible(selector = '.node') {
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
-  await ensureWorkspacePanel(page, 'inspector');
   await page.waitForTimeout(400);
   await fs.mkdir('test-results', { recursive: true });
   const ids = await page.evaluate(async () => {
@@ -98,6 +96,7 @@ try {
     window.nect.load(JSON.stringify(d));
     return [rect.id, text.id, out.id];
   });
+  await ensureWorkspacePanel(page, 'inspector');
   await page.waitForTimeout(100);
   const original = await saved();
   await truthful();

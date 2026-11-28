@@ -1,8 +1,9 @@
 import { MAX_COMPOSITION_DIMENSION } from './composition-project-model.js';
+import { isNewProjectDimension } from './new-project-dimensions.js';
 import { createNumericControlBehavior } from './numeric-control-behavior.js';
 
-// The fields are a temporary proposal, not an edit to the open Project.
-export function chooseNewProjectSize({ width, height, isCurrent }) {
+// Require explicit dimensions; the caller's blank document is not a preset.
+export function chooseNewProjectSize({ isCurrent }) {
   const previousFocus = document.activeElement;
   const dialog = document.createElement('dialog');
   dialog.className = 'new-project-dialog';
@@ -12,18 +13,12 @@ export function chooseNewProjectSize({ width, height, isCurrent }) {
     submit = dialog.querySelector('button[type="submit"]'),
     status = dialog.querySelector('output'),
     composing = new Set();
-  inputs[0].value = String(width);
-  inputs[1].value = String(height);
   let touched = false,
     scrub = null,
     settled = false;
 
   const validInput = (input) =>
-    input.value !== '' &&
-    Number.isFinite(input.valueAsNumber) &&
-    input.valueAsNumber > 0 &&
-    input.valueAsNumber <= MAX_COMPOSITION_DIMENSION &&
-    !input.validity.badInput;
+    input.value !== '' && !input.validity.badInput && isNewProjectDimension(input.valueAsNumber);
   const update = () => {
     const valid = inputs.every(validInput);
     for (const input of inputs) input.setAttribute('aria-invalid', String(!validInput(input)));

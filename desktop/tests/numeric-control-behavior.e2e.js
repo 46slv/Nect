@@ -21,7 +21,6 @@ await fs.mkdir(output, { recursive: true });
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  await ensureWorkspacePanel(page, 'inspector');
   const saved = () => page.evaluate(() => JSON.stringify(window.nect.document));
   const state = () => page.evaluate(() => window.nect.commandState);
   const load = async (points = false) => {
@@ -32,6 +31,7 @@ try {
     f.layer.nodes.push(f.circle);
     f.ids = [f.path.contours[0].points[1], f.path.contours[3].points[2]];
     await page.evaluate((text) => window.nect.load(text), serialize(f.doc));
+    await ensureWorkspacePanel(page, 'inspector');
     const id = points ? f.path.id : f.circle.id;
     await page.locator(`.graph .node[data-id="${id}"] .node-head strong`).click();
     if (points) {

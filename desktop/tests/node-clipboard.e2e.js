@@ -89,9 +89,9 @@ try {
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   await page.waitForFunction(() => window.nect);
-  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
-  await ensureWorkspacePanel(page, 'inspector');
   await page.evaluate((s) => window.nect.load(s), serialize(doc));
+  // This scenario exercises Inspector behavior; opening it is explicit in the default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await activateBoundaryCommand(page, 'graph-fit');
   const ids = [image.id, key.id, shape.id, mask.id, text.id, ref.id];
   const selectedIds = () =>

@@ -106,10 +106,10 @@ try {
     };
   });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
-  await page.waitForFunction(() => window.nect);
+  await page.waitForFunction(() => window.nect && !document.body.inert);
+  await page.evaluate((s) => window.nect.load(s), serialize(d));
   // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
   await ensureWorkspacePanel(page, 'inspector');
-  await page.evaluate((s) => window.nect.load(s), serialize(d));
   const output = process.env.NECT_TEST_OUTPUT || 'test-results/recovery-failed-context';
   await mkdir(output, { recursive: true });
   const settle = () =>
@@ -144,11 +144,16 @@ try {
   await page.evaluate(() => {
     window.diskMode = 'normal';
   });
-  await page.getByText('Project', { exact: true }).click();
-  await page.locator('[data-action="new"]').click();
+  await activateBoundaryCommand(page, 'new');
+  const size = page.locator('.new-project-dialog[open]');
+  await size.locator('[name="width"]').fill('960');
+  await size.locator('[name="height"]').fill('540');
+  await size.locator('button[type="submit"]').click();
   await page.waitForFunction(
     () =>
       window.nect.document.name === 'Untitled composition' &&
+      window.nect.document.width === 960 &&
+      window.nect.document.height === 540 &&
       window.nect.recoveryState.requestedRevision === 0,
   );
   await page.evaluate(() => window.releaseDisk());

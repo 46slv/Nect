@@ -20,7 +20,6 @@ export async function verifyPathEditFoundation({ type, key, value }) {
   try {
     await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
     await page.waitForFunction(() => typeof window.nect?.load === 'function');
-    await ensureWorkspacePanel(page, 'inspector');
     const doc = blankDocument(),
       layer = doc.layers[0],
       path = node('Imported Path', 40, 80),
@@ -32,6 +31,7 @@ export async function verifyPathEditFoundation({ type, key, value }) {
     connect(layer, effect.id, stroke.id, 'path');
     connect(layer, stroke.id, layer.output, 'path');
     await page.evaluate((value) => window.nect.load(value), serialize(doc));
+    await ensureWorkspacePanel(page, 'inspector');
     const card = page.locator(`.graph .node[data-id="${effect.id}"]`);
     await card.locator('.node-head strong').click();
     const input = page.locator(

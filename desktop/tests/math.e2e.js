@@ -24,8 +24,6 @@ async function download(action, path) {
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
-  await ensureWorkspacePanel(page, 'inspector');
   await fs.mkdir('test-results', { recursive: true });
   const ids = await page.evaluate(async () => {
     const { document, node, connect } = await import('/src/core.js');
@@ -55,6 +53,7 @@ try {
     window.nect.load(JSON.stringify(d));
     return { v: v.id, s: s.id, m: m.id, c: c.id };
   });
+  await ensureWorkspacePanel(page, 'inspector');
   const value = () => page.evaluate((id) => window.nect.evaluate().run(id), ids.c);
   await page
     .locator(`[data-source="${ids.s}"][data-source-port="x"]`)

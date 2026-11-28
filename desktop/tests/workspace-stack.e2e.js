@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { blankDocument, blankLayer, connect, node, serialize } from '../src/core.js';
+import { loadBlankFixture } from './helpers/browser-fixture-setup.js';
 
 const output = resolve('test-results/workspace-stack');
 await mkdir(output, { recursive: true });
@@ -394,7 +395,7 @@ try {
   await inspectorRail.click();
   await visibleStack();
   await page.reload();
-  await page.waitForFunction(() => window.nect);
+  await loadBlankFixture(page);
   await visibleStack();
   assert.equal(await inspectorRail.getAttribute('aria-pressed'), 'true');
   assert.equal(Number(await separator.getAttribute('aria-valuenow')), pointerSize);

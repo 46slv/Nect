@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { loadBlankArtwork } from './helpers/load-blank-artwork.js';
 import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -75,9 +76,10 @@ test('synthetic Color controls: source display, fallback restoration, alpha vali
   source = resolveMainRelativeImports(source);
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   await new Promise((r) => setTimeout(r, 100));
+  loadBlankArtwork(win);
   assert.equal(document.querySelectorAll('.node').length, 1);
   assert.equal(document.querySelector('.shape'), null);
-  // Color connections need a painted path; startup deliberately supplies none.
+  // Color connections need a painted path; the blank artwork supplies none.
   win.nect.load(
     await fs.readFile(new URL('../examples/boolean-remap.json', import.meta.url), 'utf8'),
   );

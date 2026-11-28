@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { resolve, extname, sep } from 'node:path';
 import { chromium } from 'playwright-core';
 import { activateCommand } from './command-menu-actions.js';
+import { createNewFixture, loadBlankFixture } from './helpers/browser-fixture-setup.js';
 const root = resolve('dist'),
   out = resolve('test-results/asset-catalog');
 const config = JSON.parse(await readFile('src-tauri/tauri.conf.json', 'utf8'));
@@ -94,7 +95,8 @@ try {
           };
         });
       await page.goto(url);
-      await page.waitForFunction(() => window.nect);
+      if (mode === 'browser-refresh') await createNewFixture(page);
+      else await loadBlankFixture(page);
       await activateCommand(page, 'asset-library');
       const panel = page.locator('[data-asset-library]'),
         select = page.getByLabel('Asset folder', { exact: true });

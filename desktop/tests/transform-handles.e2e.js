@@ -54,9 +54,8 @@ const rotate = (g, p, degrees) => {
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
-  await ensureWorkspacePanel(page, 'inspector');
   await load();
+  await ensureWorkspacePanel(page, 'inspector');
   const original = await saved(),
     originalParams = await params(),
     children = await page.evaluate(() =>

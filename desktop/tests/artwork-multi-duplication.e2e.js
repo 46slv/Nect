@@ -146,7 +146,7 @@ try {
       .locator('#open-file')
       .setInputFiles({ name: `batch-${width}.json`, mimeType: 'application/json', buffer: saved });
     await page.waitForFunction(
-      (count) => window.nect.document.layers.length === count,
+      (count) => window.nect.document?.layers.length === count,
       doc.layers.length,
     );
     assert.equal(await snapshot(), after);

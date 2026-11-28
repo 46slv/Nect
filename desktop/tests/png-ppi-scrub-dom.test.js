@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import { pngDimensions } from '../src/raster.js';
+import { blankDocument, serialize } from '../src/core.js';
 
 test('PNG PPI scrubbing keeps export settings out of document history', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
@@ -54,10 +55,8 @@ test('PNG PPI scrubbing keeps export settings out of document history', async (t
       if (el.matches('details')) el.open = true;
     return input;
   };
-  const fixture = structuredClone(win.nect.document);
-  fixture.width = 100;
-  fixture.height = 50;
-  win.nect.load(JSON.stringify(fixture));
+  const fixture = { ...blankDocument(), width: 100, height: 50 };
+  win.nect.load(serialize(fixture));
   change('#png-export-mode', 'ppi');
   const set = (value) => {
     const el = open();

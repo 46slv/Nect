@@ -7,6 +7,7 @@ import {
   PNG_EXPORT_SCALES,
   loadExportPresets,
 } from '../src/export-presets.js';
+import { loadBlankArtwork } from './helpers/load-blank-artwork.js';
 import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 
 test('toolbar presets save, reload, and apply only to their own export controls', async () => {
@@ -42,6 +43,7 @@ test('toolbar presets save, reload, and apply only to their own export controls'
   await new Promise((resolve) => setTimeout(resolve, 50));
 
   try {
+    loadBlankArtwork(win);
     const doc = win.document;
     const setSelect = (selector, value) => {
       const el = doc.querySelector(selector);

@@ -24,8 +24,6 @@ async function download(action, path) {
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
-  await ensureWorkspacePanel(page, 'inspector');
   await fs.mkdir('test-results', { recursive: true });
   const ids = await page.evaluate(async () => {
     const { document, node, layer } = await import('/src/core.js');
@@ -66,6 +64,7 @@ try {
     window.nect.load(JSON.stringify(d));
     return { r: r.id, f: f.id, s: s.id, o: o.id, c: c.id, t: t.id };
   });
+  await ensureWorkspacePanel(page, 'inspector');
   await inspect(ids.t);
   const transformOptions = await page
     .locator(`.graph .node[data-id="${ids.t}"] [data-key="path"] option`)

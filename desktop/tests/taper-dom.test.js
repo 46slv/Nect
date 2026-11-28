@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { loadBlankArtwork } from './helpers/load-blank-artwork.js';
 import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -73,6 +74,7 @@ test('Taper exposes draggable percentage and axis controls', async () => {
     .replace("from './fonts.js'", `from '${new URL('../src/fonts.js', import.meta.url)}'`);
   source = resolveMainRelativeImports(source);
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+  loadBlankArtwork(win);
   await new Promise((r) => setTimeout(r, 100));
   const tick = () => new Promise((r) => setTimeout(r, 10));
   const change = async (el, value) => {

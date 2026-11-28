@@ -11,7 +11,7 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.graph-pan-joystick');
+  await page.waitForFunction(() => window.nect);
   const nodeId = await page.evaluate(async () => {
     const { document, node } = await import('/src/core.js');
     const d = document(),
@@ -24,6 +24,7 @@ try {
     window.nect.load(JSON.stringify(d));
     return n.id;
   });
+  await page.waitForSelector('.graph-pan-joystick');
   const viewport = page.locator('.graph-scroll'),
     stick = page.locator('.graph-pan-joystick');
   const saved = () =>

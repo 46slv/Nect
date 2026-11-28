@@ -108,8 +108,17 @@ test('unified Font keeps native Text editable and explicit outlines reject cance
       await new Promise((r) => setTimeout(r, 10));
     }
   };
-  // The initial new document is intentionally unsaved. Close waits for the
-  // existing user choice; a three-second process wait alone is not an app hang.
+  // Create a genuinely unsaved document so native Close must ask the user.
+  $('[data-action="new"]').click();
+  const newDialog = $('.new-project-dialog[open]');
+  assert.ok(newDialog);
+  for (const [name, value] of Object.entries({ width: '960', height: '540' })) {
+    const input = newDialog.querySelector(`[name="${name}"]`);
+    input.value = value;
+    input.dispatchEvent(new win.Event('input', { bubbles: true }));
+  }
+  newDialog.querySelector('button[type="submit"]').click();
+  await until(() => win.nect.document);
   assert.equal(await globalThis.testNativeClose(), false);
   assert.equal(promptCount, 1);
   const setup = (legacyOutline) => {

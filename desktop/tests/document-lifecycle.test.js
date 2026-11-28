@@ -37,6 +37,47 @@ function fixture({ release = async () => {} } = {}) {
   };
 }
 
+test('empty lifetime is clean, refuses both saves, and needs no unsaved decision', async () => {
+  let contents = null;
+  const d = new DocumentLifecycle({
+    read: () => contents,
+    write: () => assert.fail('Empty Save reached the writer'),
+    choose: () => assert.fail('Empty close entered the unsaved prompt'),
+  });
+  assert.equal(d.dirty, false);
+  await assert.rejects(d.save(), /No document/);
+  await assert.rejects(d.save(true), /No document/);
+  assert.equal(await d.guard('closing Nect'), true);
+  assert.deepEqual([d.binding, d.savedRevision, d.revision, d.operation], [null, null, 0, 0]);
+  contents = 'explicit project';
+  await d.replace();
+  assert.equal(d.dirty, true);
+});
+
+test('a superseded guard cannot save, discard or approve an unchanged owner', async () => {
+  let current = true,
+    answer;
+  const d = new DocumentLifecycle({
+    read: () => 'dirty project',
+    choose: () => new Promise((resolve) => (answer = resolve)),
+    write: () => assert.fail('Stale approval reached the writer'),
+  });
+  await d.replace({ binding: { token: 'active' } });
+  const options = {
+    isCurrent: () => current,
+    onApproved: () => assert.fail('Superseded transition was approved'),
+  };
+  for (const choice of ['save', 'discard']) {
+    current = true;
+    const decision = d.guard('replacing the document', options);
+    current = false;
+    answer(choice);
+    assert.equal(await decision, false);
+    assert.equal(d.dirty, true);
+    assert.equal(d.binding.token, 'active');
+  }
+});
+
 test('save captures a revision; later editing remains dirty, Undo to saved content becomes clean', async () => {
   const f = fixture(),
     d = f.lifecycle;

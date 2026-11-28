@@ -7,7 +7,10 @@ import { migrateLegacyDocumentToCompositionProject } from '../src/composition-pr
 import { editKeyColorRecipe } from '../src/key-color-recipe.js';
 import { retainedRecipeFixture } from './helpers/key-color-recipe-fixture.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
-import { preloadVariableFontDependency } from './helpers/browser-fixture-setup.js';
+import {
+  loadBlankFixture,
+  preloadVariableFontDependency,
+} from './helpers/browser-fixture-setup.js';
 import { activateCommand } from './command-menu-actions.js';
 
 const output = resolve('test-results/key-color-recipe-panel');
@@ -62,7 +65,7 @@ try {
   const baseURL = process.env.BASE_URL || 'http://127.0.0.1:5173';
   await preloadVariableFontDependency(page, baseURL);
   await page.goto(baseURL);
-  await page.waitForFunction(() => window.nect);
+  await loadBlankFixture(page);
   const blank = await snapshot(),
     blankState = await command();
   await open(true);
@@ -303,7 +306,7 @@ try {
   await activateCommand(page, 'open');
   if (dirtyAfterLiveRestart) await page.locator('dialog[open] button[value="discard"]').click();
   await (await liveChooser).setFiles(liveFile);
-  await page.waitForFunction(() => window.nect.document.keyColorRecipe?.mode === 'live');
+  await page.waitForFunction(() => window.nect.document?.keyColorRecipe?.mode === 'live');
   assert.deepEqual(await snapshot(), editedLive);
   await open();
   await field('hex').fill('#3a9842');
@@ -541,7 +544,7 @@ try {
   if (await page.locator('dialog[open] button[value="discard"]').count())
     await page.locator('dialog[open] button[value="discard"]').click();
   await (await detachedChooser).setFiles(detachedFile);
-  await page.waitForFunction(() => window.nect.document.keyColorRecipe?.mode === 'retained-only');
+  await page.waitForFunction(() => window.nect.document?.keyColorRecipe?.mode === 'retained-only');
   assert.deepEqual(await snapshot(), editedDetached);
   results.push(
     'unlink saved trial: draft/preview/IME guard, one Undo/Redo, editable colors and JSON reopen',
@@ -1284,7 +1287,7 @@ try {
   await activateCommand(page, 'open');
   if (dirtyAfterRestart) await page.locator('dialog[open] button[value="discard"]').click();
   await (await chooser).setFiles(file);
-  await page.waitForFunction(() => !!window.nect.document.keyColorRecipe);
+  await page.waitForFunction(() => !!window.nect.document?.keyColorRecipe);
   assert.deepEqual(await snapshot(), after);
   await open();
   assert.equal(await field('hex').inputValue(), '#0000ff');
@@ -1639,7 +1642,7 @@ try {
   await activateCommand(page, 'open');
   if (dirtyAfterCopyRestart) await page.locator('dialog[open] button[value="discard"]').click();
   await (await copyChooser).setFiles(copyFile);
-  await page.waitForFunction(() => !!window.nect.document.keyColorRecipe);
+  await page.waitForFunction(() => !!window.nect.document?.keyColorRecipe);
   assert.deepEqual(await snapshot(), copyAfter);
   assert.deepEqual((await snapshot()).colorSlots.find((slot) => slot.id === 'other').value, {
     hex: '#DeAd09',

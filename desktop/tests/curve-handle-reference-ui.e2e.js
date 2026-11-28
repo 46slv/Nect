@@ -29,8 +29,8 @@ page.on('pageerror', (error) => errors.push(error.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  await ensureWorkspacePanel(page, 'inspector');
   await page.evaluate((source) => window.nect.load(source), serialize(doc));
+  await ensureWorkspacePanel(page, 'inspector');
   await page.locator('.node[data-id="handle-target"] .node-head strong').click();
   const field = page.locator(
     '.inspector-body .field[data-node="handle-target"][data-key="rotation"]',

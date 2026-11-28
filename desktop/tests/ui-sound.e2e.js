@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
+import { loadBlankFixture } from './helpers/browser-fixture-setup.js';
 
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
@@ -64,7 +65,7 @@ const openSound = async () => {
 
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForFunction(() => window.nect);
+  await loadBlankFixture(page);
   const first = page.locator('.tools [data-tool="direct"]');
   const second = page.locator('.tools [data-tool="select"]');
   const a = await first.boundingBox();
@@ -110,7 +111,7 @@ try {
   assert.equal((await counts()).starts, muted, 'off suppresses hover ticks');
 
   await page.reload();
-  await page.waitForFunction(() => window.nect);
+  await loadBlankFixture(page);
   sound = await openSound();
   assert.equal(await sound.getByLabel('UI sounds').isChecked(), false);
   assert.equal(Number(await sound.getByLabel('Volume').inputValue()), selectedVolume);

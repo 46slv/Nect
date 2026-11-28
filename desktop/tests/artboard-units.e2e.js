@@ -1,4 +1,4 @@
-import { revealCommandMenu } from './command-menu-actions.js';
+import { activateCommand, revealCommandMenu } from './command-menu-actions.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -151,6 +151,11 @@ const page = await pageContext.newPage();
 await pageContext.addInitScript(captureBrowserDownloads);
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  await activateCommand(page, 'new');
+  const dialog = page.locator('.new-project-dialog[open]');
+  await dialog.locator('[name="width"]').fill('960'); // Exactly 254 mm before scrubbing.
+  await dialog.locator('[name="height"]').fill('540');
+  await dialog.locator('button[type="submit"]').click();
   await ensureWorkspacePanel(page, 'layers');
   await page.waitForSelector('[data-artboard-unit]');
   const saved = () => page.evaluate(() => JSON.stringify(window.nect.document));
@@ -238,17 +243,19 @@ try {
   assert.equal(await saved(), original, 'the existing command has the same Undo result');
 
   const exportWidth = displayLengthToDocumentUnits(100, 'mm'),
-    exportHeight = displayLengthToDocumentUnits(50, 'mm'),
-    exportDocument = await page.evaluate(
-      ({ width, height }) => {
-        const doc = structuredClone(window.nect.document);
-        doc.width = width;
-        doc.height = height;
-        window.nect.load(JSON.stringify(doc));
-        return JSON.stringify(window.nect.document);
-      },
-      { width: exportWidth, height: exportHeight },
-    );
+    exportHeight = displayLengthToDocumentUnits(50, 'mm');
+  await page.evaluate(
+    ({ width, height }) => {
+      const doc = structuredClone(window.nect.document);
+      doc.width = width;
+      doc.height = height;
+      window.nect.load(JSON.stringify(doc));
+    },
+    { width: exportWidth, height: exportHeight },
+  );
+  // Author on the resized artboard so the same in-bounds artwork is exported at both DPRs.
+  await page.locator('[data-tool="Rectangle"]').click();
+  const exportDocument = await saved();
   assert.equal(JSON.parse(exportDocument).width, exportWidth);
   assert.equal(JSON.parse(exportDocument).height, exportHeight);
   const dpr1 = await exportPngAndInspect(page, 1),
@@ -261,9 +268,10 @@ try {
   try {
     const dpr2Page = await dpr2Context.newPage();
     await dpr2Page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+    await dpr2Page.waitForFunction(() => window.nect);
+    await dpr2Page.evaluate((doc) => window.nect.load(doc), exportDocument);
     await ensureWorkspacePanel(dpr2Page, 'layers');
     await dpr2Page.waitForSelector('[data-artboard-unit]');
-    await dpr2Page.evaluate((doc) => window.nect.load(doc), exportDocument);
     const dpr2 = await exportPngAndInspect(dpr2Page, 2);
     assert.deepEqual(
       { width: dpr2.width, height: dpr2.height },

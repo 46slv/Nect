@@ -15,8 +15,6 @@ page.on('pageerror', (e) => errors.push(e.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
-  await ensureWorkspacePanel(page, 'inspector');
   const sample = await fs.readFile('examples/character-transform.json', 'utf8');
   const load = async (s = sample) => {
     await page.evaluate((s) => window.nect.load(s), s);
@@ -36,6 +34,7 @@ try {
     await field(key).press('Tab');
   };
   await load();
+  await ensureWorkspacePanel(page, 'inspector');
   const before = await saved();
   await mode();
   await select(['c2']);

@@ -61,6 +61,11 @@ const same = (a, b, label) => assert.deepEqual(a, b, label);
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
+  await activateBoundaryCommand(page, 'new');
+  const size = page.locator('.new-project-dialog[open]');
+  await size.locator('[name="width"]').fill('960');
+  await size.locator('[name="height"]').fill('540');
+  await size.locator('button[type="submit"]').click();
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: out + '/01-closed.png' });
   const initial = await state();

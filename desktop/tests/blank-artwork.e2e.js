@@ -22,7 +22,10 @@ const click = async (action, choice = 'discard') => {
     action === 'new' ? await page.evaluate(() => window.nect.commandState.sessionId) : null;
   await activateCommand(page, action);
   if (action === 'new') {
-    await page.locator('.new-project-dialog button[type="submit"]').click();
+    const dialog = page.locator('.new-project-dialog[open]');
+    await dialog.locator('[name="width"]').fill('960');
+    await dialog.locator('[name="height"]').fill('540');
+    await dialog.locator('button[type="submit"]').click();
     // Ordinary New is dirty in these scenarios. Draft-blocked New is exercised
     // separately below and must never open this Save/Discard/Cancel dialog.
     await page.locator(`dialog[open] button[value="${choice}"]`).click();
@@ -66,11 +69,20 @@ try {
   await preloadVariableFontDependency(page, process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  await page.waitForSelector('.node');
-  const launch = JSON.parse(await snapshot());
-  assert.equal(launch.layers[0].nodes.length, 1);
-  assert.equal(launch.layers[0].nodes[0].type, 'Output');
-  assert.equal(await page.locator('.shape').count(), 0);
+  await page.waitForSelector('[data-no-document]');
+  assert.equal(await snapshot(), 'null');
+  assert.equal(await projectSnapshot(), 'null');
+  assert.equal(await page.locator('.shape,.canvas-stage,.graph-scroll,.node').count(), 0);
+  assert.deepEqual(
+    await page.evaluate(() =>
+      window.nect.testLiveEditorProtocol({
+        version: 1,
+        operation: 'editor.inspect',
+        arguments: {},
+      }),
+    ),
+    { status: 'unavailable' },
+  );
   assert.equal(await page.locator('[data-action="add-layer"]').count(), 0);
   // Existing demo-shaped documents remain valid user files and explicit fixtures.
   const demoFixture = await page.evaluate(async () => {
@@ -154,17 +166,32 @@ try {
     return { width: c.width, height: c.height, nonzero: bytes.some((v) => v !== 0) };
   }, png.toString('base64'));
   assert.deepEqual(pixels, { width: 960, height: 540, nonzero: false });
+  const inspection = await page.evaluate(() =>
+    window.nect.testLiveEditorProtocol({ version: 1, operation: 'editor.inspect', arguments: {} }),
+  );
+  assert.equal(inspection.status, 'ok');
   await page.reload();
   await page.waitForFunction(() => window.nect);
-  await page.waitForSelector('.node');
-  assert.equal(await page.locator('.shape').count(), 0);
+  await page.waitForSelector('[data-no-document]');
+  assert.equal(await snapshot(), 'null');
+  assert.deepEqual(
+    await page.evaluate(
+      (target) =>
+        window.nect.testLiveEditorProtocol({
+          version: 1,
+          operation: 'history.undo',
+          arguments: { target },
+        }),
+      inspection.target,
+    ),
+    { status: 'stale-target' },
+  );
   // Reopen the downloaded project through the real browser file chooser after a
   // cold start. Public load alone would not exercise Open's lifecycle boundary.
   const opening = page.waitForEvent('filechooser');
   await activateCommand(page, 'open');
-  await page.locator('dialog[open] button[value="discard"]').click();
   await (await opening).setFiles('test-results/workflow-blank-start.json');
-  await page.waitForFunction(() => !window.nect.fileState.dirty);
+  await page.waitForFunction(() => window.nect.document && !window.nect.fileState.dirty);
   assert.equal(await snapshot(), blank);
   assert.equal(await projectSnapshot(), blankProject);
   assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
@@ -342,6 +369,8 @@ try {
     height = sizeDialog.locator('[name="height"]'),
     create = sizeDialog.locator('button[type="submit"]');
   const beforeSizeRevision = await page.evaluate(() => window.nect.commandState.expectedRevision);
+  assert.deepEqual([await width.inputValue(), await height.inputValue()], ['', '']);
+  assert.equal(await create.isDisabled(), true);
   await width.press('Escape');
   await sizeDialog.waitFor({ state: 'hidden' });
   assert.equal(await projectSnapshot(), beforeSize);
@@ -350,6 +379,8 @@ try {
     beforeSizeRevision,
   );
   await activateCommand(page, 'new');
+  await height.fill('875.25');
+  assert.equal(await create.isDisabled(), true, 'height alone is insufficient');
   for (const value of ['', '0', '-1', '100001']) {
     await width.fill(value);
     assert.equal(await create.isDisabled(), true, value);
@@ -400,9 +431,8 @@ try {
   await page.waitForFunction(() => !!window.nect);
   const sizeOpening = page.waitForEvent('filechooser');
   await activateCommand(page, 'open');
-  await page.locator('dialog[open] button[value="discard"]').click();
   await (await sizeOpening).setFiles('test-results/workflow-blank-start.json');
-  await page.waitForFunction(() => window.nect.document.width === 1250.5);
+  await page.waitForFunction(() => window.nect.document?.width === 1250.5);
   assert.equal((await page.evaluate(() => window.nect.document)).height, 875.25);
   assert.deepEqual(errors, []);
   console.log(

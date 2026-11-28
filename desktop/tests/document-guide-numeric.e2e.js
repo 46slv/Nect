@@ -22,7 +22,6 @@ await fs.mkdir(output, { recursive: true });
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  await ensureWorkspacePanel(page, 'layers');
   const saved = () => page.evaluate(() => JSON.stringify(window.nect.document));
   const state = () => page.evaluate(() => window.nect.commandState);
   const width = () => page.locator('[data-dimension="width"]');
@@ -37,6 +36,7 @@ try {
       guides: [{ id: 'p2-guide', axis: 'x', position: 100, locked: false }],
     };
     await page.evaluate((s) => window.nect.load(s), serialize(f.doc));
+    await ensureWorkspacePanel(page, 'layers');
   };
   const start = async (input) => {
     await input.scrollIntoViewIfNeeded();

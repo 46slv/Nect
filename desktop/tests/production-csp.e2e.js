@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { resolve, extname, sep } from 'node:path';
 import { chromium } from 'playwright-core';
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 
 // Serve the actual production bundle with the native app's unmodified policy.
 // Vite's dev server does not exercise this restriction.
@@ -67,12 +68,25 @@ try {
     timeout: 10000,
   });
   assert.ok((await page.locator('#app > *').count()) > 0);
+  assert.equal(await page.locator('[data-no-document]').count(), 1);
+  assert.equal(await page.locator('.graph .node').count(), 0);
+  assert.equal(await page.locator('.artboard').count(), 0);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(await page.evaluate(() => window.cspViolations), []);
+
+  await activateBoundaryCommand(page, 'new');
+  const size = page.locator('.new-project-dialog[open]');
+  await size.locator('[name="width"]').fill('713.25');
+  await size.locator('[name="height"]').fill('421.75');
+  await size.locator('button[type="submit"]').click();
+  await page.waitForFunction(() => window.nect.document?.width === 713.25);
+  assert.equal(await page.evaluate(() => window.nect.document.height), 421.75);
   assert.equal(await page.locator('.graph .node').count(), 1);
   assert.equal(await page.locator('.artboard .shape').count(), 0);
   assert.deepEqual(errors, []);
   assert.deepEqual(await page.evaluate(() => window.cspViolations), []);
 
-  // Startup is intentionally blank. Load explicit artwork before testing paint.
+  // The new project is blank. Load explicit artwork before testing paint.
   const paintSample = await readFile('examples/boolean-remap.json', 'utf8');
   await page.evaluate((sample) => window.nect.load(sample), paintSample);
   await page.waitForFunction(() => document.querySelector('.artboard .shape'));
@@ -145,7 +159,7 @@ try {
     JSON.stringify(
       {
         csp,
-        startup: 'blank editor rendered; explicit artwork fixture loaded',
+        startup: 'no document on launch; explicit New and artwork fixture loaded',
         closedOffset: 'miter, bevel, round and erosion sample rendered/exported',
         color: 'typed source with alpha rendered and exported',
         radialGradient: 'two concentric radial ramps plus linear paint rendered/exported',

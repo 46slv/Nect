@@ -65,8 +65,6 @@ async function shape(hex, alpha) {
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
-  await ensureWorkspacePanel(page, 'inspector');
   await fs.mkdir('test-results', { recursive: true });
   const { rect, out } = await page.evaluate(async () => {
     const { document, node } = await import('/src/core.js');
@@ -87,6 +85,7 @@ try {
     window.nect.load(JSON.stringify(d));
     return { rect: r.id, out: f.id };
   });
+  await ensureWorkspacePanel(page, 'inspector');
   await shape('#112233', 1);
   await setColor(out, 'color', '#2040ff', 0.25);
   await shape('#2040ff', 0.25);

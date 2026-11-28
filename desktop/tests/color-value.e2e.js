@@ -63,8 +63,6 @@ try {
     });
     page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
     await page.goto(`http://127.0.0.1:${server.address().port}`);
-    // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
-    await ensureWorkspacePanel(page, 'inspector');
   }
   page.on('pageerror', (e) => errors.push(e.message));
   await page.waitForFunction(() => window.nect);
@@ -110,6 +108,7 @@ try {
     connect(l, shape.id, paint.id, 'path');
     connect(l, paint.id, out.id, 'path');
     await page.evaluate((s) => window.nect.load(s), serialize(d));
+    if (!native) await ensureWorkspacePanel(page, 'inspector');
     await inspect(paint.id);
     const field = (key) =>
       page.locator(`.inspector-body .field[data-node="${paint.id}"][data-key="${key}"]`);

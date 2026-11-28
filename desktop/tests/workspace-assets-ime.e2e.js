@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
+import { loadBlankFixture } from './helpers/browser-fixture-setup.js';
 
 // The browser performs the focus and pointer operations. Folder IPC is a
 // disposable in-memory fixture; synthetic composition is not physical IME.
@@ -52,7 +53,7 @@ await page.addInitScript(() => {
 
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForFunction(() => window.nect);
+  await loadBlankFixture(page);
   await page.evaluate(() => {
     window.nect.dispatch({
       ...window.nect.commandState,

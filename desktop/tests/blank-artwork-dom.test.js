@@ -12,7 +12,10 @@ import {
   pathBounds,
 } from '../src/core.js';
 import { appendArtwork, appendBlankComposition } from '../src/artwork-creation.js';
-import { migrateLegacyDocumentToCompositionProject } from '../src/composition-project-model.js';
+import {
+  migrateLegacyDocumentToCompositionProject,
+  serializeCompositionProject,
+} from '../src/composition-project-model.js';
 
 test('New and explicit blank compositions are safe empty artwork entry points', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
@@ -82,12 +85,15 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
     export let desktop = true;
     globalThis.__setNectTestDesktop = (value) => { desktop = !!value; };
     export const saveFile = async (contents, name, kind) => { io.exports ??= []; io.exports.push({ contents, name, kind }); return true; };
-    export const openFile = async () => io.opened && structuredClone(io.opened);
+    export const openFile = async () => {
+      const opened = io.open ? await io.open() : io.opened;
+      return opened && structuredClone(opened);
+    };
     export const openSVGSource = async () => null;
     export const writeProject = async (request) => { io.writes.push(structuredClone(request)); return { token: 'memory-project-' + request.operation, path: 'memory/project.json' }; };
     export const releaseProject = async (binding) => { if (binding?.token) io.released.push(binding.token); };
     export const chooseUnsaved = async () => io.choose ? io.choose() : io.choice;
-    export const registerClose = async () => {};
+    export const registerClose = async (handler) => { io.close = handler; };
     export const listSystemFonts = async () => [];
     export const readSystemFont = async () => { throw Error('No system fonts in integration fixture'); };
     export const listOsOutlineFonts = async () => [];
@@ -114,7 +120,7 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
   source +=
     '\nwindow.artworkUI = () => ({activeLayer, selected, artworkTarget, selection: [...selection], past: history.past.length, future: history.future.length, drag: drag?.type, tool, draft: penDraft?.layer, dirty: documents.dirty}); window.markPenSaved = () => { documents.saved = serializeProject(session.projectSnapshot()); };';
   source +=
-    '\nwindow.compositionTest = { flushRecovery: async () => { await Promise.resolve(); return recovery?.flush(); }, recoveryState: () => recovery?.state, pngSize: () => pngDimensions(history.doc, pngExportSettings()), dimensions: () => [history.doc.width, history.doc.height] };';
+    '\nwindow.compositionTest = { flushRecovery: async () => { await Promise.resolve(); return recovery?.flush(); }, startRecovery: () => showRecoveryCopies(true), recoveryState: () => recovery?.state, pngSize: () => pngDimensions(history.doc, pngExportSettings()), dimensions: () => [history.doc.width, history.doc.height] };';
   // These suites synchronously create/evaluate Text after startup. Await the
   // font condition inside the test module, rather than racing filesystem I/O.
   source +=
@@ -170,10 +176,22 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
   let confirmed = true;
   globalThis.confirm = () => confirmed;
   const seed = () => makeDoc();
-  const newBlank = async () => {
+  const put = (input, value) => {
+    input.value = String(value);
+    input.dispatchEvent(new win.Event('input', { bubbles: true }));
+  };
+  const submitNew = (dialog, width = 960, height = 540) => {
+    put(dialog.querySelector('[name="width"]'), width);
+    put(dialog.querySelector('[name="height"]'), height);
+    const create = dialog.querySelector('button[type="submit"]');
+    assert.equal(create.disabled, false);
+    create.click();
+  };
+  const newBlank = async (width, height) => {
     fileIO.choice = confirmed ? 'discard' : 'cancel';
     click('[data-action="new"]');
-    document.querySelector('.new-project-dialog button[type="submit"]')?.click();
+    const dialog = $('.new-project-dialog[open]');
+    if (dialog) submitNew(dialog, width, height);
     await Promise.resolve();
     document
       .querySelector('dialog button[value="' + (confirmed ? 'discard' : 'cancel') + '"]')
@@ -193,75 +211,336 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
     assert.equal(win.nect.document.layers[0].nodes.length, 1);
     return saved();
   };
-  await t.test('launch is blank, has no demo UI, and preserves saved artwork when opened', () => {
-    const launch = saved();
-    assert.equal(win.nect.document.layers.length, 1);
-    assert.equal(win.nect.document.layers[0].nodes.length, 1);
-    assert.equal(win.nect.document.layers[0].nodes[0].type, 'Output');
-    assert.equal(win.nect.evaluate().error, null);
-    assert.equal($('.shape'), null);
-    assert.equal($('.warning'), null);
-    assert.equal(ui().selected, null);
-    assert.deepEqual(ui().selection, []);
-    assert.equal(ui().past, 0);
-    assert.match($('.inspector-body').textContent, /Empty composition/);
-    assert.equal($('[data-action="add-layer"]'), null);
-    click('[data-action="help"]');
-    assert.doesNotMatch($('dialog').textContent, /demo/i);
-    $('dialog button').click();
-    click('[data-tool="Circle"]');
-    const artwork = saved();
-    assert.equal(win.nect.document.layers.length, 2);
-    assert.ok($('.shape'));
-    click('[data-action="undo"]');
-    assert.equal(saved(), launch);
-    assert.equal($('.shape'), null);
-    click('[data-action="redo"]');
-    assert.equal(saved(), artwork);
-    load(JSON.parse(artwork));
-    assert.equal(saved(), artwork);
-    const existing = seed();
-    load(existing);
-    assert.equal(saved(), serialize(existing));
-    assert.equal(win.nect.document.layers[0].nodes.length, 6);
-    assert.ok($('.shape'));
+  await t.test('launch has no owner, writer, autosave or phantom editing surface', async () => {
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const absent = () => {
+      assert.equal(win.nect.document, null);
+      assert.equal(win.nect.projectSnapshot(), null);
+      assert.equal(win.nect.commandState, null);
+      assert.equal(win.nect.gestureState, null);
+      assert.equal(win.nect.fileState.dirty, false);
+      assert.equal(win.nect.fileState.binding, null);
+      assert.equal(fileIO.recoverySequence, 0);
+      assert.equal(fileIO.writes.length, 0);
+      assert.equal(fileIO.exports?.length ?? 0, 0);
+      assert.equal($('.artboard,.canvas-stage,.graph-scroll,.node'), null);
+    };
+    absent();
+    for (const action of ['save', 'save-as', 'undo', 'redo', 'export', 'export-png']) {
+      const button = $(`[data-action="${action}"]`);
+      assert.equal(button.disabled, true);
+      button.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+    }
+    for (const shortcut of ['s', 'z', 'r', 'Delete', 'Escape'])
+      key(document.body, shortcut, { ctrlKey: ['s', 'z'].includes(shortcut) });
+    win.dispatchEvent(new win.Event('resize'));
+    win.dispatchEvent(new win.Event('blur'));
+    document.dispatchEvent(new win.Event('selectionchange'));
+    fire($('[data-no-document]'), 'pointerdown');
+    fire(document, 'pointercancel');
+    assert.throws(() => win.nect.dispatch({ type: 'undo' }), /No document/);
+    assert.throws(() => win.nect.export(), /No document/);
+    fileIO.choose = () => assert.fail('Empty state asked for an unsaved decision');
+    try {
+      let closeCalls = 0;
+      assert.equal(
+        await fileIO.close(async () => {
+          closeCalls++;
+          throw Error('simulated native teardown failure');
+        }),
+        false,
+      );
+      assert.equal(closeCalls, 1);
+      assert.equal(document.body.inert, false);
+      globalThis.__setNectTestDesktop(false);
+      const event = new win.Event('beforeunload', { cancelable: true });
+      win.dispatchEvent(event);
+      assert.equal(event.defaultPrevented, false);
+      globalThis.__setNectTestDesktop(true);
+      click('[data-action="new"]');
+      click('[data-action="new"]');
+      assert.equal(document.querySelectorAll('.new-project-dialog[open]').length, 1);
+      const dialog = $('.new-project-dialog[open]');
+      put(dialog.querySelector('[name="width"]'), 100001);
+      put(dialog.querySelector('[name="height"]'), 500);
+      assert.equal(dialog.querySelector('button[type="submit"]').disabled, true);
+      absent();
+      dialog.querySelector('[data-cancel]').click();
+      await tick();
+      absent();
+      click('[data-action="open"]');
+      await tick();
+      absent();
+      fileIO.opened = { contents: '{', binding: { token: 'bad-at-launch' } };
+      click('[data-action="open"]');
+      await tick();
+      assert.deepEqual(fileIO.released, ['bad-at-launch']);
+      absent();
+
+      let finishOpen;
+      fileIO.open = () => new Promise((resolve) => (finishOpen = resolve));
+      click('[data-action="open"]');
+      await tick();
+      click('[data-action="new"]');
+      const newer = $('.new-project-dialog[open]');
+      finishOpen({ contents: serialize(seed()), binding: { token: 'late-at-launch' } });
+      await tick();
+      assert.deepEqual(fileIO.released, ['bad-at-launch', 'late-at-launch']);
+      absent();
+      newer.querySelector('[data-cancel]').click();
+      await tick();
+    } finally {
+      fileIO.choose = null;
+      fileIO.opened = null;
+      fileIO.open = null;
+      globalThis.__setNectTestDesktop(true);
+    }
   });
-  await t.test('New validates dimensions, protects drafts and keeps Cancel atomic', async () => {
-    load(seed());
+  await t.test(
+    'the startup recovery path respects Later and restores saved dimensions',
+    async () => {
+      const contents = serialize({ ...seed(), width: 411.5, height: 327.25 });
+      fileIO.recovery.set('previous-launch', {
+        name: 'Previous launch',
+        contents,
+        savedAt: new Date().toISOString(),
+      });
+      try {
+        let pending = win.compositionTest.startRecovery();
+        await Promise.resolve();
+        await Promise.resolve();
+        $('dialog[data-recovery-dialog]').close('later');
+        await pending;
+        assert.equal(win.nect.projectSnapshot(), null);
+        assert.equal(fileIO.recoverySequence, 0);
+        assert.ok(fileIO.recovery.has('previous-launch'));
+
+        pending = win.compositionTest.startRecovery();
+        await Promise.resolve();
+        await Promise.resolve();
+        $('dialog[data-recovery-dialog]').close('restore');
+        await pending;
+        assert.deepEqual(win.compositionTest.dimensions(), [411.5, 327.25]);
+        assert.equal(win.nect.fileState.dirty, true);
+        assert.equal(win.nect.fileState.binding, null);
+        assert.equal($('.new-project-dialog'), null);
+        assert.equal(fileIO.recovery.has('previous-launch'), false);
+      } finally {
+        fileIO.recovery.delete('previous-launch');
+      }
+    },
+  );
+  await t.test(
+    'explicit New creates blank artwork and preserves saved artwork when opened',
+    async () => {
+      await newBlank();
+      const launch = saved();
+      assert.equal(win.nect.document.layers.length, 1);
+      assert.equal(win.nect.document.layers[0].nodes.length, 1);
+      assert.equal(win.nect.document.layers[0].nodes[0].type, 'Output');
+      assert.equal(win.nect.evaluate().error, null);
+      assert.equal($('.shape'), null);
+      assert.equal($('.warning'), null);
+      assert.equal(ui().selected, null);
+      assert.deepEqual(ui().selection, []);
+      assert.equal(ui().past, 0);
+      assert.match($('.inspector-body').textContent, /Empty composition/);
+      assert.equal($('[data-action="add-layer"]'), null);
+      click('[data-action="help"]');
+      assert.doesNotMatch($('dialog').textContent, /demo/i);
+      $('dialog button').click();
+      click('[data-tool="Circle"]');
+      const artwork = saved();
+      assert.equal(win.nect.document.layers.length, 2);
+      assert.ok($('.shape'));
+      click('[data-action="undo"]');
+      assert.equal(saved(), launch);
+      assert.equal($('.shape'), null);
+      click('[data-action="redo"]');
+      assert.equal(saved(), artwork);
+      load(JSON.parse(artwork));
+      assert.equal(saved(), artwork);
+      const existing = seed();
+      load(existing);
+      assert.equal(saved(), serialize(existing));
+      assert.equal(win.nect.document.layers[0].nodes.length, 6);
+      assert.ok($('.shape'));
+    },
+  );
+  await t.test('New requires two dimensions and keeps Cancel atomic', async () => {
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const persisted = migrateLegacyDocumentToCompositionProject({
+      ...seed(),
+      width: 733.5,
+      height: 412.75,
+    });
+    fileIO.opened = {
+      contents: serializeCompositionProject(persisted),
+      binding: { token: 'memory-new-size', path: 'memory/project.json' },
+    };
+    click('[data-action="open"]');
+    await tick();
+    fileIO.opened = null;
+    assert.equal($('.new-project-dialog'), null);
+    assert.deepEqual(win.nect.projectSnapshot(), persisted);
+    assert.deepEqual(win.compositionTest.dimensions(), [733.5, 412.75]);
+    assert.equal(win.nect.fileState.binding?.token, 'memory-new-size');
+
+    const projectText = () => serializeCompositionProject(win.nect.projectSnapshot());
     click('[data-tool="Circle"]');
+    click('[data-tool="Rectangle"]');
+    const redo = projectText();
     click('[data-action="undo"]');
-    const before = saved(),
+    const before = projectText(),
       state = structuredClone(win.nect.commandState),
-      prior = structuredClone(ui());
+      fileState = win.nect.fileState,
+      prior = structuredClone(ui()),
+      writes = fileIO.writes.length,
+      releases = fileIO.released.length;
+    assert.equal(fileState.dirty, true);
+    assert.deepEqual([prior.past, prior.future], [1, 1]);
+    const assertUnchanged = () => {
+      assert.equal(projectText(), before);
+      assert.deepEqual(win.nect.commandState, state);
+      assert.deepEqual(win.nect.fileState, fileState);
+      assert.deepEqual(ui(), prior);
+      assert.equal(fileIO.writes.length, writes);
+      assert.equal(fileIO.released.length, releases);
+    };
+
+    const trigger = $('[data-action="new"]'),
+      menu = trigger.closest('details');
+    menu.open = true;
+    trigger.focus();
     click('[data-action="new"]');
-    const dialog = $('.new-project-dialog'),
+    const dialog = $('.new-project-dialog[open]'),
       width = dialog.querySelector('[name="width"]'),
       height = dialog.querySelector('[name="height"]'),
-      create = dialog.querySelector('button[type="submit"]');
-    assert.deepEqual([width.value, height.value], ['960', '540']);
-    for (const value of ['', '0', '-1', '100001']) {
-      width.value = value;
-      width.dispatchEvent(new win.Event('input', { bubbles: true }));
-      assert.equal(create.disabled, true, value);
+      create = dialog.querySelector('button[type="submit"]'),
+      cancel = dialog.querySelector('[data-cancel]'),
+      status = dialog.querySelector('output');
+    const forceSubmit = () =>
       dialog.querySelector('form').dispatchEvent(new win.Event('submit', { cancelable: true }));
-      assert.equal(saved(), before);
+    const assertRejected = async () => {
+      assert.equal(create.disabled, true);
+      forceSubmit();
+      await tick();
+      assert.equal(dialog.open, true);
+      assertUnchanged();
+    };
+    assert.ok(document.activeElement === width, 'New focuses Width');
+    assert.deepEqual([width.value, height.value], ['', '']);
+    for (const input of [width, height]) assert.equal(input.getAttribute('aria-invalid'), 'true');
+    assert.equal(status.textContent, '', 'untouched fields do not announce an error');
+    await assertRejected();
+    for (const [w, h] of [
+      [960, ''],
+      ['', 540],
+      [0, 540],
+      [-1, 540],
+      [100001, 540],
+      ['not a number', 540],
+      [960, 100001],
+      [-1, 0],
+    ]) {
+      put(width, w);
+      put(height, h);
+      await assertRejected();
+      assert.match(status.textContent, /greater than 0 and at most 100000/);
     }
-    width.value = '1250';
-    width.dispatchEvent(new win.Event('input', { bubbles: true }));
-    height.value = '875';
-    height.dispatchEvent(new win.Event('input', { bubbles: true }));
+
+    put(width, 1250.5);
+    put(height, 875.25);
+    assert.equal(status.textContent, '');
+    assert.equal(create.disabled, false);
+    fire(width, 'pointerdown', [10, 10]);
+    fire(document, 'pointermove', [30, 10]);
+    assert.notEqual(width.valueAsNumber, 1250.5);
+    await assertRejected();
+    assert.equal(key(width, 'Escape'), true);
+    fire(document, 'pointerup');
+    assert.equal(width.valueAsNumber, 1250.5);
+    assert.equal(create.disabled, false);
+
     width.dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
-    assert.equal(create.disabled, true);
+    assert.equal(key(width, 'Enter'), true);
+    assert.equal(key(width, 'Escape'), true);
     dialog.dispatchEvent(new win.Event('cancel', { cancelable: true }));
-    assert.ok(dialog.isConnected, 'IME Escape must not close the dialog');
+    cancel.click();
+    await assertRejected();
     width.dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true }));
     assert.equal(create.disabled, false);
-    dialog.querySelector('[data-cancel]').click();
-    await Promise.resolve();
-    assert.equal(saved(), before);
-    assert.deepEqual(win.nect.commandState, state);
-    assert.deepEqual(ui(), prior);
+    cancel.click();
+    await tick();
+    assert.equal($('.new-project-dialog'), null);
+    assert.ok(document.activeElement === menu.querySelector('summary'), 'Cancel restores focus');
+    assertUnchanged();
+
+    fileIO.choice = 'cancel';
+    click('[data-action="new"]');
+    submitNew($('.new-project-dialog[open]'));
+    await tick();
+    assertUnchanged();
+    fileIO.choice = 'discard';
+    click('[data-action="redo"]');
+    assert.equal(projectText(), redo);
+    click('[data-action="undo"]');
+    assert.equal(projectText(), before);
   });
+  await t.test(
+    'late Open, cancelled/failed Open and a live draft cannot leak a New candidate',
+    async () => {
+      const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+      const before = win.nect.fileState,
+        snapshot = win.nect.projectSnapshot(),
+        command = win.nect.commandState,
+        past = ui().past,
+        future = ui().future;
+      let finishOpen;
+      fileIO.open = () => new Promise((resolve) => (finishOpen = resolve));
+      try {
+        click('[data-action="new"]');
+        const dialog = $('.new-project-dialog[open]');
+        click('[data-action="open"]');
+        await tick();
+        assert.equal(typeof finishOpen, 'function');
+        submitNew(dialog);
+        assert.match(dialog.querySelector('output').textContent, /Project changed/);
+        dialog.querySelector('[data-cancel]').click();
+        finishOpen({ contents: '{', binding: { token: 'rejected-open' } });
+        await tick();
+        assert.equal(fileIO.released.at(-1), 'rejected-open');
+        assert.deepEqual(win.nect.fileState, before);
+        assert.deepEqual(win.nect.projectSnapshot(), snapshot);
+        assert.deepEqual(win.nect.commandState, command);
+        assert.deepEqual([ui().past, ui().future], [past, future]);
+
+        click('[data-action="open"]');
+        await tick();
+        finishOpen(null);
+        await tick();
+        assert.deepEqual(win.nect.fileState, before);
+        assert.deepEqual(win.nect.projectSnapshot(), snapshot);
+
+        click('[data-tool="pen"]');
+        click('[data-action="new"]');
+        const drafting = $('.new-project-dialog[open]');
+        penPoint([200, 130]);
+        assert.ok(ui().draft);
+        submitNew(drafting);
+        assert.match(drafting.querySelector('output').textContent, /Project changed/);
+        drafting.querySelector('[data-cancel]').click();
+        await tick();
+        assert.ok(ui().draft);
+        assert.deepEqual([ui().past, ui().future], [past, future]);
+        assert.deepEqual(win.nect.fileState, before);
+        endPen();
+      } finally {
+        fileIO.open = null;
+        finishOpen?.(null);
+      }
+    },
+  );
   await t.test('New refuses a stale Project and stale unsaved decision', async () => {
     load(seed());
     click('[data-action="new"]');
@@ -272,7 +551,7 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
       payload: { key: 'width', value: 1100 },
     });
     const changed = saved();
-    dialog.querySelector('button[type="submit"]').click();
+    submitNew(dialog);
     assert.match(dialog.querySelector('output').textContent, /Project changed/);
     dialog.querySelector('[data-cancel]').click();
     await Promise.resolve();
@@ -284,7 +563,7 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
     fileIO.choose = () => new Promise((resolve) => (finishChoice = resolve));
     try {
       click('[data-action="new"]');
-      $('.new-project-dialog button[type="submit"]').click();
+      submitNew($('.new-project-dialog[open]'));
       await new Promise((resolve) => setTimeout(resolve, 0));
       assert.equal(typeof finishChoice, 'function');
       win.nect.dispatch({
@@ -312,8 +591,12 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
       assert.equal(win.nect.document.layers[0].nodes.length, 6);
       assert.equal(ui().dirty, false);
       confirmed = true;
-      await newBlank();
+      await newBlank(1250.5, 875.25);
       const blank = saved();
+      assert.deepEqual(
+        win.nect.projectSnapshot().compositions.map(({ width, height }) => [width, height]),
+        [[1250.5, 875.25]],
+      );
       assert.equal(win.nect.document.layers.length, 1);
       assert.equal($('.shape'), null);
       assert.equal($('.vertex'), null);
@@ -411,7 +694,7 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
           }
         }
         const after = saved();
-        assert.equal(win.nect.document.layers.length, 2);
+        assert.equal(win.nect.document.layers.length, 2, `${tool}: ${$('.message').textContent}`);
         assert.deepEqual(win.nect.document.layers[0], empty);
         assert.ok($('.shape'));
         assert.equal(ui().artworkTarget, win.nect.document.layers.at(-1).id);
