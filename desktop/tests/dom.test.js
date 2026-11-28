@@ -75,9 +75,21 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   source = resolveMainRelativeImports(source);
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   await new Promise((r) => setTimeout(r, 100));
+  assert.ok(document.querySelector('[data-no-document]'));
+  assert.equal(document.querySelectorAll('.node').length, 0);
+  document.querySelector('[data-action="new"]').click();
+  const sizeDialog = document.querySelector('.new-project-dialog[open]');
+  for (const [field, size] of Object.entries({ width: 960, height: 540 })) {
+    const input = sizeDialog.querySelector(`[name="${field}"]`);
+    input.value = String(size);
+    input.dispatchEvent(new win.Event('input', { bubbles: true }));
+  }
+  sizeDialog.querySelector('button[type="submit"]').click();
+  await new Promise((r) => setTimeout(r, 0));
   assert.equal(document.querySelectorAll('.node').length, 1);
   assert.equal(document.querySelector('.shape'), null);
-  // Graph editing needs explicit artwork, not an implicit startup demo.
+  // The socket and collapse checks need the authored Circle/Rectangle/Boolean
+  // wiring, not the single Output produced by New.
   win.nect.load(JSON.stringify(makeDoc()));
   let doc = win.nect.document,
     circle = doc.layers[0].nodes[0];

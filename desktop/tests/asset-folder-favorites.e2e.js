@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
+import { loadBlankFixture } from './helpers/browser-fixture-setup.js';
 
 const base = process.env.BASE_URL || 'http://127.0.0.1:5173';
 const out = resolve('test-results/asset-folder-favorites');
@@ -47,7 +48,7 @@ try {
   const page = await context.newPage();
   listen(page);
   await page.goto(base);
-  await page.waitForFunction(() => window.nect);
+  await loadBlankFixture(page);
   let panel = await openPanel(page);
   const select = () => panel.getByLabel('Asset folder', { exact: true });
   async function addFolder(path) {
@@ -345,7 +346,7 @@ try {
     afterPlacement,
   );
   await page.reload();
-  await page.waitForFunction(() => window.nect);
+  await loadBlankFixture(page);
   panel = page.locator('[data-asset-library]');
   if (!(await panel.isVisible().catch(() => false))) panel = await openPanel(page);
   assert.equal(await panel.locator('[data-quick-open]').count(), 0);
@@ -417,7 +418,7 @@ try {
     };
   });
   await native.goto(base);
-  await native.waitForFunction(() => window.nect);
+  await loadBlankFixture(native);
   let nPanel = await openPanel(native);
   await ready(nPanel);
   await native.evaluate(() => {
@@ -491,7 +492,7 @@ try {
   assert.equal(await nPanel.locator('[data-asset-status]').textContent(), nativeBefore);
   await native.evaluate(() => sessionStorage.setItem('replace-a', '1'));
   await native.reload();
-  await native.waitForFunction(() => window.nect);
+  await loadBlankFixture(native);
   nPanel = native.locator('[data-asset-library]');
   if (!(await nPanel.isVisible().catch(() => false))) nPanel = await openPanel(native);
   await ready(nPanel);
@@ -591,7 +592,7 @@ try {
     };
   });
   await itemPage.goto(base);
-  await itemPage.waitForFunction(() => window.nect);
+  await loadBlankFixture(itemPage);
   let itemPanel = await openPanel(itemPage);
   await ready(itemPanel);
   await itemPanel.getByRole('button', { name: 'same.svg', exact: true }).click();
@@ -728,7 +729,7 @@ try {
   await itemPanel.getByRole('button', { name: 'Assign slot', exact: true }).click();
   await itemPage.evaluate(() => sessionStorage.setItem('replace-a', '1'));
   await itemPage.reload();
-  await itemPage.waitForFunction(() => window.nect);
+  await loadBlankFixture(itemPage);
   itemPanel = itemPage.locator('[data-asset-library]');
   if (!(await itemPanel.isVisible().catch(() => false))) itemPanel = await openPanel(itemPage);
   await ready(itemPanel);

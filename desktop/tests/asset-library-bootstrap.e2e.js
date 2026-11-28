@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
+import { loadBlankFixture } from './helpers/browser-fixture-setup.js';
 
 // Real browser and app DOM; all native folder IPC is synthetic and in memory.
 const browser = await chromium.launch({
@@ -71,7 +72,7 @@ try {
       };
     });
     await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-    await page.waitForFunction(() => window.nect);
+    await loadBlankFixture(page);
     const before = await page.evaluate(() => ({
       project: window.nect.projectSnapshot(),
       state: window.nect.commandState,

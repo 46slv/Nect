@@ -8,6 +8,7 @@ import {
 } from '../src/composition-project-model.js';
 import { activateCommand, revealCommandMenu } from './command-menu-actions.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { loadBlankFixture } from './helpers/browser-fixture-setup.js';
 
 const project = migrateLegacyDocumentToCompositionProject(blankDocument());
 project.compositions[0].id = 'first';
@@ -40,7 +41,7 @@ const input = () => dialog().locator('[data-composition-name]');
 try {
   await mkdir(output, { recursive: true });
   await page.goto(base);
-  await page.waitForFunction(() => typeof window.nect?.load === 'function');
+  await loadBlankFixture(page);
   const single = await snapshot();
 
   // Closing must finish its own focus/render work before accepting the next

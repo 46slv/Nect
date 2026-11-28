@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { loadBlankArtwork } from './helpers/load-blank-artwork.js';
 import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -80,6 +81,7 @@ test('expandable Join Geometry renders stable input sockets, spare labels, wires
   );
   source = resolveMainRelativeImports(source);
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+  loadBlankArtwork(win);
   await new Promise((resolve) => setTimeout(resolve, 100));
   const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
   const add = async (type) => {

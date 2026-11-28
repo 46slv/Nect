@@ -9,6 +9,7 @@ import {
 } from '../src/composition-project-model.js';
 import { activateCommand, revealCommandMenu } from './command-menu-actions.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { loadBlankFixture } from './helpers/browser-fixture-setup.js';
 import { compoundFixture } from './fixtures/contour-navigation.js';
 
 const a = blankDocument(),
@@ -117,7 +118,7 @@ const stagePoint = async (position) => {
 try {
   await mkdir(output, { recursive: true });
   await page.goto(base);
-  await page.waitForFunction(() => typeof window.nect?.load === 'function');
+  await loadBlankFixture(page);
   const onlyMenu = await revealCommandMenu(page, 'Project');
   assert.equal(await onlyMenu.locator('[data-action="delete-composition"]').isDisabled(), true);
   await page.evaluate((text) => window.nect.load(text), serialized);
@@ -708,7 +709,7 @@ try {
   const discard = reopened.locator('dialog button[value="discard"]');
   if (await discard.isVisible()) await discard.click();
   await (await chooser).setFiles(`${output}/deleted.json`);
-  await reopened.waitForFunction(() => window.nect.document.schemaVersion === 65);
+  await reopened.waitForFunction(() => window.nect.document?.schemaVersion === 65);
   assert.deepEqual(await reopened.evaluate(() => window.nect.projectSnapshot()), deleted);
   for (const error of await values(reopened)) assert.match(error, /missing/i);
   assert.deepEqual(errors, []);

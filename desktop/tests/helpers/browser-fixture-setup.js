@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { document, serialize } from '../../src/core.js';
+import { blankDocument, document, serialize } from '../../src/core.js';
+import { activateCommand } from '../command-menu-actions.js';
 
 // Finish the worker's lazy Vite dependency optimization before navigation, when
 // no authored fixture can be lost to its reload. Requesting modules changes no UI.
@@ -23,4 +24,22 @@ export async function preloadVariableFontDependency(page, baseURL) {
 export async function loadDemoFixture(page) {
   await page.waitForFunction(() => typeof window.nect?.load === 'function');
   await page.evaluate((json) => window.nect.load(json), serialize(document()));
+}
+
+// Opt in to the historical blank fixture without pointer or keyboard input.
+export async function loadBlankFixture(page) {
+  await page.waitForFunction(() => typeof window.nect?.load === 'function' && !document.body.inert);
+  await page.evaluate((json) => window.nect.load(json), serialize(blankDocument()));
+}
+
+// Author an actual New document when the scenario exercises creation or file commands.
+export async function createNewFixture(page) {
+  await activateCommand(page, 'new');
+  const dialog = page.locator('.new-project-dialog[open]');
+  await dialog.locator('[name="width"]').fill('960');
+  await dialog.locator('[name="height"]').fill('540');
+  await dialog.locator('button[type="submit"]').click();
+  await page.waitForFunction(
+    () => window.nect?.document?.width === 960 && window.nect.document.height === 540,
+  );
 }

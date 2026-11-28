@@ -14,8 +14,6 @@ page.on('pageerror', (error) => errors.push(error.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
-  await ensureWorkspacePanel(page, 'inspector');
   const load = async (mixed = false, ids = ['c1']) => {
     await page.evaluate(async (mixed) => {
       const {
@@ -64,6 +62,7 @@ try {
       }
       window.nect.load(JSON.stringify(doc));
     }, mixed);
+    await ensureWorkspacePanel(page, 'inspector');
     await page.waitForFunction(() => window.nect.evaluate().error === null);
     await page.locator('[data-character-mode]').click();
     await page.locator('[data-character-selection]').selectOption(ids);

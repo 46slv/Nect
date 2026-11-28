@@ -13,8 +13,6 @@ page.on('pageerror', (e) => errors.push(e.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
-  await ensureWorkspacePanel(page, 'inspector');
   const fixture = await fs.readFile('examples/object-resize.json', 'utf8');
   const load = async () => {
     await page.evaluate((s) => window.nect.load(s), fixture);
@@ -36,6 +34,7 @@ try {
     return p;
   };
   await load();
+  await ensureWorkspacePanel(page, 'inspector');
   let original = await saved();
   let p = await start();
   await page.mouse.move(p[0] + 60, p[1] + 20, { steps: 5 });

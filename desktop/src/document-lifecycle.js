@@ -1,5 +1,5 @@
 // DOM-free file-lifetime coordinator. This is not the editing command Session.
-// `read` is the current authored snapshot; the staged UI command migration is separate.
+// `read` is the current authored snapshot, or null before a document is installed.
 export class DocumentLifecycle {
   constructor({
     read,
@@ -33,7 +33,8 @@ export class DocumentLifecycle {
     return contents;
   }
   get dirty() {
-    return this.observe() !== this.saved;
+    const contents = this.observe();
+    return contents !== null && contents !== this.saved;
   }
   // Some pending operations block file transitions without being editor drafts.
   hasPendingEdits() {
@@ -45,8 +46,9 @@ export class DocumentLifecycle {
     this.revision = 0;
     this.observed = this.read();
     this.saved = saved ? this.observed : null;
-    this.savedRevision = saved ? 0 : null;
-    this.binding = binding;
+    this.savedRevision = saved && this.observed !== null ? 0 : null;
+    this.binding = this.observed === null ? null : binding;
+    if (!this.binding && binding?.token) this.pendingReleases.set(binding.token, binding);
     return this.releaseUnused(previous);
   }
   async releaseUnused(binding) {
@@ -78,9 +80,10 @@ export class DocumentLifecycle {
   }
   async save(saveAs = false) {
     if (this.saving) return false;
+    const contents = this.observe();
+    if (contents === null) throw Error('No document is open.');
     if (this.hasPendingEdits()) throw Error('Finish or cancel the active edit before saving.');
-    const contents = this.observe(),
-      generation = this.generation,
+    const generation = this.generation,
       revision = this.revision,
       operation = ++this.operation;
     this.saving = true;
@@ -109,7 +112,7 @@ export class DocumentLifecycle {
       this.saving = false;
     }
   }
-  async guard(action, { onApproved = () => {} } = {}) {
+  async guard(action, { onApproved = () => {}, isCurrent = () => true } = {}) {
     if (this.saving || this.transitioning) return false;
     if (this.hasPendingEdits())
       throw Error('Finish or cancel the active edit before changing documents.');
@@ -118,12 +121,19 @@ export class DocumentLifecycle {
       before = this.observe();
     try {
       const approve = () => {
+        if (!isCurrent()) return false;
         onApproved();
         return true;
       };
-      if (!this.dirty) return approve();
+      if (!isCurrent()) return false;
+      if (before === null || before === this.saved) return approve();
       const choice = await this.choose(action);
-      if (generation !== this.generation || before !== this.observe() || this.hasPendingEdits())
+      if (
+        generation !== this.generation ||
+        before !== this.observe() ||
+        this.hasPendingEdits() ||
+        !isCurrent()
+      )
         return false;
       if (choice === 'discard') return approve();
       if (choice !== 'save') return false;

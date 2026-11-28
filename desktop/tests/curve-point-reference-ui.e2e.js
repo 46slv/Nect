@@ -78,8 +78,8 @@ try {
     source = 'ref("fixture-curve", "fixture-anchor.position", "x")';
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  await ensureWorkspacePanel(page, 'inspector');
   await page.evaluate((text) => window.nect.load(text), serialize(f.doc));
+  await ensureWorkspacePanel(page, 'inspector');
   await page.locator('.node[data-id="fixture-transform"] .node-head strong').click();
 
   // A numeric expression draft must not overwrite a change made while it is open.

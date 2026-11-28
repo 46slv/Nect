@@ -16,10 +16,9 @@ page.on('pageerror', (e) => errors.push(e.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
-  await ensureWorkspacePanel(page, 'inspector');
   const example = await fs.readFile('examples/right-aligned-typography-group.json', 'utf8');
   await page.evaluate((s) => window.nect.load(s), example);
+  await ensureWorkspacePanel(page, 'inspector');
   const id = await page.evaluate(() => window.nect.document.layers[0].nodes[0].id);
   const inspector = page.locator('.inspector-body');
   assert.equal(await inspector.locator('[data-text-alignment]').count(), 1);

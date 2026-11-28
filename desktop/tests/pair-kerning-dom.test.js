@@ -54,8 +54,6 @@ test('pair kerning controls: caret/range identity, sparse history, scrub/cancel,
   source += '\nwindow.pairKerningBindingForTest = input => numericBehaviorBinding(input);';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const tick = () => new Promise((r) => setTimeout(r, 15));
-  for (let i = 0; i < 300 && (!win.nect || win.nect.evaluate().error); i++) await tick();
-  assert.equal(win.nect.evaluate().error, null);
   const fixture = makeDoc(),
     t = node('Text'),
     out = node('Output');
@@ -119,6 +117,7 @@ test('pair kerning controls: caret/range identity, sparse history, scrub/cancel,
     pointer(document, 'pointerup', 100 + dx);
   };
   await load();
+  assert.equal(win.nect.evaluate().error, null);
   const initial = saved();
   range(1);
   assert.equal(saved(), initial);

@@ -14,8 +14,6 @@ page.on('pageerror', (e) => errors.push(e.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
-  await ensureWorkspacePanel(page, 'inspector');
   const ids = await page.evaluate(async () => {
     const { document, node, connect, guideDefaults } = await import('/src/core.js');
     const d = document(),
@@ -51,6 +49,7 @@ try {
     window.nect.load(JSON.stringify(d));
     return { a: a.id, b: b.id, join: join.id };
   });
+  await ensureWorkspacePanel(page, 'inspector');
   // Wait for the font-triggered render before measuring or dragging live sockets.
   await page.waitForFunction(() => window.nect.evaluate().error === null);
   const socket = (id, port) =>

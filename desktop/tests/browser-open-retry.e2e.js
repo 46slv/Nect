@@ -43,7 +43,11 @@ try {
     try {
       await preloadVariableFontDependency(page, process.env.BASE_URL || 'http://127.0.0.1:5173');
       await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-      await page.waitForFunction(() => window.nect);
+      await activateCommand(page, 'new');
+      const dialog = page.locator('.new-project-dialog[open]');
+      await dialog.locator('[name="width"]').fill('640');
+      await dialog.locator('[name="height"]').fill('480');
+      await dialog.locator('button[type="submit"]').click();
       await page.locator('[data-tool="Rectangle"]').click();
       await page.locator('[data-tool="Circle"]').click();
       await activateCommand(page, 'undo');

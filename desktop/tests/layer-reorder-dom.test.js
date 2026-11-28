@@ -65,7 +65,6 @@ test('Layer name drags follow visual order and retain transaction boundaries', a
     '\nconst fontTestDeadline = Date.now() + 5000; while (!bundledFont) { if (Date.now() >= fontTestDeadline) throw Error("Bundled test font did not finish loading"); await new Promise((r) => setTimeout(r, 10)); }';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   flush();
-  openDOMPanel(document, 'layers');
   const $ = (s) => document.querySelector(s),
     ui = () => win.orderingUI(),
     saved = () => serialize(win.nect.document),
@@ -135,6 +134,7 @@ test('Layer name drags follow visual order and retain transaction boundaries', a
       ?.querySelector('.name') || null;
   const seed = (doc = orderingDocument()) => {
     load(doc);
+    openDOMPanel(document, 'layers');
     layout();
     return doc.layers.map((l) => l.id);
   };

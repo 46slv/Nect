@@ -987,8 +987,8 @@ import {
   componentCompositionReferencesInProject,
 } from './curve-point-reference.js';
 import { createCompositionSessionOwner } from './composition-session-owner-core.js';
+import { createExplicitNewProject } from './agent-workflow.js';
 import {
-  blankDocument,
   hasEmptyOutput,
   node,
   point,
@@ -1349,7 +1349,7 @@ function cancelVariableAction() {
   variableAction?.controller.abort();
   if (variableAction?.switching)
     variableAction.owner.cancelPreparedCompositionSwitch(variableAction.bridge);
-  else variableAction?.owner.cancelPrepared(variableAction.bridge);
+  else variableAction?.owner?.cancelPrepared(variableAction.bridge);
   if (variableAction?.opening || variableAction?.ownedBridge) variableAction.bridge.dispose();
   variableAction = null;
   variablePreviewFonts = null;
@@ -1448,32 +1448,32 @@ async function preparedChange(
   }
 }
 async function prepareOpenDocument(next, options = {}) {
+  const isCurrent = options.isCurrent ?? captureDocumentAuthority();
   const project = asCompositionProject(next),
     activeCompositionId = options.activeCompositionId ?? project.compositions[0].id,
     document = activeCompositionDocument(project, activeCompositionId);
-  if (!hasVariableFonts(document)) {
-    replaceDocument(project, { ...options, activeCompositionId });
-    return;
-  }
+  if (!hasVariableFonts(document))
+    return replaceDocument(project, { ...options, activeCompositionId, isCurrent });
   bindProjectDocumentContext(document, project, activeCompositionId);
   cancelVariableAction();
   const bridge = createVariableDocumentPreparer();
   const owner = session,
-    revision = session.state.expectedRevision;
+    revision = session?.state.expectedRevision;
   const action = { owner, bridge, opening: true, revision, controller: new AbortController() };
   variableAction = action;
   notify('Preparing variable fonts before opening… Escape cancels');
   try {
     const ticket = await bridge.prepareDocument(document, { signal: action.controller.signal });
-    if (
-      variableAction !== action ||
-      session !== owner ||
-      session.state.expectedRevision !== revision
-    )
+    if (variableAction !== action || !isCurrent())
       throw Error('Document changed while preparing; open the file again');
     bridge.activate(ticket);
     variableAction = null;
-    replaceDocument(project, { ...options, activeCompositionId, preparedBridge: bridge });
+    return replaceDocument(project, {
+      ...options,
+      activeCompositionId,
+      isCurrent,
+      preparedBridge: bridge,
+    });
   } catch (error) {
     if (variableAction === action) variableAction = null;
     bridge.dispose();
@@ -1534,11 +1534,11 @@ for (const type of [
 const sessionOptions = {
   fonts: activeFonts,
   onCommitted: (state) => {
-    if (state.sessionId === session.id && state.operation === 'rename-composition')
+    if (state.sessionId === session?.id && state.operation === 'rename-composition')
       rememberViewNeutralHistory(history.undoToken, history.entryToken);
     // A copied slot reference expires at the first committed removal, even if
     // another import later introduces the same ID while its panel is hidden.
-    if (state.sessionId === session.id) {
+    if (state.sessionId === session?.id) {
       if (layerClipboard.hasCopy)
         layerClipboard.observe({
           owner: session,
@@ -1551,7 +1551,7 @@ const sessionOptions = {
     // Let the operation finish a document-lifetime transition (e.g. SVG import)
     // before associating its committed state with a recovery document identity.
     queueMicrotask(() => {
-      if (state.sessionId !== session.id) return;
+      if (state.sessionId !== session?.id) return;
       try {
         updateDocumentStatus();
       } catch (error) {
@@ -1602,12 +1602,9 @@ let viewerState = createViewerState();
 const collapsedLayerFolders = new Map();
 const selectedLayerFolders = new Set();
 let folderSelectionScope = null;
-let session = createCompositionSessionOwner(
-  migrateLegacyDocumentToCompositionProject(blankDocument()),
-  sessionOptions,
-);
-let history = session.historyView,
-  activeLayer = history.doc.layers[0].id,
+let session = null;
+let history = null,
+  activeLayer = null,
   selected = null,
   artworkTarget = null,
   artworkSelection = new Set(),
@@ -1650,6 +1647,7 @@ let encodedSession = null,
   encodedProjectRevision = null,
   encodedText;
 function readDocument() {
+  if (!session) return null;
   const revision = session.projectRevision;
   if (session !== encodedSession || revision !== encodedProjectRevision) {
     encodedText = serializeProject(session.projectSnapshot());
@@ -1685,24 +1683,25 @@ const documents = new DocumentLifecycle({
   choose: chooseUnsaved,
   hasLifecycleDraft: () => !!variableAction,
   hasDraft: () =>
+    closeInputBlocked() ||
     !!(
-      closeInputBlocked() ||
-      penDraft ||
-      drag ||
-      wiring ||
-      composing ||
-      (nameEdit && (nameEdit.composing || nameEdit.value !== nameEdit.original)) ||
-      session.hasTextComposition ||
-      session.hasChangedTextDrafts ||
-      session.hasGesture ||
-      keyColorRecipePanel.editing ||
-      [...textDrafts.values()].some((draft) => draft.state.changed) ||
-      osTextDrafts.size > 0 ||
-      [...app.querySelectorAll('textarea[data-text]')].some(
-        (el) =>
-          variableNode(el.dataset.text) &&
-          el.value !== current().nodes.find((n) => n.id === el.dataset.text)?.text,
-      )
+      session &&
+      (penDraft ||
+        drag ||
+        wiring ||
+        composing ||
+        (nameEdit && (nameEdit.composing || nameEdit.value !== nameEdit.original)) ||
+        session.hasTextComposition ||
+        session.hasChangedTextDrafts ||
+        session.hasGesture ||
+        keyColorRecipePanel.editing ||
+        [...textDrafts.values()].some((draft) => draft.state.changed) ||
+        osTextDrafts.size > 0 ||
+        [...app.querySelectorAll('textarea[data-text]')].some(
+          (el) =>
+            variableNode(el.dataset.text) &&
+            el.value !== current().nodes.find((n) => n.id === el.dataset.text)?.text,
+        ))
     ),
 });
 const recovery = desktop
@@ -1714,6 +1713,8 @@ const recovery = desktop
     })
   : null;
 let openRequest = 0,
+  newRequest = 0,
+  browserOpen = null,
   imageRequest = 0,
   imagePick = null,
   svgPartRequest = 0,
@@ -1989,9 +1990,9 @@ const displayDocument = () =>
   sharedColors.previewDocument ||
   fontPreview ||
   drag?.preview ||
-  (textPreviewRevision === session.state.expectedRevision && textPreview) ||
+  (session && textPreviewRevision === session.state.expectedRevision && textPreview) ||
   keyColorRecipePanel.previewDocument ||
-  history.doc;
+  (history?.doc ?? null);
 const evaluate = (layer, fonts = {}, imageAssets = {}, doc = displayDocument()) =>
   evaluateCore(layer, fonts, imageAssets, doc);
 const displayLayer = () => {
@@ -2005,7 +2006,7 @@ const canvasLayers = (doc = history.doc) =>
       : [...doc.layers, penDraft.layer]
     : doc.layers;
 const selectedNode = () =>
-  artworkTarget ? undefined : current().nodes.find((n) => n.id === selected);
+  !session || artworkTarget ? undefined : current().nodes.find((n) => n.id === selected);
 function selectArtwork(layerId, { toggle = false, preserve = false } = {}) {
   if (!toggle) selectedLayerFolders.clear();
   if (!artworkTarget) artworkSelection = new Set();
@@ -6653,7 +6654,13 @@ function updateArtboardUnitDisplay() {
   }
 }
 const exportArtwork = createArtworkExporter({ exportSVG, pngDimensions, rasterizeSVG });
+function canInspectLiveEditor() {
+  return !!session && !documents.transitioning;
+}
 function readLiveEditorTarget() {
+  // Internal adapters compare target fields directly. With no identity fields,
+  // no valid target can match, and inspection publishes "unavailable".
+  if (!session) return {};
   const { sessionId, expectedRevision } = session.state;
   return {
     documentGeneration: documents.generation,
@@ -6705,7 +6712,7 @@ const liveArtworkCreation = createLiveArtworkCreation({
   },
 });
 function acceptanceTextNode(layerId, nodeId) {
-  return history.doc.layers
+  return history?.doc.layers
     .find((layer) => layer.id === layerId && !layer.locked)
     ?.nodes.find(
       (node) =>
@@ -7161,12 +7168,40 @@ function layerPanelRows(doc) {
   return rows;
 }
 
+function renderNoDocument() {
+  // Keep the initial shell (and its file chooser/focus) stable across font and
+  // other asynchronous view refreshes. There are no editor panels to mount.
+  if (!app.querySelector('[data-no-document]')) {
+    app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button>${[
+      ['save', 'Save'],
+      ['save-as', 'Save As…'],
+      ['undo', 'Undo'],
+      ['redo', 'Redo'],
+      ['export', 'Export SVG'],
+      ['export-png', 'Export PNG'],
+    ]
+      .map(([action, label]) => `<button data-action="${action}" disabled>${label}</button>`)
+      .join(
+        '',
+      )}${recoveryControls()}<span class="spacer"></span><button data-action="help">?</button></header><main data-no-document><p>No project open. Create a new document or open a project file.</p></main><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span></footer><input id="open-file" type="file" accept=".json,application/json" hidden>`;
+    ensureCommandMenus(app, document, uiSound);
+    app.querySelector('[data-action="import-composition"]').disabled = true;
+    ensureBuildInfo(app, document);
+  }
+  updateDocumentStatus();
+}
 function render(resetView = false, artworkResolution = null, graphScrollOverride = null) {
-  syncRemapSelection();
   if (closeFinalizing) {
     needsRender = true;
     return;
   }
+  if (!session) {
+    needsRender = false;
+    renderNoDocument();
+    return;
+  }
+  mountTextTools();
+  syncRemapSelection();
   keyColorRecipePanel.reconcile();
   keyerInputPicker?.validate();
   textTools?.cancel();
@@ -7199,6 +7234,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   if (drag?.type === 'graph-overview') cancelInteraction();
   graphOverviewObserver?.disconnect();
   const svgPartInput = svgPartPick ? app.querySelector('#svg-part-file') : null;
+  const openInput = browserOpen ? app.querySelector('#open-file') : null;
   const focused = resetView ? null : captureFocus(app),
     focusedRemapEdited = focused && remapOutputEdited.has(document.activeElement),
     focusedRemapScope =
@@ -7301,7 +7337,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
           )
           .join('')}</select></label>`
       : ''
-  }<button data-action="add-composition">Add composition</button><button data-action="asset-library">${workspaceIcon('assets')}<span>Assets</span></button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the active Composition with imported SVG; other Compositions and shared assets are kept">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button><details class="recovery-failures" data-recovery-failures hidden><summary>Recovery failed</summary><div class="command-menu-items"><select data-recovery-failed-target aria-label="Failed recovery document"></select><button data-recovery-retry-target>Retry document</button></div></details>' : ''}<button data-action="export">Export SVG</button><select id="svg-export-sizing" data-svg-export-sizing aria-label="SVG output sizing"><option value="fixed" ${svgExportSizing === 'fixed' ? 'selected' : ''}>Fixed</option><option value="responsive" ${svgExportSizing === 'responsive' ? 'selected' : ''}>Responsive</option></select><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units" ${svgExportSizing === 'fixed' ? '' : 'hidden'}>${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="svg-export-precision" data-svg-export-precision aria-label="SVG geometry precision" title="Round geometry numbers in the SVG copy; Default keeps the current output"><option value="default" ${svgExportPrecision === 'default' ? 'selected' : ''}>Default</option>${SVG_EXPORT_PRECISIONS.map((digits) => `<option value="${digits}" ${String(digits) === svgExportPrecision ? 'selected' : ''}>${digits} decimals</option>`).join('')}</select><select id="png-export-mode" aria-label="PNG size mode" title="Choose scale or physical PPI"><option value="scale" ${pngExportMode === 'scale' ? 'selected' : ''}>Scale</option><option value="ppi" ${pngExportMode === 'ppi' ? 'selected' : ''}>Physical × PPI</option></select><select id="png-scale" aria-label="PNG export scale" ${pngExportMode === 'scale' ? '' : 'hidden'}>${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${v === pngScale ? 'selected' : ''}>${v}×</option>`).join('')}</select><label ${pngExportMode === 'ppi' ? '' : 'hidden'}>PPI<input id="png-ppi" type="number" step="any" value="${Number.isFinite(pngPpi) ? pngPpi : ''}" aria-label="PNG resolution (PPI)"></label><output data-png-dimensions data-valid="${!!pngPreview.size}" aria-label="PNG output dimensions" aria-live="polite">${esc(pngPreview.label)}</output><button data-action="export-png" ${pngPreview.size ? '' : 'disabled'} title="Transparent artboard · ${esc(pngPreview.label)}">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">${workspaceIcon('undo')}<span>Undo</span></button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">${workspaceIcon('redo')}<span>Redo</span></button><span class="spacer"></span><span class="muted" data-document-title>${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
+  }<button data-action="add-composition">Add composition</button><button data-action="asset-library">${workspaceIcon('assets')}<span>Assets</span></button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the active Composition with imported SVG; other Compositions and shared assets are kept">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${recoveryControls()}<button data-action="export">Export SVG</button><select id="svg-export-sizing" data-svg-export-sizing aria-label="SVG output sizing"><option value="fixed" ${svgExportSizing === 'fixed' ? 'selected' : ''}>Fixed</option><option value="responsive" ${svgExportSizing === 'responsive' ? 'selected' : ''}>Responsive</option></select><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units" ${svgExportSizing === 'fixed' ? '' : 'hidden'}>${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="svg-export-precision" data-svg-export-precision aria-label="SVG geometry precision" title="Round geometry numbers in the SVG copy; Default keeps the current output"><option value="default" ${svgExportPrecision === 'default' ? 'selected' : ''}>Default</option>${SVG_EXPORT_PRECISIONS.map((digits) => `<option value="${digits}" ${String(digits) === svgExportPrecision ? 'selected' : ''}>${digits} decimals</option>`).join('')}</select><select id="png-export-mode" aria-label="PNG size mode" title="Choose scale or physical PPI"><option value="scale" ${pngExportMode === 'scale' ? 'selected' : ''}>Scale</option><option value="ppi" ${pngExportMode === 'ppi' ? 'selected' : ''}>Physical × PPI</option></select><select id="png-scale" aria-label="PNG export scale" ${pngExportMode === 'scale' ? '' : 'hidden'}>${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${v === pngScale ? 'selected' : ''}>${v}×</option>`).join('')}</select><label ${pngExportMode === 'ppi' ? '' : 'hidden'}>PPI<input id="png-ppi" type="number" step="any" value="${Number.isFinite(pngPpi) ? pngPpi : ''}" aria-label="PNG resolution (PPI)"></label><output data-png-dimensions data-valid="${!!pngPreview.size}" aria-label="PNG output dimensions" aria-live="polite">${esc(pngPreview.label)}</output><button data-action="export-png" ${pngPreview.size ? '' : 'disabled'} title="Transparent artboard · ${esc(pngPreview.label)}">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">${workspaceIcon('undo')}<span>Undo</span></button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">${workspaceIcon('redo')}<span>Redo</span></button><span class="spacer"></span><span class="muted" data-document-title>${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['direct', 'Direct selection (A)'],
     ['select', 'Select / move'],
     ['pen', 'Pen / Curve'],
@@ -7345,6 +7381,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   // A deferred view/font refresh must not detach an active browser chooser.
   // Document replacement clears svgPartPick and retains its existing stale guard.
   if (svgPartInput) app.querySelector('#svg-part-file')?.replaceWith(svgPartInput);
+  if (openInput) app.querySelector('#open-file').replaceWith(openInput);
   mountSelectionViewers(doc, l, n, results);
   const pngExportButton = app.querySelector('[data-action="export-png"]');
   if (pngExportButton) {
@@ -8502,6 +8539,7 @@ function selectPointTarget(n, target, event) {
 }
 let canvasFrame = null;
 function updateCanvas(immediate = false) {
+  if (!session) return;
   if (immediate) {
     if (canvasFrame !== null) window.cancelAnimationFrame(canvasFrame);
     drawCanvas();
@@ -8623,6 +8661,7 @@ function mountGraphPanJoystick() {
   });
 }
 function updateNavigation() {
+  if (!session) return;
   mountGraphPanJoystick();
   updateGraphOverview();
   updateLayerDeletionControls();
@@ -8657,6 +8696,7 @@ function updateNavigation() {
   }
 }
 function fitCanvas() {
+  if (!session) return;
   const stage = document.querySelector('.canvas-stage'),
     svg = document.querySelector('.artboard');
   if (!stage || !svg) return;
@@ -9678,6 +9718,7 @@ function alignmentBusy() {
   return deletionBusy() || tool !== 'select' || space;
 }
 function updateLayerDeletionControls() {
+  if (!session) return;
   const busy = deletionBusy();
   for (const button of document.querySelectorAll(
     '[data-align-artwork], [data-distribute-artwork], [data-distribute-gap]',
@@ -10184,8 +10225,35 @@ function finishPenDraft(closed = false, redraw = true) {
   return true;
 }
 
-async function confirmReplace(action = 'opening another document') {
-  const accepted = await documents.guard(action);
+// Compare authored identities, not just serialized contents: an edit followed
+// by Undo or a Composition switch can leave the bytes unchanged.
+function captureDocumentAuthority() {
+  const owner = session,
+    generation = documents.generation,
+    revision = owner?.projectRevision,
+    compositionId = owner?.activeCompositionId,
+    envelope = owner?.state;
+  return () =>
+    !closeInputBlocked() &&
+    session === owner &&
+    documents.generation === generation &&
+    (!owner ||
+      (owner.projectRevision === revision &&
+        owner.activeCompositionId === compositionId &&
+        owner.state.sessionId === envelope.sessionId &&
+        owner.state.expectedRevision === envelope.expectedRevision));
+}
+function beginDocumentReplacement() {
+  const request = ++openRequest,
+    hasAuthority = captureDocumentAuthority();
+  return () => request === openRequest && hasAuthority() && !documents.hasDraft();
+}
+function assertCurrentOpen(isCurrent) {
+  if (!isCurrent() || documents.hasPendingEdits() || documents.saving || documents.transitioning)
+    throw Error('Document changed while reading; open the file again');
+}
+async function confirmReplace(action = 'opening another document', isCurrent) {
+  const accepted = await documents.guard(action, { isCurrent });
   updateDocumentStatus();
   return accepted;
 }
@@ -10504,7 +10572,17 @@ async function importDesktopSVG() {
   notify(`SVG document imported: ${opened.name}`);
   render(true);
 }
+function recoveryControls() {
+  return desktop
+    ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button><details class="recovery-failures" data-recovery-failures hidden><summary>Recovery failed</summary><div class="command-menu-items"><select data-recovery-failed-target aria-label="Failed recovery document"></select><button data-recovery-retry-target>Retry document</button></div></details>'
+    : '';
+}
 function updateDocumentStatus() {
+  if (!session) {
+    document.title = 'Nect';
+    updateRecoveryStatus();
+    return;
+  }
   const dirty = documents.dirty,
     name = documents.binding?.path || history.doc.name;
   document.title = `${dirty ? '* ' : ''}${name} — Nect`;
@@ -10578,19 +10656,24 @@ function updateRecoveryStatus() {
   retry.title = target?.error || '';
 }
 async function showRecoveryCopies(startup = false) {
-  const before = readDocument(),
-    generation = documents.generation;
+  if (startup && session) return;
+  const hasAuthority = captureDocumentAuthority(),
+    requestAtList = openRequest;
   const copies = await listRecovery();
   if (!copies.length) {
     if (!startup) notify('No recovery copies');
     return;
   }
   if (
-    generation !== documents.generation ||
-    before !== readDocument() ||
-    documents.hasPendingEdits()
+    !hasAuthority() ||
+    requestAtList !== openRequest ||
+    documents.hasPendingEdits() ||
+    documents.saving ||
+    documents.transitioning ||
+    document.querySelector('dialog[open]')
   )
     return;
+  const isCurrent = beginDocumentReplacement();
   const dialog = document.createElement('dialog');
   dialog.dataset.recoveryDialog = '';
   dialog.innerHTML = `<form method="dialog"><h3>Recover editing</h3><select aria-label="Recovery copy">${copies.map((item, i) => `<option value="${i}">${esc(item.name)} · ${esc(new Date(item.savedAt).toLocaleString())}${item.previous ? ' · Previous copy' : ''}</option>`).join('')}</select><p>Recovery opens as an unsaved document.</p><button value="restore">Restore copy</button> <button value="later">Later</button></form>`;
@@ -10611,24 +10694,16 @@ async function showRecoveryCopies(startup = false) {
     dialog.showModal();
   });
   if (!chosen) return;
-  if (
-    generation !== documents.generation ||
-    before !== readDocument() ||
-    documents.hasPendingEdits()
-  )
+  if (!isCurrent() || documents.hasPendingEdits())
     throw Error('Document changed; choose the recovery copy again');
-  if (!startup && !(await confirmReplace('restoring a recovery copy'))) return;
-  const contents = await readRecovery(chosen.id),
-    next = deserializeProject(contents);
+  if (!(await confirmReplace('restoring a recovery copy', isCurrent))) return;
+  const next = deserializeProject(await readRecovery(chosen.id));
   await preflightImages(next);
-  if (
-    generation !== documents.generation ||
-    before !== readDocument() ||
-    documents.hasPendingEdits()
-  )
-    throw Error('Document changed; current document preserved');
-  await prepareOpenDocument(next);
+  assertCurrentOpen(isCurrent);
+  const restored = await prepareOpenDocument(next, { isCurrent });
+  if (session !== restored) return;
   render(true);
+  updateDocumentStatus();
   const protectedCopy = await recovery.preserve(chosen.id);
   notify(
     protectedCopy
@@ -10639,9 +10714,17 @@ async function showRecoveryCopies(startup = false) {
 }
 function replaceDocument(
   next,
-  { binding = null, saved = false, preparedBridge = null, activeCompositionId = null } = {},
+  {
+    binding = null,
+    saved = false,
+    preparedBridge = null,
+    activeCompositionId = null,
+    isCurrent,
+  } = {},
 ) {
   if (closeInputBlocked()) throw Error('Close protection is not ready');
+  if (isCurrent && (!isCurrent() || documents.saving || documents.transitioning))
+    throw Error('Document changed; current document preserved');
   const project = asCompositionProject(next);
   activeCompositionId ??= project.compositions[0].id;
   // Validate every Composition before retiring the current document's view state.
@@ -10650,6 +10733,8 @@ function replaceDocument(
     activeCompositionId,
     fonts: preparedBridge ? () => fontsFromBridge(preparedBridge) : sessionOptions.fonts,
   });
+  // Check the canonical encoding before publishing the owner or its file token.
+  const replacementText = serializeProject(replacement.projectSnapshot());
   const previousBridge = variableBridge;
   // A reopened project must explicitly reattach a matching file in this document.
   privateFontFiles = [];
@@ -10657,13 +10742,16 @@ function replaceDocument(
   sourcePicker = null;
   sourceReturn = null;
   cancelVariableAction();
-  resetTransient();
+  if (session) resetTransient();
+  browserOpen = null;
   compositionViewStates.clear();
   collapsedLayerFolders.clear();
   detailsState.clear();
   contextMenuScroll.clear();
   viewerState = createViewerState();
-  session = replacement;
+  session = encodedSession = replacement;
+  encodedProjectRevision = replacement.projectRevision;
+  encodedText = replacementText;
   history = session.historyView;
   layerClipboard.clear();
   variableBridge = preparedBridge;
@@ -10681,6 +10769,7 @@ function replaceDocument(
   artworkTarget = null;
   artworkSelection = new Set();
   selection = new Set();
+  return replacement;
 }
 function compositionViewDefaults(doc) {
   const layerId = initialLayerId(doc),
@@ -11590,37 +11679,42 @@ function download(text, name, type) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-textTools = textToolGroup({
-  root: app,
-  active: () => tool === 'Text',
-  available: (canvas = false) => {
-    const field = document.activeElement;
-    const pendingField = field?.matches?.('input,textarea') && field.value !== field.defaultValue;
-    return (
-      !navigationBusy() &&
-      !documents.hasDraft() &&
-      !variableAction &&
-      !sourcePicker &&
-      !canvasTextEdit &&
-      !nameEdit &&
-      !pendingField &&
-      !document.querySelector('dialog[open]') &&
-      (!canvas || !space)
-    );
-  },
-  activate: () => {
-    tool = 'Text';
-    characterEdit = null;
-    render();
-    document.querySelector('[data-tool="Text"]')?.focus({ preventScroll: true });
-  },
-  create: (at, writingMode) => createArtwork('Text', { at, writingMode }),
-  point: canvasPoint,
-});
+function mountTextTools() {
+  // Text's global blur/cancel listeners must not carry startup input into the
+  // first editing interaction. Mount the controller only with an editor owner.
+  textTools ??= textToolGroup({
+    root: app,
+    active: () => tool === 'Text',
+    available: (canvas = false) => {
+      const field = document.activeElement;
+      const pendingField = field?.matches?.('input,textarea') && field.value !== field.defaultValue;
+      return (
+        !navigationBusy() &&
+        !documents.hasDraft() &&
+        !variableAction &&
+        !sourcePicker &&
+        !canvasTextEdit &&
+        !nameEdit &&
+        !pendingField &&
+        !document.querySelector('dialog[open]') &&
+        (!canvas || !space)
+      );
+    },
+    activate: () => {
+      tool = 'Text';
+      characterEdit = null;
+      render();
+      document.querySelector('[data-tool="Text"]')?.focus({ preventScroll: true });
+    },
+    create: (at, writingMode) => createArtwork('Text', { at, writingMode }),
+    point: canvasPoint,
+  });
+}
 app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (!session && !['new', 'open', 'help'].includes(d.action)) return;
   if (d.keyerPick) {
     if (!b.disabled) pickKeyerInputColor(d.keyerPick);
     return;
@@ -12223,40 +12317,37 @@ app.addEventListener('click', async (e) => {
             document.querySelector('#import-svg-file').click();
           }
           break;
-        case 'open':
-          if (!(await confirmReplace())) break;
+        case 'open': {
+          if (documents.saving || documents.transitioning) break;
+          newRequest++;
+          const isCurrent = desktop ? beginDocumentReplacement() : captureDocumentAuthority();
+          if (!(await confirmReplace(undefined, isCurrent))) break;
+          assertCurrentOpen(isCurrent);
           if (desktop) {
-            const request = ++openRequest,
-              before = readDocument(),
-              generation = documents.generation;
             const opened = await openFile();
             try {
-              if (request !== openRequest || generation !== documents.generation) break;
-              if (readDocument() !== before)
-                throw Error('Document changed while reading; open the file again');
-              if (opened !== null) {
-                const next = deserializeProject(opened.contents);
-                await preflightImages(next);
-                if (
-                  request !== openRequest ||
-                  generation !== documents.generation ||
-                  documents.hasPendingEdits() ||
-                  readDocument() !== before
-                )
-                  throw Error('Document changed while reading; open the file again');
-                await prepareOpenDocument(next, { binding: opened.binding, saved: true });
-                render(true);
-                notify('Project restored');
-              }
+              if (!opened) break;
+              assertCurrentOpen(isCurrent);
+              const next = deserializeProject(opened.contents);
+              await preflightImages(next);
+              assertCurrentOpen(isCurrent);
+              await prepareOpenDocument(next, { binding: opened.binding, saved: true, isCurrent });
+              render(true);
+              notify('Project restored');
             } finally {
               // Accepted tokens stay active; every rejected/stale Open is retired.
               await documents.releaseUnused(opened?.binding);
             }
           } else {
-            document.querySelector('#open-file').value = '';
-            document.querySelector('#open-file').click();
+            // Only a selected file supersedes an in-flight browser read. A
+            // retry picker cancelled without a selection leaves that read alone.
+            const input = app.querySelector('#open-file');
+            browserOpen = { input, isCurrent };
+            input.value = '';
+            input.click();
           }
           break;
+        }
         case 'add-composition':
           addComposition();
           notify('Composition added');
@@ -12264,26 +12355,19 @@ app.addEventListener('click', async (e) => {
         case 'new': {
           if (documents.saving || documents.transitioning || document.querySelector('dialog[open]'))
             break;
-          const owner = session,
-            state = owner.state,
-            projectRevision = owner.projectRevision,
-            compositionId = owner.activeCompositionId,
-            generation = documents.generation,
-            blank = blankDocument(),
+          if (documents.hasPendingEdits())
+            throw Error('Finish or cancel the active edit before changing documents.');
+          const intent = ++newRequest,
+            isReplacementCurrent = beginDocumentReplacement(),
             isCurrent = () =>
-              session === owner &&
-              documents.generation === generation &&
-              owner.projectRevision === projectRevision &&
-              owner.activeCompositionId === compositionId &&
-              owner.state.sessionId === state.sessionId &&
-              owner.state.expectedRevision === state.expectedRevision &&
-              !documents.hasPendingEdits();
-          const size = await chooseNewProjectSize({ ...blank, isCurrent });
+              intent === newRequest && isReplacementCurrent() && !documents.hasPendingEdits();
+          const size = await chooseNewProjectSize({ isCurrent });
           if (!size) break;
           if (!isCurrent()) throw Error('Project changed. Start New again.');
-          if (!(await confirmReplace('creating a new document'))) break;
+          if (!(await confirmReplace('creating a new document', isCurrent))) break;
           if (!isCurrent()) throw Error('Project changed. Start New again.');
-          replaceDocument({ ...blank, ...size });
+          const { width, height } = size;
+          replaceDocument(createExplicitNewProject({ width, height }), { isCurrent });
           selected = null;
           artworkTarget = null;
           artworkSelection = new Set();
@@ -12429,7 +12513,7 @@ app.addEventListener('click', async (e) => {
         case 'help': {
           let dialog = document.createElement('dialog');
           dialog.innerHTML =
-            '<h3>Nect SVG</h3><p>The editor starts with a blank document. New creates a blank document; + Blank composition appends an empty vector Output. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal, vertical or 45°; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect closed paths to Boolean A/B. Drag a path to Add input for C and later inputs. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: Ctrl/Cmd+D duplicates selected nodes beside the selection in one Undo. Middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Alt or Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Node edges and centers snap into alignment within 6 screen pixels; hold Ctrl/Cmd during the drag to bypass. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
+            '<h3>Nect SVG</h3><p>Create or open a project to start editing. New creates a blank document at the dimensions you choose; + Blank composition appends an empty vector Output. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal, vertical or 45°; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect closed paths to Boolean A/B. Drag a path to Add input for C and later inputs. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: Ctrl/Cmd+D duplicates selected nodes beside the selection in one Undo. Middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Alt or Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Node edges and centers snap into alignment within 6 screen pixels; hold Ctrl/Cmd during the drag to bypass. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
           dialog.querySelector('button').onclick = () => closeEditorDialog(dialog);
           showEditorDialog(dialog);
           break;
@@ -13501,7 +13585,7 @@ function canvasTextContext(result = renderEvaluation) {
   };
 }
 document.addEventListener('selectionchange', () => {
-  if (document.activeElement?.matches('.canvas-text-editor')) updateCanvas();
+  if (session && document.activeElement?.matches('.canvas-text-editor')) updateCanvas();
 });
 function canvasTextOverlay(result) {
   const context = canvasTextContext(result),
@@ -13998,10 +14082,17 @@ app.addEventListener('compositionend', (e) => {
   }
 });
 
+app.addEventListener(
+  'cancel',
+  (event) => {
+    if (browserOpen?.input === event.target) browserOpen = null;
+  },
+  true,
+);
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
-  if (el.closest('[data-ui-sound-settings]')) return;
+  if ((!session && el.id !== 'open-file') || el.closest('[data-ui-sound-settings]')) return;
   if (d.pointSpacing !== undefined) {
     stagePointSpacing(el);
     return;
@@ -14412,24 +14503,26 @@ app.addEventListener('change', async (e) => {
     return;
   }
   if (el.id === 'open-file' || el.id === 'import-svg-file') {
-    let file = el.files[0];
+    const opening = el.id === 'open-file',
+      picker = opening && browserOpen?.input === el ? browserOpen : null,
+      file = el.files[0];
+    if (picker) browserOpen = null;
     if (!file) return;
     try {
-      const request = ++openRequest,
-        before = readDocument(),
-        generation = documents.generation,
-        envelope = session.state;
-      if (file.size > (el.id === 'open-file' ? MAX_PROJECT_BYTES : 10_000_000))
+      if (picker) assertCurrentOpen(picker.isCurrent);
+      const isCurrent = beginDocumentReplacement(),
+        envelope = session?.state;
+      if (file.size > (opening ? MAX_PROJECT_BYTES : 10_000_000))
         throw Error('File exceeds the supported size limit');
-      const text = await file.text(),
-        source = el.id === 'import-svg-file' ? readSVGSource(text) : null,
-        next = source ? null : deserializeProject(text);
-      if (next) await preflightImages(next);
-      if (request !== openRequest || generation !== documents.generation) return;
-      if (documents.hasPendingEdits() || readDocument() !== before)
-        throw Error('Document changed while reading; open the file again');
-      if (el.id === 'open-file') await prepareOpenDocument(next, { saved: true });
-      else {
+      const text = await file.text();
+      assertCurrentOpen(isCurrent);
+      if (opening) {
+        const next = deserializeProject(text);
+        await preflightImages(next);
+        assertCurrentOpen(isCurrent);
+        await prepareOpenDocument(next, { saved: true, isCurrent });
+      } else {
+        const source = readSVGSource(text);
         // Import is an undoable authored replacement; it has no source-file binding.
         resetTransient();
         const result = session.dispatch({ ...envelope, type: 'import-svg', payload: { source } });
@@ -15743,6 +15836,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden && drag?.type === 'graph-overview') cancelInteraction();
 });
 window.addEventListener('blur', () => {
+  if (!session) return;
   lastNameClick = null;
   space = false;
   cancelInteraction();
@@ -15757,7 +15851,7 @@ app.addEventListener('dragstart', (event) => {
 });
 
 app.addEventListener('pointerdown', (e) => {
-  if (drag) return;
+  if (!session || drag) return;
   const viewport = e.target.closest('.graph-scroll'),
     control = editingControl(e.target),
     graphPan =
@@ -18491,6 +18585,7 @@ for (const type of ['keydown', 'keyup'])
     if (drag.started) moveGraphNodes();
   });
 document.addEventListener('keydown', (e) => {
+  if (!session) return;
   if (drag?.behavior && e.key === 'Escape' && !e.isComposing && e.keyCode !== 229) {
     e.preventDefault();
     cancelInteraction();
@@ -19045,6 +19140,10 @@ document.addEventListener('keydown', (e) => {
       e.preventDefault();
       document.querySelector(`[data-action="${e.shiftKey ? 'save-as' : 'save'}"]`)?.click();
     }
+    if (e.key.toLowerCase() === 'n') {
+      e.preventDefault();
+      document.querySelector('[data-action="new"]')?.click();
+    }
     if (e.key.toLowerCase() === 'o') {
       e.preventDefault();
       document.querySelector('[data-action="open"]')?.click();
@@ -19089,6 +19188,7 @@ window.addEventListener('beforeunload', (e) => {
   const pendingName = nameEdit && (nameEdit.composing || nameEdit.value !== nameEdit.original);
   if (
     !desktop &&
+    session &&
     (documents.hasPendingEdits() || pendingName || documents.dirty || documents.saving)
   ) {
     e.preventDefault();
@@ -19097,6 +19197,7 @@ window.addEventListener('beforeunload', (e) => {
 });
 render();
 function closeHasPendingEdits() {
+  if (!session) return false;
   const pointNode = pointDeltaDraft && current().nodes.find((n) => n.id === pointDeltaDraft.nodeId),
     points = pointNode ? selectedPointIds(pointNode) : [],
     input = document.activeElement;
@@ -19124,7 +19225,7 @@ function startRecoveryWhenReady() {
   if (!startupRecoveryPending || !closeGuardReady || closeFinalizing) return;
   startupRecoveryPending = false;
   showRecoveryCopies(true).catch((error) => {
-    recovery.report(recovery.current, { phase: 'failed', error: error.message || String(error) });
+    notify(`Recovery could not be opened: ${error.message || error}`, true);
   });
 }
 function startRecoveryAcceptanceWhenReady() {
@@ -19182,7 +19283,7 @@ registerClose(async (finishClose) => {
   try {
     // Until registration completes, no editing or recovery selection is possible.
     // A native Close delivered during that interval can safely finish directly.
-    if (!closeGuardReady) return await finishProtectedClose(finishClose);
+    if (!closeGuardReady || !session) return await finishProtectedClose(finishClose);
     let approved;
     if (closeHasPendingEdits()) throw Error('Finish or cancel the active edit before closing.');
     const canClose = await documents.guard('closing Nect', {
@@ -19200,7 +19301,7 @@ registerClose(async (finishClose) => {
     updateDocumentStatus();
     if (!canClose) return false;
     await recovery?.flush();
-    const state = session.state,
+    const state = session?.state,
       pendingEdit = closeHasPendingEdits();
     if (
       session !== approved.owner ||
@@ -19208,8 +19309,8 @@ registerClose(async (finishClose) => {
       documents.operation !== approved.operation ||
       documents.saving ||
       documents.transitioning ||
-      session.projectRevision !== approved.projectRevision ||
-      state.sessionId !== approved.envelope.sessionId ||
+      session?.projectRevision !== approved.projectRevision ||
+      state?.sessionId !== approved.envelope.sessionId ||
       state.expectedRevision !== approved.envelope.expectedRevision ||
       pendingEdit
     ) {
@@ -19282,7 +19383,7 @@ const testLiveEditorProtocol =
   typeof import.meta.env !== 'undefined' && import.meta.env.DEV
     ? createLiveEditorProtocol({
         readTarget: readLiveEditorTarget,
-        canInspect: () => !documents.transitioning,
+        canInspect: canInspectLiveEditor,
         setBlendDistance: liveBlendDistance,
         setBlendSteps: liveBlendSteps,
         setBlendMode: liveBlendMode,
@@ -19293,6 +19394,10 @@ const testLiveEditorProtocol =
         setTextContent: liveTextContent,
       })
     : null;
+function requireDocument() {
+  if (!session) throw Error('No document is open.');
+  return session;
+}
 // Explicit test/debug API; same model and mutations as the UI.
 window.nect = {
   ...(testLiveEditorProtocol ? { testLiveEditorProtocol } : {}),
@@ -19300,20 +19405,21 @@ window.nect = {
     return recovery && { ...recovery.state, failedDocuments: recovery.failedDocuments };
   },
   get gestureState() {
-    return session.gestureState;
+    return session?.gestureState ?? null;
   },
   colorPreviewSnapshot: () =>
     sharedColors.previewDocument ? structuredClone(sharedColors.previewDocument) : null,
   colorPreviewMetrics: () => sharedColors.metrics(),
-  previewSnapshot: (gestureId) => session.previewSnapshot(gestureId),
+  previewSnapshot: (gestureId) => requireDocument().previewSnapshot(gestureId),
   get commandState() {
-    return session.state;
+    return session?.state ?? null;
   },
   get projectRevision() {
-    return session.projectRevision;
+    return session?.projectRevision ?? null;
   },
   dispatch(command) {
     if (closeInputBlocked()) throw Error('Close protection is not ready');
+    requireDocument();
     const authority = captureCompositionDeletionAuthority();
     const type = command.type;
     if (type === 'delete-composition') {
@@ -19342,9 +19448,9 @@ window.nect = {
       render();
     return result;
   },
-  snapshot: () => session.snapshot(),
+  snapshot: () => session?.snapshot() ?? null,
   get document() {
-    return session.snapshot();
+    return session?.snapshot() ?? null;
   },
   get fileState() {
     return {
@@ -19356,7 +19462,7 @@ window.nect = {
     };
   },
   evaluate: () => {
-    const doc = session.snapshot();
+    const doc = requireDocument().snapshot();
     return evaluate(
       doc.layers.find((l) => l.id === activeLayer) || doc.layers[0],
       fonts,
@@ -19365,27 +19471,32 @@ window.nect = {
     );
   },
   get activeCompositionId() {
-    return session.activeCompositionId;
+    return session?.activeCompositionId ?? null;
   },
   get compositions() {
-    return session.projectSnapshot().compositions.map(({ id, name, width, height }) => ({
-      id,
-      name,
-      width,
-      height,
-    }));
+    return (
+      session?.projectSnapshot().compositions.map(({ id, name, width, height }) => ({
+        id,
+        name,
+        width,
+        height,
+      })) ?? []
+    );
   },
-  projectSnapshot: () => session.projectSnapshot(),
+  projectSnapshot: () => session?.projectSnapshot() ?? null,
   load(text) {
     if (closeInputBlocked()) throw Error('Close protection is not ready');
     const project = deserializeProject(text),
       activeDocument = activeCompositionDocument(project, project.compositions[0].id);
+    const isCurrent = beginDocumentReplacement();
     if (hasVariableFonts(activeDocument))
-      return prepareOpenDocument(project).then(() => render(true));
+      return prepareOpenDocument(project, { isCurrent }).then(() => render(true));
+    // Explicit fixture loads may reset transient editor state. Unlike a file
+    // picker, this synchronous test hook never awaits a user's decision.
     replaceDocument(project);
     render(true);
   },
-  export: (options) => exportSVG(history.doc, fonts, options),
+  export: (options) => exportSVG(requireDocument().historyView.doc, fonts, options),
 };
 
 app.addEventListener('keydown', (event) => {
@@ -19578,7 +19689,7 @@ if (
       readTarget: readLiveEditorTarget,
       readLayerFolderPlan: folderPlans.preview,
       applyLayerFolderPlan: folderPlans.apply,
-      canInspect: () => !documents.transitioning,
+      canInspect: canInspectLiveEditor,
       listArtwork: (args) =>
         readLiveEditorObjects(
           {
@@ -19763,7 +19874,7 @@ if (
     const { createLiveInspectChannel } = await import('./live-inspect-channel.js');
     const inspection = createLiveInspectChannel({
       readTarget: readLiveEditorTarget,
-      canInspect: () => !documents.transitioning,
+      canInspect: canInspectLiveEditor,
     });
     const wait = () => new Promise((resolve) => setTimeout(resolve, 50));
     const deadline = Date.now() + 120_000;
@@ -19828,7 +19939,7 @@ if (
     .then(({ mountLiveInspectPreviewIfAvailable }) => {
       return mountLiveInspectPreviewIfAvailable({
         readTarget: readLiveEditorTarget,
-        canInspect: () => !documents.transitioning,
+        canInspect: canInspectLiveEditor,
       });
     })
     .catch(() => {});

@@ -57,8 +57,6 @@ test('actual character palette and typography inputs scrub atomically, preserve 
   source += '\nwindow.textSwitchForTest = switchActiveComposition;';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const tick = () => new Promise((r) => setTimeout(r, 15));
-  for (let i = 0; i < 300 && (!win.nect || win.nect.evaluate().error); i++) await tick();
-  assert.equal(win.nect.evaluate().error, null);
   const fixture = makeDoc(),
     t = node('Text'),
     tr = node('Transform'),
@@ -139,6 +137,7 @@ test('actual character palette and typography inputs scrub atomically, preserve 
     },
     ['c1', 'c2'],
   );
+  assert.equal(win.nect.evaluate().error, null);
   const pendingWidth = field('character-style="width"', '.inspector-body');
   pendingWidth.value = '125';
   pendingWidth.dispatchEvent(new win.Event('input', { bubbles: true }));

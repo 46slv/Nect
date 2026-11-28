@@ -67,11 +67,11 @@ test('Multiple independent artworks select and move as one transaction', async (
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
   source +=
-    '\nwindow.artworkUI = () => ({fontReady: !!bundledFont, activeLayer, selected, artworkTarget, artworkSelection: [...artworkSelection], selection: [...selection], past: history.past.length, future: history.future.length, drag: drag?.type, wiring: !!wiring});';
+    '\nwindow.artworkFontReady = () => !!bundledFont; window.artworkUI = () => ({activeLayer, selected, artworkTarget, artworkSelection: [...artworkSelection], selection: [...selection], past: history.past.length, future: history.future.length, drag: drag?.type, wiring: !!wiring});';
   source += '\nwindow.canvasPreview = () => displayDocument();';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const readyDeadline = Date.now() + 5000;
-  while (!win.artworkUI().fontReady) {
+  while (!win.artworkFontReady()) {
     assert.ok(Date.now() < readyDeadline, 'Bundled font did not finish loading');
     await new Promise((r) => setTimeout(r, 10));
   }

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
+import { createExplicitNewProject } from '../src/agent-workflow.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+
+const projectContents = JSON.stringify(createExplicitNewProject({ width: 960, height: 540 }));
 
 // Real UI and storage adapter, with controllable native IPC and no native window.
 const browser = await chromium.launch({
@@ -27,7 +30,11 @@ async function fixture({
     await page.route('**/src/recovery-acceptance-test.js*', (route) =>
       route.fulfill({
         contentType: 'text/javascript',
-        body: 'export function runRecoveryAcceptance(_recovery, api) { window.acceptanceCount = (window.acceptanceCount || 0) + 1; api.load(JSON.stringify(api.projectSnapshot())); window.acceptanceLoaded = true; }',
+        body: `export async function runRecoveryAcceptance(_recovery, api) {
+          window.acceptanceCount = (window.acceptanceCount || 0) + 1;
+          await api.load(${JSON.stringify(projectContents)});
+          window.acceptanceLoaded = true;
+        }`,
       }),
     );
   await page.addInitScript(
@@ -128,10 +135,37 @@ async function fixture({
   );
   await page.goto(baseURL || process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect && window.closeChannel);
-  await page.waitForFunction(
+  await waitForRecoveryIdle(page);
+  return { page, errors };
+}
+function waitForRecoveryIdle(page) {
+  return page.waitForFunction(
     () => !['pending', 'saving'].includes(window.nect.recoveryState?.phase),
   );
-  return { page, errors };
+}
+async function assertNoDocument(page) {
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      document: window.nect.document,
+      project: window.nect.projectSnapshot(),
+      command: window.nect.commandState,
+      dirty: window.nect.fileState.dirty,
+      binding: window.nect.fileState.binding,
+    })),
+    { document: null, project: null, command: null, dirty: false, binding: null },
+  );
+  assert.equal(await page.locator('[data-no-document]').isVisible(), true);
+}
+async function loadProject(page) {
+  await page.waitForFunction(() => !document.body.inert && window.recoveryListCalls === 1);
+  await page.evaluate((contents) => window.nect.load(contents), projectContents);
+  // Loading an unbound fixture itself queues recovery. Don't hold that write in
+  // the edit races, and don't Save the fixture just to seed the editor.
+  await waitForRecoveryIdle(page);
+  assert.deepEqual(
+    await page.evaluate(() => [window.nect.fileState.dirty, window.nect.fileState.binding]),
+    [true, null],
+  );
 }
 async function holdDirtyRecovery(page) {
   await page.evaluate(() => {
@@ -182,9 +216,11 @@ try {
       async (page) => {
         await page.waitForTimeout(150);
         assert.equal(await page.evaluate(() => window.acceptanceCount || 0), 0);
+        await assertNoDocument(page);
         await page.evaluate(() => window.releaseGuard());
         await page.waitForFunction(() => window.acceptanceLoaded);
         assert.equal(await page.evaluate(() => window.acceptanceCount), 1);
+        assert.equal(await page.evaluate(() => window.nect.document.width), 960);
       },
       { holdRegistration: true, baseURL, acceptanceStub: true },
     );
@@ -197,6 +233,7 @@ try {
         );
         await page.waitForTimeout(150);
         assert.equal(await page.evaluate(() => window.acceptanceCount || 0), 0);
+        await assertNoDocument(page);
       },
       { holdRegistration: true, baseURL, acceptanceStub: true },
     );
@@ -207,26 +244,29 @@ try {
   await run(
     'registration blocks input until ready and defers recovery',
     async (page) => {
-      const before = await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot()));
-      const tool = await page.locator('[data-tool="Circle"]').boundingBox();
-      await page.mouse.click(tool.x + tool.width / 2, tool.y + tool.height / 2);
+      await assertNoDocument(page);
+      const projectMenu = page.locator('header details.command-menu').filter({
+        has: page.locator('summary', { hasText: /^Project$/ }),
+      });
+      const summary = await projectMenu.locator(':scope > summary').boundingBox();
+      await page.mouse.click(summary.x + summary.width / 2, summary.y + summary.height / 2);
+      assert.equal(await projectMenu.getAttribute('open'), null);
       await page.mouse.click(700, 400);
-      const blocked = await page.evaluate(() => {
-        let dispatch = false,
-          load = false;
+      const blocked = await page.evaluate((contents) => {
+        let dispatch, load;
         try {
           window.nect.dispatch({
             ...window.nect.commandState,
             type: 'set-document-settings',
             payload: { key: 'width', value: 961 },
           });
-        } catch {
-          dispatch = true;
+        } catch (error) {
+          dispatch = error.message;
         }
         try {
-          window.nect.load(JSON.stringify(window.nect.projectSnapshot()));
-        } catch {
-          load = true;
+          window.nect.load(contents);
+        } catch (error) {
+          load = error.message;
         }
         return {
           dispatch,
@@ -234,14 +274,18 @@ try {
           inert: document.body.inert,
           recovery: window.recoveryListCalls || 0,
         };
+      }, projectContents);
+      assert.deepEqual(blocked, {
+        dispatch: 'Close protection is not ready',
+        load: 'Close protection is not ready',
+        inert: true,
+        recovery: 0,
       });
-      assert.deepEqual(blocked, { dispatch: true, load: true, inert: true, recovery: 0 });
-      assert.equal(
-        await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot())),
-        before,
-      );
+      await assertNoDocument(page);
       await page.evaluate(() => window.releaseGuard());
       await page.waitForFunction(() => !document.body.inert && window.recoveryListCalls === 1);
+      await assertNoDocument(page);
+      await loadProject(page);
       await page.evaluate(() =>
         window.nect.dispatch({
           ...window.nect.commandState,
@@ -264,6 +308,7 @@ try {
       );
       assert.equal(await page.evaluate(() => document.body.inert), true);
       assert.equal(await page.evaluate(() => window.recoveryListCalls || 0), 0);
+      await assertNoDocument(page);
       await page.evaluate(async () => {
         window.rejectBundledFont(Error('fixture font failed'));
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -291,10 +336,14 @@ try {
       await page.evaluate(() => window.releaseGuard());
       assert.equal(await page.evaluate(() => document.body.inert), true);
       assert.equal(await page.evaluate(() => window.recoveryListCalls || 0), 0);
+      assert.equal(await page.evaluate(() => window.chooseCalls), 0);
+      await assertNoDocument(page);
       await page.evaluate(() => window.rejectFinish(Error('fixture close failed')));
       await page.waitForFunction(
         () => window.closeDone && !document.body.inert && window.recoveryListCalls === 1,
       );
+      await assertNoDocument(page);
+      await loadProject(page);
       await page.evaluate(() =>
         window.nect.dispatch({
           ...window.nect.commandState,
@@ -308,6 +357,7 @@ try {
   );
 
   await run('later commit invalidates the close approval', async (page) => {
+    await loadProject(page);
     await holdDirtyRecovery(page);
     await closeRequest(page);
     await page.waitForFunction(() => window.chooseCalls === 1);
@@ -325,6 +375,7 @@ try {
   });
 
   await run('a later Composition rename draft remains editable', async (page) => {
+    await loadProject(page);
     await holdDirtyRecovery(page);
     await closeRequest(page);
     await page.waitForFunction(() => window.chooseCalls === 1);
@@ -469,6 +520,7 @@ try {
   });
 
   await run('replacement owner invalidates the close approval', async (page) => {
+    await loadProject(page);
     await holdDirtyRecovery(page);
     await closeRequest(page);
     await page.waitForFunction(() => window.chooseCalls === 1);
@@ -480,6 +532,7 @@ try {
   });
 
   await run('a new Save during recovery invalidates the approval', async (page) => {
+    await loadProject(page);
     await holdDirtyRecovery(page);
     await closeRequest(page);
     await page.waitForFunction(() => window.chooseCalls === 1);
@@ -492,6 +545,7 @@ try {
   });
 
   await run('Save approval retains the save and rejects a later edit', async (page) => {
+    await loadProject(page);
     await holdDirtyRecovery(page);
     await page.evaluate(() => {
       window.chooseResult = 'save';
@@ -514,6 +568,7 @@ try {
   });
 
   await run('an in-flight Save prevents close', async (page) => {
+    await loadProject(page);
     await page.evaluate(() => {
       window.holdSave = true;
       document.querySelector('[data-action="save"]').click();
@@ -528,6 +583,7 @@ try {
   });
 
   await run('Discard permits the approved snapshot and coalesces duplicate close', async (page) => {
+    await loadProject(page);
     await holdDirtyRecovery(page);
     await closeRequest(page);
     await page.waitForFunction(() => window.chooseCalls === 1);
@@ -556,6 +612,7 @@ try {
   });
 
   await run('Cancel does not wait for recovery or close', async (page) => {
+    await loadProject(page);
     await holdDirtyRecovery(page);
     await page.evaluate(() => {
       window.chooseResult = 'cancel';
@@ -567,6 +624,7 @@ try {
   });
 
   await run('finish IPC holds edits, restores focus and releases on rejection', async (page) => {
+    await loadProject(page);
     await page.evaluate(() => {
       window.holdFinish = true;
       window.nect.dispatch({
@@ -642,6 +700,7 @@ try {
   await run(
     'an earlier asynchronous Open cannot replace the project during finish IPC',
     async (page) => {
+      await loadProject(page);
       await page.evaluate(() => {
         window.openContents = JSON.stringify(window.nect.projectSnapshot());
         document.querySelector('[data-action="open"]').click();
@@ -669,6 +728,7 @@ try {
   await run(
     'a delayed font catalog render preserves Canvas focus after failed close',
     async (page) => {
+      await loadProject(page);
       await page.waitForFunction(() => typeof window.releaseFontCatalog === 'function');
       await page.evaluate(() => {
         document.querySelector('.canvas-stage').focus();

@@ -15,14 +15,13 @@ page.on('dialog', (d) => d.accept());
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
-  await ensureWorkspacePanel(page, 'inspector');
   await fs.mkdir('test-results', { recursive: true });
   const source = await fs.readFile('examples/polar-transform-ring.json', 'utf8');
   const id = await page.evaluate((s) => {
     window.nect.load(s);
     return window.nect.document.layers[0].nodes.find((n) => n.type === 'Polar Transform').id;
   }, source);
+  await ensureWorkspacePanel(page, 'inspector');
   await page.locator(`.graph .node[data-id="${id}"] .node-head strong`).click();
   const radius = page.locator(
     `.inspector-body .field[data-node="${id}"][data-key="radius"] [data-value]`,

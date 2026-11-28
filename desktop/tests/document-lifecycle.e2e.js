@@ -16,25 +16,62 @@ page.on('pageerror', (e) => errors.push(e.message));
 const click = (action) => activateBoundaryCommand(page, action);
 const choose = (choice) => page.locator(`dialog button[value="${choice}"]`).click();
 const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document));
+const project = () => page.evaluate(() => window.nect.projectSnapshot());
+const create = async (width, height) => {
+  await click('new');
+  const dialog = page.locator('.new-project-dialog[open]');
+  await dialog.locator('[name="width"]').fill(String(width));
+  await dialog.locator('[name="height"]').fill(String(height));
+  await dialog.locator('button[type="submit"]').click();
+};
 try {
   await fs.mkdir('test-results', { recursive: true });
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5184');
+  await page.waitForSelector('[data-no-document]');
+  assert.equal(await project(), null);
+  const unexpectedSaves = [];
+  const unexpectedDownload = (download) => unexpectedSaves.push(download.suggestedFilename());
+  page.on('download', unexpectedDownload);
+  for (const action of ['save', 'save-as', 'undo', 'redo', 'export', 'export-png'])
+    assert.equal(await page.locator(`[data-action="${action}"]`).isDisabled(), true);
+  for (const shortcut of ['Control+s', 'Control+Shift+s', 'Control+z', 'Control+Shift+z', 'r'])
+    await page.keyboard.press(shortcut);
+  const invalid = page.waitForEvent('filechooser');
+  await click('open');
+  await (
+    await invalid
+  ).setFiles({ name: 'bad.json', mimeType: 'application/json', buffer: Buffer.from('{') });
+  await page.waitForFunction(() =>
+    document.querySelector('.message')?.textContent.includes('Open rejected'),
+  );
+  assert.equal(await project(), null);
+  assert.equal(await page.evaluate(() => window.nect.fileState.dirty), false);
+  assert.deepEqual(unexpectedSaves, []);
+  page.off('download', unexpectedDownload);
+
+  await page.evaluate(async () => {
+    const { document, serialize } = await import('/src/core.js');
+    window.nect.load(serialize(document()));
+  });
   await page.waitForSelector('.shape');
   const demo = await snapshot();
-  await click('new');
+  await create(625.5, 400.25);
   await choose('cancel');
   assert.equal(await snapshot(), demo);
-  await click('new');
+  await create(625.5, 400.25);
   await choose('discard');
+  await page.waitForFunction(() => window.nect.document?.width === 625.5);
   await page.locator('[data-tool="Rectangle"]').click();
   const saved = await snapshot();
   assert.equal(JSON.parse(saved).layers.length, 2);
   const downloading = page.waitForEvent('download');
   await click('save');
   await (await downloading).saveAs('test-results/lifecycle-project.json');
+  const persisted = JSON.parse(await fs.readFile('test-results/lifecycle-project.json', 'utf8'));
+  assert.deepEqual(persisted, await project());
   assert.deepEqual(
-    JSON.parse(await fs.readFile('test-results/lifecycle-project.json', 'utf8')),
-    JSON.parse(saved),
+    persisted.compositions.map(({ width, height }) => [width, height]),
+    [[625.5, 400.25]],
   );
   await page.waitForFunction(() => !window.nect.fileState.dirty);
   await page.locator('[data-tool="Circle"]').click();

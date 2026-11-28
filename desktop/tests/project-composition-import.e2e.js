@@ -2,6 +2,7 @@ import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { blankDocument } from '../src/core.js';
+import { createNewFixture } from './helpers/browser-fixture-setup.js';
 import {
   migrateLegacyDocumentToCompositionProject,
   serializeCompositionProject,
@@ -23,7 +24,7 @@ page.on('pageerror', (error) => result.errors.push(error.message));
 const record = (name, pass, detail = '') => result.steps.push({ name, pass, detail });
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.node');
+  await createNewFixture(page);
   const wide = migrateLegacyDocumentToCompositionProject(blankDocument()),
     tall = migrateLegacyDocumentToCompositionProject(blankDocument());
   wide.name = 'Import source';

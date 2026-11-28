@@ -79,11 +79,14 @@ export async function runRecoveryAcceptance(recovery, api) {
       window.__NECT_RECOVERY_TEST_INSTANCE__ === true && window.__TAURI_INTERNALS__,
       'Isolated native test instance required',
     );
+    const { binding, dirty, revision } = api.fileState;
     assert(
-      recovery.current?.generation === 0 &&
-        api.commandState.expectedRevision === 0 &&
-        !api.fileState.binding,
-      'Fresh unbound test document required',
+      recovery.current === null &&
+        api.commandState === null &&
+        !binding &&
+        !dirty &&
+        revision === 0,
+      'Empty test startup required before creating fixtures',
     );
     assert(!document.querySelector('[data-recovery-dialog]'), 'Unexpected Recovery dialog');
     recovery.write = async (copy) => {

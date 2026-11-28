@@ -120,7 +120,7 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
   );
   source = resolveMainRelativeImports(source);
   source +=
-    '\nwindow.unifiedFontDebug = () => ({ past: history.past.length, bundled: !!bundledFont, pending: osFontCatalogPending, refresh: () => refreshOsFontCatalog() });';
+    '\nwindow.unifiedFontReady = () => !!bundledFont; window.unifiedFontDebug = () => ({ past: history.past.length, pending: osFontCatalogPending, refresh: () => refreshOsFontCatalog() });';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 
   const q = (selector) => document.querySelector(selector);
@@ -132,7 +132,7 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
       await new Promise((done) => setTimeout(done, 10));
     }
   };
-  await until(() => win.nect && win.unifiedFontDebug().bundled, 'bundled font initialization');
+  await until(win.unifiedFontReady, 'bundled font initialization');
   await tick();
   const asset = makeFontAsset(
     await fileBytes('./fixtures/fonts/NectJPFixture-Regular.otf'),

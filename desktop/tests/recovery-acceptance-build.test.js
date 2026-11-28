@@ -36,12 +36,12 @@ test('one-shot test scenario exposes copied results only and restores writer aft
   const original = async () => {
     throw Error('Must not write');
   };
-  const recovery = { current: { generation: 0 }, write: original, flush: async () => true };
+  const recovery = { current: null, write: original, flush: async () => true };
   globalThis.window = { __NECT_RECOVERY_TEST_INSTANCE__: true, __TAURI_INTERNALS__: {} };
   globalThis.document = { querySelector: () => null };
   const api = {
-    commandState: { expectedRevision: 0 },
-    fileState: { binding: null },
+    commandState: null,
+    fileState: { binding: null, dirty: false, revision: 0 },
     load: () => {
       throw Error('Bounded setup fixture failure');
     },
@@ -64,6 +64,45 @@ test('one-shot test scenario exposes copied results only and restores writer aft
     result.Phase = 'tampered';
     assert.equal(window.__NECT_RECOVERY_ACCEPTANCE_RESULT__.Phase, 'failed');
     assert.equal(window.runRecoveryAcceptance, undefined);
+  } finally {
+    delete globalThis.window;
+    delete globalThis.document;
+  }
+});
+
+test('test scenario refuses non-fresh or non-isolated startup before loading fixtures', async () => {
+  const { runRecoveryAcceptance } = await import('../src/recovery-acceptance-test.js');
+  const original = async () => assert.fail('Must not write');
+  globalThis.document = { querySelector: () => null };
+  try {
+    for (const { current = null, commandState = null, file = {}, isolated = true } of [
+      { current: { generation: 0 } },
+      { commandState: { expectedRevision: 0 } },
+      { file: { binding: { token: 'existing' } } },
+      { file: { dirty: true } },
+      { file: { revision: 1 } },
+      { isolated: false },
+    ]) {
+      let loads = 0;
+      const recovery = { current, write: original, flush: async () => true };
+      globalThis.window = { __NECT_RECOVERY_TEST_INSTANCE__: isolated, __TAURI_INTERNALS__: {} };
+      await runRecoveryAcceptance(recovery, {
+        commandState,
+        fileState: { binding: null, dirty: false, revision: 0, ...file },
+        load: () => loads++,
+      });
+      const result = window.__NECT_RECOVERY_ACCEPTANCE_RESULT__;
+      assert.equal(result.Phase, 'failed');
+      assert.equal(
+        result.Failure.Message,
+        isolated
+          ? 'Empty test startup required before creating fixtures'
+          : 'Isolated native test instance required',
+      );
+      assert.equal(loads, 0);
+      assert.equal(recovery.write, original);
+      assert.deepEqual(result.Writes, []);
+    }
   } finally {
     delete globalThis.window;
     delete globalThis.document;

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { revealDOMBoundary } from './helpers/dom-workspace-controls.js';
+import { loadBlankArtwork } from './helpers/load-blank-artwork.js';
 
 test('Shared Colors controller view mounts through adapter and uses Session through rerenders', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
@@ -35,6 +36,7 @@ test('Shared Colors controller view mounts through adapter and uses Session thro
   const tick = () => new Promise((resolve) => setTimeout(resolve, 15));
   for (let i = 0; i < 200 && !win.nect; i++) await tick();
   assert.ok(win.nect);
+  loadBlankArtwork(win);
   const colorsToggle = () => document.querySelector('[data-workspace-panel="colors"]');
   const colors = () => document.querySelector('.shared-colors-panel');
   assert.ok(colorsToggle());

@@ -19,7 +19,6 @@ page.on('pageerror', (error) => errors.push(error.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => typeof window.nect?.load === 'function');
-  await ensureWorkspacePanel(page, 'inspector');
   for (const { type, key, value } of [
     { type: 'Circle', key: 'radius', value: 80 },
     { type: 'Ellipse', key: 'size', value: 100 },
@@ -33,6 +32,7 @@ try {
     connect(layer, shape.id, fill.id, 'path');
     connect(layer, fill.id, layer.output, 'path');
     await page.evaluate((value) => window.nect.load(value), serialize(doc));
+    await ensureWorkspacePanel(page, 'inspector');
     const card = page.locator(`.graph .node[data-id="${shape.id}"]`);
     await card.locator('.node-head strong').click();
     const input = page.locator(

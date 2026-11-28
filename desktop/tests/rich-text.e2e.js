@@ -13,8 +13,6 @@ page.on('pageerror', (e) => errors.push(e.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
-  await ensureWorkspacePanel(page, 'inspector');
   await page.evaluate(async () => {
     const { document, node, connect } = await import('/src/core.js');
     const doc = document(),
@@ -32,6 +30,7 @@ try {
     connect(l, fill.id, out.id, 'path');
     window.nect.load(JSON.stringify(doc));
   });
+  await ensureWorkspacePanel(page, 'inspector');
   const read = () => page.evaluate(() => window.nect.document.layers[0].nodes[0]);
   const saved = () => page.evaluate(() => JSON.stringify(window.nect.document));
   const range = async (start, end) => {

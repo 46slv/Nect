@@ -4,6 +4,7 @@ import { chromium } from 'playwright-core';
 import { revealCommandMenu } from './command-menu-actions.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { pngDimensions, pngPixelsPerMetre } from '../src/raster.js';
+import { blankDocument, serialize } from '../src/core.js';
 
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
@@ -18,13 +19,11 @@ const pageErrors = [];
 page.on('pageerror', (error) => pageErrors.push(error.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForFunction(() => window.nect?.document);
-  await page.evaluate(() => {
-    const doc = structuredClone(window.nect.document);
-    doc.width = 100;
-    doc.height = 50;
-    window.nect.load(JSON.stringify(doc));
-  });
+  await page.waitForFunction(() => window.nect);
+  const doc = blankDocument();
+  doc.width = 100;
+  doc.height = 50;
+  await page.evaluate((data) => window.nect.load(data), serialize(doc));
   await ensureWorkspacePanel(page, 'layers');
   await page.locator('[data-dimension="width"]').fill('650');
   await page.locator('[data-dimension="width"]').press('Tab');

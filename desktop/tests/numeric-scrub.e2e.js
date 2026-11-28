@@ -13,8 +13,6 @@ page.on('pageerror', (e) => errors.push(e.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
-  await ensureWorkspacePanel(page, 'inspector');
   const load = async (type = 'Rectangle') =>
     page.evaluate(async (type) => {
       const { document: makeDoc, node } = await import('/src/core.js');
@@ -63,6 +61,7 @@ try {
   const empty = async () =>
     assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
   let id = await load();
+  await ensureWorkspacePanel(page, 'inspector');
   const original = await value(id, 'center');
   await scrub(input(id, 'center'), 44);
   assert.deepEqual(await value(id, 'center'), [original[0] + 40, original[1]]);

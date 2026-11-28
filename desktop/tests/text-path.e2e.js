@@ -27,9 +27,6 @@ const write = async (label, value) => {
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
-  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
-  await ensureWorkspacePanel(page, 'inspector');
-  await page.waitForFunction(() => window.nect && window.nect.evaluate().error === null);
   const ids = await page.evaluate(async () => {
     const {
       document,
@@ -78,6 +75,7 @@ try {
     window.nect.load(JSON.stringify(doc));
     return { text: text.id, curve: curve.id, circle: circle.id, offset: offset.id };
   });
+  await ensureWorkspacePanel(page, 'inspector');
   await page.waitForFunction(() => window.nect.evaluate().error === null);
   await inspect(ids.text);
   await openMoreTypography(page);

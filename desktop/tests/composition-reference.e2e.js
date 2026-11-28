@@ -94,9 +94,9 @@ try {
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   await page.waitForFunction(() => window.nect);
+  await page.evaluate((s) => window.nect.load(s), sample);
   // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
   await ensureWorkspacePanel(page, 'inspector');
-  await page.evaluate((s) => window.nect.load(s), sample);
   await page.locator(`[data-select-layer="${target.id}"]`).first().click();
   const send = async (type, payload = {}) =>
     page.evaluate(

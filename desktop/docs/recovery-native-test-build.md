@@ -14,7 +14,9 @@ unchanged. TAURI_CONFIG selects the test assets at build time only.
 The feature requires the existing fresh acceptance root before Tauri startup.
 After the existing path/identity checks the native test window receives a
 read-only instance marker. No ordinary profile can enter the test scenario.
-The JS module requires that marker, native bridge and fresh unbound revision0.
+The JS module requires that marker, the native bridge, and empty startup with
+no document, recovery context or file binding. It explicitly loads its own
+synthetic project after checking that the file state is clean at revision 0.
 It wraps only this controller's writer, targets the synthetic A native token,
 uses two bounded simulated failures, passes B and retry writes to the original
 native writer, and restores that writer in finally. A read-only result getter

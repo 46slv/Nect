@@ -1,4 +1,5 @@
 import { openDOMPanel, revealDOMBoundary } from './helpers/dom-workspace-controls.js';
+import { loadBlankArtwork } from './helpers/load-blank-artwork.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -54,6 +55,7 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   const guides = () => openPanel('guides-panel', '[data-add-guide="x"]');
   const layout = () => openPanel('layout-panel', '[data-layout-field="columns"]');
   const grid = () => openPanel('grid-panel', '[data-grid-opacity]');
+  loadBlankArtwork(win);
   const svg = win.nect.export();
   click('[data-action="guides-panel"]');
   click('[data-add-guide="x"]');
